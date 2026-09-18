@@ -245,7 +245,13 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
       {tab === 'pending' && (
         <PendingTab
           items={pending}
+          // Dos formas de aprobar. La de siempre manda la propuesta a
+          // evaluación, que es lo que tiene sentido para una idea de la
+          // comunidad: se vota antes de entrar al roadmap. Pero un ticket de
+          // una marca blanca no se vota —es trabajo pedido—, así que ahora se
+          // puede aprobar y ponerlo en desarrollo de una (Javier, 2026-09-18).
           onApprove={(p) => setStatus(p.id, 'EVALUATING')}
+          onApproveToDev={(p) => setStatus(p.id, 'IN_DEVELOPMENT')}
           onReject={(p) => setStatusModal(p)}
           onMerge={(p) => setMergeModal(p)}
           onChange={(p) => setStatusModal(p)}
@@ -377,6 +383,7 @@ function ProposalRow({
 function PendingTab({
   items,
   onApprove,
+  onApproveToDev,
   onReject,
   onMerge,
   onChange,
@@ -384,6 +391,7 @@ function PendingTab({
 }: {
   items: Proposal[] | null;
   onApprove: (p: Proposal) => void;
+  onApproveToDev: (p: Proposal) => void;
   onReject: (p: Proposal) => void;
   onMerge: (p: Proposal) => void;
   onChange: (p: Proposal) => void;
@@ -410,6 +418,15 @@ function PendingTab({
                 onClick={() => onApprove(p)}
               >
                 {t('actionApprove')}
+              </button>
+              {/* Para los tickets de una marca: aprobar y ponerse a ello, sin
+                  pasar por la votación de la comunidad. */}
+              <button
+                className="btn-ghost text-xs"
+                title={t('actionApproveToDevHelp')}
+                onClick={() => onApproveToDev(p)}
+              >
+                {t('actionApproveToDev')}
               </button>
               <button className="btn-ghost text-xs" onClick={() => onReject(p)}>
                 {t('actionReject')}
@@ -694,7 +711,11 @@ function StatusModal({
   onSubmit: (status: LabStatus, reason: string) => Promise<void>;
 }) {
   const t = useTranslations('admin_lab');
-  const [status, setStatus] = useState<LabStatus>(proposal.status);
+  // El modal abría en el estado ACTUAL, que casi nunca es un destino válido
+  // desde sí mismo: si el admin pulsaba Guardar sin tocar el desplegable, 400.
+  const [status, setStatus] = useState<LabStatus>(
+    proposal.siguientesEstados?.[0] ?? proposal.status,
+  );
   const [reason, setReason] = useState(proposal.rejectionReason ?? '');
   const [busy, setBusy] = useState(false);
 
@@ -713,7 +734,11 @@ function StatusModal({
               value={status}
               onChange={(e) => setStatus(e.target.value as LabStatus)}
             >
-              {STATUS_OPTIONS.map((s) => (
+              {/* Solo los saltos que el backend va a aceptar. Antes salían
+                   los 7 y elegir uno no permitido devolvía un 400 que el
+                   admin no podía interpretar. `siguientesEstados` viene del
+                   backend para que no haya dos copias de la tabla. */}
+              {(proposal.siguientesEstados ?? STATUS_OPTIONS).map((s) => (
                 <option key={s} value={s}>
                   {STATUS_META[s].label}
                 </option>

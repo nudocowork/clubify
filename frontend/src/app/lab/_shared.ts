@@ -58,6 +58,10 @@ export type Proposal = {
   commentsCount: number;
   rejectionReason: string | null;
   lastStatusChangedAt: string | null;
+  /** A qué estados se puede pasar DESDE el actual. Lo manda el backend: el
+   *  panel ofrecía los 7 y elegir uno no permitido devolvía un 400 sin
+   *  explicación. Solo viene en el listado de moderación. */
+  siguientesEstados?: LabStatus[];
   lastStatusChangedBy?: { id: string; fullName: string } | null;
   author: { id: string; fullName: string; role: string; email?: string };
   createdAt: string;

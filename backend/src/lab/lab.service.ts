@@ -74,15 +74,38 @@ const PUBLIC_STATUSES: LabStatus[] = [
 // puede reabrirse a EVALUATING o PENDING. Bloquea brincos como
 // PENDING → IMPLEMENTED directo (cambio accidental desde el dropdown
 // admin que dejaba un IMPLEMENTED sin pasar por IN_DEVELOPMENT/TESTING).
+/**
+ * Los saltos de estado permitidos.
+ *
+ * La escalera larga (evaluación → aprobada → desarrollo → pruebas →
+ * implementada) tiene sentido para una propuesta de la COMUNIDAD, que se vota
+ * antes de entrar al roadmap. Para un TICKET de una marca blanca no: Humberto
+ * no manda ideas a votar, manda trabajo, y obligarle a pasar por «en
+ * evaluación» solo añade clics y hace que el ticket desaparezca de la pestaña
+ * donde se estaba mirando (Javier, 2026-09-18: «cuando se aprueba, en lugar de
+ * ir a pendiente, ¿podemos colocarla a "En desarrollo" de inmediato?»).
+ *
+ * Así que se abren tres atajos, sin quitar ninguno de los pasos de antes:
+ *  - PENDING → APPROVED y PENDING → IN_DEVELOPMENT: aprobar y ponerse a ello.
+ *  - IN_DEVELOPMENT → IMPLEMENTED: darlo por terminado sin pasar por pruebas,
+ *    que es como trabaja un equipo de este tamaño.
+ *
+ * IMPLEMENTED sigue sin salida: lo terminado no se reabre, se propone de nuevo.
+ */
 const ALLOWED_STATUS_TRANSITIONS: Record<LabStatus, LabStatus[]> = {
-  PENDING: ['EVALUATING', 'REJECTED'],
-  EVALUATING: ['APPROVED', 'REJECTED', 'PENDING'],
+  PENDING: ['EVALUATING', 'APPROVED', 'IN_DEVELOPMENT', 'REJECTED'],
+  EVALUATING: ['APPROVED', 'IN_DEVELOPMENT', 'REJECTED', 'PENDING'],
   APPROVED: ['IN_DEVELOPMENT', 'REJECTED', 'EVALUATING'],
-  IN_DEVELOPMENT: ['IN_TESTING', 'APPROVED', 'REJECTED'],
+  IN_DEVELOPMENT: ['IN_TESTING', 'IMPLEMENTED', 'APPROVED', 'REJECTED'],
   IN_TESTING: ['IMPLEMENTED', 'IN_DEVELOPMENT', 'REJECTED'],
   IMPLEMENTED: [],
   REJECTED: ['PENDING', 'EVALUATING'],
 };
+
+/** Para que el panel ofrezca SOLO lo que el backend va a aceptar. */
+export function transicionesPermitidas(desde: LabStatus): LabStatus[] {
+  return ALLOWED_STATUS_TRANSITIONS[desde] ?? [];
+}
 
 const NO_ENCONTRADA = 'Propuesta no encontrada.';
 
@@ -604,7 +627,15 @@ export class LabService {
       this.marcasConPropuestas(visor.clubifyId),
     ]);
     return {
-      items: conEtiquetaDeMarca(items, marcas, visor.clubifyId),
+      // `siguientesEstados` lo manda el BACKEND a propósito: el panel ofrecía
+      // los 7 estados sin mirar desde cuál se venía, así que elegir uno no
+      // permitido devolvía un 400 y el admin no entendía por qué. Duplicar la
+      // tabla en el frontend habría dejado dos copias que se separan sin que
+      // nadie se entere.
+      items: conEtiquetaDeMarca(items, marcas, visor.clubifyId).map((p: any) => ({
+        ...p,
+        siguientesEstados: transicionesPermitidas(p.status),
+      })),
       total,
       take,
       skip,

@@ -5538,6 +5538,8 @@
     "reasonLabel": "Motivo: {reason}",
     "emptyPending": "Não há propostas pendentes de revisão.",
     "actionApprove": "Aprovar",
+    "actionApproveToDev": "Para desenvolvimento",
+    "actionApproveToDevHelp": "Aprovar e colocar em desenvolvimento direto, sem passar pela votação da comunidade. Para tickets de uma marca.",
     "actionReject": "Rejeitar",
     "actionMerge": "Mesclar",
     "actionOther": "Outro",

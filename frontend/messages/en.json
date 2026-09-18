@@ -5538,6 +5538,8 @@
     "reasonLabel": "Reason: {reason}",
     "emptyPending": "There are no proposals pending review.",
     "actionApprove": "Approve",
+    "actionApproveToDev": "To development",
+    "actionApproveToDevHelp": "Approve and move it straight into development, skipping community voting. For a brand’s tickets.",
     "actionReject": "Reject",
     "actionMerge": "Merge",
     "actionOther": "Other",
