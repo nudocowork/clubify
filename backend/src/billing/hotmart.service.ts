@@ -4,6 +4,12 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
+import {
+  anularComisionesDeTransaccion,
+  esDevolucion,
+  fechaDelCobroDeHotmart,
+  motivoDeAnulacion,
+} from './anular-comisiones-de-reembolso';
 import { PendingActivationService } from './pending-activation.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
@@ -1645,18 +1651,41 @@ export class HotmartService {
             hasta: tenant.status === 'ACTIVE' ? (tenant.currentPeriodEnd ?? null) : null,
           })
           .catch(() => null);
-        // Reflejar el cambio en el referido. CHURNED frena nuevas comisiones
-        // recurrentes. Si fue refund/chargeback, además rechazamos la última
-        // comisión PENDING/APPROVED para no pagar algo que el cliente revirtió.
-        const isRefundOrChargeback =
-          event === 'PURCHASE_REFUNDED' || event === 'PURCHASE_CHARGEBACK';
-        await this.churnReferral({
-          tenantId: tenant.id,
-          rejectLastCommission: isRefundOrChargeback,
-          transactionId: transactionId ?? null,
-        }).catch((e) =>
+        // Reflejar el cambio en el referido: CHURNED frena nuevas comisiones
+        // recurrentes. Ya NO anula comisiones — eso va justo debajo, por
+        // transacción (ver `anular-comisiones-de-reembolso.ts`).
+        await this.churnReferral({ tenantId: tenant.id }).catch((e) =>
           this.logger.warn(`churnReferral falló: ${(e as Error).message}`),
         );
+        // Si Hotmart DEVOLVIÓ el dinero, las comisiones de ESE pago se anulan
+        // —las que no se hayan pagado todavía—. Va por la transacción y no por
+        // la relación con el afiliado: esa relación suele estar ya dada de baja
+        // por la cancelación que llega antes del reembolso, y era justo lo que
+        // dejaba viva la comisión (Essentrix, 2026-09-18). El negocio y la
+        // fecha del cobro alcanzan además a las comisiones que nacieron SIN
+        // transacción (las que repone el cron de renovaciones).
+        if (esDevolucion(event) && transactionId) {
+          const r = await anularComisionesDeTransaccion(
+            this.prisma,
+            transactionId,
+            motivoDeAnulacion(event, transactionId),
+            {
+              tenantId: tenant.id,
+              fechaDelCobro: fechaDelCobroDeHotmart(payload.data?.purchase?.approved_date),
+            },
+          ).catch((e) => {
+            this.logger.warn(`Anular comisiones de ${transactionId} falló: ${(e as Error).message}`);
+            return null;
+          });
+          if (r && r.detalle.length > 0) {
+            this.logger.log(
+              `Devolución ${transactionId}: ${r.anuladas} comisión(es) anulada(s), ${r.yaPagadas} ya pagada(s) que se quedan` +
+                (r.reactivadas ? `, ${r.reactivadas} reactivada(s) a mano que se respetan` : '') +
+                (r.deOtroCiclo ? `, ${r.deOtroCiclo} de otro ciclo SIN tocar (revisar)` : '') +
+                '.',
+            );
+          }
+        }
         // Aviso a la cadena de atribución
         this.notifyReferralChain(tenant.id, tenant.brandName, 'CHURNED').catch(
           () => null,
@@ -3171,109 +3200,32 @@ export class HotmartService {
   }
 
   /**
-   * Marca el ReferralUse como CHURNED (frena recurrencia futura). Si el
-   * caller indica `rejectLastCommission`, además rechaza la última
-   * comisión PENDING/APPROVED para no pagar lo que el cliente revirtió.
+   * Da de baja la relación del negocio con sus afiliados (CHURNED), que frena
+   * nuevas comisiones recurrentes. Nada más.
+   *
+   * AQUÍ HABÍA DOS COSAS QUE YA NO ESTÁN (2026-09-18):
+   *
+   *  1. Anular «la última comisión PENDING/APPROVED de cada afiliado». Fallaba
+   *     por dos lados: si la relación ya estaba dada de baja —una cancelación
+   *     previa, que es lo normal antes de un reembolso— salía sin hacer nada; y
+   *     cuando sí entraba, anulaba la ÚLTIMA comisión del afiliado, no la de ESE
+   *     pago. Ahora se anula por transacción: `anular-comisiones-de-reembolso.ts`.
+   *
+   *  2. El «clawback»: si la comisión ya estaba PAGADA, creaba un asiento
+   *     NEGATIVO que se le descontaba al afiliado en el siguiente corte. Va
+   *     contra la regla de Javier y Sara: «si ya se ha pagado, la comisión no se
+   *     debe cancelar o retractar». En producción nunca llegó a crear ninguno.
    */
-  private async churnReferral(opts: {
-    tenantId: string;
-    rejectLastCommission: boolean;
-    transactionId?: string | null;
-  }) {
-    // Fix audit 2026-06-07: con 3-way split (influencer + embajador +
-    // vendor + opcional SOCIO) hay MÚLTIPLES referralUse rows por
-    // tenant. La versión vieja solo agarraba el último (orderBy desc)
-    // y dejaba huérfanas a las commissions de las otras chains. Ahora
-    // churneamos TODOS los uses del tenant.
+  private async churnReferral(opts: { tenantId: string }) {
     const uses = await this.prisma.referralUse.findMany({
       where: { tenantId: opts.tenantId, status: { not: 'CHURNED' } },
-      include: {
-        commissions: {
-          where: { status: { in: ['PENDING', 'APPROVED'] } },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
+      select: { id: true },
     });
     if (!uses.length) return;
-
     await this.prisma.referralUse.updateMany({
       where: { id: { in: uses.map((u) => u.id) } },
       data: { status: 'CHURNED' },
     });
-
-    if (opts.rejectLastCommission) {
-      // Rechazar la última commission PENDING/APPROVED de CADA use
-      // (no solo del más reciente). Para 3-way refund: rechaza las 3.
-      const lastCommissionIds = uses
-        .map((u) => u.commissions[0]?.id)
-        .filter((id): id is string => !!id);
-      if (lastCommissionIds.length) {
-        await this.prisma.commission.updateMany({
-          where: { id: { in: lastCommissionIds } },
-          data: { status: 'REJECTED' },
-        });
-      }
-
-      // Fase 7 (clawback contable): si la comisión YA fue PAGADA no se toca el
-      // histórico — se crea un asiento NEGATIVO (ADJUSTMENT) ligado a la misma
-      // transacción, que se descuenta en el próximo corte del beneficiario.
-      // Solo clawback de las comisiones PAID que matchean la tx del refund
-      // (precisión + trazabilidad). periodKey `adj-<id>` da idempotencia vía
-      // el UNIQUE(referralUseId, recipientCodeId, periodKey): el mismo refund
-      // reenviado no duplica el asiento.
-      if (opts.transactionId) {
-        const paid = await this.prisma.commission.findMany({
-          where: {
-            referralUse: { tenantId: opts.tenantId },
-            hotmartTransactionId: opts.transactionId,
-            status: 'PAID',
-          },
-          select: {
-            id: true,
-            referralUseId: true,
-            recipientCodeId: true,
-            vendorCodeId: true,
-            amount: true,
-            currency: true,
-            hotmartTransactionId: true,
-            externalTxId: true,
-            distributionMode: true,
-            baseAmountUsd: true,
-            appliedPercent: true,
-          },
-        });
-        for (const c of paid) {
-          try {
-            await this.prisma.commission.create({
-              data: {
-                referralUseId: c.referralUseId,
-                recipientCodeId: c.recipientCodeId,
-                vendorCodeId: c.vendorCodeId,
-                amount: c.amount.negated(),
-                currency: c.currency,
-                status: 'ADJUSTMENT',
-                paymentStatus: 'PENDING',
-                amountPaid: 0,
-                hotmartTransactionId: c.hotmartTransactionId,
-                externalTxId: c.externalTxId,
-                periodKey: `adj-${c.id}`,
-                distributionMode: c.distributionMode,
-                baseAmountUsd: c.baseAmountUsd,
-                appliedPercent: c.appliedPercent,
-                notes: `Clawback por refund/chargeback (tx ${opts.transactionId}). Comisión original PAGADA ${c.id} — no se modifica el histórico; este asiento negativo se descuenta en el próximo corte.`,
-              },
-            });
-          } catch (e: any) {
-            // P2002 = ya existe el asiento (refund reenviado) → idempotente.
-            if (e?.code !== 'P2002') {
-              this.logger.warn(
-                `Clawback ADJUSTMENT falló para commission ${c.id}: ${(e as Error).message}`,
-              );
-            }
-          }
-        }
-      }
-    }
   }
 
   /**

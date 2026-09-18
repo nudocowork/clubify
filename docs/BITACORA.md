@@ -8,6 +8,70 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (54) — Si Hotmart devuelve un pago, sus comisiones sin pagar se anulan solas
+
+Documento de Sara: Essentrix pagó el 15-09, pidió el reembolso a Hotmart y Hotmart
+se lo dio. El ingreso pasó a REEMBOLSADO, pero la comisión de $15 de Nicolas
+Quintero seguía «Bloqueada», camino de pagarse el 30-09.
+
+**La regla (Javier y Sara):** si Hotmart revierte un pago (reembolso o
+contracargo), sus comisiones se ANULAN si no se han pagado. Si ya se pagaron, NO
+se anulan ni se retractan. Y tiene que funcionar solo, «en macro».
+
+**Por qué no funcionaba:** `churnReferral` ya intentaba anular, pero buscaba las
+relaciones con el afiliado que NO estuvieran dadas de baja. El 17-09 el cliente
+había cancelado la suscripción (eso ya las dio de baja), así que el reembolso del
+18 no encontró ninguna. Ese orden —cancelar y luego pedir el reembolso— es el
+normal: iba a fallar casi siempre. Además anulaba «la última comisión» de cada
+afiliado, no la de ese pago, y en el reparto a tres solo una de las tres filas.
+
+**Qué cambia:**
+
+- `billing/anular-comisiones-de-reembolso.ts` (nuevo): anula **por transacción**
+  (`externalTxId` o `hotmartTransactionId`), todas las filas de ese pago:
+  directa, indirecta, socio, vendedor, grupos. «Ya pagada» es cualquiera de:
+  `PAID`, `paymentStatus` PAID/PARTIAL, `amountPaid > 0` o dentro de un
+  desembolso (`payoutItem`). La condición va DENTRO del UPDATE (si se paga justo
+  a la vez, no se toca). La saca de un corte ABIERTO y le rehace el total; un
+  corte cerrado no se toca. Deja el motivo en la nota. Idempotente.
+- **Y por fecha, las que nacen SIN transacción** (las que repone el cron de
+  renovaciones y las creadas a mano: 10 de 33 vivas en producción). Solo con el
+  negocio seguro y la `approved_date` del cobro devuelto: se anulan las de ese
+  negocio con `businessDate` a ±3 días del cobro. Sin fecha de negocio, no se
+  tocan.
+- **Lo reactivado a mano se respeta:** si la nota ya dice que la anuló ESTA
+  devolución y la comisión está viva, alguien la revivió a propósito y no se
+  vuelve a anular. Sin esto el conciliador la tumbaba cada noche (ya pasó con
+  otro cron: Wok Explosivo, 01-09). Si alguien borra la nota, deja de
+  reconocerse.
+- **Con la tx pero de otro ciclo** (a más de 25 días del cobro devuelto): no se
+  anula, se informa. Es el relleno de comisiones, que estampa la ÚLTIMA tx de
+  Hotmart del negocio aunque el ciclo se pagara por fuera. Hoy: 0 casos.
+- `payCommission` repite `status: APPROVED` dentro de la escritura: un pago
+  que coincide con una anulación ya no la resucita como PAID.
+- `hotmart.service.ts`: el aviso `PURCHASE_REFUNDED`/`PURCHASE_CHARGEBACK` la
+  llama al llegar. Una **disputa** (`PURCHASE_PROTEST`) NO anula: se puede ganar.
+  `churnReferral` queda solo para marcar la baja.
+- **Se quitó el «clawback»**: cuando la comisión ya estaba pagada, el código
+  creaba un asiento NEGATIVO que se le descontaba al afiliado en el siguiente
+  corte. Va contra la regla («si ya se ha pagado, no se retracta»). En
+  producción nunca llegó a crear ninguno (0 asientos negativos).
+- `finance/conciliador-de-ingresos.service.ts`: el conciliador de las 4:00 UTC
+  repasa TODOS los reembolsos cada noche y anula lo que se le haya escapado al
+  aviso (negocio no encontrado, grupo empresarial, proceso caído). También
+  recoge los casos de antes de este arreglo. Su informe trae ahora
+  `comisionesDeDevoluciones` (qué anuló, o anularía en simulación) y lo anulado
+  sale en el log de las 4:00.
+
+**En producción:** 3 pagos devueltos por Hotmart; una sola comisión viva sobre
+ellos, la de Essentrix ($15, `d57a43c2`). Ninguna pagada sobre un pago devuelto.
+0 asientos de clawback. Revisado por Fable antes de desplegar; sus hallazgos
+están aplicados. 29 pruebas, y cada guarda comprobada en rojo.
+
+**Pendiente de raíz (no hecho):** que el cron de renovaciones y la comisión
+manual estampen la transacción al crear la comisión. La rama por fecha cubre el
+hueco mientras tanto.
+
 ## 2026-09-18 (53) — El equipo de Clubify ve los tickets de las marcas en el Lab PÚBLICO, en naranja, y los avanza desde ahí
 
 Javier buscó tres veces los tickets de Humberto. La pestaña «Tickets de marcas» de

@@ -789,11 +789,11 @@ export class PayoutsService {
    * pagadas que pertenecen a tenants suspendidos por refund/chargeback /
    * subscription cancellation en los últimos 30 días.
    *
-   * El webhook Hotmart (`hotmart.service.ts → churnReferral`) ya rechaza
-   * la ÚLTIMA commission PENDING/APPROVED de cada use en el momento del
-   * refund. Este cron cubre los casos que el webhook se pierde, llega
-   * tarde, o donde se generaron commissions adicionales DESPUÉS del
-   * suspendedAt (race entre cron generator + churn webhook).
+   * Las comisiones del pago DEVUELTO no son cosa de este cron: las anula
+   * `billing/anular-comisiones-de-reembolso.ts`, por transacción, desde el
+   * aviso de Hotmart y desde el conciliador nocturno (2026-09-18). Este cron
+   * solo caza las generadas DESPUÉS del suspendedAt (race entre el cron
+   * generador y la suspensión).
    *
    * Filtro `paymentStatus: 'PENDING'`: NO tocamos commissions que ya
    * tuvieron algún pago parcial. Esas requieren reverso contable manual.
@@ -823,7 +823,7 @@ export class PayoutsService {
       // tenant suspendido → anulaba también las de cobros REALES anteriores
       // (dinero que el cliente sí pagó y NO se reembolsó), robándole al afiliado
       // una comisión ganada. Un reembolso/contracargo real de un cobro viejo lo
-      // maneja `churnReferral` (webhook), no este cron. `businessDate` = fecha del
+      // maneja `anular-comisiones-de-reembolso.ts`, no este cron. `businessDate` = fecha del
       // cobro que la comisión representa; legacy sin businessDate cae a createdAt.
       const result = await this.prisma.commission.updateMany({
         where: {

@@ -1,4 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  anularComisionesDeTransaccion,
+  fechaDelCobroDeHotmart,
+  motivoDeAnulacion,
+  type QuePasoConLaComision,
+} from '../billing/anular-comisiones-de-reembolso';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { PaymentGateway } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -100,6 +106,20 @@ export interface InformeDeConciliacion {
    * quedaría escondido entre ellas.
    */
   reconstruidos: SinRespaldo[];
+  /**
+   * Comisiones de pagos que Hotmart devolvió, y qué se hizo con cada una: las
+   * que se anularon (en simulación, las que se anularían), las ya pagadas que
+   * se quedan, las reactivadas a mano que se respetan, y las que llevan la
+   * transacción pero son de otro ciclo — esas se dejan y hay que mirarlas.
+   * Sin esto, el conciliador movía dinero de afiliados cada noche sin que el
+   * informe lo dijera.
+   */
+  comisionesDeDevoluciones: Array<{
+    tx: string;
+    id: string;
+    monto: number;
+    que: QuePasoConLaComision;
+  }>;
 }
 
 export interface SinRespaldo {
@@ -210,6 +230,17 @@ export class ConciliadorDeIngresosService {
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async cronDiario() {
     const informe = await this.conciliar({ simular: false });
+    // Lo anulado esta noche y lo que hay que mirar. Las pagadas y las
+    // reactivadas a mano están bien, y saldrían TODAS las noches.
+    const movidas = informe.comisionesDeDevoluciones.filter(
+      (c) => c.que === 'anulada' || c.que === 'deOtroCiclo',
+    );
+    if (movidas.length) {
+      this.logger.warn(
+        'Comisiones de pagos devueltos: ' +
+          movidas.map((c) => `${c.id} $${c.monto} ${c.que} (tx ${c.tx})`).join('; '),
+      );
+    }
     if (
       informe.creados.length ||
       informe.sinResolver.length ||
@@ -262,6 +293,7 @@ export class ConciliadorDeIngresosService {
       sinResolver: [],
       sinRespaldo: [],
       reconstruidos: [],
+      comisionesDeDevoluciones: [],
     };
 
     await this.hotmart(informe, enLibro, opts.desde, simular);
@@ -388,15 +420,42 @@ export class ConciliadorDeIngresosService {
           ) {
             informe.devueltos.push({ externalTxId: tx, estado: 'REEMBOLSADO' });
           }
-        } else if (
-          await this.income.marcarDevuelto(
-            'HOTMART',
-            tx,
-            'REEMBOLSADO',
-            e.processedAt,
-          )
-        ) {
-          informe.devueltos.push({ externalTxId: tx, estado: 'REEMBOLSADO' });
+        } else {
+          if (
+            await this.income.marcarDevuelto(
+              'HOTMART',
+              tx,
+              'REEMBOLSADO',
+              e.processedAt,
+            )
+          ) {
+            informe.devueltos.push({ externalTxId: tx, estado: 'REEMBOLSADO' });
+          }
+        }
+        // RED DE SEGURIDAD de las comisiones (2026-09-18). El aviso de Hotmart
+        // ya las anula al llegar, pero esa puerta falla si el negocio no se
+        // encuentra, si el aviso es de un grupo empresarial (que sale antes) o
+        // si el proceso se cayó justo ahí. Esta pasada no depende de nada de
+        // eso: va por transacción, es idempotente, y además recoge los casos de
+        // ANTES de este arreglo. Una comisión ya pagada no se toca nunca, y una
+        // que alguien reactivó a mano tampoco. En simulación solo dice qué haría.
+        const r = await anularComisionesDeTransaccion(
+          this.prisma,
+          tx,
+          motivoDeAnulacion(e.eventType, tx, e.processedAt ?? new Date()),
+          {
+            // El negocio que guardó el aviso: el mismo que resolvió el webhook.
+            // Sin él solo se anula por transacción.
+            tenantId: e.tenantId,
+            fechaDelCobro: fechaDelCobroDeHotmart(compra.approved_date),
+            simular,
+          },
+        ).catch((err) => {
+          this.logger.warn(`Anular comisiones de ${tx} falló: ${(err as Error).message}`);
+          return null;
+        });
+        for (const d of r?.detalle ?? []) {
+          informe.comisionesDeDevoluciones.push({ tx, ...d });
         }
         continue;
       }

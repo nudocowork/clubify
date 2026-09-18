@@ -195,9 +195,10 @@ enum CommissionStatus {
   // cliente disputó el pago, problema de KYC del afiliado). NO entra
   // en "Listo por pagar". Vuelve a APPROVED manual.
   RETAINED
-  // ADJUSTMENT — asiento negativo (clawback) por reembolso/contracargo de una
-  // comisión YA PAGADA. No modifica el histórico; se descuenta en el próximo
-  // corte del beneficiario. (Fase 7 — overhaul comisiones.)
+  // ADJUSTMENT — asiento manual (no es una comisión). Hasta el 2026-09-18 el
+  // aviso de reembolso lo creaba en NEGATIVO para descontar al afiliado una
+  // comisión YA PAGADA; ya no: lo pagado no se retracta (regla de Javier y
+  // Sara). Nunca llegó a crearse ninguno.
   ADJUSTMENT
 }
 

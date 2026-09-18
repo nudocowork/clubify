@@ -7375,7 +7375,10 @@ export class ReferralsService {
       }
 
       const result = await tx.commission.updateMany({
-        where: { id: commissionId, amountPaid: c.amountPaid },
+        // `status: APPROVED` repite dentro de la escritura la comprobación de
+        // arriba: si un reembolso la anula justo entre la lectura y aquí, el pago
+        // no la resucita como PAID (anular-comisiones-de-reembolso.ts).
+        where: { id: commissionId, amountPaid: c.amountPaid, status: 'APPROVED' },
         data: {
           amountPaid: newPaid,
           paymentStatus: newPaymentStatus,
