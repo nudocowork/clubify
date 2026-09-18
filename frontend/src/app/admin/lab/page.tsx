@@ -103,6 +103,12 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
   const [filterStatus, setFilterStatus] = useState<LabStatus | 'ALL'>('ALL');
   const [filterCategory, setFilterCategory] = useState<LabCategory | 'ALL'>('ALL');
   const [filterBrand, setFilterBrand] = useState<string>('ALL');
+  // Los tickets que mandan las marcas (Sellea hoy). Se cargan al entrar, y no
+  // solo al abrir su pestaña, porque hay que poder contarlos: Javier los buscó
+  // tres veces sin encontrarlos. La pestaña por defecto es «Pendientes», y en
+  // cuanto se aprueba un ticket SALE de ahí — así que al entrar no se veía
+  // ninguno aunque estuvieran todos en curso.
+  const [ticketsMarcas, setTicketsMarcas] = useState<Proposal[] | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [topVoted, setTopVoted] = useState<Proposal[] | null>(null);
   const [topVotedScope, setTopVotedScope] = useState<'top' | 'topMonth'>('top');
@@ -140,6 +146,16 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
     }
   }
 
+  async function loadTicketsMarcas() {
+    try {
+      const r = await api<ListadoAdmin>('/admin/lab/proposals?whiteLabelId=marcas');
+      setTicketsMarcas(r.items);
+    } catch (e: any) {
+      toast(e?.message ?? t('error'), 'error');
+      setTicketsMarcas([]);
+    }
+  }
+
   async function loadMetrics() {
     try {
       const m = await api<Metrics>('/admin/lab/metrics');
@@ -170,11 +186,18 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
 
   useEffect(() => {
     if (tab === 'pending') loadPending();
-    if (tab === 'all' || tab === 'marcas') loadAll();
+    if (tab === 'all') loadAll();
     if (tab === 'metrics') loadMetrics();
     if (tab === 'topVoted') loadTopVoted();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, filterStatus, filterCategory, filterBrand, topVotedScope]);
+
+  // Siempre, pase lo que pase con las pestañas: es lo que alimenta el contador
+  // y el aviso de «Pendientes».
+  useEffect(() => {
+    void loadTicketsMarcas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function setStatus(
     id: string,
@@ -188,7 +211,9 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
       });
       toast(t('toastStatusUpdated'), 'success');
       if (tab === 'pending') loadPending();
-      else if (tab === 'all' || tab === 'marcas') loadAll();
+      else if (tab === 'all') loadAll();
+      // Un cambio de estado puede sacar o meter un ticket en curso.
+      void loadTicketsMarcas();
     } catch (e: any) {
       toast(e?.message ?? t('error'), 'error');
     }
@@ -200,8 +225,9 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
     try {
       await api(`/admin/lab/proposals/${id}`, { method: 'DELETE' });
       toast(t('toastDeleted'), 'success');
-      if (tab === 'all' || tab === 'marcas') loadAll();
+      if (tab === 'all') loadAll();
       if (tab === 'pending') loadPending();
+      void loadTicketsMarcas();
     } catch (e: any) {
       toast(e?.message ?? t('error'), 'error');
     }
@@ -233,12 +259,16 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
             marca— y había que ir a «Todas» y acordarse de filtrar. */}
         <button
           className={`tab ${tab === 'marcas' ? 'tab-active' : ''}`}
-          onClick={() => {
-            setFilterBrand('marcas');
-            setTab('marcas');
-          }}
+          onClick={() => setTab('marcas')}
         >
           {t('tabBrandTickets')}
+          {/* El contador es lo que hace que se vean: sin él, esta pestaña era
+              una más entre cinco y nadie sabía que ahí había trabajo. */}
+          {enCurso(ticketsMarcas) > 0 && (
+            <span className="ml-1.5 inline-flex min-w-[20px] items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-white">
+              {enCurso(ticketsMarcas)}
+            </span>
+          )}
         </button>
         <button
           className={`tab ${tab === 'metrics' ? 'tab-active' : ''}`}
@@ -253,6 +283,26 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
           🏆 {t('tabTopVoted')}
         </button>
       </div>
+
+      {tab === 'pending' && enCurso(ticketsMarcas) > 0 && (
+        <button
+          className="w-full mb-4 rounded-xl border-2 border-brand/40 bg-brand/5 px-4 py-3 text-left hover:bg-brand/10"
+          onClick={() => setTab('marcas')}
+        >
+          <div className="font-semibold text-sm">
+            {t('brandTicketsBanner', { n: enCurso(ticketsMarcas) })}
+          </div>
+          <div className="text-xs text-mute mt-0.5">{t('brandTicketsBannerHelp')}</div>
+        </button>
+      )}
+
+      {tab === 'marcas' && (
+        <TicketsMarcasTab
+          items={ticketsMarcas}
+          onMover={(p, estado) => void setStatus(p.id, estado)}
+          onChangeStatus={(p) => setStatusModal(p)}
+        />
+      )}
 
       {tab === 'pending' && (
         <PendingTab
@@ -271,7 +321,7 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
         />
       )}
 
-      {(tab === 'all' || tab === 'marcas') && (
+      {tab === 'all' && (
         <AllTab
           items={all}
           marcas={marcas}
@@ -459,6 +509,92 @@ function PendingTab({
           }
         />
       ))}
+    </div>
+  );
+}
+
+/** Estados en los que un ticket sigue VIVO (ni terminado ni rechazado). */
+const ESTADOS_EN_CURSO: LabStatus[] = ['PENDING', 'EVALUATING', 'APPROVED', 'IN_DEVELOPMENT', 'IN_TESTING'];
+
+function enCurso(items: Proposal[] | null): number {
+  return (items ?? []).filter((p) => ESTADOS_EN_CURSO.includes(p.status)).length;
+}
+
+/**
+ * El orden del proceso, para saber qué es «avanzar». Rechazar no es avanzar:
+ * va aparte, en «Cambiar estado», para que no se pulse por accidente.
+ */
+const ESCALERA: LabStatus[] = ['PENDING', 'EVALUATING', 'APPROVED', 'IN_DEVELOPMENT', 'IN_TESTING', 'IMPLEMENTED'];
+
+/**
+ * Los tickets de las marcas, agrupados por dónde están del proceso.
+ *
+ * Cada uno lleva botones para AVANZARLO un paso («→ En desarrollo»,
+ * «→ Implementada»): es lo que Javier pidió — «para ir marcando el proceso» —,
+ * y con el modal de siempre eran tres clics y un desplegable por cada paso. Los
+ * botones salen de `siguientesEstados`, que manda el backend: no se ofrece nada
+ * que vaya a devolver un 400.
+ */
+function TicketsMarcasTab({
+  items,
+  onMover,
+  onChangeStatus,
+}: {
+  items: Proposal[] | null;
+  onMover: (p: Proposal, estado: LabStatus) => void;
+  onChangeStatus: (p: Proposal) => void;
+}) {
+  const t = useTranslations('admin_lab');
+  if (items === null) return <p className="text-mute">{t('loading')}</p>;
+  if (items.length === 0) {
+    return <p className="text-mute text-sm">{t('brandTicketsEmpty')}</p>;
+  }
+  // Lo vivo primero, en el orden del proceso; lo terminado y lo rechazado al
+  // final, que ya no pide nada.
+  const grupos: LabStatus[] = [...ESCALERA.slice(0, 5), 'IMPLEMENTED', 'REJECTED'];
+  return (
+    <div className="grid gap-6">
+      {grupos.map((estado) => {
+        const delGrupo = items.filter((p) => p.status === estado);
+        if (delGrupo.length === 0) return null;
+        return (
+          <section key={estado}>
+            <h3 className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              {STATUS_META[estado].label} · {delGrupo.length}
+            </h3>
+            <div className="grid gap-3">
+              {delGrupo.map((p) => {
+                const aqui = ESCALERA.indexOf(p.status);
+                const adelante = (p.siguientesEstados ?? []).filter(
+                  (e) => e !== 'REJECTED' && ESCALERA.indexOf(e) > aqui,
+                );
+                return (
+                  <ProposalRow
+                    key={p.id}
+                    proposal={p}
+                    actions={
+                      <>
+                        {adelante.map((e) => (
+                          <button
+                            key={e}
+                            className="btn-primary text-xs"
+                            onClick={() => onMover(p, e)}
+                          >
+                            → {STATUS_META[e].label}
+                          </button>
+                        ))}
+                        <button className="btn-ghost text-xs" onClick={() => onChangeStatus(p)}>
+                          {t('actionChangeStatus')}
+                        </button>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
