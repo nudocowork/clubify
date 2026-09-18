@@ -577,6 +577,39 @@
   display: none;                  /* Chrome/Safari */
 }
 
+/* Barra de scroll del sidebar del panel. La nativa salía sin estilo —track
+ * blanco con flechas— sobre el fondo oscuro, y le robaba ~15 px al menú, que
+ * quedaba cortado contra ella. No se oculta del todo (`no-scrollbar`): es la
+ * única señal de que hay más opciones abajo. Blanca translúcida porque el
+ * sidebar es oscuro en todas las marcas.
+ *
+ * Las propiedades estándar van SOLO donde no existe `::-webkit-scrollbar`
+ * (Firefox). Chrome 121+, si las ve, las usa e IGNORA los `::-webkit-*`: salía
+ * una barra de 10 px con sus flechitas arriba y abajo, y sin el hover. Medido
+ * en Chrome con las dos versiones lado a lado. */
+@supports not selector(::-webkit-scrollbar) {
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+.sidebar-scroll::-webkit-scrollbar-button {
+  display: none;
+}
+
 /* ── Márgenes seguras de la app instalada ──────────────────────────────────
  *
  * El layout raíz declara viewport-fit=cover, así que dentro de la app el

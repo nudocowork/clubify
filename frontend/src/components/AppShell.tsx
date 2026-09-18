@@ -1367,7 +1367,7 @@ export default function AppShell({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto -mx-1 px-1">
+      <div className="flex-1 overflow-y-auto sidebar-scroll -mx-1 px-1 pr-2 overscroll-contain">
         {(() => {
           // Mantenemos una lista actualizada de nombres de sección para
           // que toggleSection sepa cuáles colapsar al primer click.

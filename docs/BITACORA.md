@@ -8,6 +8,21 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (55) — La barra de scroll del sidebar del panel, fina y sin flechas
+
+La nativa salía sin estilo (track blanco con flechas) sobre el fondo oscuro y le
+robaba 15 px al menú: el pill activo quedaba pegado a ella. Nueva utilidad
+`.sidebar-scroll` en `globals.css` (junto a `.no-scrollbar`), aplicada al div del
+menú en `AppShell.tsx` con `pr-2 overscroll-contain`. No se oculta: es la señal
+de que hay más opciones abajo.
+
+**La trampa:** `scrollbar-width`/`scrollbar-color` van dentro de
+`@supports not selector(::-webkit-scrollbar)`, o sea solo para Firefox. Chrome
+121+, si ve las estándar, ignora los `::-webkit-*`: con ellas a la vista salía
+una barra de 10 px con flechitas y sin hover. Medido lado a lado en Chrome
+(barra 15 → 6 px, contenido 201 → 210 px) y en Firefox (fina, translúcida, sin
+flechas en las dos versiones).
+
 ## 2026-09-18 (54) — Si Hotmart devuelve un pago, sus comisiones sin pagar se anulan solas
 
 Documento de Sara: Essentrix pagó el 15-09, pidió el reembolso a Hotmart y Hotmart
