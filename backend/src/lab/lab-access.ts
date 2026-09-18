@@ -85,6 +85,8 @@ export const LAB_ADJUNTAR_SOLO_MARCAS =
 
 /** Valor del filtro de marca de la moderación para Clubify + las históricas sin marca. */
 export const FILTRO_PLATAFORMA = 'plataforma';
+/** Valor especial del filtro: solo los tickets de marcas blancas. */
+export const FILTRO_MARCAS_BLANCAS = 'marcas';
 
 const AFILIADOS = new Set([
   'AFFILIATE_INFLUENCER',
@@ -175,6 +177,15 @@ export function filtroAdminPorMarca(
   clubifyId: string | null,
 ): Prisma.LabProposalWhereInput | null {
   if (!valor) return null;
+  if (valor === FILTRO_MARCAS_BLANCAS) {
+    // Todo lo que NO es de la plataforma: los tickets que nos mandan las
+    // marcas. Javier fue a buscarlos dos veces al Lab público de Clubify, donde
+    // por diseño no pueden salir —cada Lab es de su marca—, así que la
+    // moderación necesita una vista que los junte.
+    return clubifyId
+      ? { AND: [{ whiteLabelId: { not: null } }, { whiteLabelId: { not: clubifyId } }] }
+      : { whiteLabelId: { not: null } };
+  }
   if (valor === FILTRO_PLATAFORMA || esDeLaPlataforma(valor, clubifyId)) {
     return filtroPlataforma(clubifyId);
   }

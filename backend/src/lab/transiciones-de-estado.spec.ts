@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { transicionesPermitidas } from './lab.service';
+import { FILTRO_MARCAS_BLANCAS, filtroAdminPorMarca } from './lab-access';
 
 /**
  * Los saltos de estado del Lab.
@@ -70,5 +71,46 @@ describe('los saltos de estado permitidos', () => {
     for (const s of ['PENDING', 'EVALUATING', 'APPROVED', 'IN_DEVELOPMENT', 'IN_TESTING', 'REJECTED'] as const) {
       expect(transicionesPermitidas(s).length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * El filtro de la moderación que junta los tickets de las marcas.
+ *
+ * Javier fue a buscar dos veces una propuesta aprobada de Sellea al Lab PÚBLICO
+ * de Clubify, donde por diseño no puede salir: cada Lab es de su marca, y
+ * mezclarlos enseñaría a los clientes de Clubify lo que pide Humberto —y de
+ * paso delataría que Sellea es una marca blanca nuestra—. La separación se
+ * queda; lo que faltaba era una vista en la moderación que los junte.
+ */
+describe('el filtro de tickets de marcas', () => {
+  const CLUBIFY = 'id-de-clubify';
+
+  it('deja fuera lo de Clubify y lo histórico sin marca', () => {
+    const f: any = filtroAdminPorMarca(FILTRO_MARCAS_BLANCAS, CLUBIFY);
+    expect(f.AND).toEqual([
+      { whiteLabelId: { not: null } },
+      { whiteLabelId: { not: CLUBIFY } },
+    ]);
+  });
+
+  it('sin fila de Clubify, basta con excluir las que no tienen marca', () => {
+    // Pasa en desarrollo, donde no existe la fila de la marca Clubify.
+    expect(filtroAdminPorMarca(FILTRO_MARCAS_BLANCAS, null)).toEqual({
+      whiteLabelId: { not: null },
+    });
+  });
+
+  it('no se pisa con los filtros que ya existían', () => {
+    // «plataforma» sigue trayendo Clubify + las históricas…
+    expect(filtroAdminPorMarca('plataforma', CLUBIFY)).toEqual({
+      OR: [{ whiteLabelId: null }, { whiteLabelId: CLUBIFY }],
+    });
+    // …una marca concreta sigue siendo estricta…
+    expect(filtroAdminPorMarca('id-de-sellea', CLUBIFY)).toEqual({
+      whiteLabelId: 'id-de-sellea',
+    });
+    // …y sin valor se siguen viendo todas.
+    expect(filtroAdminPorMarca(null, CLUBIFY)).toBeNull();
   });
 });

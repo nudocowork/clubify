@@ -21,7 +21,7 @@ import { LabFeed } from '../../lab/LabFeed';
 import { MarcaEtiqueta } from '../../lab/MarcaEtiqueta';
 import { useLabContexto } from '../../lab/useLabContexto';
 
-type Tab = 'pending' | 'all' | 'metrics' | 'topVoted';
+type Tab = 'pending' | 'all' | 'marcas' | 'metrics' | 'topVoted';
 
 /** Filtro de marca para Clubify + las propuestas sin marca (espejo de `FILTRO_PLATAFORMA` del backend). */
 const FILTRO_PLATAFORMA = 'plataforma';
@@ -170,7 +170,7 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
 
   useEffect(() => {
     if (tab === 'pending') loadPending();
-    if (tab === 'all') loadAll();
+    if (tab === 'all' || tab === 'marcas') loadAll();
     if (tab === 'metrics') loadMetrics();
     if (tab === 'topVoted') loadTopVoted();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -188,7 +188,7 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
       });
       toast(t('toastStatusUpdated'), 'success');
       if (tab === 'pending') loadPending();
-      else if (tab === 'all') loadAll();
+      else if (tab === 'all' || tab === 'marcas') loadAll();
     } catch (e: any) {
       toast(e?.message ?? t('error'), 'error');
     }
@@ -200,7 +200,7 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
     try {
       await api(`/admin/lab/proposals/${id}`, { method: 'DELETE' });
       toast(t('toastDeleted'), 'success');
-      if (tab === 'all') loadAll();
+      if (tab === 'all' || tab === 'marcas') loadAll();
       if (tab === 'pending') loadPending();
     } catch (e: any) {
       toast(e?.message ?? t('error'), 'error');
@@ -227,6 +227,18 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
           onClick={() => setTab('all')}
         >
           {t('tabAll')}
+        </button>
+        {/* Los tickets que nos mandan las marcas (Sellea hoy). Existe porque el
+            Lab público de Clubify NO puede enseñarlos —cada Lab es de su
+            marca— y había que ir a «Todas» y acordarse de filtrar. */}
+        <button
+          className={`tab ${tab === 'marcas' ? 'tab-active' : ''}`}
+          onClick={() => {
+            setFilterBrand('marcas');
+            setTab('marcas');
+          }}
+        >
+          {t('tabBrandTickets')}
         </button>
         <button
           className={`tab ${tab === 'metrics' ? 'tab-active' : ''}`}
@@ -259,7 +271,7 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
         />
       )}
 
-      {tab === 'all' && (
+      {(tab === 'all' || tab === 'marcas') && (
         <AllTab
           items={all}
           marcas={marcas}
