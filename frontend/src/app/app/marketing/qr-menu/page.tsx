@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { EditorCargando } from '@/components/marketing/EditorCargando';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
+import { useCartelSoloLectura } from '@/lib/marketing/cartel-solo-lectura';
 
 const QrPosterEditor = dynamic(
   () => import('@/components/marketing/QrPosterEditor'),
@@ -22,6 +23,7 @@ type MenuResumen = {
 
 export default function QrMenuPage() {
   const t = useTranslations('app_qr');
+  const soloLectura = useCartelSoloLectura();
   const [tenant, setTenant] = useState<any>(null);
   // Mesa = QR pegado en la mesa (informativo).
   // Delivery = QR para compartir, con carrito + WhatsApp.
@@ -96,7 +98,7 @@ export default function QrMenuPage() {
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-3 leading-relaxed">
-        {t('menuIntro')}
+        {soloLectura ? t('readOnlyIntro') : t('menuIntro')}
       </p>
 
       <div className="inline-flex bg-bg2 rounded-pill p-1 mb-5 text-sm font-semibold">

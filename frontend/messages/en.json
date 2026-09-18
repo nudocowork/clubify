@@ -6073,6 +6073,7 @@
     "counterCrumb": "Counter QR",
     "counterHint": "The QR goes to the card's public page. If the customer isn't a member yet, they sign up right there.",
     "counterIntro": "Design a poster for your counter. The customer scans it, installs their wallet card and starts collecting stamps right away.",
+    "readOnlyIntro": "This is your business’s QR poster. Download it as PNG, JPG or PDF to print it; the link it opens is the one above.",
     "defaultBusiness": "My Business",
     "discountCrumb": "Discount QR",
     "discountHint": "The customer sees a banner with the code when they scan, and shows it at checkout. For the discount to work, create it in <link>Promotions</link> too.",

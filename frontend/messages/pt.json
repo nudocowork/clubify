@@ -6073,6 +6073,7 @@
     "counterCrumb": "QR Balcão",
     "counterHint": "O QR leva à página pública do cartão. Se o cliente ainda não for membro, ele se cadastra ali mesmo.",
     "counterIntro": "Crie um cartaz para o seu balcão. O cliente escaneia, instala o cartão na carteira e começa a juntar selos na hora.",
+    "readOnlyIntro": "Este é o cartaz QR do seu negócio. Baixe em PNG, JPG ou PDF para imprimir; o link que ele abre é o de cima.",
     "defaultBusiness": "Meu Negócio",
     "discountCrumb": "QR Desconto",
     "discountHint": "O cliente vê um banner com o código ao escanear e apresenta ao pagar. Para o desconto valer, cadastre-o também em <link>Promoções</link>.",

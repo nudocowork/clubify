@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { EditorCargando } from '@/components/marketing/EditorCargando';
+import { useCartelSoloLectura } from '@/lib/marketing/cartel-solo-lectura';
 
 const QrPosterEditor = dynamic(
   () => import('@/components/marketing/QrPosterEditor'),
@@ -28,6 +29,7 @@ type InfoLink = {
 
 export default function QrInfolinkPage() {
   const t = useTranslations('app_qr');
+  const soloLectura = useCartelSoloLectura();
   const [tenant, setTenant] = useState<any>(null);
   const [links, setLinks] = useState<InfoLink[] | null>(null);
   // Empty = ir a la lista completa /i/<slug>. Sino, ir directo al
@@ -80,7 +82,7 @@ export default function QrInfolinkPage() {
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        {t('infolinkIntro')}
+        {soloLectura ? t('readOnlyIntro') : t('infolinkIntro')}
       </p>
 
       {links !== null && !hasLinks && (

@@ -6073,6 +6073,7 @@
     "counterCrumb": "QR Mostrador",
     "counterHint": "El QR lleva a la página pública de la tarjeta. Si el cliente todavía no es socio, se registra ahí mismo.",
     "counterIntro": "Diseña un cartel para tu mostrador. El cliente escanea, instala su tarjeta wallet y empieza a sumar sellos al instante.",
+    "readOnlyIntro": "Este es el cartel QR de tu negocio. Descárgalo en PNG, JPG o PDF para imprimirlo; el enlace al que lleva es el de arriba.",
     "defaultBusiness": "Mi Negocio",
     "discountCrumb": "QR Descuento",
     "discountHint": "El cliente verá un banner con el código al escanear y lo presenta al pagar. Para que el descuento sea válido, dalo de alta en <link>Promociones</link> también.",

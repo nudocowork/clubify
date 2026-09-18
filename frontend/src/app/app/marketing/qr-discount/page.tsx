@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { EditorCargando } from '@/components/marketing/EditorCargando';
+import { useCartelSoloLectura } from '@/lib/marketing/cartel-solo-lectura';
 
 const QrPosterEditor = dynamic(
   () => import('@/components/marketing/QrPosterEditor'),
@@ -13,6 +14,7 @@ const QrPosterEditor = dynamic(
 
 export default function QrDiscountPage() {
   const t = useTranslations('app_qr');
+  const soloLectura = useCartelSoloLectura();
   const [tenant, setTenant] = useState<any>(null);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export default function QrDiscountPage() {
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        {t('discountIntro')}
+        {soloLectura ? t('readOnlyIntro') : t('discountIntro')}
       </p>
 
       <QrPosterEditor

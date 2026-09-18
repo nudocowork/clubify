@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import { useAuthBrand } from '@/components/AuthBrand';
+import { useCartelSoloLectura } from '@/lib/marketing/cartel-solo-lectura';
 import { useTranslations } from 'next-intl';
 import {
   Stage,
@@ -562,19 +563,8 @@ export default function QrPosterEditor({
   const { brand: hostBrand } = useAuthBrand();
   const platformName = hostBrand?.name || 'Clubify';
 
-  // SELLEA NO EDITA EL CARTEL (Humberto, vía Javier 2026-09-18): en su panel
-  // estas cinco páginas enseñan solo el QR, su enlace y las descargas. El
-  // editor entero —plantillas, textos, formas, capas, deshacer y guardar— se
-  // esconde.
-  //
-  // La marca sale del HOST (`useAuthBrand`), que es como se resuelve Sellea en
-  // selleala.com. Un negocio de Sellea que entrara por un dominio de Clubify
-  // sí vería el editor; no pasa en la práctica y la alternativa —pedir
-  // `/tenants/me` en las cinco páginas— era mucho más ruido por ese caso.
-  //
-  // Es solo de pantalla: no borra ni toca los diseños ya guardados. Si se
-  // vuelve a encender, el cartel sigue donde estaba.
-  const soloLectura = hostBrand?.slug === 'sellea';
+  // Sellea solo ve el cartel: ver `useCartelSoloLectura`.
+  const soloLectura = useCartelSoloLectura();
   const soloLecturaRef = useRef(false);
   soloLecturaRef.current = soloLectura;
 
@@ -2800,11 +2790,19 @@ export default function QrPosterEditor({
               </Layer>
             </Stage>
           </div>
-          <div className="text-[11px] text-mute mt-3 text-center">
-            Tamaño real: {cfg.canvas.w} × {cfg.canvas.h} px ·{' '}
-            {cfg.canvas.mm?.w ?? 210}×{cfg.canvas.mm?.h ?? 297} mm ·{' '}
-            {cfg.canvas.dpi ?? 300} DPI
-          </div>
+          {/* En solo lectura no se pinta: es información del editor, y aquí
+              debajo del cartel no la pidió nadie. Además decía «Tamaño real:
+              1080 × 1528 px», que son las coordenadas de DISEÑO y no lo que
+              mide el archivo — contradecía al panel de descargas, que ya dice
+              los píxeles de verdad. Ahora sale de la misma fuente que él. */}
+          {!soloLectura && (
+            <div className="text-[11px] text-mute mt-3 text-center">
+              Tamaño real: {pixelesDeExport(cfg.canvas).w} ×{' '}
+              {pixelesDeExport(cfg.canvas).h} px ·{' '}
+              {cfg.canvas.mm?.w ?? 210}×{cfg.canvas.mm?.h ?? 297} mm ·{' '}
+              {pixelesDeExport(cfg.canvas).dpiReal} DPI
+            </div>
+          )}
         </div>
       </div>
       </div>
