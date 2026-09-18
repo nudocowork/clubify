@@ -1704,6 +1704,13 @@ export default function QrPosterEditor({
     );
   }
 
+  // Sellea no quiere el cartel, solo el QR y su enlace (Javier, 2026-09-18):
+  // «solo quiero poder descargar el QR y el enlace correspondiente». Se corta
+  // aquí, DESPUÉS de todos los hooks, para no romper su orden.
+  if (soloLectura) {
+    return <SoloElQr url={effectiveUrl} tipo={type} />;
+  }
+
   const bgFill = rectFillProps(cfg.bg, cfg.canvas.w, cfg.canvas.h);
   const layerOrder = effectiveLayerOrder(cfg);
 
@@ -6299,5 +6306,127 @@ function EmojisSection({
         </div>
       )}
     </Section>
+  );
+}
+
+/**
+ * La vista de las marcas que NO editan el cartel: el QR, su enlace y las
+ * descargas. Nada más (Javier, 2026-09-18, por Sellea).
+ *
+ * El QR se genera aquí mismo con la librería, no se recorta del lienzo: así
+ * sale limpio, sin los textos del cartel, y —lo importante para imprenta— el
+ * SVG es VECTORIAL y en negro puro. Un QR vectorial se imprime nítido a
+ * cualquier tamaño y no se convierte a cuatro tintas, que es lo que le hace
+ * perder contraste y dejar de escanear.
+ */
+function SoloElQr({ url, tipo }: { url: string; tipo: QrPosterType }) {
+  const [copiado, setCopiado] = useState(false);
+  const [vista, setVista] = useState<string | null>(null);
+  const [bajando, setBajando] = useState<'png' | 'svg' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!url) return;
+    let vivo = true;
+    QRCode.toDataURL(url, { width: 420, margin: 1, errorCorrectionLevel: 'M' })
+      .then((d) => { if (vivo) setVista(d); })
+      .catch(() => { if (vivo) setVista(null); });
+    return () => { vivo = false; };
+  }, [url]);
+
+  function descargar(nombre: string, href: string) {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  async function bajarPng() {
+    setBajando('png'); setError(null);
+    try {
+      // 2000 px: de sobra para imprimir un QR a cualquier tamaño razonable, y
+      // muy por debajo del tope de área del canvas de Safari.
+      const d = await QRCode.toDataURL(url, { width: 2000, margin: 1, errorCorrectionLevel: 'M' });
+      descargar(`qr-${tipo.toLowerCase()}.png`, d);
+    } catch {
+      setError('No se pudo generar el PNG. Inténtalo otra vez.');
+    } finally { setBajando(null); }
+  }
+
+  async function bajarSvg() {
+    setBajando('svg'); setError(null);
+    try {
+      const svg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const href = URL.createObjectURL(blob);
+      descargar(`qr-${tipo.toLowerCase()}.svg`, href);
+      // Sin esto el blob se queda en memoria toda la sesión.
+      setTimeout(() => URL.revokeObjectURL(href), 10_000);
+    } catch {
+      setError('No se pudo generar el SVG. Inténtalo otra vez.');
+    } finally { setBajando(null); }
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      setError('No se pudo copiar. Selecciona el enlace y cópialo a mano.');
+    }
+  }
+
+  return (
+    <div className="max-w-xl">
+      <div className="card card-pad">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+          Enlace del QR
+        </div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <code className="flex-1 min-w-0 text-xs break-all font-mono">{url}</code>
+          <button className="btn-ghost rounded-pill text-xs shrink-0" onClick={() => void copiar()}>
+            {copiado ? '✓ Copiado' : 'Copiar'}
+          </button>
+        </div>
+        <p className="text-[11px] text-mute mt-2 leading-relaxed">
+          Es un QR dinámico: aunque cambies tu menú, tu wallet o tus promociones,
+          el QR impreso sigue funcionando.
+        </p>
+      </div>
+
+      <div className="card card-pad mt-3 flex flex-col items-center">
+        {vista ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={vista} alt="Código QR" width={280} height={280} className="rounded-lg" />
+        ) : (
+          <div className="w-[280px] h-[280px] rounded-lg bg-bg2 animate-pulse" />
+        )}
+      </div>
+
+      <div className="card card-pad mt-3">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+          Descargar
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button className="btn-ghost rounded-pill text-sm" disabled={!!bajando} onClick={() => void bajarPng()}>
+            {bajando === 'png' ? 'Generando…' : 'PNG'}
+            <span className="block text-[10px] text-mute">Imagen · 2000 px</span>
+          </button>
+          <button className="btn-primary rounded-pill text-sm" disabled={!!bajando} onClick={() => void bajarSvg()}>
+            {bajando === 'svg' ? 'Generando…' : 'SVG'}
+            <span className="block text-[10px] opacity-80">Vectorial · imprenta</span>
+          </button>
+        </div>
+        <p className="text-[11px] text-mute mt-2 leading-relaxed">
+          Para imprimir, usa el <strong className="text-ink">SVG</strong>: no pierde
+          calidad por grande que lo hagas y sale en negro puro, que es como un QR
+          se escanea mejor. El PNG sirve para pantallas y redes.
+        </p>
+        {error && <p className="text-[11px] text-red-600 mt-2">{error}</p>}
+      </div>
+    </div>
   );
 }

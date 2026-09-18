@@ -127,7 +127,7 @@ export default function QrInfolinkPage() {
             ))}
           </select>
           <div className="text-xs text-mute mt-2 font-mono break-all">
-            {t('qrUrl')}: {qrUrl}
+            {soloLectura ? null : <>{t('qrUrl')}: {qrUrl}</>}
           </div>
         </div>
       )}

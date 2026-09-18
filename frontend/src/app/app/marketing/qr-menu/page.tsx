@@ -174,7 +174,7 @@ export default function QrMenuPage() {
       )}
 
       <p className="text-xs text-mute mb-4">
-        {t('qrUrl')}: <span className="font-mono break-all">{qrUrl}</span>
+        {soloLectura ? null : <>{t('qrUrl')}: <span className="font-mono break-all">{qrUrl}</span></>}
       </p>
 
       <QrPosterEditor
