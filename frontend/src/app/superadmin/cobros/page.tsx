@@ -53,6 +53,11 @@ export default function CobrosPage() {
   const [toast, setToast] = useState<string | null>(null);
   // PDF 1256 §2/§7: período de gracia (días de mora antes de pausar) configurable.
   const [graceInput, setGraceInput] = useState<string>('');
+  // La franja horaria en la que sale el ciclo de cobro. Existe desde el
+  // 2026-09-18: antes la hora era una constante del cron, en UTC, y los avisos
+  // le llegaban a los dueños de negocio a las 22:00 sin forma de cambiarlo.
+  const [ventana, setVentana] = useState<{ desde: number; hasta: number; zona: string } | null>(null);
+  const [ventanaGuardando, setVentanaGuardando] = useState(false);
   const [graceSaving, setGraceSaving] = useState(false);
 
   function flashToast(msg: string) {
@@ -69,7 +74,34 @@ export default function CobrosPage() {
     api<{ graceDays: number }>('/billing/grace-days')
       .then((g) => setGraceInput(String(g.graceDays)))
       .catch(() => null);
+    api<{ ventana: { desde: number; hasta: number; zona: string } }>('/billing/ventana-de-envio')
+      .then((v) => setVentana(v.ventana))
+      .catch(() => null);
   }, []);
+
+  async function guardarVentana(cambio: Partial<{ desde: number; hasta: number }>) {
+    if (!ventana) return;
+    const nueva = { ...ventana, ...cambio };
+    if (nueva.desde >= nueva.hasta) {
+      flashToast('La hora de inicio tiene que ser anterior a la de fin');
+      return;
+    }
+    setVentanaGuardando(true);
+    try {
+      // Se pinta lo que QUEDÓ guardado, no lo que se mandó: el backend sanea, y
+      // el panel tiene que enseñar lo de verdad.
+      const r = await api<{ ventana: typeof ventana; descripcion: string }>(
+        '/billing/ventana-de-envio',
+        { method: 'PATCH', body: JSON.stringify(nueva) },
+      );
+      setVentana(r.ventana);
+      flashToast(`Los avisos de cobro saldrán ${r.descripcion}`);
+    } catch (e: any) {
+      flashToast(e.message ?? 'Error');
+    } finally {
+      setVentanaGuardando(false);
+    }
+  }
 
   async function saveGrace() {
     const n = parseInt(graceInput, 10);
@@ -168,6 +200,64 @@ export default function CobrosPage() {
         >
           {graceSaving ? 'Guardando…' : 'Guardar'}
         </button>
+      </div>
+
+      {/* A qué hora salen los avisos de cobro. */}
+      <div
+        className="rounded-[14px] p-5 mb-6"
+        style={{ background: 'white', border: '1px solid #e7e9ec', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}
+      >
+        <div className="text-[12px] font-bold uppercase mb-1" style={{ letterSpacing: 0.6, color: '#9aa4af' }}>
+          Hora a la que salen los avisos
+        </div>
+        <div className="text-xs mb-3" style={{ color: '#6b7785' }}>
+          Recordatorios de cobro, avisos de mora y de pausa. Hasta el 18 de
+          septiembre salían a las <strong>10 de la noche</strong>: la hora estaba
+          fijada en horario del servidor, que va en UTC. Se manda una vez al día,
+          en la primera hora disponible de esta franja.
+        </div>
+        {ventana ? (
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <div className="text-xs mb-1" style={{ color: '#6b7785' }}>Desde</div>
+              <select
+                value={ventana.desde}
+                disabled={ventanaGuardando}
+                onChange={(e) => void guardarVentana({ desde: Number(e.target.value) })}
+                className="rounded-[10px] px-3 py-2 text-sm"
+                style={{ border: '1px solid #d7dbe0' }}
+              >
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="text-xs mb-1" style={{ color: '#6b7785' }}>Hasta</div>
+              <select
+                value={ventana.hasta}
+                disabled={ventanaGuardando}
+                onChange={(e) => void guardarVentana({ hasta: Number(e.target.value) })}
+                className="rounded-[10px] px-3 py-2 text-sm"
+                style={{ border: '1px solid #d7dbe0' }}
+              >
+                {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                  <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                ))}
+              </select>
+            </div>
+            <div className="text-xs pb-2" style={{ color: '#6b7785' }}>
+              hora de <strong>{ventana.zona}</strong>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs" style={{ color: '#9aa4af' }}>Cargando…</div>
+        )}
+        <div className="text-[11px] mt-3" style={{ color: '#9aa4af' }}>
+          Es una franja y no una hora exacta a propósito: si justo a esa hora hay
+          un despliegue o un reinicio, el intento siguiente la recoge en vez de
+          perder el día.
+        </div>
       </div>
 
       {/* Cron de renovaciones automáticas */}
