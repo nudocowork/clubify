@@ -11,13 +11,16 @@
  * la lleva el negocio.
  */
 
-export type RedSocial = 'instagram' | 'facebook' | 'whatsapp' | 'tiktok';
+export type RedSocial = 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube';
 
 export const REDES: RedSocial[] = [
   'instagram',
   'facebook',
   'whatsapp',
   'tiktok',
+  // Al FINAL a propósito: este orden es el orden en que se pintan, y meterla
+  // en medio movería los iconos de todos los infolinks ya publicados.
+  'youtube',
 ];
 
 export const RED_LABEL: Record<RedSocial, string> = {
@@ -25,6 +28,7 @@ export const RED_LABEL: Record<RedSocial, string> = {
   facebook: 'Facebook',
   whatsapp: 'WhatsApp',
   tiktok: 'TikTok',
+  youtube: 'YouTube',
 };
 
 /** Qué escribir en el campo, en el idioma del negocio. */
@@ -33,6 +37,7 @@ export const RED_PLACEHOLDER: Record<RedSocial, string> = {
   facebook: 'facebook.com/minegocio',
   whatsapp: '+57 300 123 4567  ·  o  wa.me/573001234567',
   tiktok: '@minegocio  ·  o  tiktok.com/@minegocio',
+  youtube: '@minegocio  ·  o  youtube.com/@minegocio',
 };
 
 export type RedConfig = {
@@ -53,6 +58,9 @@ const DOMINIO: Record<RedSocial, RegExp> = {
   facebook: /^(https?:\/\/)?(www\.)?(facebook\.com|fb\.com|fb\.me|m\.facebook\.com)\//i,
   whatsapp: /^(https?:\/\/)?(www\.)?(wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com)\//i,
   tiktok: /^(https?:\/\/)?(www\.)?tiktok\.com\//i,
+  // youtu.be es el enlace corto que da el propio botón «Compartir» de
+  // YouTube: es lo primero que va a pegar alguien.
+  youtube: /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\//i,
 };
 
 /** Un usuario de red: letras, números, punto, guion y guion bajo. */
@@ -89,6 +97,7 @@ export function enlaceDeRed(red: RedSocial, valor: string | null | undefined): s
   const usuario = v.replace(/^@/, '');
   if (red === 'instagram') return `https://instagram.com/${usuario}`;
   if (red === 'facebook') return `https://facebook.com/${usuario}`;
+  if (red === 'youtube') return `https://youtube.com/@${usuario}`;
   return `https://tiktok.com/@${usuario}`;
 }
 
@@ -135,16 +144,17 @@ export function colorDeIconos(
 }
 
 /** Icono de marca de cada red, en `Icon.tsx`. */
-export const RED_ICONO: Record<RedSocial, 'instagram' | 'facebook' | 'whatsapp' | 'tiktok'> = {
+export const RED_ICONO: Record<RedSocial, 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube'> = {
   instagram: 'instagram',
   facebook: 'facebook',
   whatsapp: 'whatsapp',
   tiktok: 'tiktok',
+  youtube: 'youtube',
 };
 
 /** Lo que la fila de iconos necesita para pintarse, venga de donde venga. */
 export type IconoSocial = {
-  icono: 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'pin';
+  icono: 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube' | 'pin';
   href: string;
   label: string;
 };
