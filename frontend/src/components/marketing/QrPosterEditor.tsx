@@ -57,7 +57,8 @@ import {
   normalizeConfig,
   effectiveLayerOrder,
   rescaleForCanvas,
-  pixelRatioForDpi,
+  geometriaDeExport,
+  pixelesDeExport,
   estimateTextBox,
   computeTextRenderBox,
 } from '@/lib/marketing/qr-poster-config';
@@ -561,6 +562,22 @@ export default function QrPosterEditor({
   const { brand: hostBrand } = useAuthBrand();
   const platformName = hostBrand?.name || 'Clubify';
 
+  // SELLEA NO EDITA EL CARTEL (Humberto, vía Javier 2026-09-18): en su panel
+  // estas cinco páginas enseñan solo el QR, su enlace y las descargas. El
+  // editor entero —plantillas, textos, formas, capas, deshacer y guardar— se
+  // esconde.
+  //
+  // La marca sale del HOST (`useAuthBrand`), que es como se resuelve Sellea en
+  // selleala.com. Un negocio de Sellea que entrara por un dominio de Clubify
+  // sí vería el editor; no pasa en la práctica y la alternativa —pedir
+  // `/tenants/me` en las cinco páginas— era mucho más ruido por ese caso.
+  //
+  // Es solo de pantalla: no borra ni toca los diseños ya guardados. Si se
+  // vuelve a encender, el cartel sigue donde estaba.
+  const soloLectura = hostBrand?.slug === 'sellea';
+  const soloLecturaRef = useRef(false);
+  soloLecturaRef.current = soloLectura;
+
   // Si hay posterIdProp, el editor opera contra /qr-posters/:id (modo
   // multi-QR). Sino, contra /qr-posters/by-type/:type (modo legacy).
   const idMode = !!posterIdProp;
@@ -917,6 +934,9 @@ export default function QrPosterEditor({
   // load tarda >2.5s el autosave PISA el server con el default.
   useEffect(() => {
     if (!hasLoadedRef.current) return;
+    // En solo lectura no se guarda nada: ni al servidor ni al backup local.
+    // El cinturón, además de los tirantes del `pointer-events: none`.
+    if (soloLectura) return;
     const json = JSON.stringify(cfg);
     if (lastSavedJsonRef.current && json === lastSavedJsonRef.current) {
       return;
@@ -975,6 +995,7 @@ export default function QrPosterEditor({
   useEffect(() => {
     return () => {
       if (!hasLoadedRef.current) return;
+      if (soloLecturaRef.current) return;
       const currentCfg = cfgRef.current;
       const json = JSON.stringify(currentCfg);
       if (json !== lastSavedJsonRef.current) {
@@ -1013,6 +1034,7 @@ export default function QrPosterEditor({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (soloLecturaRef.current) return;
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || e.key.toLowerCase() !== 'z') return;
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -1035,6 +1057,7 @@ export default function QrPosterEditor({
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
       if (!hasLoadedRef.current) return;
+      if (soloLecturaRef.current) return;
       const json = JSON.stringify(cfgRef.current);
       if (json === lastSavedJsonRef.current) return;
       e.preventDefault();
@@ -1063,6 +1086,7 @@ export default function QrPosterEditor({
   // 'error' sin éxito intermedio.
   const retryCountRef = useRef(0);
   useEffect(() => {
+    if (soloLecturaRef.current) return;
     if (autosaveState !== 'error') {
       // Cualquier transición fuera de error resetea el contador. Si el
       // cliente edita y autosave logra guardar, el próximo error vuelve
@@ -1117,15 +1141,36 @@ export default function QrPosterEditor({
         stage.batchDraw();
       }
 
-      const pixelRatio = pixelRatioForDpi(cfg.canvas);
       const mm = cfg.canvas.mm ?? { w: 210, h: 297 };
+
+      // Geometría explícita: sin ella Konva exporta al tamaño con el que se VE
+      // el lienzo (540 px) y no al del diseño (1080), así que un A4 «a 300 DPI»
+      // salía a 150. Ver `geometriaDeExport`.
+      const { x, y, width, height, pixelRatio } = geometriaDeExport(
+        cfg.canvas,
+        scale,
+      );
 
       const mimeType = kind === 'jpg' ? 'image/jpeg' : 'image/png';
       const dataUrl = stage.toDataURL({
         mimeType,
         quality: kind === 'jpg' ? 0.95 : 1,
+        x,
+        y,
+        width,
+        height,
         pixelRatio,
       });
+
+      // Safari devuelve un dataURL vacío en vez de fallar cuando no puede con
+      // el canvas. Sin esto, el cliente se descarga un archivo en blanco y se
+      // entera en la imprenta.
+      if (!dataUrl || dataUrl.length < 1024) {
+        throw new Error(
+          'Tu navegador no pudo generar el archivo a este tamaño. ' +
+            'Prueba con menos DPI, o desde un ordenador.',
+        );
+      }
 
       const baseName = `clubify-${type.toLowerCase()}-${Date.now()}`;
 
@@ -1717,6 +1762,7 @@ export default function QrPosterEditor({
             barra fija de arriba a la derecha. Este panel tiene scroll propio,
             así que al bajar a las últimas secciones había que subir del todo
             para guardar. Lo que se queda es lo que solo se lee. */}
+        {!soloLectura && (
         <div className="card card-pad space-y-2">
           {localBackupFailed && (
             <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed">
@@ -1732,15 +1778,20 @@ export default function QrPosterEditor({
             por refresh accidental. ⌘Z para deshacer.
           </div>
         </div>
+        )}
 
-        {/* Export */}
+        {/* Export: se queda también en solo lectura. Sin el PDF no pueden
+            imprimir el cartel, que es justo para lo que existe la página. */}
         <ExportPanel
           exporting={exporting}
           onExport={doExport}
           mm={cfg.canvas.mm}
           dpi={cfg.canvas.dpi ?? 300}
+          canvas={cfg.canvas}
         />
 
+        {!soloLectura && (
+        <>
         {/* Templates */}
         <Section title="Templates" icon="🎨">
           <div className="grid grid-cols-2 gap-2">
@@ -2262,6 +2313,8 @@ export default function QrPosterEditor({
             })}
           </div>
         </Section>
+        </>
+        )}
       </div>
 
       {/* ─────────────────────── Canvas ─────────────────────── */}
@@ -2270,6 +2323,7 @@ export default function QrPosterEditor({
             El panel de la izquierda tiene su propio scroll: estando en las
             últimas secciones, guardar obligaba a subir hasta arriba. Aquí
             arriba a la derecha no se mueve. */}
+        {!soloLectura && (
         <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center justify-end gap-2">
           <AutosaveStatus
             state={autosaveState}
@@ -2307,8 +2361,12 @@ export default function QrPosterEditor({
             {saving ? 'Guardando…' : 'Guardar diseño'}
           </button>
         </div>
+        )}
 
-      <div ref={containerRef} className="flex items-start justify-center">
+      <div
+        ref={containerRef}
+        className={`flex items-start justify-center${soloLectura ? ' pointer-events-none select-none' : ''}`}
+      >
         <div className="bg-bg2/40 p-4 rounded-2xl shadow-card">
           <div
             style={{
@@ -3476,12 +3534,15 @@ function ExportPanel({
   onExport,
   mm,
   dpi,
+  canvas,
 }: {
   exporting: 'png' | 'jpg' | 'pdf' | null;
   onExport: (k: 'png' | 'jpg' | 'pdf') => void;
   mm?: { w: number; h: number };
   dpi: number;
+  canvas: QrPosterConfig['canvas'];
 }) {
+  const px = pixelesDeExport(canvas);
   return (
     <div className="card card-pad space-y-2">
       <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
@@ -3511,8 +3572,20 @@ function ExportPanel({
         />
       </div>
       <div className="text-[11px] text-mute leading-relaxed">
-        {dpi} DPI sobre {mm?.w ?? 210}×{mm?.h ?? 297} mm.
+        {px.dpiReal} DPI sobre {mm?.w ?? 210}×{mm?.h ?? 297} mm ·{' '}
+        <span className="tabular-nums">
+          {px.w}×{px.h} px
+        </span>
+        .
       </div>
+      {px.recortadoPorElNavegador && (
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed">
+          Pediste {dpi} DPI, pero a este tamaño el navegador solo llega a{' '}
+          <strong>{px.dpiReal}</strong>. Se descarga a {px.dpiReal} DPI, que
+          para imprimir sigue estando bien. Forzarlo más devolvería un archivo
+          en blanco.
+        </div>
+      )}
     </div>
   );
 }

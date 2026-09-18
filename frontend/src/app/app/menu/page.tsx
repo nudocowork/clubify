@@ -1055,13 +1055,10 @@ export default function MenuEditor() {
           >
             🎨 {t('configureStorefrontBtn', { label: mainLabel.toLowerCase() })}
           </Link>
-          <Link
-            href="/app/info-links"
-            className="btn-ghost"
-            title={t('infoLinksTitle')}
-          >
-            🔗 {t('infoLinks')}
-          </Link>
+          {/* InfoLinks se fue de aquí al menú lateral, bajo «Menú libro»
+              (Javier, 2026-09-18): es una mini-página del negocio, no una
+              parte del catálogo, y en esta fila de botones no la veía nadie.
+              Ver `AppShell.tsx`, sección del catálogo. */}
           <button className="btn-ghost" onClick={() => setShowAdicionales(true)}>
             <Icon name="plus" /> {t('addons')}
           </button>

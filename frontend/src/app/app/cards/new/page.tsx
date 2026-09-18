@@ -1978,10 +1978,12 @@ function CouponTransformTargetPicker({
         <option value={INDEFINIDO}>{t('indefinite')}</option>
       </select>
       <div className="text-[11px] text-mute mt-1 leading-snug">
+        {/* Estaban en español fijo: un negocio en inglés o portugués leía
+            esto en español (ver `Tenant.locale`). Las claves ya existían. */}
         {couponIndefinido
-          ? 'La tarjeta no se gasta: el cliente la puede usar en cada visita, siempre. Úsalo para beneficios permanentes —el 2x1 de los martes, el descuento de los socios—, no para una promoción de una sola vez.'
+          ? t('indefiniteHint')
           : !transformOnRedeem
-            ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+            ? t('couponUsedHint')
             : t('transformHint')}
       </div>
     </div>

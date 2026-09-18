@@ -695,6 +695,10 @@ export default function ScanPage() {
             ...res.pass,
           },
           justTransformedFromCoupon: true,
+          // El estado se arrastra con `...data`: sin esto, el aviso del cupón
+          // indefinido de un canje anterior seguiría pintado junto al de la
+          // transformación, diciendo dos cosas distintas a la vez.
+          cuponIndefinidoCanjeado: false,
         });
       } else {
         setData({
@@ -710,6 +714,14 @@ export default function ScanPage() {
             status: res.pass.status,
             lastActivityAt: res.pass.lastActivityAt,
           },
+          // El cupón que NO se gasta (indefinido) se canjea y todo sigue igual
+          // en pantalla: mismo «Disponible», mismo botón. Sin una señal, el
+          // cajero vuelve a pulsar y cada toque de más es otro canje contado y
+          // otro push al cliente.
+          cuponIndefinidoCanjeado:
+            action === 'REDEEM' &&
+            isCouponLike(data.pass.card.type) &&
+            res.pass.status === 'ACTIVE',
         });
       }
       setTopeBloqueado(null);
@@ -1278,6 +1290,19 @@ export default function ScanPage() {
                 <div className="text-xs text-emerald-800/80">
                   La tarjeta del cliente se actualizó automáticamente
                   a sellos. Ya puede empezar a acumular.
+                </div>
+              </div>
+            )}
+
+            {data.cuponIndefinidoCanjeado && (
+              <div className="mt-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm leading-relaxed text-center">
+                <div className="text-2xl mb-1">✅</div>
+                <div className="font-semibold text-base mb-1">
+                  Cupón canjeado
+                </div>
+                <div className="text-xs text-emerald-800/80">
+                  Este cupón no se gasta: el cliente lo puede volver a usar en
+                  su próxima visita. No hace falta volver a pulsar.
                 </div>
               </div>
             )}

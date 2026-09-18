@@ -749,18 +749,34 @@ export class StampsService {
             ? 'Tus sellos se conservan. Sigue sumando para tu premio.'
             : 'Ya tienes tu tarjeta de sellos. Empieza a sumar para tu premio.',
         }
-      : // El canje del PREMIO cae en la misma trampa, y es el momento que más
-        // importa de toda la tarjeta: el cliente completa el cartón, se lleva
-        // lo suyo y el contador vuelve a cero. Con el contador a cero el aviso
-        // genérico de Google no sale, así que en Android no le llegaba nada
-        // justo cuando ganó algo. Medido: 17 de los 29 canjes de premio del
-        // último mes fueron en Google.
-        dto.action === 'REDEEM'
+      : // El cupón INDEFINIDO no se gasta: no se transforma en nada y su pase
+        // sigue disponible. Decirle «tu tarjeta vuelve a empezar desde cero»
+        // sería mentirle en cada visita —y en Android este push es lo único
+        // que ve—. Es el beneficio permanente: el 2x1 de los martes.
+        isCouponRedeem && indefinido
         ? {
-            header: '¡Premio canjeado!',
-            body: 'Disfrútalo. Tu tarjeta vuelve a empezar desde cero.',
+            header: '¡Cupón canjeado!',
+            body: 'Tu beneficio sigue disponible para la próxima visita.',
           }
-        : undefined;
+        : // El cupón de un solo uso que no se convierte en tarjeta de sellos:
+          // ese sí se acabó.
+          isCouponRedeem
+          ? {
+              header: '¡Cupón canjeado!',
+              body: 'Disfrútalo. Este cupón ya queda usado.',
+            }
+          : // El canje del PREMIO cae en la misma trampa, y es el momento que
+            // más importa de toda la tarjeta: el cliente completa el cartón, se
+            // lleva lo suyo y el contador vuelve a cero. Con el contador a cero
+            // el aviso genérico de Google no sale, así que en Android no le
+            // llegaba nada justo cuando ganó algo. Medido: 17 de los 29 canjes
+            // de premio del último mes fueron en Google.
+            dto.action === 'REDEEM'
+            ? {
+                header: '¡Premio canjeado!',
+                body: 'Disfrútalo. Tu tarjeta vuelve a empezar desde cero.',
+              }
+            : undefined;
 
     this.jobs
       .enqueue('wallet.push', {

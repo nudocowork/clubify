@@ -998,6 +998,14 @@ export default function AppShell({
                 // categoría (cualquier negocio puede usar el menú digital).
                 { href: '/app/menu', label: menuLabel, icon: 'menu' },
                 { href: '/app/menu-book', label: tNav('bookMenu'), icon: 'book' },
+                // InfoLink vive aquí, no como botón dentro del Menú (Javier,
+                // 2026-09-18). Es una mini-página propia del negocio, no una
+                // parte del catálogo, y metida entre los botones del menú no
+                // la encontraba nadie. Va SIN `module` a propósito: el botón
+                // que sustituye tampoco estaba gateado, así que moverlo no
+                // cambia quién lo ve. (El cartel es «QR InfoLink», en
+                // Marketing; esto es el editor de la mini-página.)
+                { href: '/app/info-links', label: tNav('infoLink'), icon: 'spark' },
                 { href: '/app/translations', label: tNav('translations'), icon: 'spark' },
                 { href: '/app/orders', label: tNav('orders'), icon: 'shopping-bag', module: 'orders' },
                 { href: '/app/analytics', label: tNav('analytics'), icon: 'history', module: 'analytics' },

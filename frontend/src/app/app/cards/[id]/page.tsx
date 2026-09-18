@@ -1003,6 +1003,11 @@ function EditCardModal({
     // Los cupones anteriores a este campo vienen en true, que es lo que el
     // sistema hacía siempre.
     transformOnRedeem: (card as any).transformOnRedeem !== false,
+    // El cupón que NO se gasta: se puede canjear en cada visita. La opción
+    // existía en el asistente de creación pero no aquí, así que una tarjeta ya
+    // creada no había forma de pasarla a indefinido (Javier, 2026-09-18). En
+    // producción eso dejó 77 cupones y NINGUNO indefinido.
+    couponIndefinido: (card as any).couponIndefinido === true,
   });
   // Buffer raw del input de multiRewards: el array `form.multiRewards`
   // solo guarda entradas válidas (at>0 + reward no vacío), pero mientras
@@ -1097,6 +1102,7 @@ function EditCardModal({
       if (isCouponType) {
         payload.transformIntoCardId = form.transformIntoCardId;
         payload.transformOnRedeem = form.transformOnRedeem;
+        payload.couponIndefinido = form.couponIndefinido;
       }
       await api(`/cards/${card.id}`, {
         method: 'PATCH',
@@ -1344,22 +1350,32 @@ function EditCardModal({
                 {t('transformInto')}{' '}
                 <span className="text-mute font-normal">{t('targetStampsCard')}</span>
               </label>
-              {/* Tres estados, no dos: `transformIntoCardId = null` ya
-                  significa "auto", así que "a ninguna" necesita su propio
-                  valor (`transformOnRedeem` en el backend). */}
+              {/* CUATRO estados, no dos: `transformIntoCardId = null` ya
+                  significa "auto", así que "a ninguna" necesita su propio valor
+                  (`transformOnRedeem`) y "se puede canjear siempre" el suyo
+                  (`couponIndefinido`). Indefinido MANDA sobre los otros dos:
+                  transformar un cupón indefinido sería justamente dejar de ser
+                  un cupón, así que va con `transformOnRedeem` en false. Mismo
+                  orden y mismos valores que el asistente de creación
+                  (`cards/new/page.tsx`), para que la tarjeta se edite como se
+                  creó. */}
               <select
                 className="input"
                 value={
-                  !form.transformOnRedeem
-                    ? '__none__'
-                    : (form.transformIntoCardId ?? '')
+                  form.couponIndefinido
+                    ? '__indefinido__'
+                    : !form.transformOnRedeem
+                      ? '__none__'
+                      : (form.transformIntoCardId ?? '')
                 }
                 onChange={(e) => {
                   const v = e.target.value;
                   setForm({
                     ...form,
-                    transformIntoCardId: v === '__none__' ? null : v || null,
-                    transformOnRedeem: v !== '__none__',
+                    transformIntoCardId:
+                      v === '__none__' || v === '__indefinido__' ? null : v || null,
+                    transformOnRedeem: v !== '__none__' && v !== '__indefinido__',
+                    couponIndefinido: v === '__indefinido__',
                   });
                 }}
               >
@@ -1370,11 +1386,14 @@ function EditCardModal({
                   </option>
                 ))}
                 <option value="__none__">{t('noTransform')}</option>
+                <option value="__indefinido__">{t('indefinite')}</option>
               </select>
               <div className="text-[11px] text-mute mt-1 leading-snug">
-                {!form.transformOnRedeem
-                  ? t('couponUsedHint')
-                  : t('transformHint')}
+                {form.couponIndefinido
+                  ? t('indefiniteHint')
+                  : !form.transformOnRedeem
+                    ? t('couponUsedHint')
+                    : t('transformHint')}
               </div>
             </div>
           )}

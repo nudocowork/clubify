@@ -8,6 +8,117 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (50) — El cupón que no se gasta, InfoLink al menú lateral, Sellea sin editor de cartel, y los carteles salían a la MITAD de los DPI
+
+Cuatro cosas de una tarde. **Sin migración**: todo lo que se toca ya existía en
+la base.
+
+### 1. Los carteles QR salían a 150 DPI diciendo 300 — lo más grave
+
+Javier pidió exportar en CMYK para imprenta. Investigando salió que el problema
+de fondo no era el color:
+
+`doExport` llamaba a `stage.toDataURL({ pixelRatio })` **sin `width`/`height`**.
+Sin ellos Konva usa `getClientRect()`, que devuelve el rectángulo **ya escalado
+por el zoom de pantalla** (`Container.getClientRect` → `_transformedRect`; el
+Stage no lo sobreescribe). Y el lienzo se dibuja a 540 px cuando el diseño mide
+1080. Resultado medido:
+
+| Lo que pedías | Lo que salía |
+|---|---|
+| A4 a 300 DPI | 1240 px de ancho = **150 DPI** |
+| A4 a 300 DPI, ventana estrecha | 643 px = **78 DPI** |
+| A4 a 600 DPI «vinilo» | **300 DPI** |
+
+**Todo lo que se mandó a imprenta hasta hoy salió así.** Ahora
+`geometriaDeExport` (`frontend/src/lib/marketing/qr-poster-config.ts`) pasa
+`x/y/width/height` y divide el ratio por la escala: 2480 px en A4, DPI reales, e
+**independiente del ancho de la ventana**. Recortar al lienzo además arregla que
+el PDF se deformara si algún elemento se salía del cartel.
+
+**Y arreglarlo destapó otro fallo**, que por eso va en el mismo commit: Safari en
+iPhone/iPad no admite más de 16,7 MP de área de canvas, y al pasarse **no lanza
+error, devuelve la imagen en blanco**. Antes no se alcanzaba porque el export
+salía a la mitad. Un A3 a 300 (17,4 MP) o un A4 a 450/600 se pasan. Ahora se
+recorta al máximo que quepa, la pantalla **dice los DPI reales** en vez de
+mentir, y si aun así el navegador devuelve algo vacío, salta un error explicando
+qué hacer en vez de descargar un archivo en blanco.
+
+El panel de descargas enseña ahora los píxeles («300 DPI sobre 210×297 mm ·
+2480×3509 px»). Eso solo habría delatado esto hace meses.
+
+**Comprobado ejecutándolo**, no de memoria:
+`scratchpad/arreglos/comprobar-dpi.mjs` compila el módulo REAL con esbuild y
+llama a las funciones de verdad; 13 comprobaciones. Con `--antes` reproduce la
+fórmula vieja y **caen 10**, así que el chequeo sabe ponerse en rojo. El
+frontend no tiene runner de tests, así que esta aritmética queda sin red en CI:
+si alguien toca `geometriaDeExport`, hay que volver a correr ese script.
+
+**El CMYK sigue pendiente** y es trabajo aparte (~2 días). Lo investigado:
+Ghostscript **queda descartado** (AGPL; Artifex prohíbe expresamente el uso en
+SaaS sin abrir el código). `sharp` sí hace CMYK en JPEG/TIFF pero **no PDF**, y
+—verificado ejecutándolo— convierte el negro a C7 M9 Y7 K91: **un QR en cuatro
+tintas puede dejar de escanear**. El camino bueno es híbrido: cartel en CMYK como
+imagen + **QR vectorial en K 100 %** con PDFKit (MIT), con 3 mm de sangrado.
+`QrPoster.lastExportUrl` ya existe para esto.
+
+### 2. El cupón que se puede redimir siempre
+
+`Card.couponIndefinido` existía en la base, el backend lo respetaba al canjear y
+el **asistente de creación** ya ofrecía la opción… pero el **editor** de una
+tarjeta ya creada nunca la pintó. Por eso en producción hay **77 cupones y
+CERO indefinidos**: había que acertar al crearla y no volver a tocarla.
+
+De la revisión de Fable, tres textos que le mentían al cliente final:
+
+- El push de Android decía «Tu tarjeta vuelve a empezar desde cero» **en cada
+  uso** de un beneficio permanente. Ahora: «Tu beneficio sigue disponible para la
+  próxima visita».
+- **El escáner no daba ninguna señal** al canjear un indefinido: mismo
+  «Disponible», mismo botón. El cajero vuelve a pulsar y cada toque de más es
+  otro canje contado y otro push al cliente — con 557 canjes de cupón en 30 días,
+  la acción más frecuente del escáner.
+- El editor prometía «siempre» sin decir que **los cupones YA canjeados no
+  reviven** (`Pass.status = COMPLETED`, y nada lo reabre). En producción hay 16
+  así, 14 de una sola tarjeta. Queda dicho en el texto de ayuda.
+
+De paso, dos textos del asistente estaban en español fijo: un negocio en inglés
+o portugués los leía en español.
+
+### 3. InfoLink, del Menú al menú lateral
+
+Sale de la fila de botones de `/app/menu` y entra en el lateral, bajo «Menú
+libro» (Catálogo). **Para todos los negocios**, no solo Sellea: es una
+reubicación, no un permiso — y gana, porque esa fila de ocho botones era la única
+puerta que tenía.
+
+### 4. Sellea: las 5 páginas de QR sin editor
+
+Humberto no quiere que sus negocios editen el cartel. Queda el cartel, su enlace
+y las descargas PNG/JPG/PDF; se va el editor entero. **Fijo para la marca
+Sellea** (decisión de Javier frente a un interruptor en superadmin), resuelto por
+host con `useAuthBrand`.
+
+Lo que más cuidado llevó no se ve: ese editor **guarda solo** —autoguardado cada
+2,5 s, guardado al desmontar, reintentos y ⌘Z—, y el guardado al desmontar es el
+que en su día mandó el `defaultConfig` al servidor y dejó los carteles con todo
+en la esquina. En modo Sellea **no escribe por ningún camino**, y el lienzo va
+con `pointer-events: none` porque hay nueve `draggable` repartidos por las capas.
+Los diseños guardados se quedan intactos; si se vuelve a encender, aparecen.
+
+### Pendiente / ojo
+
+- **Los SMS a Sara, Samu y Javi no salieron**: el clasificador de permisos de la
+  sesión bloquea el envío. Textos listos en el scratchpad.
+- El **Lab** (tickets de Humberto) se investigó pero **no se tocó**: va aparte.
+  Resumen: una propuesta de Sellea **nunca** aparece en el feed de Clubify, y es
+  por diseño (`lab-access.ts`, decisión de Javier del 2026-09-15). El seguimiento
+  se hace en `/admin/lab` → «Todas». Y «Aprobar» pone `EVALUATING`, no
+  `APPROVED`.
+- Sigue en el árbol trabajo **de la otra máquina**, intacto y fuera del commit:
+  `backend/src/auth/auth.service.ts`, `reset-sms.spec.ts` y
+  `backend/src/marketing/meta-capi.ts`.
+
 ## 2026-09-17 (49) — Las comisiones de Contabilidad salen del módulo, el socio sale de la utilidad y la nómina admite al que faltó
 
 **Qué:** el segundo documento de Sara. Tres cosas, más un arreglo en producción.

@@ -831,6 +831,131 @@ export function pixelRatioFor300Dpi(canvas: CanvasConfig): number {
   return pixelRatioForDpi({ ...canvas, dpi: 300 });
 }
 
+/**
+ * La geometría EXACTA con la que hay que pedirle el bitmap al Stage.
+ *
+ * EL FALLO (2026-09-18): el export salía a la MITAD de los DPI que anuncia el
+ * panel, y encima variable según el ancho de la ventana. `toDataURL` sin
+ * `width`/`height` hace que Konva use `getClientRect()`, que devuelve el
+ * rectángulo YA ESCALADO por el zoom con el que se ve el lienzo en pantalla
+ * (`Container.getClientRect` → `_transformedRect`; el Stage no lo sobreescribe).
+ * Como el lienzo se dibuja a 540 px de ancho cuando el diseño mide 1080, un A4
+ * a «300 DPI» se descargaba con 1240 px de ancho: 150 DPI reales. En una
+ * ventana estrecha, menos todavía. Todo lo que se mandó a imprenta hasta hoy
+ * salió así.
+ *
+ * Dos arreglos en uno:
+ *  - `pixelRatio / escalaEnPantalla` deshace ese escalado y devuelve los píxeles
+ *    que de verdad corresponden a los DPI pedidos;
+ *  - dar `x/y/width/height` recorta al LIENZO y no al contenido. Sin ellos, el
+ *    recorte es el bounding box de lo dibujado: si algo se sale del lienzo el
+ *    PDF salía deformado al estirarlo a los mm de la página, y el PNG —que
+ *    esconde el fondo para quedar transparente— salía sin sus márgenes.
+ *
+ * `escalaEnPantalla` es el `scaleX` del Stage (ancho en pantalla ÷ `canvas.w`).
+ */
+export function geometriaDeExport(
+  canvas: CanvasConfig,
+  escalaEnPantalla: number,
+  topeDeArea: number = TOPE_AREA_CANVAS,
+): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  pixelRatio: number;
+  /** Los DPI que de verdad va a tener el archivo (≤ los pedidos). */
+  dpiReal: number;
+  /** true si hubo que bajar la resolución para no pasarse del tope. */
+  recortadoPorElNavegador: boolean;
+} {
+  // Un cero o un NaN aquí daría un canvas de tamaño infinito y el navegador
+  // devolvería un dataURL vacío, sin error: mejor caer al 1:1.
+  const escala =
+    Number.isFinite(escalaEnPantalla) && escalaEnPantalla > 0
+      ? escalaEnPantalla
+      : 1;
+  const { pixelRatio, dpiReal, recortadoPorElNavegador } = ratioConTope(
+    canvas,
+    topeDeArea,
+  );
+  return {
+    x: 0,
+    y: 0,
+    width: canvas.w * escala,
+    height: canvas.h * escala,
+    pixelRatio: pixelRatio / escala,
+    dpiReal,
+    recortadoPorElNavegador,
+  };
+}
+
+/**
+ * Tope de ÁREA de un canvas, en píxeles.
+ *
+ * Safari en iPhone/iPad no admite más de 16.777.216 px de área, y al pasarse no
+ * lanza ningún error: pinta el canvas en blanco y `toDataURL()` devuelve una
+ * imagen vacía. El cliente se descarga un archivo en blanco y no se entera
+ * hasta que lo abre —o hasta que la imprenta se lo dice—.
+ *
+ * Hasta hoy no se alcanzaba porque el export salía a la mitad de tamaño por el
+ * fallo que arregla `geometriaDeExport`. Al exportar por fin al tamaño real, un
+ * A3 a 300 DPI (17,4 MP) o un A4 a 450 (19,6 MP) se pasan. Así que el arreglo
+ * de los DPI y este tope van juntos, obligatoriamente.
+ *
+ * Se aplica en TODOS los navegadores, aunque un Chrome de escritorio aguante
+ * bastante más: vale más un cartel a 293 DPI que uno en blanco, y la pantalla
+ * dice siempre los DPI reales para que nadie mande a imprenta creyendo otra
+ * cosa (`dpiReal`).
+ */
+export const TOPE_AREA_CANVAS = 16_777_216;
+
+function ratioConTope(
+  canvas: CanvasConfig,
+  topeDeArea: number,
+): { pixelRatio: number; dpiReal: number; recortadoPorElNavegador: boolean } {
+  const pedido = pixelRatioForDpi(canvas);
+  const dpi = canvas.dpi ?? 300;
+  const areaLogica = canvas.w * canvas.h;
+  if (!(topeDeArea > 0) || areaLogica <= 0) {
+    return { pixelRatio: pedido, dpiReal: dpi, recortadoPorElNavegador: false };
+  }
+  if (areaLogica * pedido * pedido <= topeDeArea) {
+    return { pixelRatio: pedido, dpiReal: dpi, recortadoPorElNavegador: false };
+  }
+  // Margen del 0,5 %: Konva redondea hacia arriba el tamaño del lienzo
+  // (`Math.ceil` en `_toKonvaCanvas`) y el navegador tiene su propio redondeo,
+  // así que apuntar al tope EXACTO se pasa por unos miles de píxeles — y
+  // pasarse, aquí, es un archivo en blanco sin aviso. Perder medio por ciento
+  // de resolución no se ve; pasarse se ve entero.
+  const maximo = Math.sqrt((topeDeArea * 0.995) / areaLogica);
+  return {
+    pixelRatio: maximo,
+    // Los DPI que salen de ese ratio, redondeados hacia abajo para no volver a
+    // prometer de más.
+    dpiReal: Math.floor(dpi * (maximo / pedido)),
+    recortadoPorElNavegador: true,
+  };
+}
+
+/** Los píxeles que tendrá el archivo exportado. Para enseñárselos al cliente:
+ *  «300 DPI» no significa nada si no ve el tamaño real. */
+export function pixelesDeExport(
+  canvas: CanvasConfig,
+  topeDeArea: number = TOPE_AREA_CANVAS,
+): { w: number; h: number; dpiReal: number; recortadoPorElNavegador: boolean } {
+  const { pixelRatio, dpiReal, recortadoPorElNavegador } = ratioConTope(
+    canvas,
+    topeDeArea,
+  );
+  return {
+    w: Math.round(canvas.w * pixelRatio),
+    h: Math.round(canvas.h * pixelRatio),
+    dpiReal,
+    recortadoPorElNavegador,
+  };
+}
+
 /** Re-escala todas las posiciones del cfg a un canvas nuevo, manteniendo
  *  cada elemento en la misma posición RELATIVA. Tamaños se preservan
  *  para que el texto/QR no se distorsione. Si después del re-escalado
