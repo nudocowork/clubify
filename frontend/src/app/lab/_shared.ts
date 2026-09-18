@@ -135,6 +135,28 @@ export const VOTE_META: Record<
  * Solo se pinta donde hay `brand`, que el backend rellena únicamente para el
  * equipo de la plataforma: un negocio o un afiliado nunca ve nada de esto.
  */
+/** El orden del proceso. Rechazar no es avanzar: va aparte. */
+export const ESCALERA: LabStatus[] = [
+  'PENDING',
+  'EVALUATING',
+  'APPROVED',
+  'IN_DEVELOPMENT',
+  'IN_TESTING',
+  'IMPLEMENTED',
+];
+
+/**
+ * Los pasos hacia DELANTE que se le ofrecen a una propuesta: los permitidos
+ * por el backend (`siguientesEstados`) que van más allá de donde está. Sin
+ * `siguientesEstados` —cualquiera que no sea el equipo— no sale ninguno.
+ */
+export function pasosAdelante(p: { status: LabStatus; siguientesEstados?: LabStatus[] }): LabStatus[] {
+  const aqui = ESCALERA.indexOf(p.status);
+  return (p.siguientesEstados ?? []).filter(
+    (e) => e !== 'REJECTED' && ESCALERA.indexOf(e) > aqui,
+  );
+}
+
 export const NARANJA_MARCA = {
   /** Etiqueta con el nombre de la marca. */
   chip: 'bg-marca-blanca-soft text-marca-blanca-ink border border-marca-blanca/40',

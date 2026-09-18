@@ -15,6 +15,8 @@ import {
   type LabCategory,
   type LabStatus,
   type Proposal,
+  ESCALERA,
+  pasosAdelante,
 } from '../../lab/_shared';
 import { AdjuntoLab } from '../../lab/AdjuntoLab';
 import { LabFeed } from '../../lab/LabFeed';
@@ -521,12 +523,6 @@ function enCurso(items: Proposal[] | null): number {
 }
 
 /**
- * El orden del proceso, para saber qué es «avanzar». Rechazar no es avanzar:
- * va aparte, en «Cambiar estado», para que no se pulse por accidente.
- */
-const ESCALERA: LabStatus[] = ['PENDING', 'EVALUATING', 'APPROVED', 'IN_DEVELOPMENT', 'IN_TESTING', 'IMPLEMENTED'];
-
-/**
  * Los tickets de las marcas, agrupados por dónde están del proceso.
  *
  * Cada uno lleva botones para AVANZARLO un paso («→ En desarrollo»,
@@ -564,10 +560,8 @@ function TicketsMarcasTab({
             </h3>
             <div className="grid gap-3">
               {delGrupo.map((p) => {
-                const aqui = ESCALERA.indexOf(p.status);
-                const adelante = (p.siguientesEstados ?? []).filter(
-                  (e) => e !== 'REJECTED' && ESCALERA.indexOf(e) > aqui,
-                );
+                // La misma regla que el feed público: una sola, en `_shared`.
+                const adelante = pasosAdelante(p);
                 return (
                   <ProposalRow
                     key={p.id}

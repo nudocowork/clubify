@@ -159,10 +159,32 @@ export function filtroPlataforma(
     : { whiteLabelId: null };
 }
 
-/** WHERE del feed de quien mira: cada marca ve SU Lab. */
+/**
+ * WHERE del feed de quien mira.
+ *
+ *  - Una MARCA ve solo su Lab.
+ *  - Los NEGOCIOS y EMBAJADORES de Clubify ven solo el de Clubify (y las
+ *    históricas sin marca).
+ *  - El EQUIPO de Clubify ve el de TODAS las marcas.
+ *
+ * Lo último es de 2026-09-18. Javier, después de buscar tres veces los tickets
+ * de Humberto: «Humberto crea la propuesta, aparece en Clubify, Javier le da en
+ * desarrollo… pero aquí no me aparece, en color naranja, para ir actualizando
+ * el proceso y que en Sellea vean cómo va». Quería verlos en el Lab PÚBLICO,
+ * que es el que usa, y no en la moderación.
+ *
+ * La barrera que NO se mueve es la de los negocios y embajadores de Clubify: si
+ * vieran los tickets de Sellea verían lo que pide Humberto —y descubrirían que
+ * Sellea es una marca blanca de Clubify—. Esa regla la fija una prueba
+ * (`lab-access.spec.ts`), que es lo que hay que mirar antes de tocar esto.
+ */
 export function filtroDeMarca(visor: LabVisor): Prisma.LabProposalWhereInput {
   if (visor.alcance === 'MARCA_ADMIN') {
     return { whiteLabelId: visor.whiteLabelId };
+  }
+  if (visor.alcance === 'PLATAFORMA_EQUIPO') {
+    // Sin filtro de marca: el equipo modera a todas y las ve todas.
+    return {};
   }
   return filtroPlataforma(visor.clubifyId);
 }

@@ -374,7 +374,25 @@ export class LabService {
       }),
       this.prisma.labProposal.count({ where }),
     ]);
-    return { items, total, take, skip };
+    if (visor.alcance !== 'PLATAFORMA_EQUIPO') {
+      return { items, total, take, skip };
+    }
+    // Solo el equipo: la etiqueta de la marca —que es lo que pinta la tarjeta
+    // en naranja— y los pasos a los que puede mover cada propuesta, para
+    // avanzarla desde el mismo feed sin ir a la moderación.
+    const etiquetas = await this.etiquetasDeMarca(
+      items.map((p) => p.whiteLabelId),
+      visor.clubifyId,
+    );
+    return {
+      items: conEtiquetaDeMarca(items, etiquetas, visor.clubifyId).map((p) => ({
+        ...p,
+        siguientesEstados: transicionesPermitidas(p.status),
+      })),
+      total,
+      take,
+      skip,
+    };
   }
 
   /**

@@ -19,6 +19,8 @@ import {
   PRIORITY_META,
   colorDeMarca,
   formatRelative,
+  NARANJA_MARCA,
+  pasosAdelante,
   puedeAdjuntarEnLab,
   type LabCategory,
   type LabPriority,
@@ -26,6 +28,7 @@ import {
   type Proposal,
 } from './_shared';
 import { SubirAdjunto } from './SubirAdjunto';
+import { MarcaEtiqueta } from './MarcaEtiqueta';
 import { useLabContexto } from './useLabContexto';
 
 type SortBy = 'top' | 'newest' | 'topMonth';
@@ -84,6 +87,19 @@ export function LabFeed({
     } catch (e: any) {
       toast(e?.message ?? 'Error cargando propuestas', 'error');
       setItems([]);
+    }
+  }
+
+  async function mover(p: Proposal, estado: LabStatus) {
+    try {
+      await api(`/admin/lab/proposals/${p.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: estado }),
+      });
+      toast(`«${p.title}» → ${STATUS_META[estado].label}`, 'success');
+      await load();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo cambiar el estado', 'error');
     }
   }
 
@@ -211,7 +227,12 @@ export function LabFeed({
 
       <div className="grid gap-3 sm:grid-cols-2">
         {items?.map((p) => (
-          <ProposalCard key={p.id} proposal={p} href={detalleHref(p.id)} />
+          <ProposalCard
+            key={p.id}
+            proposal={p}
+            href={detalleHref(p.id)}
+            onMover={(prop, estado) => void mover(prop, estado)}
+          />
         ))}
       </div>
 
@@ -231,13 +252,41 @@ export function LabFeed({
   );
 }
 
-function ProposalCard({ proposal, href }: { proposal: Proposal; href: string }) {
+/**
+ * Una propuesta en el feed.
+ *
+ * Para el EQUIPO de Clubify, las de una marca blanca salen en NARANJA con el
+ * nombre de la marca, y todas traen botones para avanzarlas un paso (Javier,
+ * 2026-09-18: «que aparezca en color naranja para ir actualizando el proceso,
+ * y que en Sellea vean cómo va»). Lo que se mueve aquí lo ve Humberto en su Lab
+ * en el acto: es la misma propuesta.
+ *
+ * Nadie más ve nada de esto: `brand` y `siguientesEstados` solo los manda el
+ * backend al equipo. Un negocio o un embajador de Clubify ve la tarjeta de
+ * siempre, y ninguna de Sellea.
+ *
+ * Los botones van FUERA del enlace: un botón dentro de un `<a>` no es HTML
+ * válido, y pulsarlo navegaría al detalle en vez de mover la propuesta.
+ */
+function ProposalCard({
+  proposal,
+  href,
+  onMover,
+}: {
+  proposal: Proposal;
+  href: string;
+  onMover?: (p: Proposal, estado: LabStatus) => void;
+}) {
   const meta = STATUS_META[proposal.status];
   const cat = CATEGORY_META[proposal.category];
+  const adelante = pasosAdelante(proposal);
   return (
+    <div
+      className={`card block transition ${proposal.brand ? NARANJA_MARCA.fila : ''}`}
+    >
     <Link
       href={href}
-      className="card card-pad block hover:border-brand transition no-underline"
+      className="card-pad block hover:bg-bg2/40 transition no-underline"
     >
       <div className="flex items-start gap-3">
         <div className="flex flex-col items-center min-w-[44px] text-center">
@@ -254,6 +303,7 @@ function ProposalCard({ proposal, href }: { proposal: Proposal; href: string }) 
               <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
               {meta.label}
             </span>
+            <MarcaEtiqueta marca={proposal.brand} />
             <span className="badge badge-mute">
               {cat.emoji} {cat.label}
             </span>
@@ -279,6 +329,20 @@ function ProposalCard({ proposal, href }: { proposal: Proposal; href: string }) 
         </div>
       </div>
     </Link>
+      {onMover && adelante.length > 0 && (
+        <div className="px-4 pb-3 flex gap-2 flex-wrap">
+          {adelante.map((e) => (
+            <button
+              key={e}
+              className="btn-primary text-xs"
+              onClick={() => onMover(proposal, e)}
+            >
+              → {STATUS_META[e].label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

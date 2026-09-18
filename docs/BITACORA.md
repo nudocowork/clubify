@@ -8,6 +8,42 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (53) — El equipo de Clubify ve los tickets de las marcas en el Lab PÚBLICO, en naranja, y los avanza desde ahí
+
+Javier buscó tres veces los tickets de Humberto. La pestaña «Tickets de marcas» de
+la moderación (entrada 52) no era lo que quería: «Humberto crea la propuesta,
+aparece en Clubify, Javier le da en desarrollo… pero aquí no me aparece, en
+color naranja, para ir actualizando el proceso y que en Sellea vean cómo va».
+**Él trabaja en el Lab público (`/lab`), no en la moderación.**
+
+**La regla nueva de `filtroDeMarca`:**
+
+| Quién | Ve en `/lab` |
+|---|---|
+| Una marca (Humberto) | solo lo suyo |
+| Negocios y embajadores de Clubify | solo Clubify + históricas sin marca |
+| **El equipo de Clubify** | **todas las marcas** |
+
+La barrera que NO se mueve es la de los negocios y embajadores: si vieran los
+tickets de Sellea verían lo que pide Humberto y descubrirían que Sellea es una
+marca blanca nuestra. **Verificado con los datos de producción:** el equipo ve 5
+propuestas (las 2 de Sellea en naranja), un negocio de Clubify ve 3 y **0 de
+Sellea**. Y blindado: la prueba `lab-access.spec.ts` que afirmaba que equipo y
+afiliados veían lo mismo se cambió a propósito, y abriendo la barrera por error
+caen 3 pruebas.
+
+En el feed, solo para el equipo: la tarjeta de una marca sale en **naranja** con
+su nombre (`NARANJA_MARCA`, el mismo de la moderación), y cada propuesta trae
+botones para avanzarla un paso. Lo que se mueve ahí lo ve Humberto en su Lab en
+el acto: es la misma fila. Los botones van FUERA del enlace de la tarjeta (un
+botón dentro de un `<a>` navegaría al detalle en vez de mover la propuesta).
+
+Solo aparecen las ya aprobadas: el Lab público enseña los estados públicos, así
+que un ticket PENDING sigue esperando en la moderación hasta que se apruebe.
+
+La regla de «qué es avanzar» (`pasosAdelante`) queda en `lab/_shared.ts` y la usan
+el feed y la moderación: una sola copia.
+
 ## 2026-09-18 (52) — PDF para imprenta en CMYK, el Lab de las marcas y preguntar antes de cambiar todas las cartas
 
 Cuatro entregas seguidas, cada una con su commit y ya desplegadas. **Sin

@@ -158,11 +158,28 @@ describe('qué propuestas ve y toca cada uno', () => {
     prohibido(() => exigirModeracion(afiliadoClubify), LAB_MODERACION_SOLO_PLATAFORMA);
   });
 
-  it('el feed de la plataforma junta Clubify y las sin marca; el de Sellea es estricto', () => {
-    expect(filtroDeMarca(equipo)).toEqual({
+  it('los negocios y embajadores de Clubify ven SOLO Clubify (y las sin marca)', () => {
+    // LA BARRERA QUE NO SE MUEVE. Si un negocio o un embajador de Clubify viera
+    // los tickets de Sellea, vería lo que pide Humberto y descubriría que
+    // Sellea es una marca blanca de Clubify.
+    expect(filtroDeMarca(afiliadoClubify)).toEqual({
       OR: [{ whiteLabelId: null }, { whiteLabelId: CLUBIFY }],
     });
-    expect(filtroDeMarca(afiliadoClubify)).toEqual(filtroDeMarca(equipo));
+    expect(JSON.stringify(filtroDeMarca(afiliadoClubify))).not.toContain(SELLEA);
+  });
+
+  it('el EQUIPO de Clubify ve el Lab de todas las marcas', () => {
+    // Javier (2026-09-18): quería los tickets de Humberto en el Lab público,
+    // en naranja, para ir actualizándolos desde ahí. Sin filtro de marca.
+    expect(filtroDeMarca(equipo)).toEqual({});
+  });
+
+  it('el equipo y los afiliados de Clubify YA NO ven lo mismo', () => {
+    // Antes esta prueba afirmaba lo contrario. Es el cambio a propósito.
+    expect(filtroDeMarca(afiliadoClubify)).not.toEqual(filtroDeMarca(equipo));
+  });
+
+  it('una marca sigue viendo solo lo suyo', () => {
     expect(filtroDeMarca(humberto)).toEqual({ whiteLabelId: SELLEA });
   });
 
