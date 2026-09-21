@@ -8,6 +8,227 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-21 (62) — UPGRADE: sale solo el MANUAL, y una comisión ya generada no se reescribe
+
+Tres decisiones de Javier, y lo que hicieron falta:
+
+**1. Solo se suelta el camino MANUAL.** El de PASARELA está entero y probado,
+pero nunca se ha ejecutado contra un cobro real y corrige filas que crea el
+webhook. Queda detrás de `UPGRADE_POR_PASARELA=1` (variable de Railway): sin
+ella, el POST lo rechaza diciendo qué hacer y el barrido de 30 min no corre.
+Para estrenarlo: poner la variable, hacer UN upgrade por pasarela y mirarlo.
+
+**2. La comisión de un cobro por pasarela sale del monto DEL ACTA**, no del que
+traiga el aviso. El aviso de Hotmart llega casi siempre en moneda local y su
+único dólar es el «precio de oferta original», que es su conversión: en un caso
+real dio 522,38 por un plan de lista de 500. Se comisiona lo pactado; la cifra
+de la pasarela queda anotada en la nota del barrido.
+
+**3. Una comisión YA GENERADA no se reescribe con el precio de hoy.** Este es el
+arreglo del motor, y el que más lejos llega:
+
+- `recalcTenantSplit` y `recalcForRecipientCode` rehacían TODAS las pendientes
+  con `precio_actual_del_negocio × %`. Tras un upgrade el precio del negocio es
+  el anual ($500), así que la comisión de $15 de un trimestre de $150 pasaba a
+  $50 en cuanto alguien tocaba un porcentaje, una excepción o el negocio.
+- Ahora cada comisión se rehace sobre **el monto con el que nació**
+  (`baseAmountUsd`) y solo cae al precio del negocio si no lo tiene guardado —el
+  caso de 16 de los 29 negocios con comisión viva—.
+- Javier, con sus palabras: «si el cliente compra un plan mensual, se genera la
+  comisión en base a ese plan, y si hace upgrade, en base al monto del upgrade».
+- Pruebas: `referrals/comision-no-se-reescribe.spec.ts`, con el caso de Wok
+  Explosivo. Las dos guardas comprobadas en rojo.
+
+Esto es el motor de comisiones, que es terreno de Jhon: lo pidió Javier
+explícitamente y no cambia cómo se CALCULA ninguna comisión nueva, solo impide
+que se reescriba una vieja con un precio posterior.
+
+## 2026-09-21 (61) — UPGRADE a anual: segunda auditoría (SIN desplegar ni migrar)
+
+Tercera pasada sobre lo de (59) y (60). **Sin cambios de esquema**: la migración
+sigue siendo exactamente la misma y sigue sin correrse. Sin desplegar.
+
+**Lo más grave era nuestra propia instrucción.** Para subir a anual exigimos
+cancelar antes la suscripción en la pasarela. Ese aviso
+(`SUBSCRIPTION_CANCELLATION`, `hotmart.service.ts:1597-1720`) deja tres cosas
+hechas:
+
+1. `Tenant.canceledAt` con fecha → `suspendCanceledAtPeriodEnd`
+   (`billing.service.ts:757`) suspende a un negocio con el año pagado. **El
+   upgrade lo pone a NULL en su transacción.**
+2. `churnReferral` pone en CHURNED **todos** los `ReferralUse`, y la cadena de
+   atribución solo mira SIGNED_UP/ACTIVE/PAYING → el upgrade se completaba con
+   **0 comisiones y HTTP 200**. Ahora `getAttributionChain` acepta
+   `{ incluirChurned: true }` (opcional, OFF por defecto, solo lo usa el
+   upgrade) y la transacción los devuelve a PAYING.
+3. Al cliente le sale el correo de cancelación de su marca. Eso no se deshace:
+   se **avisa** en la previsualización y en el 400 del POST.
+
+Y si aun así el upgrade acaba con 0 comisiones **teniendo el negocio afiliado**,
+el acta queda marcada `REVISAR:…`, sale en la respuesta del POST, en el log y en
+un bloque nuevo `comisionesARevisar` del endpoint de pendientes.
+
+**Las comisiones que ya estaban.** El upgrade cambia la base del negocio ($68 →
+$500). En producción **16 de los 29 candidatos con comisión viva no tienen
+NINGUNA fila con `baseAmountUsd`** (20 comisiones vivas sin base, medido en
+lectura). Ahora el upgrade **congela la base PRE-upgrade** en esas filas, dentro
+de la misma transacción. No cambia ni un importe: escribe el número que el motor
+ya asume hoy. Las de monto libre (`IMPL-`, `UPG-`) se quedan fuera.
+
+> ⚠️ **Congelar solo cubre la mitad.** `recalcCommissionToExpected` (el arqueo y
+> «Corregir todo») sí lee `baseAmountUsd`. **`recalcTenantSplit` y
+> `recalcForRecipientCode` NO lo leen nunca** — siempre hacen
+> `getCommissionBase(negocio)`. Con ellos la comisión de $15 sigue pudiendo
+> pasar a $50 al tocar un %, una excepción o el PATCH del negocio. Arreglarlo es
+> tocar el motor de comisiones y no se hizo.
+
+**Camino por PASARELA — tres cosas que lo hacían inservible:**
+
+- `montoEnUsdDeHotmart` solo miraba `price`/`full_price`, y en producción **157
+  de 213 compras de 90 días llegan en moneda local** (los 6 avisos de «Plan
+  Anual», en COP). Ahora acepta también `original_offer_price`, que viene en USD
+  en **213 de 213**. Si aun así no hay importe en USD se usa el `paidAmountUsd`
+  del acta y queda escrito de dónde salió. **Se quitó el consejo de
+  «complétalo como MANUAL»**: crea un pago manual y una comisión ADEMÁS de las
+  que ya hizo la pasarela por el mismo cobro.
+- La comisión que crea el webhook sale con la periodicidad VIEJA ($13,50 donde
+  tocaban $87,50) y el ingreso como RENOVACIÓN por el precio del plan viejo. El
+  upgrade **los corrige** dentro de la transacción (importe, base, %, periodKey
+  de upgrade, nota; y el ingreso a UPGRADE/ANUAL/monto real). Si la comisión ya
+  está PAGADA **no se toca** y sale en `comisionesARevisar`.
+- El barrido exige ahora que el aviso tenga **5 minutos** antes de completar: el
+  webhook guarda el aviso al principio y crea su comisión al final, así que
+  entrar en medio creaba una comisión aquí y otra allí.
+
+**Menores:** el `catch` de `aplicar` pasa a `updateMany` condicional
+(`estado IN ('PENDIENTE','FALLIDO')`) — antes pisaba un CANCELADO con FALLIDO y
+el barrido acababa aplicando un upgrade anulado; el guardián excluye de
+«comisión posterior sospechosa» la del `gatewayTxId` del acta; la transacción
+sube a 20 s de `timeout` (el proxy público de Railway va a ~140 ms/consulta y
+ahora hay hasta 13 dentro).
+
+Verificado: `tsc --noEmit` limpio, **542 pruebas en verde** (522 → 542) en
+`src/tenants src/referrals src/billing src/finance`, eslint sin errores nuevos, y
+las **14 guardas nuevas comprobadas en rojo** una a una. La prueba de A2 usa un
+payload REAL de producción en COP (transacción HP4010214013, oferta `f4weer6x`
+«500 USD», `original_offer_price` 522,38 USD).
+
+## 2026-09-21 (60) — UPGRADE a anual: cerrada la auditoría (SIN desplegar ni migrar)
+
+Segunda pasada sobre lo de la entrada (59). Sigue **sin desplegar y sin migrar**.
+
+**Lo más grave que se cierra:** 62 de los 67 candidatos tienen suscripción viva
+en Hotmart, y su siguiente cobro del ciclo VIEJO le pisa `currentPeriodEnd` al
+negocio (un anual pagado aparece vencido → el cron de mora lo suspende), le crea
+otra comisión al afiliado y mete un ingreso de RENOVACIÓN. Dos frenos, **sin
+tocar `hotmart.service.ts` ni `stripe.service.ts`**:
+
+- **Antes:** con suscripción viva, el POST exige
+  `suscripcionAnteriorCancelada: true`. Se sella `MANUAL_CONFIRMADA` con actor y
+  fecha en el mismo acto. Sin el campo, 400 con el motivo en español.
+- **Después:** guardián diario (`vigilarCobrosViejos`, 6 UTC) que detecta
+  `currentPeriodEnd < nextRenewalAt` en un upgrade COMPLETADO, lo restaura con
+  UPDATE condicional, limpia los dedup de aviso, lo audita y lo saca en
+  `GET /tenants/upgrades/cancelaciones-pendientes`. Las comisiones nuevas del
+  negocio **no se tocan**: se dejan listadas para que las mire una persona.
+
+**Lo demás:**
+
+- «Corregir todo» del arqueo ya no reescribe comisiones viejas: `snapBases`
+  excluye `UPG-`/`IMPL-` (antes el upgrade de 350 se convertía en la base del
+  negocio y sacaba mal TODAS las mensuales), y esas filas se juzgan contra su
+  propia base. `recalcCommissionToExpected` se niega con las `UPG-`.
+- `recalcTenantSplit` y `recalcForRecipientCode` excluyen `periodKey LIKE
+  'UPG-%'` — con la rama `periodKey: null` en el OR, que si no se cae toda la
+  comisión legacy (`NOT (x LIKE …)` es NULL, no TRUE). Criterio único en
+  `backend/src/referrals/comisiones-de-monto-libre.ts`.
+- El upgrade ahora **borra `subscriptionPriceUsd`** si el negocio tenía precio
+  pactado ($50/$135/$250 legacy): si no, la renovación anual del año que viene
+  se comisionaría sobre $50. El valor viejo queda en el acta y en la auditoría,
+  y la previsualización lo avisa.
+- `POST /tenants/:id/upgrades/:upgradeId/anular` (SUPER_ADMIN, motivo
+  obligatorio). Es un acta administrativa: **no** revierte plan, ni pago, ni
+  comisión — libera el candado del único parcial. La respuesta lista lo que hay
+  que arreglar a mano.
+- **Cobro por PASARELA construido.** El acta nace PENDIENTE sin mover nada y
+  devuelve el enlace del plan ANUAL de la marca (`WhiteLabelPaymentLink`). Un
+  barrido cada 30 min lee los avisos YA guardados (`HotmartWebhookEvent` /
+  `StripeWebhookEvent`, como el conciliador) y completa por el mismo camino
+  transaccional, sin `ManualPayment`. Exige que el cobro sea **del plan ANUAL**
+  (nombre del plan en Hotmart, `recurring.interval === 'year'` en Stripe): si no,
+  la renovación de la mensual vieja completaría el upgrade por $17. `gatewayTxId`
+  es ÚNICO. Si el ingreso o la comisión de esa transacción ya existen, se
+  enlazan y **no se duplican**.
+- Menores: monto redondeado a céntimos antes de repartir; `effectiveAt` con cota
+  de 30 días hacia atrás; `cancelacionAlertaAt` conserva la fecha del PRIMER
+  aviso; corregido el comentario FALSO del orden de rutas (`@Get(':id')` casa un
+  solo segmento, nunca captura dos).
+
+**La migración se AMPLIÓ** (mismo script, aditivo e idempotente): columnas
+nuevas del acta + índice único de `gatewayTxId`. Sigue siendo el mismo comando:
+
+```bash
+cd backend
+railway run --service Postgres-Nq8w node scripts/apply-plan-upgrade-migration.cjs
+```
+
+**Pendiente:** el frontend del upgrade (campo de confirmación, botón de anular,
+método PASARELA y pantalla de pendientes) no existe. Y `IMPL-` sigue entrando en
+`recalcTenantSplit`/`recalcForRecipientCode` (bug preexistente, no se tocó).
+
+Verificado: `tsc --noEmit` limpio, 522 pruebas en verde en
+`src/tenants src/referrals src/billing src/finance`, eslint sin errores, y las
+22 guardas nuevas comprobadas **en rojo** (rompiéndolas una a una).
+
+## 2026-09-21 (59) — UPGRADE a plan ANUAL (solo backend, SIN desplegar ni migrar)
+
+Un administrador pasa un negocio de mensual/trimestral/semestral a **ANUAL**
+cobrándole una vez. Todo en una transacción: acta (`PlanUpgrade`), cobro
+(`ManualPayment`), el negocio en ANUAL con su renovación a 12 meses, el ingreso
+con categoría **UPGRADE** (la que existía y no usaba nadie) y la comisión del
+afiliado **sobre el monto realmente pagado** (350 pagados → $87,50 al 25 %, no
+los $125 del anual de lista).
+
+**Nada de esto está desplegado ni aplicado.** Falta correr la migración:
+
+```bash
+cd backend
+railway run --service Postgres-Nq8w node scripts/apply-plan-upgrade-migration.cjs
+```
+
+Es aditiva (una tabla nueva, `IF NOT EXISTS`, idempotente) y se puede correr
+antes de desplegar. Lleva un **índice único PARCIAL**
+(`WHERE estado IN ('PENDIENTE','COMPLETADO')`) que Prisma no sabe escribir: vive
+solo en el script, y un `db push` lo borraría.
+
+**Lo que NO se tocó, a propósito:** `commission-recalc.service.ts`,
+`recalcTenantSplit`, `computeExpectedCommissionRows`, `src/billing/*` y los
+modelos `Commission`/`CommissionPayout`/`PayoutBatch`. El upgrade **no** pasa
+por `PATCH /tenants/:id`: ese camino pisa `subscriptionPriceUsd` y llama a
+`recalcTenantSplit`, que reescribiría el importe de todas las comisiones PENDING
+y APPROVED del negocio.
+
+**Las cuatro trampas que costaron trabajo encontrar:**
+
+- `resolveManualPaymentPeriod` lee la periodicidad DEL NEGOCIO, que todavía es
+  mensual: hay que pasarle ANUAL a mano o el cobro cubre 30 días.
+- El `periodKey` de la comisión va como `UPG-<año>-<mes>-<id>`. Con `YYYY-MM` el
+  UNIQUE y el dedup por ciclo se la comen **en silencio** si el upgrade cae el
+  mismo mes que el último cobro.
+- El ingreso va con `externalTxId = id del ManualPayment`. Con otra referencia,
+  el conciliador nocturno le crea un segundo ingreso como RENOVACIÓN.
+- `change-plan-period` calcula la fecha con un `setMonth` sin acotar el fin de
+  mes; aquí se usa `addPlanPeriod` (29-feb + 12 meses = 28-feb, no 1-mar).
+
+**Pendiente de verdad:** la suscripción vieja de la pasarela **no se cancela**.
+En Railway solo existe `HOTMART_HOTTOK` (verificar webhooks), no hay credenciales
+de API. Queda el hueco (`cancelarSuscripcionDeLaPasarela`), el estado, un cron
+diario que marca en la BASE las que llevan más de 24 h sin cerrar
+(`cancelacionAlertaAt`) y `POST …/cancelacion-confirmada` para cerrarlas a mano.
+
+49 pruebas nuevas (vitest, sin base de datos), con las 20 guardas comprobadas en
+rojo una por una.
+
 ## 2026-09-21 (58) — El constructor de flujos de MARCA: de 4 disparadores y 5 pasos a 12 y 10
 
 Javier, comparando con TeamClubify: «los flujos de Sellea no están tan óptimos,

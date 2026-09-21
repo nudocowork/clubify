@@ -29,6 +29,11 @@ import {
   type TipoDeFecha,
 } from './rango-de-fechas';
 import { quedaSinAfiliado } from './sin-afiliado';
+import {
+  NO_ES_DEL_UPGRADE,
+  esDeMontoLibre,
+  esDelUpgrade,
+} from './comisiones-de-monto-libre';
 import { cambiarSlugConAlias } from './slug-alias';
 import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 
@@ -58,6 +63,7 @@ const TOPE_DE_CANDIDATOS = 20_000;
 // Redondeo a 2 decimales para montos monetarios (nivel módulo: lo usa el
 // cron recurrente; algunas funciones definen su propio `round2` local).
 const round2mod = (n: number) => Math.round(n * 100) / 100;
+
 
 // Fecha efectiva de desbloqueo de una comisión: la almacenada `availableAt`
 // (= pago Hotmart + 15 días, P3 2026-07-02) o, para comisiones legacy sin ese
@@ -4637,8 +4643,21 @@ export class ReferralsService {
    *    El influencer se resuelve via parentCode.
    *  - Si el code es role=INFLUENCER → solo influencer, sin embajador
    *    ni vendor.
+   *
+   * `incluirChurned` (2026-09-21) — opcional y OFF por defecto: mira también
+   * los use dados de baja. Lo usa SOLO el upgrade a plan anual, y existe por un
+   * caso concreto: para subir a anual hay que cancelar antes la suscripción
+   * vieja en la pasarela, y ese aviso (`SUBSCRIPTION_CANCELLATION`) pone en
+   * CHURNED TODOS los `ReferralUse` del negocio. Con el filtro normal la cadena
+   * sale vacía justo después de hacer lo que nosotros mismos pedimos, y el
+   * upgrade se completaría con 0 comisiones sin que nadie se entere. El upgrade
+   * los devuelve a PAYING en su transacción; esto es lo que le deja verlos
+   * ANTES de escribir nada.
    */
-  async getAttributionChain(tenantId: string): Promise<{
+  async getAttributionChain(
+    tenantId: string,
+    opts: { incluirChurned?: boolean } = {},
+  ): Promise<{
     influencer: { id: string; commissionPercent: number } | null;
     embajador: { id: string; commissionPercent: number; maxCommissionPercent: number } | null;
     vendor: { id: string; commissionPercent: number } | null;
@@ -4655,7 +4674,9 @@ export class ReferralsService {
     const uses = await this.prisma.referralUse.findMany({
       where: {
         tenantId,
-        status: { in: ['SIGNED_UP', 'ACTIVE', 'PAYING'] },
+        status: opts.incluirChurned
+          ? { in: ['SIGNED_UP', 'ACTIVE', 'PAYING', 'CHURNED'] }
+          : { in: ['SIGNED_UP', 'ACTIVE', 'PAYING'] },
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -4971,14 +4992,45 @@ export class ReferralsService {
     const { rows, mode } = await this.computeExpectedCommissionRows(tenantId, base);
     const expected = new Map(rows.map((r) => [r.recipientCodeId, r]));
 
+    /**
+     * Cada comisión se recalcula sobre el monto CON EL QUE NACIÓ, si lo tiene.
+     *
+     * Antes se usaba el precio de HOY del negocio para todas. Se ve con el
+     * upgrade a anual: el negocio pagaba $150 el trimestre —comisión de $15 aún
+     * sin pagar— y al pasarlo a anual su precio pasa a $500; el siguiente
+     * cambio de porcentaje o de excepción convertía esa comisión de $15 en una
+     * de $50, por un cobro trimestral que nunca fue de $500. En producción, 16
+     * de los 29 negocios con comisión viva no tienen ese monto guardado
+     * (2026-09-21): para esos no se puede saber, y se deja el de siempre.
+     *
+     * Javier, 2026-09-21: «si el cliente compra un plan mensual, se genera la
+     * comisión en base a ese plan».
+     */
+    const tablasPorBase = new Map<number, Map<string, { amount: number; appliedPercent: number }>>([[base, expected]]);
+    const esperadoPara = async (b: number) => {
+      const ya = tablasPorBase.get(b);
+      if (ya) return ya;
+      const { rows: r } = await this.computeExpectedCommissionRows(tenantId, b);
+      const m = new Map(r.map((x) => [x.recipientCodeId, x]));
+      tablasPorBase.set(b, m);
+      return m;
+    };
+
     const comms = await this.prisma.commission.findMany({
       where: {
         referralUse: { tenantId },
         status: { in: ['PENDING', 'APPROVED'] },
+        // La comisión del UPGRADE se queda fuera. Este recálculo hace
+        // `amount = base_actual × pct`, y la base actual del negocio después de
+        // subirlo a anual son los $500 del plan: la comisión del upgrade, que
+        // salió de los $350 que pagó de verdad, pasaría de $87,50 a $125 en
+        // cuanto alguien tocara el modo de reparto o el precio del negocio.
+        ...NO_ES_DEL_UPGRADE,
       },
       select: {
         id: true,
         amount: true,
+        baseAmountUsd: true,
         recipientCodeId: true,
         referralUse: { select: { referralCodeId: true } },
       },
@@ -4988,7 +5040,9 @@ export class ReferralsService {
     for (const c of comms) {
       const rid = c.recipientCodeId ?? c.referralUse?.referralCodeId ?? null;
       if (!rid) continue;
-      const exp = expected.get(rid);
+      const propia = Number(c.baseAmountUsd);
+      const tabla = Number.isFinite(propia) && propia > 0 ? await esperadoPara(propia) : expected;
+      const exp = tabla.get(rid);
       if (!exp) continue; // recipient fuera de la cadena actual → no tocar
       const newAmount = exp.amount;
       if (Number(c.amount) === newAmount && c.recipientCodeId === rid) continue;
@@ -5400,7 +5454,14 @@ export class ReferralsService {
       // subscriptionPriceUsd actual del negocio, que puede haber quedado en NETO
       // (ej. Valmont $148.6 → esperaba $14.86) o haber cambiado. Fallback al
       // precio real/canónico solo para filas legacy sin baseAmountUsd.
+      //
+      // Las filas de MONTO LIBRE (UPG-…, IMPL-…) NO entran en esta deducción.
+      // Su base es un monto pactado suelto —350 por pasar a anual, 500 por la
+      // implementación—, así que colarlas aquí convierte el `max` en la base de
+      // referencia del negocio y saca por mal importe TODAS las mensuales. Se
+      // evalúan aparte, cada una contra la suya (más abajo).
       const snapBases = rows
+        .filter((c) => !esDeMontoLibre(c.periodKey))
         .map((c) => Number(c.baseAmountUsd))
         .filter((v) => Number.isFinite(v) && v > 0);
       const base = snapBases.length
@@ -5409,15 +5470,20 @@ export class ReferralsService {
             t.subscriptionPriceUsd ?? null,
             t.planPeriodicity,
           );
-      const { rows: expRows } = await this.computeExpectedCommissionRows(
-        tid,
-        base,
-      );
-      const expected = new Map<string, number>();
-      for (const er of expRows) expected.set(er.recipientCodeId, er.amount);
-      if (socioCodeId && base > 0) {
-        expected.set(socioCodeId, r2((base * socioPct) / 100));
-      }
+      // Tabla de esperados por base. Memorizada: el negocio típico solo usa
+      // una (la suya), y las de monto libre reutilizan la misma si coinciden.
+      const tablasPorBase = new Map<number, Map<string, number>>();
+      const esperadoPara = async (b: number) => {
+        const yaEsta = tablasPorBase.get(b);
+        if (yaEsta) return yaEsta;
+        const { rows: expRows } = await this.computeExpectedCommissionRows(tid, b);
+        const m = new Map<string, number>();
+        for (const er of expRows) m.set(er.recipientCodeId, er.amount);
+        if (socioCodeId && b > 0) m.set(socioCodeId, r2((b * socioPct) / 100));
+        tablasPorBase.set(b, m);
+        return m;
+      };
+      const expected = await esperadoPara(base);
 
       const seen = new Set<string>();
       for (const c of rows) {
@@ -5449,8 +5515,19 @@ export class ReferralsService {
           });
           continue;
         }
+        // Una fila de MONTO LIBRE se juzga contra SU PROPIA base congelada, no
+        // contra la del negocio: el upgrade de 350 no tiene por qué parecerse
+        // al mensual de 68. Si no la tiene, no se puede decir nada de ella y se
+        // deja en paz — inventarle un esperado es exactamente el error que
+        // convertía una comisión de $17 en una de $125.
+        let tabla = expected;
+        if (esDeMontoLibre(c.periodKey)) {
+          const propia = Number(c.baseAmountUsd);
+          if (!Number.isFinite(propia) || propia <= 0) continue;
+          tabla = await esperadoPara(propia);
+        }
         const exp = c.recipientCodeId
-          ? expected.get(c.recipientCodeId)
+          ? tabla.get(c.recipientCodeId)
           : undefined;
         if (exp === undefined) {
           push({
@@ -5514,6 +5591,7 @@ export class ReferralsService {
         amountPaid: true,
         baseAmountUsd: true,
         status: true,
+        periodKey: true,
         recipientCodeId: true,
         referralUse: {
           select: {
@@ -5554,16 +5632,41 @@ export class ReferralsService {
         'La comisión no tiene destinatario: revísala manualmente.',
       );
     }
+    // La comisión de un UPGRADE no se recalcula, y punto. Su importe salió de
+    // un monto pactado una sola vez —lo que el negocio pagó de verdad por pasar
+    // a anual— y aquí no hay forma de deducirlo: recalcular la llevaría al
+    // precio ACTUAL del negocio, que después del upgrade son los $500 del
+    // anual, y convertiría una comisión de $87,50 en una de $125.
+    if (esDelUpgrade(c.periodKey)) {
+      throw new BadRequestException(
+        'Esta es la comisión de un upgrade a plan anual: se calculó sobre el monto que el ' +
+          'negocio pagó de verdad por el cambio, no sobre el precio del plan. No se recalcula ' +
+          'automáticamente. Si el importe está mal, ajústalo a mano.',
+      );
+    }
     // PDF 2026-06-30: usar el MONTO BRUTO congelado de esta comisión
     // (baseAmountUsd) — misma regla que el arqueo. Nunca el subscriptionPriceUsd
     // actual (puede ser neto/haber cambiado). Fallback canónico solo si falta.
-    const base =
+    const baseCongelada =
       c.baseAmountUsd != null && Number(c.baseAmountUsd) > 0
         ? Number(c.baseAmountUsd)
-        : await this.recalc.getCommissionBase(
-            tenant.subscriptionPriceUsd ?? null,
-            tenant.planPeriodicity,
-          );
+        : null;
+    // …y para una fila de monto libre SIN base congelada, el fallback tampoco
+    // vale: el precio del plan no tiene nada que ver con lo que se pactó por
+    // esa implementación. Sin base propia no hay esperado que valga.
+    if (baseCongelada == null && esDeMontoLibre(c.periodKey)) {
+      throw new BadRequestException(
+        'Esta comisión es de un cargo pactado aparte (implementación o upgrade) y no tiene ' +
+          'guardado el monto sobre el que se calculó. Recalcularla usaría el precio del plan ' +
+          'del negocio, que no es su base. Revísala a mano.',
+      );
+    }
+    const base =
+      baseCongelada ??
+      (await this.recalc.getCommissionBase(
+        tenant.subscriptionPriceUsd ?? null,
+        tenant.planPeriodicity,
+      ));
     const { rows } = await this.computeExpectedCommissionRows(tenant.id, base);
     const expectedMap = new Map<string, number>();
     for (const r of rows) expectedMap.set(r.recipientCodeId, r.amount);

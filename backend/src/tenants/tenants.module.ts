@@ -11,6 +11,9 @@ import { ReferralsModule } from '../referrals/referrals.module';
 import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
 import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module';
 import { FinanceModule } from '../finance/finance.module';
+import { AdminModule } from '../admin/admin.module';
+import { PlanUpgradeService } from './plan-upgrade.service';
+import { PlanUpgradeController } from './plan-upgrade.controller';
 
 @Module({
   imports: [
@@ -32,15 +35,27 @@ import { FinanceModule } from '../finance/finance.module';
     // protege a futuro.
     forwardRef(() => ReferralsModule),
     CommissionRecalcModule,
+    // El upgrade a anual resuelve el % de comisión con el MISMO helper que el
+    // motor (`CommissionExceptionsService.resolvePercent`), que AdminModule
+    // exporta. Sin ciclo: ReferralsModule ya importa AdminModule, y AdminModule
+    // no importa Tenants.
+    AdminModule,
   ],
-  providers: [TenantsService],
+  providers: [TenantsService, PlanUpgradeService],
   controllers: [
     TenantMeController,
     StaffController,
     ChangePasswordController,
     UserMeController,
+    // Aquí decía que PlanUpgradeController tenía que ir ANTES de
+    // TenantsController porque `GET /tenants/upgrades/cancelaciones-pendientes`
+    // competía con su `@Get(':id')`. **Es falso, comprobado empíricamente**:
+    // `:id` casa UN segmento y esa ruta tiene dos, así que nunca la captura. El
+    // orden entre estos dos controladores no cambia nada; se deja el que hay
+    // para no tocar por tocar.
+    PlanUpgradeController,
     TenantsController,
   ],
-  exports: [TenantsService],
+  exports: [TenantsService, PlanUpgradeService],
 })
 export class TenantsModule {}

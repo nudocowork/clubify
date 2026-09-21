@@ -132,6 +132,44 @@ export class IncomeRecordService {
   }
 
   /**
+   * Bruto → fee → impuesto → neto esperado, con las tasas configurables.
+   *
+   * Está extraído de `record()` —sin cambiarle nada— porque el UPGRADE a plan
+   * anual necesita el MISMO desglose pero escribiendo la fila **dentro de su
+   * propia transacción** (si el upgrade se cae, tampoco puede quedar el
+   * ingreso). `record()` escribe con su propio cliente y se traga los errores,
+   * que es justo lo contrario de lo que ese camino necesita. Dos copias de
+   * esta fórmula habrían divergido la primera vez que alguien tocara el IVA.
+   */
+  async desglose(
+    gateway: PaymentGateway,
+    grossUsd: number,
+    reales?: { gatewayFeeUsd?: number | null; taxUsd?: number | null },
+  ): Promise<{ fee: number; tax: number; netExpected: number }> {
+    const gross = Number(grossUsd);
+    // Fee: real del payload, o estimado por la tasa de la pasarela.
+    let fee = reales?.gatewayFeeUsd ?? null;
+    if (fee == null) {
+      const feePct = await this.pct(`finance.gatewayFeePct.${gateway}`, 0);
+      fee = round2((gross * feePct) / 100);
+    }
+    // Impuesto: real del payload, o estimado. `gross` = sobre la venta bruta;
+    // `included` = el IVA ya está dentro del precio (se despeja).
+    let tax = reales?.taxUsd ?? null;
+    if (tax == null) {
+      const taxPct = await this.pct('finance.taxPct', 0);
+      const base = await this.prisma.setting
+        .findUnique({ where: { key: 'finance.taxBase' }, select: { value: true } })
+        .catch(() => null);
+      const included = (base?.value ?? 'gross').trim() === 'included';
+      tax = included
+        ? round2(gross - gross / (1 + taxPct / 100))
+        : round2((gross * taxPct) / 100);
+    }
+    return { fee, tax, netExpected: round2(gross - fee - tax) };
+  }
+
+  /**
    * Registra el ingreso. Best-effort e idempotente. Salta cobros de $0 (ej. el
    * día 0 de una prueba) porque no son ingreso. No lanza: captura sus errores.
    */
@@ -151,26 +189,10 @@ export class IncomeRecordService {
         .catch(() => null);
       if (dup) return;
 
-      // Fee: real del payload, o estimado por la tasa de la pasarela.
-      let fee = input.gatewayFeeUsd ?? null;
-      if (fee == null) {
-        const feePct = await this.pct(`finance.gatewayFeePct.${input.gateway}`, 0);
-        fee = round2((gross * feePct) / 100);
-      }
-      // Impuesto: real del payload, o estimado. `gross` = sobre la venta bruta;
-      // `included` = el IVA ya está dentro del precio (se despeja).
-      let tax = input.taxUsd ?? null;
-      if (tax == null) {
-        const taxPct = await this.pct('finance.taxPct', 0);
-        const base = await this.prisma.setting
-          .findUnique({ where: { key: 'finance.taxBase' }, select: { value: true } })
-          .catch(() => null);
-        const included = (base?.value ?? 'gross').trim() === 'included';
-        tax = included
-          ? round2(gross - gross / (1 + taxPct / 100))
-          : round2((gross * taxPct) / 100);
-      }
-      const netExpected = round2(gross - fee - tax);
+      const { fee, tax, netExpected } = await this.desglose(input.gateway, gross, {
+        gatewayFeeUsd: input.gatewayFeeUsd,
+        taxUsd: input.taxUsd,
+      });
       // Mes contable en hora de Bogotá, no en UTC: una venta del 31 a las 8 de
       // la noche pertenece a ESE mes, no al siguiente. Ver `periodo-contable.ts`.
       const periodKey = mesContable(input.saleDate);

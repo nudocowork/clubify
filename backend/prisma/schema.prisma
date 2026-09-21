@@ -2668,6 +2668,168 @@ model ManualPayment {
   @@index([periodEnd])
 }
 
+// ── UPGRADE A PLAN ANUAL ──
+//
+// Un administrador pasa un negocio de mensual/trimestral/semestral a ANUAL
+// cobrándole UNA vez. Cada upgrade deja esta fila, que es el acta del cambio:
+// qué tenía, qué se le cobró, qué comisión salió y si la suscripción vieja de
+// la pasarela quedó cancelada.
+//
+// POR QUÉ UNA TABLA Y NO SOLO AUDITORÍA: hay tres cosas que hay que poder
+// CONSULTAR y no solo leer en un log — el candado del doble clic
+// (`operationRef`), el precio estándar del anual CONGELADO el día del cambio
+// (mañana puede ser otro y el informe tiene que seguir cuadrando), y el estado
+// de la cancelación en la pasarela, que hoy no se puede automatizar y se queda
+// pendiente hasta que alguien la cierre.
+//
+// LO QUE ESTA TABLA **NO** HACE: no toca `Tenant.subscriptionPriceUsd`. El
+// monto realmente pagado en el upgrade NO es el precio futuro del negocio: la
+// renovación del año que viene sale del precio estándar del anual. Escribirlo
+// ahí, además, dispararía `recalcTenantSplit` por el camino del PATCH normal y
+// reescribiría el importe de TODAS las comisiones PENDING y APPROVED.
+//
+// Sin relación con `Tenant` a propósito (igual que `ManualPayment`): el
+// histórico sobrevive al borrado del negocio, y el middleware de tenant ya lo
+// aísla por marca con solo tener la columna `tenantId` (ver
+// `prisma-tenant-middleware.ts`).
+//
+// ÍNDICE QUE NO ESTÁ AQUÍ: hay un ÚNICO PARCIAL
+// `PlanUpgrade_tenant_vivo_uq ON ("tenantId") WHERE estado IN
+// ('PENDIENTE','COMPLETADO')` que impide dos upgrades vivos por negocio.
+// Prisma no sabe expresar un índice parcial, así que vive solo en
+// `scripts/apply-plan-upgrade-migration.cjs`. Un `prisma db push` lo borraría
+// —otra razón más para no correrlo nunca contra producción—.
+model PlanUpgrade {
+  id           String  @id @default(uuid())
+  tenantId     String
+  whiteLabelId String?
+
+  /// Referencia de la operación, la manda quien llama en el POST. Es lo que
+  /// mata el doble clic: el segundo POST con el mismo valor devuelve el
+  /// upgrade que ya existe en vez de cobrar otra vez.
+  operationRef String @unique
+
+  /// Periodicidad y plan CONGELADOS: de dónde venía y a dónde fue. Hoy el
+  /// upgrade solo cambia la periodicidad (el plan es el mismo), pero quedan
+  /// las cuatro columnas para que un cambio de plan con cobro no necesite
+  /// migración.
+  periodicidadOrigen  String
+  periodicidadDestino String  @default("ANUAL")
+  planIdOrigen        String?
+  planNombreOrigen    String?
+  planIdDestino       String?
+  planNombreDestino   String?
+
+  /// Precio ESTÁNDAR del anual el día del cambio (`getBundlePrice('ANUAL')`).
+  /// Congelado: si mañana el anual sube, este upgrade se sigue explicando.
+  standardPriceUsd Decimal @db.Decimal(10, 2)
+  /// Lo que el negocio pagó DE VERDAD. Es la base de la comisión del upgrade,
+  /// y NO se copia a `Tenant.subscriptionPriceUsd`.
+  paidAmountUsd    Decimal @db.Decimal(10, 2)
+  currency         String  @default("USD")
+
+  /// MANUAL (Nequi, efectivo, transferencia) | PASARELA.
+  metodo String
+  /// PENDIENTE | COMPLETADO | FALLIDO | CANCELADO.
+  estado String @default("PENDIENTE")
+
+  /// Desde cuándo vale el plan anual y cuándo toca la renovación
+  /// (`addPlanPeriod(effectiveAt, 'ANUAL')`, que acota el fin de mes).
+  effectiveAt   DateTime
+  nextRenewalAt DateTime
+
+  /// Qué dejó escrito el upgrade en el resto del sistema.
+  manualPaymentId  String?
+  /// Transacción de la pasarela que completó el upgrade (camino PASARELA).
+  /// ÚNICO a propósito: el barrido completa el acta poniendo aquí la
+  /// transacción del aviso, así que un aviso reenviado —o dos actas mirando el
+  /// mismo cobro— chocan contra el índice en vez de cobrar dos veces. En
+  /// Postgres los NULL son distintos entre sí, así que los upgrades MANUALES
+  /// (que no traen transacción) no se estorban.
+  gatewayTxId      String?  @unique
+  incomeRecordId   String?
+  /// La comisión del upgrade (la primera de las que se crearon) y el TOTAL
+  /// repartido. `comisionesCreadas` = cuántas filas (influencer/embajador/
+  /// vendedor/socio).
+  commissionId     String?
+  commissionAmount Decimal? @db.Decimal(10, 2)
+  comisionesCreadas Int     @default(0)
+  /// Por qué no hubo comisión, cuando no la hubo: `sin-afiliado`,
+  /// `marca-pago-unico`, `base-o-pct-0`. Vacío = sí hubo.
+  comisionOmitidaMotivo String?
+
+  /// Quién lo hizo. Sin FK: el histórico sobrevive al borrado del usuario.
+  actorId       String?
+  notas         String? @db.Text
+  motivoDeFallo String? @db.Text
+
+  /// ── Cancelación de la suscripción vieja en la pasarela ──
+  /// NO_APLICA (no hay nada que cancelar) | PENDIENTE (hay con qué, pero
+  /// todavía no se cerró) | HECHA (la canceló la API) | FALLIDA (se intentó y
+  /// la pasarela dijo que no) | MANUAL_CONFIRMADA (un humano la canceló en el
+  /// panel de la pasarela y lo confirmó aquí).
+  cancelacionEstado   String    @default("NO_APLICA")
+  /// El `subscriber_code` de Hotmart o el `sub_…` de Stripe que habría que
+  /// cancelar. Se congela: si mañana se limpia del negocio, aquí sigue.
+  cancelacionRef      String?
+  cancelacionAt       DateTime?
+  cancelacionActorId  String?
+  cancelacionMotivo   String?   @db.Text
+  /// Cuándo el cron avisó POR PRIMERA VEZ de que esta cancelación lleva más de
+  /// 24 h sin cerrar. Es la columna que hace VISIBLE el pendiente: un
+  /// `logger.warn` no lo lee nadie. No se reescribe cada día a propósito —
+  /// «lleva sin cerrar desde el 3» vale mucho más que «lo avisé hoy».
+  cancelacionAlertaAt DateTime?
+
+  /// ── El precio pactado que el upgrade retiró ──
+  /// `Tenant.subscriptionPriceUsd` que tenía el negocio antes del cambio. El
+  /// upgrade lo pone a NULL para que la renovación del año que viene se
+  /// comisione sobre el precio estándar del ANUAL y no sobre el override viejo
+  /// (los $50 del mensual legacy). Se guarda aquí para poder devolverlo si
+  /// alguna vez hace falta y para que el acta explique qué se tocó.
+  precioPactadoAnterior Decimal? @db.Decimal(10, 2)
+
+  /// ── Guardián del cobro viejo de la pasarela ──
+  /// Si a un negocio con el upgrade COMPLETADO le entra el cobro del ciclo
+  /// ANTERIOR, la pasarela le pisa `currentPeriodEnd` con la fecha corta y el
+  /// cron de mora lo suspende aunque tenga el año pagado. El guardián lo
+  /// restaura y deja constancia aquí.
+  cobroViejoDetectadoAt DateTime?
+  cobroViejoUltimoAt    DateTime?
+  cobroViejoVeces       Int       @default(0)
+  /// La fecha corta que había escrito el cobro viejo (lo que se restauró).
+  cobroViejoPeriodEnd   DateTime?
+  /// Comisiones del negocio creadas DESPUÉS del upgrade: el cobro viejo
+  /// probablemente generó una que habrá que devolver. NO se tocan — se dejan
+  /// señaladas para que las mire una persona.
+  cobroViejoComisiones  String?   @db.Text
+
+  /// ── Barrido del cobro por pasarela ──
+  /// Cuándo pasó por última vez el barrido que busca el pago del plan anual, y
+  /// qué encontró (o por qué no pudo completar). Es lo que convierte «sigue
+  /// pendiente» en «sigue pendiente PORQUE…».
+  barridoAt   DateTime?
+  barridoNota String?   @db.Text
+
+  /// ── Anulación administrativa ──
+  /// Anular libera el candado (el único parcial) para poder rehacer el
+  /// upgrade. NO revierte el plan, ni el pago, ni la comisión: lo que haya que
+  /// deshacer se hace a mano y queda dicho en la auditoría.
+  anuladoAt      DateTime?
+  anuladoActorId String?
+  anuladoMotivo  String?   @db.Text
+  /// En qué estado estaba el acta cuando se anuló (PENDIENTE|FALLIDO|COMPLETADO).
+  estadoAlAnular String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([whiteLabelId, createdAt])
+  @@index([estado, cancelacionEstado])
+  @@index([estado, metodo])
+}
+
 // ── HISTORIAL DE ENVÍOS — todo mensaje que sale por Grow Business ──
 // Se escribe en `GrowBusinessService.postChannelMessage`, que es el Único punto
 // por el que pasan SMS, WhatsApp y correo. Registrar ahí cubre los 26 servicios

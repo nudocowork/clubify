@@ -3,6 +3,7 @@ import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
+import { NO_ES_DEL_UPGRADE } from './comisiones-de-monto-libre';
 
 /**
  * Recálculo en tiempo real de comisiones cuando cambia un % (Fase E
@@ -119,6 +120,13 @@ export class CommissionRecalcService {
       : undefined;
     const where: any = {
       ...baseStatus,
+      // La comisión del UPGRADE se queda fuera. Abajo el recálculo hace
+      // `amount = getCommissionBase(negocio) × pct`, y después de subir el
+      // negocio a anual esa base son los $500 del plan: la comisión del
+      // upgrade, calculada sobre los $350 que pagó de verdad, pasaría de
+      // $87,50 a $125 en cuanto alguien tocara el % del afiliado o una
+      // excepción. Va en `AND` porque el `OR` de abajo ya está ocupado.
+      AND: [NO_ES_DEL_UPGRADE],
       OR: [
         {
           recipientCodeId: opts.recipientCodeId,
@@ -175,10 +183,20 @@ export class CommissionRecalcService {
       const tenantId = c.referralUse?.tenantId;
       if (!tenantId) continue;
       const periodicity = c.referralUse?.tenant?.planPeriodicity ?? '';
-      const basis = await this.getCommissionBase(
-        c.referralUse?.tenant?.subscriptionPriceUsd,
-        periodicity,
-      );
+      // El monto CON EL QUE NACIÓ la comisión manda sobre el precio de hoy.
+      // Sin esto, un negocio que pagaba $150 el trimestre y luego pasó a anual
+      // ($500) veía su comisión pendiente de $15 convertirse en $50 en cuanto
+      // alguien tocaba un porcentaje: un cobro trimestral comisionado como si
+      // hubiera sido anual (Javier, 2026-09-21). Las que no lo tienen
+      // guardado siguen con el precio del negocio, que es lo único que hay.
+      const propia = Number(c.baseAmountUsd);
+      const basis =
+        Number.isFinite(propia) && propia > 0
+          ? propia
+          : await this.getCommissionBase(
+              c.referralUse?.tenant?.subscriptionPriceUsd,
+              periodicity,
+            );
       if (basis <= 0) continue;
 
       const pct = await this.resolveEffectivePct(
