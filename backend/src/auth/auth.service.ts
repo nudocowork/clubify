@@ -22,6 +22,7 @@ import {
   inviteAffiliateTemplate,
 } from '../email/templates/templates';
 import { resolveBrandEmail } from '../email/brand-email';
+import { enlaceDeRecuperacion } from './enlace-de-recuperacion';
 import { brandBaseUrl } from '../email/brand-email-creds.util';
 import { BrandEmailService } from '../email/brand-email.service';
 import {
@@ -99,6 +100,10 @@ export class AuthService {
    *  era otra oportunidad de acertar— como usar nuestro envío para bombardear
    *  el móvil de otra persona a nuestra costa. */
   private static readonly SMS_CODIGOS_POR_HORA = 5;
+  /** Enlaces de recuperación por CORREO, por usuario y hora. Mismo motivo que
+   *  el del SMS: desde que el correo sale de verdad, cada petición manda uno
+   *  real desde el remitente de la marca. */
+  private static readonly ENLACES_POR_HORA = 5;
 
   /**
    * Hash del código SMS. Va con HMAC y la clave del servidor, no con SHA-256 a
@@ -636,6 +641,32 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email: normalized } });
 
     if (user && user.isActive) {
+      // TOPE POR USUARIO, igual que el del SMS. Desde que el correo sale de
+      // verdad, cada petición manda uno REAL desde el remitente de la marca:
+      // sin tope, cualquiera inunda el buzón de otra persona desde
+      // `hola@selleala.com` y nos quema la reputación del dominio. El
+      // `@Throttle` por IP del controlador no protege: falta `trust proxy` y la
+      // IP que ve es la del proxy de Railway.
+      //
+      // Solo los del correo: los del SMS llevan su propio prefijo y su propio
+      // cupo, y pedir uno no debe gastar el del otro.
+      const haceUnaHora = new Date(Date.now() - 60 * 60 * 1000);
+      const pedidos = await this.prisma.passwordResetToken.count({
+        where: {
+          userId: user.id,
+          createdAt: { gte: haceUnaHora },
+          NOT: { tokenHash: { startsWith: 'sms:' } },
+        },
+      });
+      if (pedidos >= AuthService.ENLACES_POR_HORA) {
+        // Se responde igual que siempre: quien pide esto no puede enterarse ni
+        // de que la cuenta existe, ni de que llegó al tope.
+        this.logger.warn(
+          `Recuperación de ${user.id}: ${pedidos} enlaces en la última hora — no se envía otro.`,
+        );
+        return { ok: true };
+      }
+
       const rawToken = randomBytes(32).toString('base64url');
       const tokenHash = createHash('sha256').update(rawToken).digest('hex');
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 min
@@ -644,13 +675,11 @@ export class AuthService {
         data: { userId: user.id, tokenHash, expiresAt },
       });
 
-      const appUrl = this.appConfig.APP_URL;
-      const resetUrl = `${appUrl}/reset/${rawToken}`;
-
       // Marca blanca del usuario: el email de reset hereda su identidad
       // (nombre + color + logo) en vez de mostrar Clubify. Los admins de marca
       // la llevan en user.whiteLabelId; los dueños/staff de un negocio, vía su
       // tenant.whiteLabel. Sin marca → branding Clubify default.
+      let whiteLabelId: string | null = user.whiteLabelId ?? null;
       let brand:
         | { name: string; primaryColor?: string | null; logoUrl?: string | null }
         | null = null;
@@ -663,21 +692,87 @@ export class AuthService {
         const t = await this.prisma.tenant.findUnique({
           where: { id: user.tenantId },
           select: {
+            whiteLabelId: true,
             whiteLabel: { select: { name: true, primaryColor: true, logoUrl: true } },
           },
         });
+        whiteLabelId = t?.whiteLabelId ?? null;
         brand = t?.whiteLabel ?? null;
+      } else {
+        // Un AFILIADO no tiene negocio ni marca propia: la suya está en su
+        // código de referido. Sin esto, los afiliados de Sellea —6 en
+        // producción— recibían un correo firmado por Clubify, que es contarle
+        // al afiliado de otra marca sobre qué corre su proveedor.
+        const codigo = await this.prisma.referralCode.findFirst({
+          where: { ownerUserId: user.id, whiteLabelId: { not: null } },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            whiteLabelId: true,
+            whiteLabel: { select: { name: true, primaryColor: true, logoUrl: true } },
+          },
+        });
+        whiteLabelId = codigo?.whiteLabelId ?? null;
+        brand = codigo?.whiteLabel ?? null;
       }
 
-      this.email.send({
-        to: user.email,
-        ...passwordResetTemplate({
-          fullName: user.fullName,
-          resetUrl,
-          expiresInMinutes: 30,
-          brand,
-        }),
-      });
+      // El enlace va al panel de SU marca, no al de Clubify. Una marca blanca
+      // sin dominio propio se queda sin correo a propósito: ver
+      // `enlace-de-recuperacion.ts`. Le queda el código por SMS.
+      const marca = await resolveBrandEmail(
+        this.prisma,
+        whiteLabelId,
+        this.appConfig.APP_URL,
+      );
+      // El panel tiene que ser el de ESTA marca. Si la lectura de la marca
+      // falló y `resolveBrandEmail` devolvió la identidad de Clubify, el enlace
+      // se queda vacío y no se envía: antes que un enlace de Clubify en el
+      // correo de otra marca, ningún correo.
+      const panelDeLaMarca =
+        whiteLabelId && (!marca.hasBrandDomain || marca.whiteLabelId !== whiteLabelId)
+          ? ''
+          : marca.panelUrl;
+      const resetUrl = enlaceDeRecuperacion(panelDeLaMarca, rawToken);
+
+      // Sale por la subcuenta de Grow Business de la marca, igual que el resto
+      // de los correos. Antes iba por `EmailService`, que usa Resend: en
+      // producción no hay `RESEND_API_KEY`, así que el adaptador de consola lo
+      // escribía en el log y NUNCA llegaba. Medido el 2026-09-20: 15
+      // recuperaciones pedidas en 30 días y 0 correos enviados.
+      if (!resetUrl) {
+        this.logger.warn(
+          `Recuperación de ${user.id}: la marca ${whiteLabelId} no tiene panel propio — no se envía (queda el SMS).`,
+        );
+      } else {
+        // `void` a propósito: esperar al envío haría que un correo REGISTRADO
+        // tardara lo que tarda Grow Business y uno inexistente respondiera al
+        // instante. La respuesta ya es siempre la misma; el tiempo también
+        // tiene que serlo, o dice quién tiene cuenta. Igual que el signup.
+        void this.brandEmail
+          .sendRaw({
+            whiteLabelId,
+            tenantId: user.tenantId ?? null,
+            to: user.email,
+            ...passwordResetTemplate({
+              fullName: user.fullName,
+              resetUrl,
+              expiresInMinutes: 30,
+              brand,
+            }),
+          })
+          .then((r) => {
+            // Sin esto el fallo es mudo: el usuario ve «te enviamos un correo»
+            // y no llega nada. En el log queda POR QUÉ. Si dice `send_failed`,
+            // el motivo exacto está en `MessageLog` (`feature='correo-directo'`):
+            // el más común es que la persona se dio de baja de los correos en
+            // Grow Business, y entonces no hay correo que valga — queda el SMS.
+            if (!r.sent) {
+              this.logger.warn(
+                `Recuperación de ${user.id}: el correo no salió (${r.reason}).`,
+              );
+            }
+          })
+          .catch(() => undefined);
+      }
     }
 
     return { ok: true };

@@ -21,6 +21,16 @@ export interface BrandEmailIdentity {
   replyTo?: string;
   websiteUrl: string;
   loginUrl: string;
+  /** El panel de la marca, SIN ruta: para armar otros enlaces (`/reset/…`). */
+  panelUrl: string;
+  /**
+   * ¿El panel es de la MARCA o es el de Clubify por defecto?
+   *
+   * Una marca blanca sin dominio propio cae al de la plataforma, y meter un
+   * enlace `soyclubify.com` en su correo la delata. Quien arme enlaces para
+   * una marca tiene que mirar esto antes de enviar.
+   */
+  hasBrandDomain: boolean;
   hasBrandSender: boolean;
 }
 
@@ -45,6 +55,9 @@ export async function resolveBrandEmail(
     replyTo: undefined,
     websiteUrl: base,
     loginUrl: `${base}/login`,
+    panelUrl: base,
+    // La plataforma ES Clubify: su propio dominio no es una fuga.
+    hasBrandDomain: true,
     hasBrandSender: false,
   };
   if (!whiteLabelId) return clubify;
@@ -77,6 +90,8 @@ export async function resolveBrandEmail(
     replyTo: from ? wl.contactEmail?.trim() || undefined : undefined,
     websiteUrl,
     loginUrl: `${panelUrl}/login`,
+    panelUrl,
+    hasBrandDomain: !!appHost,
     hasBrandSender: !!from,
   };
 }

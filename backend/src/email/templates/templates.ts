@@ -207,31 +207,38 @@ export function passwordResetTemplate(args: {
 }) {
   const identidad = identidadDeMarca(args.brand);
   const enMarca = identidad ? ` en ${identidad.nombre}` : '';
+  const contenido: ContenidoDelCorreo = {
+    preheader: `Link válido por ${args.expiresInMinutes} minutos`,
+    antetitulo: 'Seguridad de tu cuenta',
+    titulo: 'Restablece tu contraseña',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto:
+          `Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta${enMarca}.\n\n` +
+          `Da clic en el botón de abajo para crear una nueva. El link vence en **${args.expiresInMinutes} minutos**.`,
+      },
+    ],
+    boton: { texto: 'Restablecer mi contraseña →', url: args.resetUrl },
+    enlaceVisible: true,
+    bloquesFinales: [
+      {
+        tipo: 'nota',
+        texto: 'Si no solicitaste este cambio, simplemente ignora este email — tu contraseña actual sigue siendo válida.',
+      },
+    ],
+    motivo: 'Recibes este correo porque alguien pidió restablecer la contraseña de tu cuenta en {marca}.',
+  };
   return {
     subject: `Restablece tu contraseña${enMarca}`,
     text: `Hola ${args.fullName},\nPara restablecer tu contraseña usa este link (vence en ${args.expiresInMinutes} min):\n${args.resetUrl}\nSi no solicitaste esto, ignora este email.`,
-    html: maquetarCorreo({
-      identidad,
-      preheader: `Link válido por ${args.expiresInMinutes} minutos`,
-      antetitulo: 'Seguridad de tu cuenta',
-      titulo: 'Restablece tu contraseña',
-      bloques: [
-        {
-          tipo: 'texto',
-          texto:
-            `Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta${enMarca}.\n\n` +
-            `Da clic en el botón de abajo para crear una nueva. El link vence en **${args.expiresInMinutes} minutos**.`,
-        },
-      ],
-      boton: { texto: 'Restablecer mi contraseña →', url: args.resetUrl },
-      enlaceVisible: true,
-      bloquesFinales: [
-        {
-          tipo: 'nota',
-          texto: 'Si no solicitaste este cambio, simplemente ignora este email — tu contraseña actual sigue siendo válida.',
-        },
-      ],
-    }),
+    html: maquetarCorreo({ ...contenido, identidad }),
+    /**
+     * Viaja en el mismo spread hasta `BrandEmailService.sendRaw`, que conoce la
+     * marca entera y le pone su marco (logo, color, contacto). Quien arma este
+     * correo solo sabe el nombre: sin esto, el de Sellea saldría sin su logo.
+     */
+    contenido,
   };
 }
 

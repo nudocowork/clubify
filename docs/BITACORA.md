@@ -8,6 +8,51 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-20 (57) — «Recuperar contraseña» no mandaba NINGÚN correo
+
+Javier: «cuando un cliente le da Recuperar contraseña debe llegarle un correo.
+Aún no ocurre. En Clubify, en Sellea y en cualquier marca blanca».
+
+**La causa:** el reset salía por `EmailService` → adaptador **Resend**, y en
+Railway no existe `RESEND_API_KEY`: el adaptador cae a «consola», escribe el
+correo en el log y no manda nada. No fallaba para una marca, fallaba para todas.
+**Medido en producción: 15 peticiones en 30 días y 0 correos.** El Regio lo pidió
+3 veces seguidas; Portal del Prado, 4.
+
+**El arreglo** (`auth.service.ts → requestPasswordReset`): sale por
+`BrandEmailService.sendRaw`, la subcuenta de Grow Business de la marca, la misma
+por la que sí llegan la bienvenida y los avisos del ciclo de vida. El correo
+viaja como `contenido`, así que la marca le pone su logo, su color y su firma.
+
+**Lo que hay que saber si se toca esto:**
+
+- **El enlace va al panel de SU marca** (`enlace-de-recuperacion.ts`). Un enlace
+  `soyclubify.com` en el correo de otra marca la delata. Sin panel de marca, no
+  se envía: queda el SMS.
+- **Un AFILIADO no tiene negocio ni marca**: la suya sale de su `ReferralCode`.
+  Son 73 en producción, 6 de Sellea — sin esto les llegaba un correo de Clubify
+  (lo cazó la revisión de Fable, antes de desplegar).
+- **Tope de 5 enlaces por usuario y hora**, como el del SMS. Desde que el correo
+  sale de verdad, cada petición manda uno real desde el remitente de la marca, y
+  el `@Throttle` por IP no protege (falta `trust proxy`).
+- **El envío va sin `await`**: esperarlo haría que un correo registrado tardara
+  y uno inexistente respondiera al instante — diría quién tiene cuenta.
+- Si no sale, queda en el log POR QUÉ. Antes el fallo era mudo.
+
+**Marcas (medido):** Clubify y Sellea tienen subcuenta propia y reciben.
+**Fideliso no tiene**, así que su único usuario sigue sin correo —y no tiene
+teléfono, así que tampoco SMS— hasta que se le cree la subcuenta.
+
+**Ojo, quien recupere un correo de Grow Business:** un contacto que se dio de
+baja (`CONVERSATIONS_MSG_UNSUBSCRIBED_EMAIL`) NO recibe nada, y el fallo solo se
+ve en `MessageLog`. Hay 1 caso real.
+
+**Lo que sigue muerto por lo mismo** (no tocado, son 7 sitios con
+`this.email.send`): invitación a afiliado; aviso del Lab; «cuenta activada» del
+Onboarding; **pedido confirmado / listo al cliente final del negocio (40 en 30
+días, el de más volumen)**; alerta de capacidad; e invitaciones de admin de marca
+y de plataforma.
+
 ## 2026-09-18 (56) — El pop-up del menú ya no sale vacío ni tarde
 
 Reporte: «bug en la carga del pop-up de los menús». Medido en producción:
