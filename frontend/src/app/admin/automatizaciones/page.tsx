@@ -18,39 +18,38 @@ export default function AutomatizacionesPage() {
   >('mensajes');
   return (
     <div>
+      {/* La pestaña activa va con el token `bg-brand`, no con el verde Clubify
+          en línea: `.brand-panel` solo alcanza a las clases, así que un
+          `style={{background:'#16a34a'}}` dejaba la pestaña verde también en
+          Sellea, al lado de una interfaz coral. */}
       <div className="flex items-center gap-1 mb-4 rounded-lg border border-slate-200 bg-white p-1 text-sm w-fit">
         <button
           onClick={() => setTab('mensajes')}
-          className="rounded-md px-3 py-1 font-medium"
-          style={tab === 'mensajes' ? { background: '#16a34a', color: 'white' } : { color: '#64748b' }}
+          className={`rounded-md px-3 py-1 font-medium ${tab === 'mensajes' ? 'bg-brand text-white' : 'text-slate-500'}`}
         >
           Mensajes automáticos
         </button>
         <button
           onClick={() => setTab('workflows')}
-          className="rounded-md px-3 py-1 font-medium"
-          style={tab === 'workflows' ? { background: '#16a34a', color: 'white' } : { color: '#64748b' }}
+          className={`rounded-md px-3 py-1 font-medium ${tab === 'workflows' ? 'bg-brand text-white' : 'text-slate-500'}`}
         >
           🔀 Workflows
         </button>
         <button
           onClick={() => setTab('contactos')}
-          className="rounded-md px-3 py-1 font-medium"
-          style={tab === 'contactos' ? { background: '#16a34a', color: 'white' } : { color: '#64748b' }}
+          className={`rounded-md px-3 py-1 font-medium ${tab === 'contactos' ? 'bg-brand text-white' : 'text-slate-500'}`}
         >
           👥 Flujos de contactos
         </button>
         <button
           onClick={() => setTab('email')}
-          className="rounded-md px-3 py-1 font-medium"
-          style={tab === 'email' ? { background: '#16a34a', color: 'white' } : { color: '#64748b' }}
+          className={`rounded-md px-3 py-1 font-medium ${tab === 'email' ? 'bg-brand text-white' : 'text-slate-500'}`}
         >
           📧 Email Marketing
         </button>
         <button
           onClick={() => setTab('qr')}
-          className="rounded-md px-3 py-1 font-medium"
-          style={tab === 'qr' ? { background: '#16a34a', color: 'white' } : { color: '#64748b' }}
+          className={`rounded-md px-3 py-1 font-medium ${tab === 'qr' ? 'bg-brand text-white' : 'text-slate-500'}`}
         >
           📱 QR WhatsApp
         </button>

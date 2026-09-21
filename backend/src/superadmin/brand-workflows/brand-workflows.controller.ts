@@ -15,6 +15,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { BrandWorkflowEngineService } from './brand-workflow-engine.service';
 import { BrandWorkflowFoldersService } from './brand-workflow-folders.service';
+import { catalogoDeMarca } from './brand-workflow.util';
 
 class SaveWorkflowDto {
   @IsOptional() @IsString() name?: string;
@@ -76,6 +77,24 @@ export class BrandWorkflowsController {
     const wf = await this.prisma.brandWorkflow.findFirst({ where: { id, whiteLabelId } });
     if (!wf) throw new NotFoundException('Workflow no encontrado');
     return wf;
+  }
+
+  /**
+   * El catálogo que dibuja la pantalla: disparadores, pasos y sus campos.
+   *
+   * Antes estaba copiado a mano en el front y se desincronizó (allí faltaban
+   * disparadores; aquí faltaba `send_email`). Ahora hay una sola copia, esta.
+   */
+  @Get('catalogo')
+  async catalogo(@CurrentUser() user: AuthUser) {
+    // La pasarela decide qué disparadores de cobro tienen sentido para esta
+    // marca: los suyos son los que sabemos leer.
+    const whiteLabelId = await this.brandId(user);
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { paymentGateway: true },
+    });
+    return catalogoDeMarca(wl?.paymentGateway ?? null);
   }
 
   @Get()
@@ -225,8 +244,20 @@ export class BrandWorkflowsController {
     const whiteLabelId = await this.brandId(user);
     const wf = await this.ownWorkflow(id, whiteLabelId);
     if (wf.status !== 'published') throw new NotFoundException('Publica el workflow antes de inscribir.');
-    for (const tid of body.tenantIds) await this.engine.enroll(id, tid);
-    return { ok: true, count: body.tenantIds.length };
+    // Solo negocios de ESTA marca. Antes se inscribía el id que llegara: con un
+    // id ajeno, una marca metía un negocio de otra en su flujo, y el mensaje
+    // salía por la subcuenta de la marca del negocio.
+    const clubify = await this.prisma.whiteLabel.findUnique({ where: { slug: 'clubify' }, select: { id: true } });
+    const propios = await this.prisma.tenant.findMany({
+      where: {
+        id: { in: body.tenantIds },
+        // Los negocios legacy sin marca son de Clubify de hecho.
+        ...(whiteLabelId === clubify?.id ? { OR: [{ whiteLabelId }, { whiteLabelId: null }] } : { whiteLabelId }),
+      },
+      select: { id: true },
+    });
+    for (const t of propios) await this.engine.enroll(id, t.id);
+    return { ok: true, count: propios.length };
   }
 
   @Get(':id/logs')

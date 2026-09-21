@@ -8,6 +8,68 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-21 (58) — El constructor de flujos de MARCA: de 4 disparadores y 5 pasos a 12 y 10
+
+Javier, comparando con TeamClubify: «los flujos de Sellea no están tan óptimos,
+faltan disparadores y acciones». Medido: TeamClubify tiene 31 disparadores y 29
+pasos; el de marca tenía **4 y 5**, y en producción **1 flujo, 0 nodos, 0
+inscripciones y 0 ejecuciones de todos los tiempos**. Nadie lo ha usado nunca.
+
+**Disparadores nuevos:** negocio suspendido, prueba por terminar, pago aprobado,
+pago rechazado, reembolso o contracargo, suscripción cancelada, primer pedido y
+llegó a N pedidos. **Pasos nuevos:** avisar al equipo, esperar hasta una fecha,
+dividir A/B, webhook y pasar a otro flujo.
+
+**Las tres trampas que traía el motor, arregladas:**
+
+- **`plan` llegaba SIEMPRE vacío** (`ctxFor` lo devolvía fijo en `''`). La
+  pantalla ofrecía la condición «plan es X», que no casaba nunca, y `{{plan}}`
+  salía en blanco en el mensaje. Ahora salen plan, periodicidad, fecha del
+  próximo cobro, fin de prueba, categoría y pedidos.
+- **El goteo solo contaba SMS**: un flujo de puro correo no goteaba jamás.
+- **El catálogo estaba copiado a mano en la pantalla** y se había
+  desincronizado (en el backend faltaba hasta `send_email`, que lleva meses
+  enviando). Ahora es uno solo: `GET /admin/workflows/catalogo`, y la pantalla
+  se dibuja con lo que venga.
+
+**Cómo entran los cobros SIN tocar el código de cobro:** un barrido cada 5
+minutos lee los avisos que ya guardamos (`HotmartWebhookEvent` y
+`StripeWebhookEvent`) y los negocios recién suspendidos. El código que mueve
+dinero no se toca.
+
+**Lo que trajo la revisión de Fable, y conviene no deshacer:**
+
+- **Sellea cobra por STRIPE, y el aviso de Stripe se guarda SIN negocio**
+  (`tenantId` null en los 369 de producción). Los cuatro disparadores de cobro
+  no se habrían disparado nunca para la única marca que los pidió. Ahora el
+  negocio se resuelve por `stripeCustomerId`/`stripeSubscriptionId`, y **el
+  catálogo no ofrece esos disparadores a una marca cuya pasarela no sabemos
+  leer** (solo 3 negocios tienen cliente de Stripe guardado: ahí el alcance es
+  corto y es mejor no prometerlo).
+- **Tope de 10 saltos entre flujos**: dos flujos que se apunten mutuamente con
+  re-entrada se pasaban el negocio para siempre, mandando los mensajes de en
+  medio en cada vuelta.
+- **Marca de agua en el barrido**: la ventana de 6 minutos con un cron de 5
+  hacía que un aviso lo vieran dos pasadas (SMS doble con re-entrada).
+- **Los envíos van con su marca y su negocio**: sin eso el registro quedaba con
+  marca nula, que se lee como Clubify. Es la fuga de siempre.
+- **Inscribir a mano solo admite negocios de la marca** (antes se inscribía el
+  id que llegara).
+- **La inscripción nace reclamada** (5 min): si el primer envío tardaba, el tick
+  agarraba la misma fila y repetía el primer paso.
+- **El webhook no llama a la red interna** (localhost, 10.x, 169.254…, `.internal`)
+  y no sigue redirecciones. Quien configura el flujo es un cliente, no alguien
+  de casa.
+- **Quitar una ruta del A/B con pasos colgando ahora pregunta.**
+
+Pruebas: 28 del módulo nuevo y 49 en `src/superadmin`, con cada guarda
+comprobada en rojo. La pantalla, además, con el coral de la marca: el verde
+Clubify estaba escrito a mano y no pasaba por el tema.
+
+**Pendiente:** `StripeWebhookEvent` sigue guardándose sin `tenantId`
+(`stripe.service.ts:196`); resolverlo ahí sería mejor que hacerlo en el barrido,
+pero es código de cobro y no se tocó.
+
 ## 2026-09-20 (57) — «Recuperar contraseña» no mandaba NINGÚN correo
 
 Javier: «cuando un cliente le da Recuperar contraseña debe llegarle un correo.

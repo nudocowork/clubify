@@ -87,6 +87,11 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
   const btnHover = mixHex(c, 'black', 0.12); // hover de botones (tono apenas más oscuro)
   const section = mixHex(c, 'white', 0.5); // labels de sección (claros)
   const soft = c + '24'; // ~14% alpha para *-soft
+  // El anillo de foco (`ring-brand`) se voltea con `[class~=]` —coincidencia
+  // EXACTA de la clase— y no con `[class*=]` como el resto: `[class*=]` también
+  // atraparía `ring-brand/30` y compañía, que llevan su propio alpha, y las
+  // dejaría en color plano. Las variantes de foco se listan una a una por lo
+  // mismo.
   return `
 .brand-panel [class~="bg-sidebar-bg"]{background-color:${sb}!important}
 .brand-panel [class~="bg-sidebar-bg2"]{background-color:${sb2}!important}
@@ -98,6 +103,7 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
 .brand-panel [class*="text-brand"]{color:${c}!important}
 .brand-panel [class*="border-brand"]{border-color:${c}!important}
 .brand-panel [class*="accent-brand"]{accent-color:${c}!important}
+.brand-panel [class~="ring-brand"],.brand-panel [class~="focus:ring-brand"],.brand-panel [class~="focus-visible:ring-brand"]{--tw-ring-color:${c}!important}
 .brand-panel .tab-active{background-color:${c}!important}
 .brand-panel .hover\\:bg-brand-700:hover,.brand-panel .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
 .brand-panel [class~="text-ok"]{color:${c}!important}
