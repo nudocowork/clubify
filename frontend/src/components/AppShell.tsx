@@ -50,7 +50,7 @@ const ADMIN_ROUTE_SEGMENTS = new Set([
   'integrations', 'lab', 'maintenance', 'map', 'mensajes', 'pagos-manuales',
   'payouts', 'pending-payments', 'rankings', 'referrals', 'reports',
   'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
-  'users', 'ventas',
+  'upgrades', 'users', 'ventas',
 ]);
 
 type NavItem = {
@@ -472,6 +472,8 @@ export default function AppShell({
       // Cobranza manual: acciones de billing SUPER_ADMIN-only — a MARKETING
       // solo le mostraría 403s.
       '/admin/pagos-manuales',
+      // Upgrades a anual: los endpoints son SUPER_ADMIN-only, igual que arriba.
+      '/admin/upgrades',
       // ALTO #8 (2026-06-12): payouts (gestión de pagos a afiliados) es
       // dato financiero sensible. Estaba oculto en el sidebar pero el
       // route guard no lo bloqueaba — MARKETING podía entrar por URL
@@ -697,6 +699,11 @@ export default function AppShell({
                 // hay que perseguir o desconectar a mano. Vale para TODAS las
                 // marcas (el backend aísla por marca) → sin clubifyOnly.
                 { href: '/admin/pagos-manuales', label: tNav('externalPayments'), icon: 'cash', hideForMarketing: true },
+                // Upgrades a anual: lo que esos cobros dejaron sin cerrar
+                // (suscripción vieja viva en la pasarela, cobros del ciclo
+                // anterior, comisiones a revisar). Vale para todas las marcas
+                // —el backend aísla por marca—, igual que Pagos por fuera.
+                { href: '/admin/upgrades', label: tNav('annualUpgrades'), icon: 'trend-up', hideForMarketing: true },
                 { href: '/admin/business-groups', label: tNav('businessGroups'), icon: 'store', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/map', label: tNav('map'), icon: 'pin', hideForMarketing: true },
                 // Trials es exclusivo de Clubify: las marcas blancas no tienen

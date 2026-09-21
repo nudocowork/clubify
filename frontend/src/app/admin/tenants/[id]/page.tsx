@@ -11,6 +11,10 @@ import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
 import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
 import { PaymentHistoryCard } from '@/components/PaymentHistoryCard';
+import {
+  UpgradeAnualButton,
+  UpgradesHistoryCard,
+} from '@/components/UpgradeAnual';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -44,6 +48,9 @@ export default function TenantDetail() {
   // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
   const [sfDomain, setSfDomain] = useState<string | null>(null);
   const [showPwdModal, setShowPwdModal] = useState(false);
+  // Un upgrade a anual cambia el plan Y crea una fila de historial: hay que
+  // recargar las dos cosas, y el historial vive en otra tarjeta.
+  const [upgradesRefresh, setUpgradesRefresh] = useState(0);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -850,7 +857,29 @@ export default function TenantDetail() {
           </div>
         )}
 
-        <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
+        <PlanCurrentCard
+          tenant={t}
+          isSuperAdmin={isSuperAdmin}
+          onChange={load}
+          refreshKey={upgradesRefresh}
+          onUpgraded={() => {
+            load();
+            setUpgradesRefresh((v) => v + 1);
+          }}
+        />
+
+        {/* Historial de upgrades a anual. Se esconde solo si no hay ninguno. */}
+        {isSuperAdmin && (
+          <UpgradesHistoryCard
+            tenantId={t.id}
+            refreshKey={upgradesRefresh}
+            onChange={() => {
+              load();
+              // También el botón: al anular, el negocio vuelve a ser candidato.
+              setUpgradesRefresh((v) => v + 1);
+            }}
+          />
+        )}
 
         {/* Cobranza manual (Nequi/efectivo/transferencia): flag "paga por
             fuera", registro de pagos e historial. Endpoints SUPER_ADMIN-only. */}
@@ -3398,10 +3427,16 @@ function PlanCurrentCard({
   tenant,
   isSuperAdmin,
   onChange,
+  onUpgraded,
+  refreshKey,
 }: {
   tenant: any;
   isSuperAdmin: boolean;
   onChange: () => void;
+  /** Además de recargar el negocio, refresca el historial de upgrades. */
+  onUpgraded: () => void;
+  /** Sube al anular un upgrade: el botón tiene que volver a preguntar. */
+  refreshKey: number;
 }) {
   const t = useTranslations('admin_tenants_id');
   const [plans, setPlans] = useState<LandingPlansResp | null>(null);
@@ -3506,6 +3541,18 @@ function PlanCurrentCard({
           </div>
         )}
       </dl>
+
+      {/* Upgrade a anual: cobra UNA vez (puede ser menos que el de lista) y
+          deja el negocio en anual. Es lo contrario de «Cambiar plan», que solo
+          mueve la periodicidad y NO cobra — por eso están separados. */}
+      {isSuperAdmin && (
+        <UpgradeAnualButton
+          tenantId={tenant.id}
+          pasarela={pasarela}
+          onUpgraded={onUpgraded}
+          refreshKey={refreshKey}
+        />
+      )}
 
       {modalOpen && (
         <ChangePlanPeriodModal
