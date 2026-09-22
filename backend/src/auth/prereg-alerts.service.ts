@@ -402,6 +402,62 @@ export class PreregAlertsService {
   }
 
   /**
+   * Recordatorio por SMS al comprador que sigue sin crear su cuenta (30 min y
+   * 24 h después del pago). Mismo canal e identidad que el primer aviso.
+   *
+   * NO pasa por `isDuplicateAlert`: el candado de verdad es el campo
+   * `buyerReminder*At` que reclama quien llama, y el filtro en memoria —pensado
+   * para ráfagas de webhooks— se tragaría el recordatorio si coincide con un
+   * reenvío manual del panel.
+   *
+   * `permanente` decide si el cron lo vuelve a intentar. Solo se reintenta lo
+   * que REVENTÓ (red, excepción) o la falta de cuenta de envío. Cuando Grow
+   * Business contesta que no —número que no acepta, lista de no molestar,
+   * tope, credenciales—, la vuelta siguiente contestaría lo mismo: reintentar
+   * cada 10 min durante dos días dejaba ~280 filas de error en el historial
+   * de mensajes de la marca por un solo teléfono malo. Perder un recordatorio
+   * en una caída del proveedor es el precio, y es el menor de los dos.
+   */
+  async sendBuyerActivationReminder(opts: {
+    email: string;
+    name: string | null;
+    phone: string | null;
+    body: string;
+    whiteLabelId: string | null;
+  }): Promise<{ ok: boolean; permanente: boolean }> {
+    const phone = normalizeBuyerPhone(opts.phone);
+    if (!phone) return { ok: false, permanente: true };
+    const account = await this.resolveBuyerAccount(opts.whiteLabelId).catch(
+      () => null,
+    );
+    if (!account) return { ok: false, permanente: false };
+    const sms = await this.growBusiness
+      .sendSmsWithCreds(
+        {
+          locationId: account.locationId,
+          apiKey: account.apiKey,
+          switchNumber: account.switchNumber,
+        },
+        phone,
+        opts.body,
+        { whiteLabelId: opts.whiteLabelId, feature: 'activacion-recordatorio' },
+      )
+      .catch((e) => ({
+        ok: false as const,
+        message: (e as Error).message,
+        revento: true as const,
+      }));
+    if (!sms.ok) {
+      const motivo = 'message' in sms ? String(sms.message ?? '') : 'error';
+      this.logger.warn(
+        `Recordatorio de activación no salió para ${opts.email}: ${motivo}`,
+      );
+      return { ok: false, permanente: !('revento' in sms) };
+    }
+    return { ok: true, permanente: false };
+  }
+
+  /**
    * Credenciales para escribirle al COMPRADOR: la subcuenta de Grow Business
    * de SU marca si la tiene vinculada — así el mensaje llega con la identidad
    * correcta (un comprador de Sellea no debe recibir nada desde la subcuenta

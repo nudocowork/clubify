@@ -669,8 +669,8 @@ export class HotmartService {
           subscriberCode,
           transactionId,
           payload,
-          // Marca del webhook (ruta /:slug). La tabla no la guarda, pero el
-          // aviso al comprador sí debe salir con la identidad correcta.
+          // Marca del webhook (ruta /:slug): el aviso al comprador, el
+          // reenvío y los recordatorios salen con su identidad.
           whiteLabelId: scope?.whiteLabelId ?? null,
         }).catch((e) =>
           this.logger.warn(
@@ -2192,6 +2192,9 @@ export class HotmartService {
         transactionId: args.transactionId ?? null,
         event: args.event,
         rawPayload: args.payload as any,
+        // Sin la marca, el reenvío manual y los recordatorios salían con la
+        // identidad de Clubify aunque el pago fuera de otra marca.
+        whiteLabelId: args.whiteLabelId ?? null,
       },
     });
     this.logger.log(
@@ -2223,8 +2226,8 @@ export class HotmartService {
     email: string;
     name: string | null;
     phone: string | null;
-    /** null = plataforma. PendingHotmartPayment no guarda la marca, así que el
-     *  reenvío manual siempre pasa null; el webhook sí conoce su scope. */
+    /** null = plataforma. Las filas anteriores al 2026-09-22 no guardan la
+     *  marca: su reenvío manual sale como Clubify. */
     whiteLabelId?: string | null;
   }) {
     // QUIEN YA TIENE CUENTA NO NECESITA ACTIVARLA.
@@ -2292,6 +2295,7 @@ export class HotmartService {
       email: pending.email,
       name: buyerAny?.name ?? null,
       phone: buyerAny?.checkout_phone ?? buyerAny?.phone ?? null,
+      whiteLabelId: pending.whiteLabelId,
     }).catch(() => null);
     return { ok: true, found: true };
   }

@@ -989,11 +989,19 @@ model PendingHotmartPayment {
   /// el comprador no completó /activar en 1h+. Idempotente — el cron
   /// no re-envía si este campo ya tiene valor (2026-06-12).
   teamReminderSentAt DateTime?
+  /// Marca del webhook (ruta /:slug). null = Clubify (filas previas al
+  /// 2026-09-22, cuando la tabla no la guardaba).
+  whiteLabelId       String?
+  /// Recordatorio por SMS AL COMPRADOR a los 30 min y a las 24 h si sigue
+  /// sin crear su cuenta. Son el candado: se reclaman antes de enviar.
+  buyerReminder1At   DateTime?
+  buyerReminder2At   DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   @@index([email])
   @@index([consumedAt])
+  @@index([whiteLabelId])
   @@index([teamReminderSentAt])
 }
 
@@ -1037,6 +1045,10 @@ model PendingStripePayment {
   rawPayload           Json
   consumedAt           DateTime?
   recoveryNotifiedAt   DateTime?
+  /// Recordatorio por SMS al comprador a los 30 min y a las 24 h (ver
+  /// PendingHotmartPayment).
+  buyerReminder1At     DateTime?
+  buyerReminder2At     DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

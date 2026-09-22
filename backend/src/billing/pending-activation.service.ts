@@ -5,6 +5,25 @@ import { brandBaseUrl } from '../email/brand-email-creds.util';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 
 /**
+ * Enlace a /activar pre-llenado con el correo del pago. Lo usan el primer aviso
+ * y los recordatorios: tienen que mandar exactamente el mismo.
+ *
+ * Vive en el dominio de la marca (mismo frontend servido bajo ese dominio): el
+ * comprador de una marca nunca ve un dominio ajeno, y el signup hereda la
+ * marca por el Origin.
+ */
+export function enlaceDeActivacion(
+  wl: { domain?: string | null; appDomain?: string | null } | null | undefined,
+  email: string,
+): string {
+  const appUrl = (process.env.APP_URL ?? 'https://soyclubify.com').replace(
+    /\/$/,
+    '',
+  );
+  return `${brandBaseUrl(wl, appUrl)}/activar?email=${encodeURIComponent(email.trim().toLowerCase())}`;
+}
+
+/**
  * Aviso al COMPRADOR que pagó y todavía no creó su cuenta (flujo «pago →
  * datos», filas Pending*Payment). Un solo camino para todas las pasarelas:
  *
@@ -55,14 +74,7 @@ export class PendingActivationService {
         select: { id: true, name: true, domain: true, appDomain: true },
       })
       .catch(() => null);
-    const appUrl = (process.env.APP_URL ?? 'https://soyclubify.com').replace(
-      /\/$/,
-      '',
-    );
-    // El link vive en el dominio de la marca (mismo frontend servido bajo ese
-    // dominio): el comprador de una marca nunca ve un dominio ajeno, y el
-    // signup hereda la marca por el Origin.
-    const activateUrl = `${brandBaseUrl(wl, appUrl)}/activar?email=${encodeURIComponent(email)}`;
+    const activateUrl = enlaceDeActivacion(wl, email);
     const buyerName = (opts.name ?? '').trim().split(/\s+/)[0] ?? '';
 
     const emailRes = await this.brandEmail

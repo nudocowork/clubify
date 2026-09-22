@@ -14,6 +14,7 @@ import { CrossWebhookController, CrossCheckoutController } from './cross.control
 import { SmsTemplatesService } from './sms-templates.service';
 import { SmsTemplatesController } from './sms-templates.controller';
 import { PendingActivationService } from './pending-activation.service';
+import { RecordatorioDeActivacionService } from './recordatorio-de-activacion.service';
 import { PendingAssignmentService } from './pending-assignment.service';
 import { PendingPaymentsController } from './pending-payments.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -45,7 +46,7 @@ import { FinanceModule } from '../finance/finance.module';
     SmsTemplatesController,
     PendingPaymentsController,
   ],
-  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, PendingActivationService, PendingAssignmentService],
+  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, PendingActivationService, PendingAssignmentService, RecordatorioDeActivacionService],
   exports: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService],
 })
 export class BillingModule {}

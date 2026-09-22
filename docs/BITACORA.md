@@ -8,6 +8,93 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-22 (65) — Recordatorio por SMS al comprador que pagó y no creó su cuenta
+
+Javier: «los clientes no están registrando su cuenta».
+
+**Diagnóstico:** el primer aviso SÍ llega. Cristian Cardona (Hotmart, 21-sep)
+tiene SMS y correo `sent` en MessageLog, y el enlace `/activar` carga. En 30
+días hubo 21 pagos Hotmart sin cuenta: 17 activaron y 4 no, los 4 avisados. El
+hueco: al comprador nadie le volvía a escribir. El único recordatorio era el SMS
+**al equipo** a la hora (`notifyFounderForStaleHotmartPayments`).
+
+**Qué se hizo:**
+- `billing/recordatorio-de-activacion.service.ts`: cron cada 10 min. Manda SMS
+  al comprador a los **30 min** y a las **24 h**, en Hotmart y Stripe.
+- Candado: `buyerReminder1At` / `buyerReminder2At`, reclamados con UPDATE
+  condicional antes de enviar, sobre todas las filas del comprador en esa marca.
+- No se envía:
+  - a quien ya tiene usuario (sin distinguir mayúsculas);
+  - si hubo `PURCHASE_REFUNDED` / `CHARGEBACK` de esa transacción;
+  - de **21:00 a 8:00 hora de Colombia**: el SMS espera a la mañana;
+  - a filas de más de 48 h: el despliegue no le escribe al histórico.
+- Si el envío revienta, se reintenta en la siguiente vuelta. Si Grow Business
+  lo rechaza, no: se evitan cientos de filas de error por un teléfono malo.
+- `PendingHotmartPayment.whiteLabelId` nuevo: la tabla no guardaba la marca, y
+  el reenvío manual y los recordatorios saldrían como Clubify. Las filas viejas
+  (null) siguen saliendo como Clubify.
+- `enlaceDeActivacion()`: el primer aviso y el recordatorio mandan el mismo enlace.
+- Revisión Fable: «listo para desplegar». Aplicados sus hallazgos 1 (no
+  reintentar lo que el proveedor rechaza), 3 (mayúsculas) y 4 (reembolsos).
+
+**Migración ANTES del backend (obligatorio):**
+`railway run --service backend --environment production node scripts/apply-buyer-reminder-migration.cjs`.
+Con el orden al revés, TODA lectura de `PendingHotmartPayment` /
+`PendingStripePayment` falla por columnas que no existen. El webhook se traga el
+error: **se pierden pagos en silencio** y «Pagos sin activar» se cae.
+
+**Pendiente:**
+- Stripe no mira reembolsos.
+- Compra por Hotmart y por Stripe con el mismo correo en 48 h → 2 SMS (tablas distintas).
+
+## 2026-09-22 (64) — Auditoría de créditos de marca: la RENOVACIÓN no descuenta (solo lectura, nada tocado)
+
+Javier pidió confirmar que el sistema cumple esto: la marca compra créditos, se
+le asignan, y cada negocio que se activa paga 1/3/6/12 créditos según su plan,
+y lo mismo en cada ciclo siguiente. Auditado contra el código y contra la base de producción, en
+modo solo lectura. **No se cambió nada.** Resultado enviado a Jhon por SMS.
+
+| Regla | Estado |
+|---|---|
+| La marca compra → se le asignan | ✅, con una excepción (abajo) |
+| Los créditos solo los gastan negocios de esa marca | ✅ 0 movimientos cruzados |
+| Al activar se cobran 1/3/6/12 de golpe | ✅ en las puertas principales |
+| En cada ciclo siguiente se vuelven a cobrar | ❌ solo si renueva el cron |
+
+- **Saldo de Sellea: 11, cuadra al centavo** (25 comprados − 16 consumidos + 2
+  devueltos).
+- **HP3832745944** (1 crédito, 5-ago, lo pagó `info@medicenache.com`, admin de
+  Sellea) quedó **asignado a Clubify**. A Sellea le falta 1.
+- **La renovación solo descuenta en `renewals.service.ts` (cron 02:00 UTC).**
+  Hay 8 caminos que corren `currentPeriodEnd` sin cobrar, y al correrla el
+  cron ya no ve el negocio como vencido:
+  - Stripe: `invoice.upcoming`, `updated` y `paid`. El peor es `onInvoiceUpcoming`,
+    que adelanta la fecha **7 días antes** del cobro.
+  - pago manual sobre un negocio ACTIVE, «Marcar pagado», `paid` del simulador;
+  - `changePlanPeriod`, el upgrade y `healStaleCharge`.
+- **Afectados:**
+  - Beauty By Mir: corte ya en 26-oct con un solo cobro, el del alta; no pagará el 26-sep.
+  - Smart Solutions: desde el 11-oct.
+  - Cuenta de prueba SELLEA: 3.
+  - demo demo: 1.
+  - FarCentro: unos 14 días gratis.
+- **Seis puertas activan SIN cobrar**, ninguna usada todavía: `activatePurchase` de
+  Hotmart (Fideliso), Cross, asignación manual pendiente, Stripe al reanudar
+  tras pausa, grupos de negocios y el upgrade.
+- **Trimestral, semestral y anual nunca se han usado en producción:** todos los
+  negocios son mensuales. El cálculo 3/6/12 está bien, pero nunca se ha probado con un caso real.
+- **Menores:**
+  - un reembolso de pack puede dejar el saldo negativo;
+  - `adjustCredits` no es atómico;
+  - al levantar una suspensión no baja `creditsUsed`;
+  - InfoLink FREE escribe movimientos de −0 (desde el 3-oct);
+  - las deudas `ADJUSTMENT` no se cobran nunca.
+
+**Arreglo propuesto (SIN hacer, falta el sí de Javier y Jhon):** un único
+`cobrarCiclo(tenantId, periodo)` con candado en la base (único por negocio y
+ciclo), llamado desde **todo** camino que abre un ciclo. Además hay que decidir
+si se regulariza lo ya no cobrado y devolver el crédito de HP3832745944 a Sellea.
+
 ## 2026-09-21 (63) — Flujos de CONTACTOS: de 9 pasos a 15, y el disparador que nunca disparó
 
 **Sin desplegar. Sin commitear.** Todo en el árbol de trabajo: `backend/src/marketing/*`
