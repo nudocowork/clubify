@@ -259,11 +259,13 @@ export class SettingsController {
     const fila = await this.prisma.setting.findUnique({
       where: { key: CLAVE_AVISOS_AL_EQUIPO },
     });
+    const personas = leerAvisosAlEquipo(fila?.value);
     return {
-      personas: leerAvisosAlEquipo(fila?.value),
+      personas,
       tipos: TIPOS_DE_AVISO,
-      // Sin fila, el servicio usa los teléfonos de fábrica: la pantalla lo dice.
-      deFabrica: !fila,
+      // Sin fila —o con una fila vacía o rota—, el servicio usa los teléfonos
+      // de fábrica: la pantalla lo dice.
+      deFabrica: !fila || personas.length === 0,
     };
   }
 

@@ -3479,7 +3479,7 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick, category
               </div>
               <div
                 className="w-12 h-px bg-ink mx-auto"
-                style={categoryColor ? { background: categoryColor } : undefined}
+                style={categoryColor ? { backgroundColor: categoryColor } : undefined}
               />
             </div>
           }

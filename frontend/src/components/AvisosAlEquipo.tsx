@@ -16,17 +16,17 @@ import { toast } from '@/components/Toast';
  * textos van en español, igual que los SMS que describe.
  */
 
-type Tipo =
-  | 'pago_sin_cuenta'
-  | 'nueva_compra'
-  | 'preregistro'
-  | 'trial'
-  | 'lab'
-  | 'implementacion';
+type Tipo = string;
 
 type Persona = { name: string; phone: string; solo?: Tipo[] };
 
-const TIPOS: Array<{ id: Tipo; label: string; desc: string }> = [
+/**
+ * Nombres para pintar. El UNIVERSO de tipos no sale de aquí sino del servidor
+ * (`tipos` del GET): backend y frontend se despliegan por separado, y con una
+ * lista local vieja, desmarcar uno a quien «recibe todos» guardaría un `solo`
+ * sin el tipo nuevo y esa persona dejaría de recibirlo sin enterarse.
+ */
+const NOMBRES: Array<{ id: Tipo; label: string; desc: string }> = [
   {
     id: 'implementacion',
     label: 'Implementación',
@@ -41,17 +41,32 @@ const TIPOS: Array<{ id: Tipo; label: string; desc: string }> = [
 
 export function AvisosAlEquipo() {
   const [personas, setPersonas] = useState<Persona[] | null>(null);
+  const [tipos, setTipos] = useState<Array<{ id: Tipo; label: string; desc: string }>>(NOMBRES);
+  const [oculta, setOculta] = useState(false);
   const [deFabrica, setDeFabrica] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [cambios, setCambios] = useState(false);
 
   useEffect(() => {
-    api<{ personas: Persona[]; deFabrica: boolean }>('/admin/avisos-al-equipo')
+    api<{ personas: Persona[]; tipos: Tipo[]; deFabrica: boolean }>('/admin/avisos-al-equipo')
       .then((r) => {
         setPersonas(r.personas);
         setDeFabrica(r.deFabrica);
+        if (Array.isArray(r.tipos) && r.tipos.length) {
+          setTipos(
+            r.tipos.map(
+              (id) => NOMBRES.find((n) => n.id === id) ?? { id, label: id, desc: '' },
+            ),
+          );
+        }
       })
       .catch((e: any) => {
+        // Marketing entra a Integraciones SMS pero estos teléfonos son solo
+        // de la plataforma: sin permiso, la sección no se enseña.
+        if (e?.status === 403) {
+          setOculta(true);
+          return;
+        }
         setPersonas([]);
         toast(e?.message || 'No se pudo cargar la lista de avisos.', 'error');
       });
@@ -65,12 +80,13 @@ export function AvisosAlEquipo() {
   function alternarTipo(i: number, tipo: Tipo) {
     const p = personas![i];
     // Sin `solo` = recibe todos. Al desmarcar uno partimos de «todos menos ese».
-    const actuales = p.solo ?? TIPOS.map((t) => t.id);
+    const actuales = p.solo ?? tipos.map((t) => t.id);
     const nuevos = actuales.includes(tipo)
       ? actuales.filter((t) => t !== tipo)
       : [...actuales, tipo];
     cambiar(i, {
-      solo: nuevos.length === TIPOS.length ? undefined : nuevos,
+      // «Todos» solo si están marcados TODOS los que conoce el servidor.
+      solo: tipos.every((t) => nuevos.includes(t.id)) ? undefined : nuevos,
     });
   }
 
@@ -92,6 +108,8 @@ export function AvisosAlEquipo() {
       setGuardando(false);
     }
   }
+
+  if (oculta) return null;
 
   return (
     <section className="mt-8">
@@ -165,7 +183,7 @@ export function AvisosAlEquipo() {
                     {todos ? 'Recibe todos los avisos' : 'Recibe solo:'}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {TIPOS.map((t) => {
+                    {tipos.map((t) => {
                       const marcado = todos || p.solo!.includes(t.id);
                       return (
                         <button

@@ -124,7 +124,7 @@ export function textoAvisoAlEquipo(opts: {
   enlace: string;
   llegoAlCliente: boolean;
 }): string {
-  const cuando = opts.cual === 1 ? '30 min' : '24 h';
+  const cuando = ({ 1: '30 min', 2: '24 h', 3: '48 h' } as const)[opts.cual];
   const telefono = mostrarTelefono(opts.telefono);
   return (
     `🔔 Cliente sin registrarse (${cuando} desde el pago)\n` +
