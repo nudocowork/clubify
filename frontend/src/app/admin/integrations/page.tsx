@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { AvisosAlEquipo } from '@/components/AvisosAlEquipo';
 
 /**
  * Página super admin para gestionar subcuentas globales de Grow
@@ -265,6 +266,9 @@ export default function IntegrationsPage() {
           })}
         </div>
       )}
+
+      {/* Quién del equipo recibe cada SMS interno (prereg.alertPhones). */}
+      <AvisosAlEquipo />
 
       {showForm && (
         <AccountForm

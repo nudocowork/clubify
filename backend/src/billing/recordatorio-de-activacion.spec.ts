@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  datosDelComprador,
   enHorarioDeSilencio,
+  mostrarTelefono,
   queRecordatorioToca,
-  telefonoDelPago,
+  textoAvisoAlEquipo,
   textoDelRecordatorio,
 } from './recordatorio-de-activacion';
 import { RecordatorioDeActivacionService } from './recordatorio-de-activacion.service';
@@ -13,7 +15,9 @@ import { RecordatorioDeActivacionService } from './recordatorio-de-activacion.se
  * EL PROBLEMA: «los clientes no están registrando su cuenta». El primer aviso
  * sí llegaba (Cristian Cardona, 21-sep: SMS y correo `sent` en MessageLog) y
  * al comprador nadie le volvía a escribir; el único recordatorio era un SMS al
- * equipo a la hora. Pedido por Javier: otro SMS a los 30 min y uno a las 24 h.
+ * equipo a la hora. Pedido por Javier: al cliente, SMS a los 30 min, 24 h y
+ * 48 h; al equipo de implementación, aviso a los 30 min y a las 24 h con sus
+ * datos y el enlace de activación para reenviárselo.
  *
  * Lo que no se puede romper:
  *   · dos vueltas del cron no mandan el mismo recordatorio dos veces;
@@ -30,10 +34,16 @@ const AHORA = new Date('2026-09-22T15:00:00Z');
 const hace = (ms: number) => new Date(AHORA.getTime() - ms);
 
 describe('queRecordatorioToca', () => {
-  const fila = (edad: number, r1: Date | null = null, r2: Date | null = null) => ({
+  const fila = (
+    edad: number,
+    r1: Date | null = null,
+    r2: Date | null = null,
+    r3: Date | null = null,
+  ) => ({
     createdAt: hace(edad),
     buyerReminder1At: r1,
     buyerReminder2At: r2,
+    buyerReminder3At: r3,
   });
 
   it('nada antes de los 30 min', () => {
@@ -50,8 +60,15 @@ describe('queRecordatorioToca', () => {
     expect(queRecordatorioToca(fila(25 * H, hace(24 * H), hace(H)), AHORA)).toBeNull();
   });
 
-  it('el pasado no se toca: más de 48 h, nada', () => {
-    expect(queRecordatorioToca(fila(49 * H), AHORA)).toBeNull();
+  it('el tercero a las 48 h, una sola vez', () => {
+    expect(queRecordatorioToca(fila(48 * H, hace(47 * H), hace(24 * H)), AHORA)).toBe(3);
+    expect(
+      queRecordatorioToca(fila(50 * H, hace(49 * H), hace(26 * H), hace(2 * H)), AHORA),
+    ).toBeNull();
+  });
+
+  it('el pasado no se toca: más de 72 h, nada', () => {
+    expect(queRecordatorioToca(fila(73 * H), AHORA)).toBeNull();
   });
 
   it('un primero tardío no deja caer el segundo una hora después', () => {
@@ -95,20 +112,69 @@ describe('texto', () => {
   });
 });
 
-describe('teléfono según la pasarela', () => {
-  it('Hotmart: checkout_phone antes que phone', () => {
+describe('datos del comprador según la pasarela', () => {
+  it('Hotmart: checkout_phone antes que phone, y sin negocio (no lo pide)', () => {
     expect(
-      telefonoDelPago('HOTMART', {
+      datosDelComprador('HOTMART', {
         data: { buyer: { name: 'Ana', checkout_phone: '573001112233', phone: '1' } },
       }),
-    ).toEqual({ nombre: 'Ana', telefono: '573001112233' });
+    ).toEqual({ nombre: 'Ana', telefono: '573001112233', negocio: null });
   });
-  it('Stripe: customer_details', () => {
+  it('Stripe: customer_details, con el nombre de la empresa si la marca lo pide', () => {
     expect(
-      telefonoDelPago('STRIPE', {
-        data: { object: { customer_details: { name: 'Leo', phone: '+573001112233' } } },
+      datosDelComprador('STRIPE', {
+        data: {
+          object: {
+            customer_details: { name: 'Leo', phone: '+573001112233', business_name: 'Café Leo' },
+          },
+        },
       }),
-    ).toEqual({ nombre: 'Leo', telefono: '+573001112233' });
+    ).toEqual({ nombre: 'Leo', telefono: '+573001112233', negocio: 'Café Leo' });
+  });
+  it('Stripe: o de un campo propio del checkout que diga «negocio»', () => {
+    expect(
+      datosDelComprador('STRIPE', {
+        data: {
+          object: {
+            customer_details: { name: 'Leo' },
+            custom_fields: [
+              { key: 'nombredelnegocio', label: { custom: 'Nombre del negocio' }, text: { value: 'Pan de Leo' } },
+            ],
+          },
+        },
+      }).negocio,
+    ).toBe('Pan de Leo');
+  });
+});
+
+describe('aviso al equipo de implementación', () => {
+  const base = {
+    marca: 'Clubify',
+    nombre: 'Cristian Cardona',
+    negocio: null,
+    telefono: '573183762851',
+    email: 'cfch15@hotmail.com',
+    enlace: 'https://soyclubify.com/activar?email=cfch15%40hotmail.com',
+    llegoAlCliente: true,
+  };
+  it('lleva cliente, negocio, teléfono marcable, correo y enlace', () => {
+    const t = textoAvisoAlEquipo({ ...base, cual: 1 });
+    expect(t).toContain('(30 min desde el pago)');
+    expect(t).toContain('Cliente: Cristian Cardona');
+    expect(t).toContain('Negocio: aún no lo registra');
+    expect(t).toContain('Teléfono: +573183762851');
+    expect(t).toContain('Correo: cfch15@hotmail.com');
+    expect(t).toContain('https://soyclubify.com/activar?email=cfch15%40hotmail.com');
+  });
+  it('a las 24 h lo dice, y avisa si nuestro SMS no le llegó', () => {
+    const t = textoAvisoAlEquipo({ ...base, cual: 2, llegoAlCliente: false });
+    expect(t).toContain('(24 h desde el pago)');
+    expect(t).toContain('NO le llegó');
+  });
+  it('teléfono: se le pone el + si viene sin él', () => {
+    expect(mostrarTelefono('573183762851')).toBe('+573183762851');
+    expect(mostrarTelefono('+1 555 000 1111')).toBe('+1 555 000 1111');
+    expect(mostrarTelefono('')).toBeNull();
   });
 });
 
@@ -123,6 +189,7 @@ type FilaPendiente = {
   consumedAt: Date | null;
   buyerReminder1At: Date | null;
   buyerReminder2At: Date | null;
+  buyerReminder3At: Date | null;
 };
 
 function montar(opts: {
@@ -135,6 +202,7 @@ function montar(opts: {
 }) {
   const tablas = { hotmart: opts.hotmart ?? [], stripe: opts.stripe ?? [] };
   const enviados: Array<{ phone: string | null; body: string; whiteLabelId: string | null }> = [];
+  const alEquipo: Array<{ body: string; tipo: string }> = [];
 
   const casa = (f: FilaPendiente, where: Record<string, any>) =>
     Object.entries(where).every(([k, v]) => {
@@ -187,9 +255,13 @@ function montar(opts: {
       enviados.push({ phone: o.phone, body: o.body, whiteLabelId: o.whiteLabelId });
       return opts.envio ? opts.envio() : { ok: true, permanente: false };
     },
+    sendTeamAlert: async (body: string, tipo: string) => {
+      alEquipo.push({ body, tipo });
+      return { ok: true, sent: 1, total: 1 };
+    },
   };
   const svc = new RecordatorioDeActivacionService(prisma as any, alerts as any);
-  return { svc, enviados, tablas };
+  return { svc, enviados, tablas, alEquipo };
 }
 
 const pendiente = (p: Partial<FilaPendiente>): FilaPendiente => ({
@@ -201,6 +273,7 @@ const pendiente = (p: Partial<FilaPendiente>): FilaPendiente => ({
   consumedAt: null,
   buyerReminder1At: null,
   buyerReminder2At: null,
+  buyerReminder3At: null,
   ...p,
 });
 
@@ -295,6 +368,54 @@ describe('RecordatorioDeActivacionService', () => {
     expect(enviados[0].body).toContain('en Sellea');
     expect(enviados[0].body).toContain('https://www.selleala.com/activar');
     expect(enviados[0].body).not.toMatch(/clubify/i);
+  });
+
+  it('a los 30 min avisa al equipo de implementación, una vez', async () => {
+    const { svc, alEquipo } = montar({ hotmart: [pendiente({})] });
+    await svc.recordar(AHORA);
+    await svc.recordar(new Date(AHORA.getTime() + 10 * 60_000));
+    expect(alEquipo).toHaveLength(1);
+    expect(alEquipo[0].tipo).toBe('implementacion');
+    expect(alEquipo[0].body).toContain('Cristian Cardona');
+    expect(alEquipo[0].body).toContain('+573183762851');
+    expect(alEquipo[0].body).toContain('https://soyclubify.com/activar?email=cfch15%40hotmail.com');
+  });
+
+  it('a las 48 h le escribe al cliente pero ya no al equipo', async () => {
+    const { svc, enviados, alEquipo } = montar({
+      hotmart: [
+        pendiente({
+          createdAt: hace(49 * H),
+          buyerReminder1At: hace(48 * H),
+          buyerReminder2At: hace(25 * H),
+        }),
+      ],
+    });
+    await svc.recordar(AHORA);
+    expect(enviados).toHaveLength(1);
+    expect(alEquipo).toHaveLength(0);
+  });
+
+  it('si nuestro SMS no le llegó, el equipo se entera igual', async () => {
+    const { svc, alEquipo } = montar({
+      hotmart: [pendiente({})],
+      envio: () => ({ ok: false, permanente: true }),
+    });
+    await svc.recordar(AHORA);
+    expect(alEquipo).toHaveLength(1);
+    expect(alEquipo[0].body).toContain('NO le llegó');
+  });
+
+  it('si el envío revienta, el equipo espera a la vuelta que lo resuelva', async () => {
+    let intento = 0;
+    const { svc, alEquipo } = montar({
+      hotmart: [pendiente({})],
+      envio: () => (++intento === 1 ? { ok: false, permanente: false } : { ok: true, permanente: false }),
+    });
+    await svc.recordar(AHORA);
+    expect(alEquipo).toHaveLength(0);
+    await svc.recordar(new Date(AHORA.getTime() + 10 * 60_000));
+    expect(alEquipo).toHaveLength(1);
   });
 
   it('de noche no escribe', async () => {

@@ -4,9 +4,11 @@
  *  - PendingHotmartPayment."whiteLabelId": la marca del webhook. La tabla no
  *    la guardaba, y un recordatorio sin marca saldría con la de Clubify a un
  *    comprador de otra marca.
- *  - PendingHotmartPayment / PendingStripePayment ."buyerReminder1At" y
- *    ."buyerReminder2At": el recordatorio de los 30 min y el de las 24 h. Son el
- *    candado que impide mandar el mismo recordatorio dos veces.
+ *  - PendingHotmartPayment / PendingStripePayment ."buyerReminder1At",
+ *    ."buyerReminder2At" y ."buyerReminder3At": los recordatorios de los
+ *    30 min, 24 h y 48 h. Son el candado que impide mandar el mismo
+ *    recordatorio dos veces. El 3 se añadió después (mismo día): el script es
+ *    idempotente y se vuelve a correr entero.
  *
  * Aditiva e idempotente: `ADD COLUMN IF NOT EXISTS` sobre columnas nullable.
  * No toca datos existentes y se puede correr varias veces sin efecto. Hay que
@@ -21,8 +23,10 @@ const COLUMNAS = [
   ['PendingHotmartPayment', 'whiteLabelId', 'TEXT'],
   ['PendingHotmartPayment', 'buyerReminder1At', 'TIMESTAMP(3)'],
   ['PendingHotmartPayment', 'buyerReminder2At', 'TIMESTAMP(3)'],
+  ['PendingHotmartPayment', 'buyerReminder3At', 'TIMESTAMP(3)'],
   ['PendingStripePayment', 'buyerReminder1At', 'TIMESTAMP(3)'],
   ['PendingStripePayment', 'buyerReminder2At', 'TIMESTAMP(3)'],
+  ['PendingStripePayment', 'buyerReminder3At', 'TIMESTAMP(3)'],
 ];
 
 (async () => {
@@ -38,8 +42,9 @@ const COLUMNAS = [
   const hay = await p.$queryRawUnsafe(`
     SELECT table_name, column_name, data_type, is_nullable
       FROM information_schema.columns
-     WHERE (table_name = 'PendingHotmartPayment' AND column_name IN ('whiteLabelId','buyerReminder1At','buyerReminder2At'))
-        OR (table_name = 'PendingStripePayment' AND column_name IN ('buyerReminder1At','buyerReminder2At'))
+     WHERE table_schema = 'public' AND (
+           (table_name = 'PendingHotmartPayment' AND column_name IN ('whiteLabelId','buyerReminder1At','buyerReminder2At','buyerReminder3At'))
+        OR (table_name = 'PendingStripePayment' AND column_name IN ('buyerReminder1At','buyerReminder2At','buyerReminder3At')))
      ORDER BY table_name, column_name
   `);
   for (const c of hay) {

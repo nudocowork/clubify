@@ -24,7 +24,33 @@ export type TipoAviso =
   /** Recordatorios de trials a punto de vencer. */
   | 'trial'
   /** Cambios de estado en Clubify Lab. */
-  | 'lab';
+  | 'lab'
+  /** Equipo de implementación: cliente que pagó y no se registra (30 min y
+   *  24 h), con sus datos y su enlace de activación para reenviárselo. */
+  | 'implementacion';
+
+/**
+ * Todos los tipos, para validar lo que llega desde la pantalla de «Avisos al
+ * equipo». El `satisfies` hace que un tipo nuevo en la unión sin entrada aquí
+ * (o al revés) no compile: una lista a mano que se desincroniza deja a alguien
+ * sin poder elegir un aviso.
+ */
+export const TIPOS_DE_AVISO = [
+  'pago_sin_cuenta',
+  'nueva_compra',
+  'preregistro',
+  'trial',
+  'lab',
+  'implementacion',
+] as const satisfies readonly TipoAviso[];
+type _TodosLosTiposListados = Exclude<
+  TipoAviso,
+  (typeof TIPOS_DE_AVISO)[number]
+> extends never
+  ? true
+  : never;
+const _todosListados: _TodosLosTiposListados = true;
+void _todosListados;
 
 /**
  * Notificación SMS al equipo cuando un cliente se preregistra

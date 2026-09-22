@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Patch, Post, Put } from '@nestjs/common';
 import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { SettingsService } from './settings.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -8,6 +8,13 @@ import {
   AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { resolveBrandScope } from '../common/white-label/brand-scope.util';
+import { TIPOS_DE_AVISO } from '../auth/prereg-alerts.service';
+import {
+  CLAVE_AVISOS_AL_EQUIPO,
+  leerAvisosAlEquipo,
+  validarAvisosAlEquipo,
+} from './avisos-al-equipo';
 
 class BrandingDto {
   @IsOptional() @IsString() appLogoUrl?: string | null;
@@ -227,6 +234,55 @@ export class SettingsController {
       supportPhone: branding.supportWhatsapp,
       message: welcomePopupMessage(t?.whiteLabel?.name?.trim() || 'Clubify'),
     };
+  }
+
+  /**
+   * «Avisos al equipo» (Integraciones SMS): quién recibe qué SMS interno.
+   *
+   * Solo la PLATAFORMA. Un admin de marca blanca también es SUPER_ADMIN (con
+   * `whiteLabelId`), y estos teléfonos son los del equipo de Clubify: el de
+   * Sellea no puede verlos ni cambiarlos. Mismo criterio que las subcuentas
+   * de Grow Business.
+   */
+  private async soloPlataforma(user: AuthUser): Promise<void> {
+    if (!user?.whiteLabelId) return;
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    if (!scope.isClubify) {
+      throw new ForbiddenException('Los avisos al equipo son de la plataforma.');
+    }
+  }
+
+  @Get('admin/avisos-al-equipo')
+  @Roles('SUPER_ADMIN')
+  async getAvisosAlEquipo(@CurrentUser() user: AuthUser) {
+    await this.soloPlataforma(user);
+    const fila = await this.prisma.setting.findUnique({
+      where: { key: CLAVE_AVISOS_AL_EQUIPO },
+    });
+    return {
+      personas: leerAvisosAlEquipo(fila?.value),
+      tipos: TIPOS_DE_AVISO,
+      // Sin fila, el servicio usa los teléfonos de fábrica: la pantalla lo dice.
+      deFabrica: !fila,
+    };
+  }
+
+  @Put('admin/avisos-al-equipo')
+  @Roles('SUPER_ADMIN')
+  async setAvisosAlEquipo(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { personas?: unknown },
+  ) {
+    await this.soloPlataforma(user);
+    const r = validarAvisosAlEquipo(body?.personas);
+    if (!r.ok) throw new BadRequestException(r.error);
+    const value = JSON.stringify(r.personas);
+    await this.prisma.setting.upsert({
+      where: { key: CLAVE_AVISOS_AL_EQUIPO },
+      create: { key: CLAVE_AVISOS_AL_EQUIPO, value },
+      update: { value },
+    });
+    return { personas: r.personas, tipos: TIPOS_DE_AVISO, deFabrica: false };
   }
 
   @Post('welcome-popup/dismiss')

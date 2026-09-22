@@ -4,12 +4,14 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { enlaceDeActivacion } from './pending-activation.service';
 import {
+  AVISAN_AL_EQUIPO,
   PRIMERO_A,
   Recordatorio,
-  SEGUNDO_HASTA,
+  TERCERO_HASTA,
+  datosDelComprador,
   enHorarioDeSilencio,
   queRecordatorioToca,
-  telefonoDelPago,
+  textoAvisoAlEquipo,
   textoDelRecordatorio,
 } from './recordatorio-de-activacion';
 
@@ -25,6 +27,7 @@ type Fila = {
   createdAt: Date;
   buyerReminder1At: Date | null;
   buyerReminder2At: Date | null;
+  buyerReminder3At: Date | null;
 };
 
 const SELECT = {
@@ -35,6 +38,7 @@ const SELECT = {
   createdAt: true,
   buyerReminder1At: true,
   buyerReminder2At: true,
+  buyerReminder3At: true,
 } as const;
 
 /**
@@ -46,13 +50,19 @@ const SELECT = {
 const DEVOLUCIONES = ['PURCHASE_REFUNDED', 'PURCHASE_CHARGEBACK'];
 
 /**
- * SMS al comprador que pagó y no creó su cuenta: a los 30 min y a las 24 h.
- * Hotmart y Stripe (Cross no tiene aviso automático ni teléfono fiable).
+ * Seguimiento al comprador que pagó y no creó su cuenta. Hotmart y Stripe
+ * (Cross no tiene aviso automático ni teléfono fiable).
  *
- * El candado es `buyerReminder1At` / `buyerReminder2At`, reclamado con un
- * UPDATE condicional ANTES de enviar: dos vueltas del cron que se pisen, o dos
- * réplicas, no pueden mandar el mismo recordatorio dos veces. Si el envío
- * falla por algo pasajero se devuelve, y la vuelta siguiente lo reintenta.
+ *  - Al comprador: SMS a los 30 min, a las 24 h y a las 48 h.
+ *  - Al equipo de implementación (avisos tipo `implementacion` de
+ *    `prereg.alertPhones`, editables en Integraciones SMS): a los 30 min y a
+ *    las 24 h, con los datos para llamarlo y su enlace de activación.
+ *
+ * El candado es `buyerReminder{1,2,3}At`, reclamado con un UPDATE condicional
+ * ANTES de enviar: dos vueltas del cron que se pisen, o dos réplicas, no
+ * pueden mandar el mismo recordatorio dos veces. Si el envío revienta se
+ * devuelve, y la vuelta siguiente lo reintenta. El aviso al equipo va atado al
+ * mismo candado: sale una vez por recordatorio.
  *
  * El reclamo abarca TODAS las filas sin consumir de ese comprador en esa
  * marca: Hotmart manda una fila por transacción, y un comprador con dos no
@@ -82,7 +92,7 @@ export class RecordatorioDeActivacionService {
     const where = {
       consumedAt: null,
       createdAt: {
-        gte: new Date(ahora.getTime() - SEGUNDO_HASTA),
+        gte: new Date(ahora.getTime() - TERCERO_HASTA),
         lte: new Date(ahora.getTime() - PRIMERO_A),
       },
     };
@@ -155,7 +165,7 @@ export class RecordatorioDeActivacionService {
       if (devuelto) return false;
     }
 
-    const campo = cual === 1 ? 'buyerReminder1At' : 'buyerReminder2At';
+    const campo = `buyerReminder${cual}At` as const;
     const delComprador = {
       email: fila.email,
       whiteLabelId: fila.whiteLabelId,
@@ -189,12 +199,16 @@ export class RecordatorioDeActivacionService {
         select: { id: true, name: true, domain: true, appDomain: true },
       })
       .catch(() => null);
-    const { nombre, telefono } = telefonoDelPago(pasarela, fila.rawPayload);
+    const { nombre, telefono, negocio } = datosDelComprador(
+      pasarela,
+      fila.rawPayload,
+    );
+    const enlace = enlaceDeActivacion(wl, fila.email);
     const body = textoDelRecordatorio({
       cual,
       nombre,
       marca: wl?.name ?? null,
-      enlace: enlaceDeActivacion(wl, fila.email),
+      enlace,
       email: fila.email,
     });
 
@@ -210,13 +224,39 @@ export class RecordatorioDeActivacionService {
 
     if (!r.ok && !r.permanente) {
       // Solo se devuelve lo que reclamó ESTA vuelta (mismo sello): si otra ya
-      // lo había reclamado y enviado, no se toca.
+      // lo había reclamado y enviado, no se toca. El aviso al equipo espera a
+      // la vuelta que lo resuelva, o le llegaría dos veces.
       await tabla
         .updateMany({
           where: { ...delComprador, [campo]: sello },
           data: { [campo]: null },
         })
         .catch(() => null);
+      return false;
+    }
+
+    if (AVISAN_AL_EQUIPO.has(cual)) {
+      // También cuando nuestro SMS no le llegó (teléfono inválido, lista de no
+      // molestar): ahí el equipo es lo único que queda, y el aviso lo dice.
+      await this.alerts
+        .sendTeamAlert(
+          textoAvisoAlEquipo({
+            cual,
+            marca: wl?.name ?? null,
+            nombre,
+            negocio,
+            telefono,
+            email: fila.email,
+            enlace,
+            llegoAlCliente: r.ok,
+          }),
+          'implementacion',
+        )
+        .catch((e) =>
+          this.logger.warn(
+            `Aviso a implementación no salió para ${fila.email}: ${(e as Error).message}`,
+          ),
+        );
     }
     return r.ok;
   }
