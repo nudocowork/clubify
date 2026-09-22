@@ -8,6 +8,42 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-22 (66) — Aviso al equipo de implementación, 3er recordatorio y color de títulos del menú
+
+Commits: `82f38281`, `e7ba7e8b` y `a330fb14`, todos en `main`. **Sin desplegar**: el
+clasificador bloquea el deploy y lo tiene que correr Javier. Primero
+`node scripts/desplegar.cjs backend` y después `node scripts/desplegar.cjs frontend`.
+
+- **Migración YA aplicada** (`apply-buyer-reminder-migration.cjs` se volvió a
+  correr: 7 columnas, incluidas las de `buyerReminder3At`).
+- **Al cliente:** SMS a los 30 min, 24 h y **48 h**. La ventana llega hasta 72 h.
+- **Al equipo de implementación**, a los 30 min y a las 24 h, van cliente,
+  negocio, teléfono, correo y enlace de activación. El aviso sale también si
+  nuestro SMS no le llegó al cliente, y lo dice.
+  - Es el tipo nuevo `'implementacion'` de `prereg.alertPhones`, enviado por
+    `sendTeamAlert`.
+  - **Samuel (+573154391993) ya lo tiene** en su `solo`: el Setting se editó en
+    producción. Javier lo recibe porque no tiene `solo`.
+- **Integraciones SMS → «Avisos al equipo»:** pantalla para editar
+  `prereg.alertPhones`, que antes solo se cambiaba a mano en la base.
+  - Solo la plataforma entra.
+  - No se puede guardar una lista vacía, porque el servicio la leería como
+    «teléfonos de fábrica».
+  - Los tipos de aviso los manda el servidor.
+- **Negocio:** Hotmart no lo trae («aún no lo registra»). Stripe sí, si la
+  marca lo pide en su checkout.
+- **Menú:** `theme.categoryTitleColor` (JSON, sin migración) da color a los
+  títulos de categoría en 6 layouts. SECTIONS no cambia.
+- **Revisión Fable:** listo para desplegar. Se aplicaron sus arreglos menores.
+- **Prueba enviada:** el aviso llegó a Samuel y Javier (marcado PRUEBA) y a
+  Javier le llegó además el recordatorio de 30 min.
+
+**Decisión pendiente de Javier:** sigue vivo el SMS de «🚨 Cliente pagó hace X»
+a la hora. Lo manda `notifyFounderForStaleHotmartPayments` a
+`prereg.followupPhone` o a Jhon, por fuera de la pantalla nueva. Un comprador
+genera 4 SMS al equipo. Opciones: retirarlo, o pasarlo por el tipo
+`implementacion`.
+
 ## 2026-09-22 (65) — Recordatorio por SMS al comprador que pagó y no creó su cuenta
 
 Javier: «los clientes no están registrando su cuenta».
