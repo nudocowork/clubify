@@ -8,6 +8,7 @@ import {
   destinoInterno,
   evalWF,
   resolveMerge,
+  WF_TRIGGERS,
   WFCondition,
   WFDrip,
   WFGraph,
@@ -15,6 +16,22 @@ import {
   WFSendWindow,
   WFTrigger,
 } from './brand-workflow.util';
+import { disparadoresDe, disparadorQueCasa, escuchaEl, etiquetaDeDisparador } from './wf-filtros.util';
+
+const DIA_MS = 86400000;
+
+/** Lo que la inscripción recuerda del disparador por el que entró el negocio. */
+function contextoDeEntrada(t: WFTrigger, indice: number): Record<string, string> {
+  return { disparador: etiquetaDeDisparador(t, indice, WF_TRIGGERS), disparadorTipo: t.type };
+}
+
+/** El número de un disparador (días, pedidos…), o el de siempre si no lo trae.
+ *  Con tope: un número disparatado daba una fecha inválida, Prisma lanzaba y se
+ *  caía el barrido de TODAS las marcas, no solo el de ese flujo. */
+function paramDe(t: WFTrigger, clave: string, porDefecto: number): number {
+  const n = Number(t[clave]) || porDefecto;
+  return Math.min(Math.max(n, 1), 3650);
+}
 
 type NodeResult =
   | { kind: 'continue'; next: string | null }
@@ -486,12 +503,13 @@ export class BrandWorkflowEngineService {
     return whiteLabelId === clubify ? { OR: [{ whiteLabelId }, { whiteLabelId: null }] } : { whiteLabelId };
   }
 
-  // Workflows publicados de una marca cuyo disparador coincide.
+  // Workflows publicados con ALGÚN disparador de este tipo. Mirar solo
+  // `trigger` dejaría fuera a quien añadió un segundo disparador.
   private async publishedByTrigger(type: string) {
     const all = await this.prisma.brandWorkflow.findMany({
       where: { status: 'published', rootId: { not: null } },
     });
-    return all.filter((wf) => ((wf.trigger as WFTrigger) || {}).type === type);
+    return all.filter((wf) => escuchaEl(wf, type));
   }
 
   // Disparo en tiempo real (p. ej. al crear un negocio). Idempotente.
@@ -506,9 +524,10 @@ export class BrandWorkflowEngineService {
       if (!wfs.length) return;
       const ctx = await this.ctxFor(tenantId);
       for (const wf of wfs) {
-        const filters = ((wf.trigger as WFTrigger) || {}).filters;
-        if (!evalWF(filters, ctx, 'all')) continue;
-        await this.enroll(wf.id, tenantId);
+        // Entre disparadores basta con uno; dentro de cada uno, todos sus filtros.
+        const casa = disparadorQueCasa(disparadoresDe(wf), type, ctx);
+        if (!casa) continue;
+        await this.enroll(wf.id, tenantId, contextoDeEntrada(casa.disparador, casa.indice));
       }
     } catch (e) {
       this.log.warn(`fireTrigger(${type}) falló: ${(e as Error).message}`);
@@ -531,7 +550,7 @@ export class BrandWorkflowEngineService {
 
   private async scanBusinessCreated(): Promise<void> {
     const wfs = await this.publishedByTrigger('business_created');
-    const floor = new Date(Date.now() - 7 * 86400000); // ventana de seguridad de 7 días
+    const floor = new Date(Date.now() - 7 * DIA_MS); // ventana de seguridad de 7 días
     for (const wf of wfs) {
       const since = wf.createdAt > floor ? wf.createdAt : floor;
       const where = await this.brandTenantWhere(wf.whiteLabelId);
@@ -540,50 +559,74 @@ export class BrandWorkflowEngineService {
         select: { id: true },
         take: 500,
       });
-      for (const t of tenants) await this.fireEnroll(wf, t.id);
+      for (const t of tenants) await this.fireEnroll(wf, t.id, (d) => d.type === 'business_created');
     }
   }
 
+  /*
+   * Los barridos con un número propio (días antes, días sin pedidos, pedidos)
+   * leen el de CADA disparador de su tipo: un flujo puede escuchar «vence en
+   * 7 días» y «vence en 1 día» a la vez. Se pide a la base el tramo más ancho
+   * y luego cada negocio se contrasta con cada disparador. Con un solo
+   * disparador, el tramo es exactamente el de antes.
+   */
+
   private async scanSubscriptionExpiring(): Promise<void> {
-    const wfs = await this.publishedByTrigger('subscription_expiring');
+    const tipo = 'subscription_expiring';
+    const wfs = await this.publishedByTrigger(tipo);
     const now = new Date();
     for (const wf of wfs) {
-      const days = Number(((wf.trigger as WFTrigger) || {}).daysBefore) || 3;
-      const horizon = new Date(now.getTime() + days * 86400000);
+      const dias = (d: WFTrigger) => paramDe(d, 'daysBefore', 3);
+      const maxDias = Math.max(...disparadoresDe(wf).filter((d) => d.type === tipo).map(dias));
+      const horizon = new Date(now.getTime() + maxDias * DIA_MS);
       const where = await this.brandTenantWhere(wf.whiteLabelId);
       const tenants = await this.prisma.tenant.findMany({
         where: { ...where, status: 'ACTIVE', currentPeriodEnd: { gte: now, lte: horizon } },
-        select: { id: true },
+        select: { id: true, currentPeriodEnd: true },
         take: 500,
       });
-      for (const t of tenants) await this.fireEnroll(wf, t.id);
+      for (const t of tenants) {
+        const vence = t.currentPeriodEnd?.getTime() ?? Infinity;
+        await this.fireEnroll(wf, t.id, (d) => d.type === tipo && vence <= now.getTime() + dias(d) * DIA_MS);
+      }
     }
   }
 
   private async scanBusinessInactive(): Promise<void> {
-    const wfs = await this.publishedByTrigger('business_inactive');
+    const tipo = 'business_inactive';
+    const wfs = await this.publishedByTrigger(tipo);
     const now = Date.now();
     for (const wf of wfs) {
-      const days = Number(((wf.trigger as WFTrigger) || {}).daysInactive) || 30;
-      const cutoff = new Date(now - days * 86400000);
+      const dias = (d: WFTrigger) => paramDe(d, 'daysInactive', 30);
+      const todos = disparadoresDe(wf).filter((d) => d.type === tipo).map(dias);
+      // El corte MÁS RECIENTE (menos días) deja entrar a más candidatos; los
+      // pedidos se miran desde el más antiguo (más días), que es el más exigente.
+      const cutoffCandidatos = new Date(now - Math.min(...todos) * DIA_MS);
+      const desdePedidos = new Date(now - Math.max(...todos) * DIA_MS);
       const where = await this.brandTenantWhere(wf.whiteLabelId);
       // Candidatos: ACTIVE que existan desde hace al menos `days`.
       const candidates = await this.prisma.tenant.findMany({
-        where: { ...where, status: 'ACTIVE', createdAt: { lte: cutoff } },
-        select: { id: true },
+        where: { ...where, status: 'ACTIVE', createdAt: { lte: cutoffCandidatos } },
+        select: { id: true, createdAt: true },
         take: 1000,
       });
       if (!candidates.length) continue;
       const ids = candidates.map((c) => c.id);
-      // Negocios con pedidos recientes → NO están inactivos.
-      const active = await this.prisma.order.groupBy({
+      // El último pedido reciente de cada negocio. Uno sin pedidos en la
+      // ventana no aparece, y cuenta como inactivo.
+      const recientes = await this.prisma.order.groupBy({
         by: ['tenantId'],
-        where: { tenantId: { in: ids }, createdAt: { gte: cutoff } },
+        where: { tenantId: { in: ids }, createdAt: { gte: desdePedidos } },
+        _max: { createdAt: true },
       });
-      const activeSet = new Set(active.map((a) => a.tenantId));
-      for (const id of ids) {
-        if (activeSet.has(id)) continue;
-        await this.fireEnroll(wf, id);
+      const ultimo = new Map(recientes.map((r) => [r.tenantId, r._max?.createdAt?.getTime() ?? 0]));
+      for (const c of candidates) {
+        await this.fireEnroll(wf, c.id, (d) => {
+          if (d.type !== tipo) return false;
+          const corte = now - dias(d) * DIA_MS;
+          // Existe desde hace al menos esos días y no ha pedido desde entonces.
+          return c.createdAt.getTime() <= corte && (ultimo.get(c.id) ?? 0) < corte;
+        });
       }
     }
   }
@@ -708,18 +751,23 @@ export class BrandWorkflowEngineService {
 
   /** Prueba por terminar: el momento de empujar al que aún no ha pagado. */
   private async scanTrialEnding(): Promise<void> {
-    const wfs = await this.publishedByTrigger('trial_ending');
+    const tipo = 'trial_ending';
+    const wfs = await this.publishedByTrigger(tipo);
     const now = new Date();
     for (const wf of wfs) {
-      const days = Number(((wf.trigger as WFTrigger) || {}).daysBefore) || 2;
-      const horizon = new Date(now.getTime() + days * 86400000);
+      const dias = (d: WFTrigger) => paramDe(d, 'daysBefore', 2);
+      const maxDias = Math.max(...disparadoresDe(wf).filter((d) => d.type === tipo).map(dias));
+      const horizon = new Date(now.getTime() + maxDias * DIA_MS);
       const where = await this.brandTenantWhere(wf.whiteLabelId);
       const tenants = await this.prisma.tenant.findMany({
         where: { ...where, status: 'TRIAL', trialEndsAt: { gte: now, lte: horizon } },
-        select: { id: true },
+        select: { id: true, trialEndsAt: true },
         take: 500,
       });
-      for (const t of tenants) await this.fireEnroll(wf, t.id);
+      for (const t of tenants) {
+        const termina = t.trialEndsAt?.getTime() ?? Infinity;
+        await this.fireEnroll(wf, t.id, (d) => d.type === tipo && termina <= now.getTime() + dias(d) * DIA_MS);
+      }
     }
   }
 
@@ -731,11 +779,15 @@ export class BrandWorkflowEngineService {
    * negocio que ya entró no vuelve a entrar aunque siga contando pedidos.
    */
   private async scanPedidos(): Promise<void> {
-    const wfs = [...(await this.publishedByTrigger('first_order')), ...(await this.publishedByTrigger('orders_milestone'))];
-    if (!wfs.length) return;
-    for (const wf of wfs) {
-      const tipo = ((wf.trigger as WFTrigger) || {}).type;
-      const meta = tipo === 'first_order' ? 1 : Number(((wf.trigger as WFTrigger) || {}).orders) || 100;
+    // Un flujo que escuche los dos tipos saldría dos veces de las dos
+    // consultas: se cuenta una sola vez por flujo.
+    const ambos = [...(await this.publishedByTrigger('first_order')), ...(await this.publishedByTrigger('orders_milestone'))];
+    const porId = new Map(ambos.map((wf) => [wf.id, wf]));
+    if (!porId.size) return;
+    const meta = (d: WFTrigger) => (d.type === 'first_order' ? 1 : paramDe(d, 'orders', 100));
+    const esDePedidos = (d: WFTrigger) => d.type === 'first_order' || d.type === 'orders_milestone';
+    for (const wf of porId.values()) {
+      const minMeta = Math.min(...disparadoresDe(wf).filter(esDePedidos).map(meta));
       const where = await this.brandTenantWhere(wf.whiteLabelId);
       const tenants = await this.prisma.tenant.findMany({ where, select: { id: true }, take: 2000 });
       if (!tenants.length) continue;
@@ -745,20 +797,31 @@ export class BrandWorkflowEngineService {
         _count: { _all: true },
       });
       for (const c of cuenta) {
-        if ((c._count?._all ?? 0) < meta) continue;
-        await this.fireEnroll(wf, c.tenantId);
+        const pedidos = c._count?._all ?? 0;
+        if (pedidos < minMeta) continue;
+        await this.fireEnroll(wf, c.tenantId, (d) => esDePedidos(d) && pedidos >= meta(d));
       }
     }
   }
 
-  // Evalúa filtros del disparador contra el negocio y, si pasan, inscribe.
-  private async fireEnroll(wf: { id: string; trigger: unknown }, tenantId: string): Promise<void> {
-    const filters = ((wf.trigger as WFTrigger) || {}).filters;
-    if (filters && filters.length) {
-      const ctx = await this.ctxFor(tenantId);
-      if (!evalWF(filters, ctx, 'all')) return;
-    }
-    await this.enroll(wf.id, tenantId);
+  /**
+   * Inscribe al negocio por el PRIMER disparador del flujo que cumple lo suyo
+   * (`cumple`: el tipo y su número) y todos sus filtros.
+   *
+   * El contexto del negocio solo se pide si algún disparador tiene filtros: es
+   * lo que ya hacía antes, y los barridos pasan por aquí cientos de veces.
+   */
+  private async fireEnroll(
+    wf: { id: string; trigger: unknown; triggers?: unknown },
+    tenantId: string,
+    cumple: (d: WFTrigger) => boolean,
+  ): Promise<void> {
+    const lista = disparadoresDe(wf);
+    const hacenFalta = lista.some((d) => cumple(d) && d.filters?.length);
+    const ctx = hacenFalta ? await this.ctxFor(tenantId) : {};
+    const casa = lista.findIndex((d) => cumple(d) && evalWF(d.filters, ctx, 'all'));
+    if (casa < 0) return;
+    await this.enroll(wf.id, tenantId, contextoDeEntrada(lista[casa], casa));
   }
 
   // Motor durable: cada 5 min procesa las inscripciones que ya tocan.

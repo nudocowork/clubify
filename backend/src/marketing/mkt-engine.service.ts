@@ -7,9 +7,11 @@ import {
   casoQueCasa,
   resolveMerge,
   evalWF,
+  msDeEsperaDeRespuesta,
   sinAcentos,
   MKT_CAMPOS_EDITABLES,
   MKT_MAX_SALTOS,
+  MKT_TRIGGERS,
   WFCaso,
   WFGraph,
   WFNode,
@@ -23,6 +25,12 @@ import {
 // corrección y una de las dos se queda vieja. Es un archivo de helpers puros,
 // sin Nest, así que importarlo no crea ninguna dependencia entre módulos.
 import { destinoInterno } from '../superadmin/brand-workflows/brand-workflow.util';
+import {
+  disparadoresDe,
+  disparadorQueCasa,
+  escuchaEl,
+  etiquetaDeDisparador,
+} from '../superadmin/brand-workflows/wf-filtros.util';
 
 type NodeResult =
   | { kind: 'continue'; next: string | null }
@@ -31,8 +39,29 @@ type NodeResult =
   | { kind: 'complete' }
   | { kind: 'removed' };
 
-// Timeout por defecto de "esperar respuesta" (si nadie interactúa) — 3 días.
-const WAIT_REPLY_TIMEOUT_MS = 3 * 86400000;
+/** Los datos de un contacto tal como los ven las condiciones y los {{merge}}. */
+function ctxDeContacto(
+  c: { name?: string | null; email?: string | null; phone?: string | null; company?: string | null; tags?: string[] | null } | null,
+  marca: string,
+): Record<string, string> {
+  return {
+    nombre: c?.name ?? '',
+    email: c?.email ?? '',
+    telefono: c?.phone ?? '',
+    empresa: c?.company ?? '',
+    tags: (c?.tags ?? []).join(', '),
+    marca,
+  };
+}
+
+/**
+ * Lo que la inscripción recuerda del disparador por el que entró. Con varios
+ * disparadores por flujo, sin esto no hay forma de saber —en el registro o en
+ * un paso posterior— si llegó por la etiqueta o por la respuesta.
+ */
+function contextoDeEntrada(t: WFTrigger, indice: number): Record<string, string> {
+  return { disparador: etiquetaDeDisparador(t, indice, MKT_TRIGGERS), disparadorTipo: t.type };
+}
 
 @Injectable()
 export class MktEngineService {
@@ -57,14 +86,7 @@ export class MktEngineService {
       });
       marca = wl?.name ?? 'Clubify';
     }
-    return {
-      nombre: c?.name ?? '',
-      email: c?.email ?? '',
-      telefono: c?.phone ?? '',
-      empresa: c?.company ?? '',
-      tags: (c?.tags ?? []).join(', '),
-      marca,
-    };
+    return ctxDeContacto(c, marca);
   }
 
   // ── Ventana de envío (tz de la marca; default Bogota) ──
@@ -182,10 +204,11 @@ export class MktEngineService {
       }
       case 'wait_reply': {
         // Esperar una INTERACCIÓN (reply/open/click). Timeout → sigue por 'no'/next.
+        // El tiempo máximo es del paso; sin configurar, los 3 días de siempre.
         return {
           kind: 'waitReply',
           nodeId: node.id,
-          resumeAt: new Date(Date.now() + WAIT_REPLY_TIMEOUT_MS),
+          resumeAt: new Date(Date.now() + msDeEsperaDeRespuesta(cfg)),
         };
       }
       case 'condition': {
@@ -585,11 +608,13 @@ export class MktEngineService {
   }
 
   // ── Disparadores ──
+  // Un flujo escucha un tipo si CUALQUIERA de sus disparadores es de ese tipo:
+  // mirar solo `trigger` dejaría fuera a quien añadió un segundo disparador.
   private async publishedByTrigger(type: string, whiteLabelId: string) {
     const all = await this.prisma.mktWorkflow.findMany({
       where: { whiteLabelId, status: 'published', rootId: { not: null } },
     });
-    return all.filter((wf) => ((wf.trigger as WFTrigger) || {}).type === type);
+    return all.filter((wf) => escuchaEl(wf, type));
   }
 
   /**
@@ -617,18 +642,23 @@ export class MktEngineService {
       const wfs = await this.publishedByTrigger(type, whiteLabelId);
       if (!wfs.length) return;
       const ctx = { ...(await this.ctxFor(contactId)), ...(extra ?? {}) };
+      // La etiqueta del disparador NO es un filtro: es parte de la identidad
+      // del disparador. Un flujo configurado para «cliente-vip» no puede
+      // arrancar porque se haya puesto cualquier otra etiqueta. Vacía = todas.
+      const etiquetaPuesta = sinAcentos(String(extra?.etiqueta ?? '')).trim();
+      const esLaEtiqueta = (t: WFTrigger) => {
+        if (type !== 'tag_added' && type !== 'tag_removed') return true;
+        const pedida = sinAcentos(String(t.tag ?? '')).trim();
+        return !pedida || pedida === etiquetaPuesta;
+      };
       for (const wf of wfs) {
-        const trig = (wf.trigger as WFTrigger) || {};
-        // La etiqueta del disparador NO es un filtro: es parte de la identidad
-        // del disparador. Un flujo configurado para «cliente-vip» no puede
-        // arrancar porque se haya puesto cualquier otra etiqueta. Vacía = todas.
-        if (type === 'tag_added' || type === 'tag_removed') {
-          const pedida = sinAcentos(String(trig.tag ?? '')).trim();
-          if (pedida && pedida !== sinAcentos(String(extra?.etiqueta ?? '')).trim()) continue;
-        }
-        if (!evalWF(trig.filters, ctx, 'all')) continue;
+        // Entre disparadores basta con uno; dentro de cada uno, todos sus
+        // filtros. El primero que casa es el que queda en el contexto.
+        const casa = disparadorQueCasa(disparadoresDe(wf), type, ctx, esLaEtiqueta);
+        if (!casa) continue;
         await this.enroll(wf.id, contactId, {
           ...(extra ?? {}),
+          ...contextoDeEntrada(casa.disparador, casa.indice),
           ...(saltos ? { saltos } : {}),
         });
       }
@@ -637,23 +667,44 @@ export class MktEngineService {
     }
   }
 
-  // Escaneo horario: contactos nuevos (catch-up del trigger contact_created).
+  /**
+   * Escaneo horario: contactos nuevos (catch-up del disparador contact_created,
+   * para los que llegan por importación o desde el tablero de ventas).
+   *
+   * Aplica los FILTROS del disparador, igual que `fireTrigger`. Hasta el
+   * 2026-09-22 no los miraba: un flujo de «Contacto nuevo» filtrado a «solo
+   * los de la etiqueta vip» respetaba el filtro con el alta a mano y se lo
+   * saltaba una hora después, inscribiendo a TODOS los importados.
+   */
   @Cron(CronExpression.EVERY_HOUR)
   async scanTriggers(): Promise<void> {
     try {
       const wfs = await this.prisma.mktWorkflow.findMany({
         where: { status: 'published', rootId: { not: null } },
       });
-      const created = wfs.filter((wf) => ((wf.trigger as WFTrigger) || {}).type === 'contact_created');
+      const created = wfs.filter((wf) => escuchaEl(wf, 'contact_created'));
       const floor = new Date(Date.now() - 7 * 86400000);
+      const marcas = new Map<string, string>();
       for (const wf of created) {
         const since = wf.createdAt > floor ? wf.createdAt : floor;
         const contacts = await this.prisma.mktContact.findMany({
           where: { whiteLabelId: wf.whiteLabelId, deleted: false, createdAt: { gte: since } },
-          select: { id: true },
+          // Los datos del contexto vienen en la misma consulta: pedir la ficha
+          // de cada contacto por separado serían 500 consultas por flujo y hora.
+          select: { id: true, name: true, email: true, phone: true, company: true, tags: true },
           take: 500,
         });
-        for (const c of contacts) await this.enroll(wf.id, c.id);
+        if (!contacts.length) continue;
+        if (!marcas.has(wf.whiteLabelId)) {
+          const wl = await this.prisma.whiteLabel.findUnique({ where: { id: wf.whiteLabelId }, select: { name: true } });
+          marcas.set(wf.whiteLabelId, wl?.name ?? 'Clubify');
+        }
+        const disparadores = disparadoresDe(wf);
+        for (const c of contacts) {
+          const casa = disparadorQueCasa(disparadores, 'contact_created', ctxDeContacto(c, marcas.get(wf.whiteLabelId)!));
+          if (!casa) continue;
+          await this.enroll(wf.id, c.id, contextoDeEntrada(casa.disparador, casa.indice));
+        }
       }
     } catch (e) {
       this.log.warn(`scanTriggers falló: ${(e as Error).message}`);

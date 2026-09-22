@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,18 +10,33 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { IsArray, IsBoolean, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { MktEngineService } from './mkt-engine.service';
-import { catalogoDeContactos } from './mkt-workflow.util';
+import { catalogoDeContactos, MKT_OPERADORES } from './mkt-workflow.util';
+import { disparadoresParaGuardar } from '../superadmin/brand-workflows/wf-filtros.util';
+
+/** `trigger` + `triggers` listos para la base, o un 400 que dice qué falla. */
+function disparadoresDelCuerpo(body: { trigger?: unknown; triggers?: unknown }) {
+  const r = disparadoresParaGuardar(
+    body,
+    MKT_OPERADORES.map((o) => o.value),
+  );
+  if (!r.ok) throw new BadRequestException(r.error);
+  return r.data;
+}
 
 class SaveWorkflowDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() folderId?: string | null;
   @IsOptional() @IsString() status?: string;
+  /** El de antes: una pantalla vieja todavía abierta solo sabe mandar este. */
   @IsOptional() @IsObject() trigger?: Record<string, unknown>;
+  /** Varios disparadores (entra si casa cualquiera). Si viene, manda sobre `trigger`. */
+  @IsOptional() @IsArray() triggers?: unknown[];
   @IsOptional() rootId?: string | null;
   @IsOptional() @IsObject() nodes?: Record<string, unknown>;
   @IsOptional() @IsObject() drip?: Record<string, unknown>;
@@ -127,7 +143,8 @@ export class MktWorkflowsController {
     if (body.name != null) data.name = body.name.trim() || 'Workflow';
     if (body.folderId !== undefined) data.folderId = body.folderId;
     if (body.status != null) data.status = body.status === 'published' ? 'published' : 'draft';
-    if (body.trigger != null) data.trigger = body.trigger;
+    const disparadores = disparadoresDelCuerpo(body);
+    if (disparadores) Object.assign(data, disparadores);
     if (body.rootId !== undefined) data.rootId = body.rootId;
     if (body.nodes != null) data.nodes = body.nodes;
     if (body.drip != null) data.drip = body.drip;
@@ -157,6 +174,8 @@ export class MktWorkflowsController {
         status: 'draft',
         folderId: wf.folderId ?? null,
         trigger: (wf.trigger as object) ?? { type: 'manual' },
+        // Sin esto la copia se quedaba solo con el primer disparador.
+        triggers: (wf.triggers as Prisma.InputJsonValue) ?? [],
         rootId: wf.rootId ?? null,
         nodes: (wf.nodes as object) ?? {},
         drip: (wf.drip as object) ?? {},

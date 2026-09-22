@@ -2,11 +2,12 @@
 // Audiencia: los NEGOCIOS (Tenant) de la marca. El SMS va al dueño por la
 // subcuenta de Grow Business de la marca.
 
-export type WFCondition = {
-  field: string;
-  op: 'eq' | 'neq' | 'contains' | 'filled';
-  value?: string;
-};
+// Filtros, operadores y la lista de disparadores: compartidos con el motor de
+// contactos (ver wf-filtros.util.ts).
+import { evalWF, operadoresDe, type WFCondition, type WFTrigger } from './wf-filtros.util';
+
+export { evalWF };
+export type { WFCondition, WFTrigger };
 
 export type WFNode = {
   id: string;
@@ -19,7 +20,6 @@ export type WFNode = {
   branches?: Record<string, string | null>;
 };
 export type WFGraph = Record<string, WFNode>;
-export type WFTrigger = { type: string; filters?: WFCondition[]; [k: string]: unknown };
 export type WFDrip = { enabled?: boolean; batchSize?: number; intervalMinutes?: number };
 export type WFSendWindow = {
   enabled?: boolean;
@@ -60,6 +60,20 @@ export type DisparadorDeMarca = {
   latencia: 'minutos' | 'hora';
   hint?: string;
   campos?: CampoDeConfig[];
+  /** Lo pone `catalogoDeMarca`: es derivado, no se escribe a mano. */
+  filtros?: FiltrosDelDisparador;
+};
+
+/**
+ * Sobre qué se puede filtrar un disparador y con qué nace un filtro nuevo.
+ * Mismo contrato que en el constructor de contactos: la pantalla es una sola.
+ */
+export type FiltrosDelDisparador = {
+  /** Vacío = este disparador no admite filtros (la inscripción manual). */
+  campos: { key: string; label: string }[];
+  /** Claves de `operadores` del catálogo que se ofrecen. */
+  operadores: string[];
+  nuevo: { field: string; op: string };
 };
 
 export type PasoDeMarca = {
@@ -299,17 +313,29 @@ export function catalogoDeMarca(pasarela?: string | null) {
     ? WF_TRIGGERS
     : WF_TRIGGERS.filter((d) => !DISPARADORES_DE_COBRO.includes(d.key));
   return {
-    disparadores,
+    disparadores: disparadores.map((d) => ({ ...d, filtros: filtrosDelDisparador(d.key) })),
     pasos: WF_NODE_TYPES,
     campos: WF_FIELDS,
     merge: WF_MERGE_FIELDS,
-    operadores: [
-      { value: 'eq', label: 'es igual a' },
-      { value: 'neq', label: 'no es' },
-      { value: 'contains', label: 'contiene' },
-      { value: 'filled', label: 'tiene algo' },
-    ],
+    operadores: WF_OPERADORES,
   };
+}
+
+/**
+ * Los operadores del constructor de negocios: los de TeamClubify MENOS los de
+ * etiqueta, porque un negocio no tiene etiquetas y el filtro no casaría nunca.
+ */
+export const WF_OPERADORES = operadoresDe(false);
+
+/**
+ * Sobre qué puede filtrar cada disparador. Todos los automáticos leen el mismo
+ * contexto del negocio (`ctxFor`), así que ofrecen los mismos campos.
+ */
+export function filtrosDelDisparador(key: string): FiltrosDelDisparador {
+  const operadores = WF_OPERADORES.map((o) => o.value);
+  // La inscripción manual no pasa por los filtros: entra el negocio que inscribas.
+  if (key === 'manual') return { campos: [], operadores, nuevo: { field: 'plan', op: 'eq' } };
+  return { campos: WF_FIELDS, operadores, nuevo: { field: 'plan', op: 'eq' } };
 }
 
 /**
@@ -346,29 +372,4 @@ export function resolveMerge(text: string, ctx: Record<string, string>): string 
     const key = String(k).trim();
     return ctx[key] != null ? ctx[key] : '';
   });
-}
-
-export function evalWF(
-  conditions: WFCondition[] | undefined,
-  ctx: Record<string, string>,
-  match: 'all' | 'any' = 'all',
-): boolean {
-  if (!conditions || !conditions.length) return true;
-  const test = (c: WFCondition): boolean => {
-    const v = String(ctx[c.field] ?? '').toLowerCase().trim();
-    const target = String(c.value ?? '').toLowerCase().trim();
-    switch (c.op) {
-      case 'eq':
-        return v === target;
-      case 'neq':
-        return v !== target;
-      case 'contains':
-        return v.includes(target);
-      case 'filled':
-        return v !== '';
-      default:
-        return true;
-    }
-  };
-  return match === 'all' ? conditions.every(test) : conditions.some(test);
 }

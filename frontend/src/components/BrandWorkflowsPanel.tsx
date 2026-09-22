@@ -2,6 +2,15 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { DisparadoresEditor, DisparadoresModal, FiltroFila, TarjetasDeDisparadores } from '@/components/flujos/DisparadoresEditor';
+import {
+  disparadoresDelFlujo,
+  disparadorNuevo,
+  type Disparador as DisparadorDelFlujo,
+  type FiltrosCat,
+  type OperadorCat,
+} from '@/components/flujos/disparadores';
+import { aplicarPlantilla } from '@/components/flujos/resumen';
 
 // Constructor visual de Workflows de la MARCA (audiencia: sus negocios/tenants).
 // SMS al dueño por la subcuenta de Grow Business de la marca. Backend:
@@ -13,7 +22,8 @@ import { toast } from '@/components/Toast';
 type Stats = { active: number; completed: number };
 type WF = {
   id: string; name: string; folderId: string | null; status: string;
-  trigger: any; rootId: string | null; nodes: any; drip: any; sendWindow: any; reentry: boolean;
+  /** `trigger` es el primero de `triggers`; vacío = flujo de antes (se lee `[trigger]`). */
+  trigger: any; triggers?: any[]; rootId: string | null; nodes: any; drip: any; sendWindow: any; reentry: boolean;
   createdAt?: string; _stats: Stats;
 };
 type Folder = { id: string; name: string; parentId?: string | null; createdAt?: string };
@@ -41,19 +51,19 @@ type CampoDeConfig = {
   key: string;
   label: string;
   tipo: 'texto' | 'textarea' | 'numero' | 'select' | 'fechaHora' | 'condiciones' | 'rutas' | 'cabeceras' | 'flujo';
-  opciones?: Opcion[];
+  opciones?: (Opcion & { singular?: string })[];
   def?: string | number;
   ayuda?: string;
   requerido?: boolean;
 };
-type Disparador = { key: string; label: string; grupo: string; latencia: 'minutos' | 'hora'; hint?: string; campos?: CampoDeConfig[] };
-type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'rutas'; hint?: string; campos: CampoDeConfig[] };
+type Disparador = { key: string; label: string; grupo: string; latencia: 'minutos' | 'hora'; hint?: string; campos?: CampoDeConfig[]; filtros?: FiltrosCat };
+type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'rutas'; hint?: string; campos: CampoDeConfig[]; resumen?: string };
 type Catalogo = {
   disparadores: Disparador[];
   pasos: Paso[];
   campos: { key: string; label: string }[];
   merge: { key: string; label: string }[];
-  operadores: Opcion[];
+  operadores: OperadorCat[];
 };
 
 // Red de seguridad para cuando la petición del catálogo falla (servidor caído,
@@ -110,13 +120,6 @@ function porGrupo<T extends { grupo: string }>(items: T[]): { grupo: string; ite
   }
   return out;
 }
-/** Cuándo entra de verdad el negocio: los de cobro van en el barrido de minutos. */
-const notaLatencia = (d?: Disparador | null) =>
-  !d || d.key === 'manual'
-    ? 'Los inscribes tú desde «Inscribir»'
-    : d.latencia === 'minutos'
-      ? 'Automático · entra en minutos'
-      : 'Automático · se revisa cada hora';
 
 function uid() { try { return 'n' + crypto.randomUUID().slice(0, 8); } catch { return 'n' + Math.random().toString(36).slice(2, 10); } }
 // Los ids de ruta son la CLAVE de `node.branches`: tienen que ser estables y no
@@ -315,7 +318,9 @@ export default function BrandWorkflowsPanel() {
   // Exportar el flujo como JSON (para clonarlo entre marcas). La lista ya trae
   // el workflow completo, así que no hace falta otra llamada.
   function exportWf(w: WF) {
-    const data = { name: w.name, trigger: w.trigger, rootId: w.rootId, nodes: w.nodes, drip: w.drip, sendWindow: w.sendWindow, reentry: w.reentry };
+    // Con `triggers`: sin la lista, el JSON de un flujo con varios disparadores
+    // se llevaría solo el primero.
+    const data = { name: w.name, trigger: w.trigger, triggers: w.triggers ?? [], rootId: w.rootId, nodes: w.nodes, drip: w.drip, sendWindow: w.sendWindow, reentry: w.reentry };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -686,7 +691,11 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
   const [tab, setTab] = useState<Tab>('creador');
   const [name, setName] = useState(wf.name);
   const [status, setStatus] = useState(wf.status);
-  const [trigger, setTrigger] = useState<any>(wf.trigger || { type: 'manual' });
+  // Varios disparadores: entra si casa cualquiera. Un flujo de antes trae la
+  // lista vacía y se lee su `trigger`, igual que en el motor.
+  const [disparadores, setDisparadores] = useState<DisparadorDelFlujo[]>(() => disparadoresDelFlujo(wf));
+  // El modal «Disparadores» y a cuál llevar la vista al abrirlo.
+  const [modalDisparadores, setModalDisparadores] = useState<{ enfocar: number | null } | null>(null);
   const [drip, setDrip] = useState<any>(wf.drip || {});
   const [win, setWin] = useState<any>(wf.sendWindow || {});
   const [reentry, setReentry] = useState(wf.reentry);
@@ -764,14 +773,34 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
     const pruned: Record<string, WFNode> = {}; reach.forEach((id) => { pruned[id] = nodes[id]; });
     const st = publish != null ? (publish ? 'published' : 'draft') : status;
     try {
-      await api(`/admin/workflows/${wf.id}`, { method: 'PATCH', body: JSON.stringify({ name, status: st, trigger, rootId: root, nodes: pruned, drip, sendWindow: win, reentry }) });
+      // Solo `triggers`: el servidor escribe `trigger` con el primero, para que
+      // lo que todavía lee el campo de antes vea el de siempre.
+      await api(`/admin/workflows/${wf.id}`, { method: 'PATCH', body: JSON.stringify({ name, status: st, triggers: disparadores, rootId: root, nodes: pruned, drip, sendWindow: win, reentry }) });
       setNodes(pruned); setStatus(st); setDirty(false); setSavedFlag(true); setTimeout(() => setSavedFlag(false), 2000);
       toast('Guardado', 'success');
     } catch (e: any) { toast(e.message ?? 'Error al guardar', 'error'); } finally { setBusy(false); }
   }
   async function remove() { if (!window.confirm('¿Eliminar este workflow?')) return; setBusy(true); try { await api(`/admin/workflows/${wf.id}`, { method: 'DELETE' }); onDeleted(); } catch (e: any) { toast(e.message ?? 'Error', 'error'); setBusy(false); } }
 
-  const trigDef = cat.disparadores.find((t) => t.key === trigger.type) ?? null;
+  function cambiarDisparadores(d: DisparadorDelFlujo[]) { setDisparadores(d); touch(); }
+  // Abrir el modal cierra el panel del paso: dos capas encima del lienzo y la
+  // tecla Escape cerraría las dos a la vez.
+  function abrirDisparadores(enfocar: number | null) { setEditNode(null); setModalDisparadores({ enfocar }); }
+  function anadirDisparador() {
+    cambiarDisparadores([...disparadores, disparadorNuevo(cat)]);
+    abrirDisparadores(disparadores.length);
+  }
+  const editorDeDisparadores = {
+    disparadores,
+    onChange: cambiarDisparadores,
+    catalogo: cat,
+    sujeto: 'negocio' as const,
+    // Los campos propios del disparador (días antes, días sin pedidos…) con el mismo control que los pasos.
+    renderCampo: (campo: CampoDeConfig, valor: unknown, onChange: (v: unknown) => void) => (
+      <CampoControl campo={campo} valor={valor} onChange={onChange} />
+    ),
+  };
+  const algunoAutomatico = disparadores.some((d) => d.type !== 'manual');
   const flujosDestino = otros.map((w) => ({ id: w.id, name: w.name, status: w.status }));
 
   return (
@@ -799,7 +828,7 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
       {degradado && <div className="shrink-0 px-3 pt-2"><AvisoCatalogo /></div>}
 
       <div className="relative min-h-0 flex-1">
-        {tab === 'creador' && <Canvas trigger={trigger} root={root} setRoot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} setBranch={setBranch} selectedId={editNode} panelAbierto={!!(editNode && nodes[editNode])} onGoConfig={() => { setEditNode(null); setTab('config'); }} />}
+        {tab === 'creador' && <Canvas disparadores={disparadores} onAbrirDisparadores={abrirDisparadores} onAnadirDisparador={anadirDisparador} root={root} setRoot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} setBranch={setBranch} selectedId={editNode} panelAbierto={!!(editNode && nodes[editNode])} />}
         {/* El panel del paso vive DENTRO del lienzo: se edita viendo el flujo.
             Solo en «Creador» — en las otras pestañas taparía el contenido. */}
         {tab === 'creador' && editNode && nodes[editNode] && (
@@ -813,37 +842,13 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
         )}
         {tab === 'config' && (
           <div className="absolute inset-0 overflow-auto p-5"><div className="mx-auto max-w-2xl space-y-4">
-            <Card title="Disparador">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Cuándo entra el negocio</Label>
-                  <select value={trigger.type} onChange={(e) => { setTrigger({ ...trigger, type: e.target.value }); touch(); }} className={inp}>
-                    {porGrupo(cat.disparadores).map((g) => (
-                      <optgroup key={g.grupo} label={g.grupo}>
-                        {g.items.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-                      </optgroup>
-                    ))}
-                    {/* Si el flujo guardado usa un disparador que el catálogo no
-                        trae (catálogo en modo reducido), hay que ofrecerlo igual:
-                        sin esta opción el select mostraría otro y al guardar le
-                        CAMBIARÍA el disparador al flujo sin avisar. */}
-                    {!trigDef && <option value={trigger.type}>{trigger.type}</option>}
-                  </select>
-                  {trigDef?.hint && <p className="mt-1 text-xs text-slate-500">{trigDef.hint}</p>}
-                </div>
-                {/* Los campos del disparador los dibuja el catálogo (días antes,
-                    días sin pedidos, número de pedidos…): uno nuevo en el backend
-                    aparece acá solo. */}
-                {(trigDef?.campos ?? []).map((campo) => (
-                  <CampoControl
-                    key={campo.key}
-                    campo={campo}
-                    valor={trigger[campo.key]}
-                    onChange={(v) => { setTrigger({ ...trigger, [campo.key]: v }); touch(); }}
-                  />
-                ))}
-              </div>
-              {trigger.type !== 'manual' && <p className="mt-3 rounded-md bg-brand-soft px-3 py-2 text-xs text-brand">⚡ {notaLatencia(trigDef)}: el sistema inscribe solo los negocios que cumplen. Publica el workflow para activarlo.</p>}
+            <Card title="Disparadores">
+              {/* El mismo editor que el modal del lienzo. Los campos de cada
+                  disparador (días antes, días sin pedidos…), los filtros y los
+                  operadores salen del catálogo: uno nuevo en el backend aparece
+                  acá solo. */}
+              <DisparadoresEditor {...editorDeDisparadores} />
+              {algunoAutomatico && <p className="mt-3 rounded-md bg-brand-soft px-3 py-2 text-xs text-brand">⚡ El sistema inscribe solo los negocios que cumplen. Publica el workflow para activarlo.</p>}
             </Card>
             <Card title="Goteo (Drip)"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!drip.enabled} onChange={(e) => { setDrip({ ...drip, enabled: e.target.checked }); touch(); }} /> No enviar todos de golpe</label>{drip.enabled && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">Enviar a <input type="number" value={drip.batchSize ?? 50} onChange={(e) => { setDrip({ ...drip, batchSize: +e.target.value }); touch(); }} className="w-20 rounded border border-slate-300 px-2 py-1" /> negocios cada <input type="number" value={drip.intervalMinutes ?? 10} onChange={(e) => { setDrip({ ...drip, intervalMinutes: +e.target.value }); touch(); }} className="w-20 rounded border border-slate-300 px-2 py-1" /> min</div>}</Card>
             <Card title="Ventana de envío"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!win.enabled} onChange={(e) => { setWin({ ...win, enabled: e.target.checked }); touch(); }} /> Enviar solo en cierto horario</label>{win.enabled && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">De <input type="number" value={win.startHour ?? 8} onChange={(e) => { setWin({ ...win, startHour: +e.target.value }); touch(); }} className="w-16 rounded border border-slate-300 px-2 py-1" />h a <input type="number" value={win.endHour ?? 20} onChange={(e) => { setWin({ ...win, endHour: +e.target.value }); touch(); }} className="w-16 rounded border border-slate-300 px-2 py-1" />h <label className="ml-2 flex items-center gap-1"><input type="checkbox" checked={!!win.skipWeekends} onChange={(e) => { setWin({ ...win, skipWeekends: e.target.checked }); touch(); }} /> saltar findes</label></div>}</Card>
@@ -855,11 +860,14 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
         {tab === 'registros' && <LogsTab workflowId={wf.id} />}
       </div>
 
+      {modalDisparadores && (
+        <DisparadoresModal {...editorDeDisparadores} enfocar={modalDisparadores.enfocar} onClose={() => setModalDisparadores(null)} />
+      )}
     </div>
   );
 }
 
-function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, setField, setBranch, selectedId, panelAbierto, onGoConfig }: any) {
+function Canvas({ disparadores, onAbrirDisparadores, onAnadirDisparador, root, setRoot, nodes, onInsert, onEdit, onDelete, setField, setBranch, selectedId, panelAbierto }: any) {
   const { cat } = useCatalogo();
   const [view, setView] = useState({ x: 0, y: 30, z: 0.9 });
   const pan = useRef<any>(null);
@@ -880,7 +888,9 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
     setView({ x: 0, y: 30, z: targetZ });
   }
   // Medición para el MINIMAPA: silueta de los nodos + tamaño del contenido.
-  const structSig = JSON.stringify(Object.keys(nodes || {}).map((k) => [k, nodes[k]?.next, nodes[k]?.yes, nodes[k]?.no, nodes[k]?.branches])) + ':' + (trigger?.type ?? '');
+  // Los disparadores cuentan: añadir uno ensancha la banda de arriba y el
+  // minimapa tiene que volver a medir.
+  const structSig = JSON.stringify(Object.keys(nodes || {}).map((k) => [k, nodes[k]?.next, nodes[k]?.yes, nodes[k]?.no, nodes[k]?.branches])) + ':' + (disparadores as DisparadorDelFlujo[]).map((d) => d.type).join(',');
   useEffect(() => {
     const measure = () => {
       try {
@@ -900,8 +910,6 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
     window.addEventListener('resize', measure);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
   }, [structSig]);
-  const trigDef = cat.disparadores.find((t) => t.key === trigger.type) ?? null;
-  const trigLabel = trigDef?.label ?? trigger.type;
   const vacio = !root;
   return (
     // Con el panel abierto el lienzo se ENCOGE en vez de quedar tapado. Así el
@@ -913,30 +921,17 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
       <div ref={contentRef} className="absolute left-1/2 top-0 origin-top" style={{ transform: `translate(-50%,0) translate(${view.x}px,${view.y}px) scale(${view.z})` }}>
         <div className="flex flex-col items-center pb-40">
           {/* Banda de disparadores: un bloque claro que dice CUÁNDO entra el
-              negocio. Antes era una tarjeta suelta más, indistinguible de un
-              paso — y el disparador no es un paso, es la puerta. */}
-          <div className="wf-node w-[300px] rounded-2xl border border-brand bg-brand-soft p-2">
-            <p className="px-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-brand">Cuándo entra el negocio</p>
-            <button
-              onClick={onGoConfig}
-              className="flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-              title="Cambiar el disparador en Configuración"
-            >
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-sm text-brand">▶</span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-slate-800">{trigLabel}</span>
-                <span className="block truncate text-[11px] text-slate-500">{notaLatencia(trigDef)}</span>
-              </span>
-              <span className="shrink-0 text-slate-300">✎</span>
-            </button>
-          </div>
+              negocio, con una tarjeta por disparador. Pulsar cualquiera abre el
+              modal «Disparadores» encima del lienzo (antes llevaba a la pestaña
+              Configuración y se perdía de vista el flujo). */}
+          <TarjetasDeDisparadores disparadores={disparadores} catalogo={cat} sujeto="negocio" onAbrir={onAbrirDisparadores} onAnadir={onAnadirDisparador} />
           <Slot value={root} setSlot={setRoot} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} setBranch={setBranch} depth={0} selectedId={selectedId} />
           {/* Flujo vacío: guiar los dos pasos en vez de dejar un lienzo mudo. */}
           {vacio && (
             <div className="wf-nopan mt-3 w-[300px] rounded-2xl border border-dashed border-slate-300 bg-white/80 p-4 text-center">
               <p className="text-sm font-semibold text-slate-700">Este flujo aún no hace nada</p>
               <ol className="mt-2 space-y-1 text-left text-[12px] text-slate-500">
-                <li><span className="font-semibold text-slate-600">1.</span> Elige cuándo se dispara en <button onClick={onGoConfig} className="font-medium text-brand underline underline-offset-2">Configuración</button>.</li>
+                <li><span className="font-semibold text-slate-600">1.</span> Elige cuándo se dispara en <button onClick={() => onAbrirDisparadores(0)} className="font-medium text-brand underline underline-offset-2">Disparadores</button>.</li>
                 <li><span className="font-semibold text-slate-600">2.</span> Pulsa el <span className="font-semibold text-slate-600">+</span> de arriba y añade el primer paso.</li>
               </ol>
             </div>
@@ -1119,6 +1114,8 @@ function Connector({ terminal, onPick }: { terminal: boolean; onPick: (t: string
 function resumen(def: Paso | null, node: WFNode): string {
   const c = node.config || {};
   if (!def) return 'Paso desconocido';
+  // El catálogo puede traer su propia frase para la tarjeta.
+  if (def.resumen) return aplicarPlantilla(def.resumen, def.campos, c);
   const partes: string[] = [];
   for (const campo of def.campos) {
     const v = c[campo.key];
@@ -1411,25 +1408,27 @@ function CampoControl({ campo, valor, node, flujos, onChange, onNode }: {
 
 // Campos y operadores salen del catálogo: si el backend añade un campo del
 // negocio, aparece acá sin tocar nada.
+// La fila es la misma que la de los filtros del disparador: con todos los
+// operadores, «contiene» admite varios valores en chips y «está vacío» no pide
+// valor. Dos editores distintos para la misma condición acabarían guardando
+// cosas distintas.
 function CondicionesEditor({ valor, onChange }: { valor: any[]; onChange: (v: any[]) => void }) {
   const { cat } = useCatalogo();
   const campoPorDefecto = cat.campos[0]?.key ?? 'plan';
   const opPorDefecto = cat.operadores[0]?.value ?? 'eq';
-  const set = (i: number, patch: any) => onChange(valor.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
     <div>
       <div className="space-y-2">
         {valor.map((cd: any, i: number) => (
-          <div key={i} className="flex flex-wrap items-center gap-1.5">
-            <select value={cd.field} onChange={(e) => set(i, { field: e.target.value })} className={`${inp} w-auto px-2 py-1.5`}>
-              {cat.campos.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-            </select>
-            <select value={cd.op} onChange={(e) => set(i, { op: e.target.value })} className={`${inp} w-auto px-2 py-1.5`}>
-              {cat.operadores.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {cd.op !== 'filled' && <input value={cd.value ?? ''} onChange={(e) => set(i, { value: e.target.value })} placeholder="valor" className={`${inp} w-24 px-2 py-1.5`} />}
-            <button type="button" onClick={() => onChange(valor.filter((_, j) => j !== i))} aria-label="Quitar la condición" className="text-slate-400 hover:text-rose-600">✕</button>
-          </div>
+          <FiltroFila
+            key={i}
+            filtro={cd}
+            campos={cat.campos}
+            permitidos={null}
+            operadores={cat.operadores}
+            onChange={(nc) => onChange(valor.map((x, j) => (j === i ? nc : x)))}
+            onQuitar={() => onChange(valor.filter((_, j) => j !== i))}
+          />
         ))}
       </div>
       <button type="button" onClick={() => onChange([...valor, { field: campoPorDefecto, op: opPorDefecto, value: '' }])} className="btn-link mt-1.5 text-sm">+ Condición</button>

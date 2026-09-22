@@ -2583,7 +2583,10 @@ model BrandWorkflow {
   name         String
   folderId     String?
   status       String   @default("draft") // draft | published
-  trigger      Json     @default("{}") // { type, filters }
+  trigger      Json     @default("{}") // { type, filters } — el PRIMERO de `triggers`, por compatibilidad
+  /// Varios disparadores (entra si casa CUALQUIERA). Vacío = flujo de antes de
+  /// 2026-09-22: se lee `[trigger]`. Ver `disparadoresDe` en wf-filtros.util.ts.
+  triggers     Json     @default("[]")
   rootId       String? // primer nodo
   nodes        Json     @default("{}") // { [id]: { id, type, config, next, yes, no } }
   drip         Json     @default("{}")
@@ -2950,7 +2953,10 @@ model MktWorkflow {
   name         String
   folderId     String?
   status       String   @default("draft") // draft | published
-  trigger      Json     @default("{}") // { type, filters }
+  trigger      Json     @default("{}") // { type, filters } — el PRIMERO de `triggers`, por compatibilidad
+  /// Varios disparadores (entra si casa CUALQUIERA). Vacío = flujo de antes de
+  /// 2026-09-22: se lee `[trigger]`. Ver `disparadoresDe` en wf-filtros.util.ts.
+  triggers     Json     @default("[]")
   rootId       String?
   nodes        Json     @default("{}")
   drip         Json     @default("{}")

@@ -2,17 +2,26 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { DisparadoresEditor, DisparadoresModal, FiltroFila, TarjetasDeDisparadores } from '@/components/flujos/DisparadoresEditor';
+import {
+  disparadoresDelFlujo,
+  disparadorNuevo,
+  type Disparador as DisparadorDelFlujo,
+  type FiltrosCat,
+  type OperadorCat,
+} from '@/components/flujos/disparadores';
+import { aplicarPlantilla } from '@/components/flujos/resumen';
 
 // Builder visual de workflows de EMAIL MARKETING (contact-based). Backend:
 // /admin/marketing/workflows/*. Árbol de nodos con ramas (sin pan/zoom, robusto).
 // El proveedor de envío NUNCA se nombra en la UI.
 
-const ACCENT = '#16a34a';
 
 type Stats = { active: number; completed: number };
 type WF = {
   id: string; name: string; folderId: string | null; status: string;
-  trigger: any; rootId: string | null; nodes: Record<string, WFNode>;
+  /** `trigger` es el primero de `triggers`; vacío = flujo de antes (se lee `[trigger]`). */
+  trigger: any; triggers?: any[]; rootId: string | null; nodes: Record<string, WFNode>;
   drip: any; sendWindow: any; reentry: boolean; createdAt?: string; _stats: Stats;
 };
 type Folder = { id: string; name: string; createdAt?: string };
@@ -36,19 +45,19 @@ type CampoDeConfig = {
   key: string;
   label: string;
   tipo: 'texto' | 'textarea' | 'numero' | 'select' | 'fechaHora' | 'condiciones' | 'casos' | 'cabeceras' | 'flujo';
-  opciones?: Opcion[];
+  opciones?: (Opcion & { singular?: string })[];
   def?: string | number;
   ayuda?: string;
   requerido?: boolean;
 };
-type Disparador = { key: string; label: string; grupo: string; latencia: 'minutos' | 'hora'; hint?: string; campos?: CampoDeConfig[] };
-type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'casos'; ramaSi?: string; ramaNo?: string; hint?: string; campos: CampoDeConfig[] };
+type Disparador = { key: string; label: string; grupo: string; latencia: 'minutos' | 'hora'; hint?: string; campos?: CampoDeConfig[]; filtros?: FiltrosCat };
+type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'casos'; ramaSi?: string; ramaNo?: string; hint?: string; campos: CampoDeConfig[]; resumen?: string };
 type Catalogo = {
   disparadores: Disparador[];
   pasos: Paso[];
   campos: { key: string; label: string }[];
   merge: { key: string; label: string }[];
-  operadores: Opcion[];
+  operadores: OperadorCat[];
 };
 
 // Red de seguridad para cuando la petición del catálogo falla (servidor caído,
@@ -104,14 +113,6 @@ function porGrupo<T extends { grupo: string }>(items: T[]): { grupo: string; ite
   }
   return out;
 }
-/** Cuándo entra de verdad el contacto: hay disparadores que se revisan cada hora. */
-const notaLatencia = (d?: Disparador | null) =>
-  !d || d.key === 'manual'
-    ? 'Los inscribes tú desde «Inscribir»'
-    : d.latencia === 'minutos'
-      ? 'Automático · entra en minutos'
-      : 'Automático · se revisa cada hora';
-
 /**
  * Las acciones de un workflow, en un menú.
  *
@@ -207,7 +208,9 @@ function casosDe(node: WFNode | null | undefined): { id: string; label?: string;
   return Array.isArray(v) ? v.filter((r: any) => r && r.id) : [];
 }
 function fmtDate(s?: string) { return s ? new Date(s).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; }
-const inp = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500';
+// `.input` global: bajo `.brand-panel` el foco lo tiñe la marca (coral en
+// Sellea) sin escribir un color aquí, igual que en BrandWorkflowsPanel.
+const inp = 'input';
 
 export default function EmailMarketingWorkflows() {
   const [loading, setLoading] = useState(true);
@@ -308,7 +311,7 @@ export default function EmailMarketingWorkflows() {
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-slate-500">Flujos por correo/SMS a tus contactos, con esperas, ramas, ventana horaria y reintentos.</p>
         <div className="ml-auto">
-          <button onClick={addWf} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white" style={{ background: ACCENT }}>+ Nuevo workflow</button>
+          <button onClick={addWf} disabled={busy} className="rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white">+ Nuevo workflow</button>
         </div>
       </div>
       {degradado && <AvisoCatalogo />}
@@ -320,7 +323,7 @@ export default function EmailMarketingWorkflows() {
           <tbody className="divide-y divide-slate-50">
             {wfs.map((w) => (
               <tr key={w.id} className="[&>td]:px-3 [&>td]:py-3 hover:bg-slate-50/70">
-                <td><button onClick={() => setOpenId(w.id)} className="flex items-center gap-2 font-medium text-slate-800 hover:text-emerald-700">{w.name} <span className="text-slate-400">↗</span></button></td>
+                <td><button onClick={() => setOpenId(w.id)} className="flex items-center gap-2 font-medium text-slate-800 hover:underline">{w.name} <span className="text-slate-400">↗</span></button></td>
                 <td><span className="rounded-full px-2 py-0.5 text-[11px]" style={w.status === 'published' ? { background: '#dcfce7', color: '#15803d' } : { background: '#f1f5f9', color: '#64748b' }}>{w.status === 'published' ? 'Publicado' : 'Borrador'}</span></td>
                 <td className="text-slate-800">{w._stats.active + w._stats.completed}</td>
                 <td className="text-slate-800">{w._stats.active}</td>
@@ -363,7 +366,11 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
   const [tab, setTab] = useState<Tab>('creador');
   const [name, setName] = useState(wf.name);
   const [status, setStatus] = useState(wf.status);
-  const [trigger, setTrigger] = useState<any>(wf.trigger || { type: 'manual' });
+  // Varios disparadores: entra si casa cualquiera. Un flujo de antes trae la
+  // lista vacía y se lee su `trigger`, igual que en el motor.
+  const [disparadores, setDisparadores] = useState<DisparadorDelFlujo[]>(() => disparadoresDelFlujo(wf));
+  // El modal «Disparadores» y a cuál llevar la vista al abrirlo.
+  const [modalDisparadores, setModalDisparadores] = useState<{ enfocar: number | null } | null>(null);
   const [drip, setDrip] = useState<any>(wf.drip || {});
   const [win, setWin] = useState<any>(wf.sendWindow || {});
   const [reentry, setReentry] = useState(wf.reentry);
@@ -415,13 +422,33 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
     const pruned: Record<string, WFNode> = {}; reach.forEach((id) => { pruned[id] = nodes[id]; });
     const st = publish != null ? (publish ? 'published' : 'draft') : status;
     try {
-      await api(`/admin/marketing/workflows/${wf.id}`, { method: 'PATCH', body: JSON.stringify({ name, status: st, trigger, rootId: root, nodes: pruned, drip, sendWindow: win, reentry }) });
+      // Solo `triggers`: el servidor escribe `trigger` con el primero, para que
+      // lo que todavía lee el campo de antes vea el de siempre.
+      await api(`/admin/marketing/workflows/${wf.id}`, { method: 'PATCH', body: JSON.stringify({ name, status: st, triggers: disparadores, rootId: root, nodes: pruned, drip, sendWindow: win, reentry }) });
       setNodes(pruned); setStatus(st); setDirty(false); toast('Guardado', 'success');
     } catch (e: any) { toast(e.message ?? 'Error al guardar', 'error'); } finally { setBusy(false); }
   }
   async function remove() { if (!window.confirm('¿Eliminar este workflow?')) return; setBusy(true); try { await api(`/admin/marketing/workflows/${wf.id}`, { method: 'DELETE' }); onDeleted(); } catch (e: any) { toast(e.message ?? 'Error', 'error'); setBusy(false); } }
 
-  const trigDef = cat.disparadores.find((t) => t.key === trigger.type) ?? null;
+  function cambiarDisparadores(d: DisparadorDelFlujo[]) { setDisparadores(d); touch(); }
+  // Abrir el modal cierra el panel del paso: dos capas encima del lienzo y la
+  // tecla Escape no sabría cuál cerrar.
+  function abrirDisparadores(enfocar: number | null) { setEditNode(null); setModalDisparadores({ enfocar }); }
+  function anadirDisparador() {
+    cambiarDisparadores([...disparadores, disparadorNuevo(cat)]);
+    abrirDisparadores(disparadores.length);
+  }
+  const editorDeDisparadores = {
+    disparadores,
+    onChange: cambiarDisparadores,
+    catalogo: cat,
+    sujeto: 'contacto' as const,
+    // Los campos propios del disparador (la etiqueta) con el mismo control que los pasos.
+    renderCampo: (campo: CampoDeConfig, valor: unknown, onChange: (v: unknown) => void) => (
+      <CampoControl campo={campo} valor={valor} onChange={onChange} />
+    ),
+  };
+  const algunoAutomatico = disparadores.some((d) => d.type !== 'manual');
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-slate-50">
@@ -430,14 +457,14 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
         <input value={name} onChange={(e) => { setName(e.target.value); touch(); }} className="min-w-0 max-w-[220px] flex-1 rounded-lg px-2 py-1 text-sm font-semibold text-slate-800 outline-none hover:bg-slate-50" />
         <nav className="mx-auto flex items-center gap-1">
           {([['creador', 'Creador'], ['config', 'Configuración'], ['inscribir', 'Inscribir'], ['registros', 'Registro']] as [Tab, string][]).map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k)} className={`rounded-md px-3 py-1.5 text-sm ${tab === k ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>{l}</button>
+            <button key={k} onClick={() => setTab(k)} className={`rounded-md px-3 py-1.5 text-sm ${tab === k ? 'font-semibold text-brand' : 'text-slate-500'}`}>{l}</button>
           ))}
         </nav>
         <button onClick={() => save()} disabled={busy || !dirty} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50">Guardar</button>
         <div className="flex items-center gap-2 text-sm">
           <span className={status === 'published' ? 'text-slate-400' : 'font-medium text-slate-700'}>Borrador</span>
-          <button onClick={() => save(status !== 'published')} disabled={busy || !root} title={!root ? 'Agrega al menos un paso' : ''} className="relative h-5 w-9 rounded-full" style={{ background: status === 'published' ? ACCENT : '#cbd5e1' }}><span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all" style={{ left: status === 'published' ? 18 : 2 }} /></button>
-          <span className={status === 'published' ? 'font-medium text-emerald-600' : 'text-slate-400'}>Publicar</span>
+          <button onClick={() => save(status !== 'published')} disabled={busy || !root} title={!root ? 'Agrega al menos un paso' : ''} className={`relative h-5 w-9 rounded-full ${status === 'published' ? 'bg-brand' : 'bg-slate-300'}`}><span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all" style={{ left: status === 'published' ? 18 : 2 }} /></button>
+          <span className={status === 'published' ? 'font-medium text-brand' : 'text-slate-400'}>Publicar</span>
         </div>
       </header>
 
@@ -446,41 +473,21 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
           <div className="min-h-full bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px] p-6">
             <div className="flex flex-col items-center pb-40">
               {degradado && <div className="mb-3 w-[320px]"><AvisoCatalogo /></div>}
-              <div className="w-[280px] rounded-xl border px-3 py-2.5 shadow-sm" style={{ borderColor: '#a7f3d0', background: 'white' }}>
-                <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg text-sm" style={{ background: '#d1fae5', color: '#059669' }}>▶</span><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#059669' }}>Disparador</p><p className="truncate text-sm font-medium text-slate-800">{trigDef?.label ?? trigger.type}</p></div></div>
-                <p className="mt-1.5 text-[11px] text-slate-400">{notaLatencia(trigDef)}</p>
-              </div>
+              {/* Una tarjeta por disparador + «Añadir». Antes era una tarjeta
+                  suelta que no se podía ni pulsar: para cambiar el disparador
+                  había que saber que vivía en la pestaña Configuración. */}
+              <TarjetasDeDisparadores disparadores={disparadores} catalogo={cat} sujeto="contacto" onAbrir={abrirDisparadores} onAnadir={anadirDisparador} />
               <Slot value={root} setSlot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} setBranch={setBranch} depth={0} />
             </div>
           </div>
         )}
         {tab === 'config' && (
           <div className="p-5"><div className="mx-auto max-w-2xl space-y-4">
-            <Card title="Disparador">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Cuándo entra el contacto</Label>
-                  <select value={trigger.type} onChange={(e) => { setTrigger({ ...trigger, type: e.target.value }); touch(); }} className={inp}>
-                    {porGrupo(cat.disparadores).map((g) => (
-                      <optgroup key={g.grupo} label={g.grupo}>
-                        {g.items.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-                      </optgroup>
-                    ))}
-                  </select>
-                  {trigDef?.hint && <p className="mt-1 text-xs text-slate-500">{trigDef.hint}</p>}
-                </div>
-                {/* Los campos del disparador salen del catálogo igual que los de
-                    un paso: si el backend añade uno, aparece acá solo. */}
-                {(trigDef?.campos ?? []).map((campo) => (
-                  <CampoControl
-                    key={campo.key}
-                    campo={campo}
-                    valor={trigger[campo.key]}
-                    onChange={(v) => { setTrigger({ ...trigger, [campo.key]: v }); touch(); }}
-                  />
-                ))}
-              </div>
-              {trigger.type !== 'manual' && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">⚡ {notaLatencia(trigDef)}. Publica el workflow para activarlo.</p>}
+            <Card title="Disparadores">
+              {/* El mismo editor que el modal del lienzo: los campos, los filtros y
+                  los operadores salen del catálogo del servidor. */}
+              <DisparadoresEditor {...editorDeDisparadores} />
+              {algunoAutomatico && <p className="mt-3 rounded-md bg-brand-soft px-3 py-2 text-xs text-slate-700">⚡ Publica el workflow para activarlo: hasta entonces ningún disparador inscribe a nadie.</p>}
             </Card>
             <Card title="Goteo (Drip)"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!drip.enabled} onChange={(e) => { setDrip({ ...drip, enabled: e.target.checked }); touch(); }} /> No enviar todos de golpe</label>{drip.enabled && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">Enviar a <input type="number" value={drip.batchSize ?? 50} onChange={(e) => { setDrip({ ...drip, batchSize: +e.target.value }); touch(); }} className="w-20 rounded border border-slate-300 px-2 py-1" /> contactos cada <input type="number" value={drip.intervalMinutes ?? 10} onChange={(e) => { setDrip({ ...drip, intervalMinutes: +e.target.value }); touch(); }} className="w-20 rounded border border-slate-300 px-2 py-1" /> min</div>}</Card>
             <Card title="Ventana de envío"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!win.enabled} onChange={(e) => { setWin({ ...win, enabled: e.target.checked }); touch(); }} /> Enviar solo en cierto horario</label>{win.enabled && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">De <input type="number" value={win.startHour ?? 8} onChange={(e) => { setWin({ ...win, startHour: +e.target.value }); touch(); }} className="w-16 rounded border border-slate-300 px-2 py-1" />h a <input type="number" value={win.endHour ?? 20} onChange={(e) => { setWin({ ...win, endHour: +e.target.value }); touch(); }} className="w-16 rounded border border-slate-300 px-2 py-1" />h <label className="ml-2 flex items-center gap-1"><input type="checkbox" checked={!!win.skipWeekends} onChange={(e) => { setWin({ ...win, skipWeekends: e.target.checked }); touch(); }} /> saltar findes</label></div>}</Card>
@@ -500,6 +507,9 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
           onPatch={(cfg) => patchNode(editNode, cfg)}
           onNode={(patch) => patchNodeRaw(editNode, patch)}
         />
+      )}
+      {modalDisparadores && (
+        <DisparadoresModal {...editorDeDisparadores} enfocar={modalDisparadores.enfocar} onClose={() => setModalDisparadores(null)} />
       )}
     </div>
   );
@@ -553,7 +563,7 @@ function Insert({ terminal, onPick }: { terminal: boolean; onPick: (t: string) =
   return (
     <div className="relative flex flex-col items-center">
       <div className="h-4 w-px bg-slate-300" />
-      <button onClick={() => setOp((o) => !o)} className="grid h-6 w-6 place-items-center rounded-full border text-sm" style={op ? { background: ACCENT, color: 'white', borderColor: ACCENT } : { background: 'white', color: '#94a3b8', borderColor: '#cbd5e1' }}>+</button>
+      <button onClick={() => setOp((o) => !o)} className={`grid h-6 w-6 place-items-center rounded-full border text-sm ${op ? 'bg-brand border-brand text-white' : 'bg-white border-slate-300 text-slate-400'}`}>+</button>
       {!terminal && <div className="h-4 w-px bg-slate-300" />}
       {op && (
         <>
@@ -584,6 +594,8 @@ function Insert({ terminal, onPick }: { terminal: boolean; onPick: (t: string) =
 function resumen(def: Paso | null, node: WFNode): string {
   const c = node.config || {};
   if (!def) return 'Paso desconocido';
+  // El catálogo puede traer su propia frase («Espera respuesta · 3 días»).
+  if (def.resumen) return aplicarPlantilla(def.resumen, def.campos, c);
   const partes: string[] = [];
   for (const campo of def.campos) {
     const v = c[campo.key];
@@ -683,7 +695,7 @@ function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
           ))}
           {d.def && d.def.campos.length === 0 && <p className="text-sm text-slate-500">Este paso no necesita configuración.</p>}
         </div>
-        <button onClick={onClose} className="mt-5 w-full rounded-lg py-2 text-sm font-semibold text-white" style={{ background: ACCENT }}>Listo</button>
+        <button onClick={onClose} className="mt-5 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white">Listo</button>
       </div>
     </div>
   );
@@ -753,26 +765,28 @@ function CampoControl({ campo, valor, node, flujos, onChange, onNode }: {
 
 // Campos y operadores salen del catálogo: si el backend añade un campo del
 // contacto, aparece acá sin tocar nada.
+// La fila es la misma que la de los filtros del disparador: con los 12
+// operadores, «contiene» admite varios valores en chips y «está vacío» no pide
+// valor. Dos editores distintos para la misma condición acabarían guardando
+// cosas distintas.
 function CondicionesEditor({ valor, onChange }: { valor: any[]; onChange: (v: any[]) => void }) {
   const { cat } = useCatalogo();
   const campoPorDefecto = cat.campos[0]?.key ?? 'nombre';
   const opPorDefecto = cat.operadores[0]?.value ?? 'eq';
-  const set = (i: number, patch: any) => onChange(valor.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
     <div className="space-y-2">
       {valor.map((cond: any, i: number) => (
-        <div key={i} className="flex flex-wrap items-center gap-1.5">
-          <select value={cond.field} onChange={(e) => set(i, { field: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
-            {cat.campos.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-          </select>
-          <select value={cond.op} onChange={(e) => set(i, { op: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
-            {cat.operadores.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          {cond.op !== 'filled' && <input value={cond.value ?? ''} onChange={(e) => set(i, { value: e.target.value })} className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm" />}
-          <button onClick={() => onChange(valor.filter((_, j) => j !== i))} className="text-rose-500">✕</button>
-        </div>
+        <FiltroFila
+          key={i}
+          filtro={cond}
+          campos={cat.campos}
+          permitidos={null}
+          operadores={cat.operadores}
+          onChange={(nc) => onChange(valor.map((x, j) => (j === i ? nc : x)))}
+          onQuitar={() => onChange(valor.filter((_, j) => j !== i))}
+        />
       ))}
-      <button onClick={() => onChange([...valor, { field: campoPorDefecto, op: opPorDefecto, value: '' }])} className="text-sm font-medium text-emerald-700">+ Añadir condición</button>
+      <button type="button" onClick={() => onChange([...valor, { field: campoPorDefecto, op: opPorDefecto, value: '' }])} className="btn-link text-sm">+ Añadir condición</button>
     </div>
   );
 }
@@ -811,7 +825,7 @@ function CasosEditor({ valor, node, onChange, onNode }: {
           <input value={caso.palabras ?? ''} onChange={(e) => set(i, { palabras: e.target.value })} placeholder="sí, claro, me interesa" className="mt-1.5 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm" />
         </div>
       ))}
-      <button onClick={() => onChange([...valor, { id: casoId(), label: `Caso ${valor.length + 1}`, palabras: '' }])} className="text-sm font-medium text-emerald-700">+ Añadir caso</button>
+      <button onClick={() => onChange([...valor, { id: casoId(), label: `Caso ${valor.length + 1}`, palabras: '' }])} className="text-sm font-medium text-brand">+ Añadir caso</button>
     </div>
   );
 }
@@ -827,7 +841,7 @@ function CabecerasEditor({ valor, onChange }: { valor: any[]; onChange: (v: any[
           <button onClick={() => onChange(valor.filter((_, j) => j !== i))} className="text-rose-500">✕</button>
         </div>
       ))}
-      <button onClick={() => onChange([...valor, { key: '', value: '' }])} className="text-sm font-medium text-emerald-700">+ Añadir cabecera</button>
+      <button onClick={() => onChange([...valor, { key: '', value: '' }])} className="text-sm font-medium text-brand">+ Añadir cabecera</button>
     </div>
   );
 }
@@ -887,7 +901,7 @@ function EnrollTab({ workflowId, published }: { workflowId: string; published: b
         ))}
         {rows.length === 0 && <div className="px-3 py-6 text-center text-sm text-slate-400">Sin contactos.</div>}
       </div>
-      <button onClick={enroll} disabled={busy || !sel.size || !published} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: ACCENT }}>Inscribir {sel.size ? `(${sel.size})` : ''}</button>
+      <button onClick={enroll} disabled={busy || !sel.size || !published} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Inscribir {sel.size ? `(${sel.size})` : ''}</button>
     </div></div>
   );
 }

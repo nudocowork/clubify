@@ -2,11 +2,20 @@
 // Audiencia: los CONTACTOS (leads/clientes) de la marca. Correo/SMS por la
 // subcuenta del proveedor de la marca (envoltorio en provider/).
 
-export type WFCondition = {
-  field: string;
-  op: 'eq' | 'neq' | 'contains' | 'filled';
-  value?: string;
-};
+// Los filtros, los operadores y la lista de disparadores son los MISMOS que en
+// el constructor de negocios: se importan de allí en vez de copiarse, porque
+// deciden a quién le llega un mensaje y dos copias se separan a la primera
+// corrección (ya pasó con el catálogo de la pantalla).
+import {
+  evalWF,
+  operadoresDe,
+  sinAcentos,
+  type WFCondition,
+  type WFTrigger,
+} from '../superadmin/brand-workflows/wf-filtros.util';
+
+export { evalWF, sinAcentos };
+export type { WFCondition, WFTrigger };
 
 export type WFNode = {
   id: string;
@@ -19,7 +28,6 @@ export type WFNode = {
   branches?: Record<string, string | null>;
 };
 export type WFGraph = Record<string, WFNode>;
-export type WFTrigger = { type: string; filters?: WFCondition[]; [k: string]: unknown };
 export type WFDrip = { enabled?: boolean; batchSize?: number; intervalMinutes?: number };
 export type WFSendWindow = {
   enabled?: boolean;
@@ -61,11 +69,28 @@ export type CampoDeConfig = {
     | 'casos'
     | 'cabeceras'
     | 'flujo';
-  opciones?: { value: string; label: string }[];
+  /** `singular` es la forma para «1» en el resumen de la tarjeta: «1 día», no «1 días». */
+  opciones?: { value: string; label: string; singular?: string }[];
   def?: string | number;
   ayuda?: string;
   /** Sin esto el paso no se puede guardar. */
   requerido?: boolean;
+};
+
+/**
+ * Sobre qué se puede filtrar un disparador y con qué nace un filtro nuevo.
+ *
+ * Va POR DISPARADOR porque cada uno trae datos distintos: «Contenido de la
+ * respuesta» solo existe cuando el contacto responde, y la columna del tablero
+ * solo en los de ventas. Ofrecer un campo que el disparador no rellena es un
+ * filtro que no casa nunca — y un flujo que no arranca sin que nadie sepa por qué.
+ */
+export type FiltrosDelDisparador = {
+  /** Vacío = este disparador no admite filtros (la inscripción manual). */
+  campos: { key: string; label: string }[];
+  /** Claves de `operadores` del catálogo que se ofrecen. */
+  operadores: string[];
+  nuevo: { field: string; op: string };
 };
 
 export type DisparadorDeContactos = {
@@ -76,6 +101,8 @@ export type DisparadorDeContactos = {
   latencia: 'minutos' | 'hora';
   hint?: string;
   campos?: CampoDeConfig[];
+  /** Lo pone `catalogoDeContactos`: es derivado, no se escribe a mano. */
+  filtros?: FiltrosDelDisparador;
 };
 
 export type PasoDeContactos = {
@@ -90,6 +117,12 @@ export type PasoDeContactos = {
   ramaNo?: string;
   hint?: string;
   campos: CampoDeConfig[];
+  /**
+   * Plantilla del resumen de la tarjeta: `{clave}` se cambia por el valor del
+   * campo (el texto de la opción, en los desplegables). Sin plantilla, la
+   * pantalla junta los valores tal cual.
+   */
+  resumen?: string;
 };
 
 const UNIDADES = [
@@ -98,6 +131,44 @@ const UNIDADES = [
   { value: 'days', label: 'días' },
   { value: 'weeks', label: 'semanas' },
 ];
+
+// Las de «Esperar respuesta». Sin semanas: una respuesta que tarda más de unos
+// días ya no es respuesta a ESE mensaje, y el flujo tiene que seguir.
+const UNIDADES_DE_ESPERA = [
+  { value: 'minutes', label: 'minutos', singular: 'minuto' },
+  { value: 'hours', label: 'horas', singular: 'hora' },
+  { value: 'days', label: 'días', singular: 'día' },
+];
+
+/**
+ * Lo que espera «Esperar respuesta» cuando el paso no dice nada: 3 días, lo que
+ * esperaba SIEMPRE antes de que se pudiera configurar. Los flujos publicados
+ * tienen el paso con la configuración vacía y tienen que seguir esperando esto.
+ */
+export const ESPERA_DE_RESPUESTA_POR_DEFECTO = { amount: 3, unit: 'days' } as const;
+
+const MS_POR_UNIDAD: Record<string, number> = {
+  minutes: 60000,
+  hours: 3600000,
+  days: 86400000,
+  weeks: 604800000,
+};
+
+/**
+ * Cuánto espera «Esperar respuesta» antes de seguir por «Sin respuesta».
+ *
+ * Una cantidad que no es un número positivo vuelve ENTERA a los 3 días (no
+ * «3 horas» si la unidad eran horas): es el único valor del que sabemos que
+ * alguien lo quiso. Tope de un año: una cantidad absurda (un cero de más) daría
+ * una fecha que la base no guarda y la inscripción se quedaría en error.
+ */
+export function msDeEsperaDeRespuesta(cfg: Record<string, unknown> | undefined): number {
+  const def = ESPERA_DE_RESPUESTA_POR_DEFECTO;
+  const cantidad = Number(cfg?.amount);
+  if (!Number.isFinite(cantidad) || cantidad <= 0) return def.amount * MS_POR_UNIDAD[def.unit];
+  const unidad = MS_POR_UNIDAD[String(cfg?.unit ?? def.unit)] ?? MS_POR_UNIDAD[def.unit];
+  return Math.min(cantidad * unidad, 365 * MS_POR_UNIDAD.days);
+}
 
 const CAMPO_ETIQUETA: CampoDeConfig = {
   key: 'tag',
@@ -232,8 +303,18 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
     ramas: 'siNo',
     ramaSi: 'Respondió',
     ramaNo: 'Sin respuesta',
-    hint: 'Espera a que el contacto responda, abra o haga clic. A los 3 días sin nada, sigue por «Sin respuesta». Un «entregado» NO cuenta.',
-    campos: [],
+    hint: 'Espera a que el contacto responda, abra o haga clic. Si pasa el tiempo máximo sin nada, sigue por «Sin respuesta». Un «entregado» NO cuenta.',
+    campos: [
+      {
+        key: 'amount',
+        label: 'Tiempo máximo',
+        tipo: 'numero',
+        def: ESPERA_DE_RESPUESTA_POR_DEFECTO.amount,
+        ayuda: 'Pasado este tiempo sin respuesta, sigue por «Sin respuesta».',
+      },
+      { key: 'unit', label: 'Unidad', tipo: 'select', def: ESPERA_DE_RESPUESTA_POR_DEFECTO.unit, opciones: UNIDADES_DE_ESPERA },
+    ],
+    resumen: 'Espera respuesta · {amount} {unit}',
   },
 
   // ── Lógica ──
@@ -381,32 +462,63 @@ export const MKT_MERGE_FIELDS: { key: string; label: string }[] = [
   { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
 ];
 
+/** Los operadores del constructor de contactos: los 12, etiquetas incluidas. */
+export const MKT_OPERADORES = operadoresDe(true);
+
+// Lo que trae SIEMPRE el contexto de un contacto, venga de donde venga.
+const CAMPOS_DEL_CONTACTO = MKT_FIELDS.filter((f) => ['nombre', 'email', 'telefono', 'empresa', 'tags'].includes(f.key));
+const campoDe = (key: string, label?: string) => ({ key, label: label ?? MKT_FIELDS.find((f) => f.key === key)?.label ?? key });
+
+/**
+ * Sobre qué puede filtrar cada disparador: los datos del contacto más lo que
+ * ESE disparador pone en el contexto (lo que manda `fireTrigger` en `extra`).
+ */
+export function filtrosDelDisparador(key: string): FiltrosDelDisparador {
+  const operadores = MKT_OPERADORES.map((o) => o.value);
+  // La inscripción manual no pasa por `fireTrigger`: entra quien inscribas, y
+  // un filtro ahí sería una promesa que el motor no cumple.
+  if (key === 'manual') return { campos: [], operadores, nuevo: { field: 'tags', op: 'has_tag' } };
+  if (key === 'email_reply') {
+    return {
+      campos: [campoDe('respuesta', 'Contenido de la respuesta'), ...CAMPOS_DEL_CONTACTO],
+      operadores,
+      // Lo que se filtra casi siempre de una respuesta es qué dijo.
+      nuevo: { field: 'respuesta', op: 'contains' },
+    };
+  }
+  if (['sales_lead_created', 'sales_stage_changed', 'sales_lead_won', 'sales_lead_lost'].includes(key)) {
+    const conAnterior = key !== 'sales_lead_created';
+    return {
+      campos: [
+        campoDe('etapa'),
+        ...(conAnterior ? [campoDe('etapa_anterior', 'Columna de la que viene (ventas)')] : []),
+        campoDe('equipo'),
+        campoDe('vendedor'),
+        ...CAMPOS_DEL_CONTACTO,
+      ],
+      operadores,
+      nuevo: { field: 'etapa', op: 'eq' },
+    };
+  }
+  if (key === 'sales_meeting_booked' || key === 'sales_meeting_no_show') {
+    return { campos: [campoDe('equipo'), campoDe('vendedor'), ...CAMPOS_DEL_CONTACTO], operadores, nuevo: { field: 'equipo', op: 'eq' } };
+  }
+  return { campos: CAMPOS_DEL_CONTACTO, operadores, nuevo: { field: 'tags', op: 'has_tag' } };
+}
+
 /** Lo que la pantalla necesita para dibujarse entera. Una sola copia, esta. */
 export function catalogoDeContactos() {
   return {
-    disparadores: MKT_TRIGGERS,
+    disparadores: MKT_TRIGGERS.map((d) => ({ ...d, filtros: filtrosDelDisparador(d.key) })),
     pasos: MKT_NODE_TYPES,
     campos: MKT_FIELDS,
     merge: MKT_MERGE_FIELDS,
-    operadores: [
-      { value: 'eq', label: 'es igual a' },
-      { value: 'neq', label: 'no es' },
-      { value: 'contains', label: 'contiene' },
-      { value: 'filled', label: 'tiene algo' },
-    ],
+    operadores: MKT_OPERADORES,
   };
 }
 
 /** Un caso de «Ramas por respuesta»: una salida del nodo + las palabras que la eligen. */
 export type WFCaso = { id: string; label?: string; palabras?: string };
-
-/** Minúsculas y sin tildes: quien contesta «Sí» escribe «si», «SI» o «sí». */
-export function sinAcentos(texto: string): string {
-  return String(texto ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase();
-}
 
 /**
  * Qué caso casa con lo que respondió el contacto. Devuelve el id del primero
@@ -490,32 +602,6 @@ export function htmlToText(html: string): string {
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-/** Evalúa condiciones contra el contexto del contacto. */
-export function evalWF(
-  conditions: WFCondition[] | undefined,
-  ctx: Record<string, string>,
-  match: 'all' | 'any' = 'all',
-): boolean {
-  if (!conditions || !conditions.length) return true;
-  const test = (c: WFCondition): boolean => {
-    const v = String(ctx[c.field] ?? '').toLowerCase().trim();
-    const target = String(c.value ?? '').toLowerCase().trim();
-    switch (c.op) {
-      case 'eq':
-        return v === target;
-      case 'neq':
-        return v !== target;
-      case 'contains':
-        return v.includes(target);
-      case 'filled':
-        return v !== '';
-      default:
-        return true;
-    }
-  };
-  return match === 'all' ? conditions.every(test) : conditions.some(test);
 }
 
 /**
