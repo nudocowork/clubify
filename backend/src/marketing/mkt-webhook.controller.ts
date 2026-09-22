@@ -75,11 +75,15 @@ export class MktWebhookController {
       // escribió de la nada», y crear una ficha por cada respuesta llenaría el
       // tablero del equipo (Fable, 2026-09-15). Esos mensajes se siguen
       // guardando en quien ya está en el tablero.
+      // El TEXTO de la respuesta: lo necesitan la conversación del equipo y,
+      // desde 2026-09-21, el paso «Ramas por respuesta» del motor —que sin él
+      // sabía que el contacto había contestado pero no qué dijo—.
+      const texto = kind === 'reply' ? extractBody(body) : undefined;
       if (kind === 'reply') {
         void this.inbox.guardarEntrante({
           whiteLabelId: wl.id,
           phone,
-          body: extractBody(body),
+          body: texto,
           providerMessageId: messageId,
           puedeCrear: !correlacionado,
         });
@@ -111,7 +115,7 @@ export class MktWebhookController {
           return { ok: true };
         }
         this.avisarSiVaSinCorrelacion(kind, correlacionado, wl.id, email);
-        await this.engine.onContactInteraction(cid, wl.id);
+        await this.engine.onContactInteraction(cid, wl.id, texto);
       }
       return { ok: true };
     } catch (e) {

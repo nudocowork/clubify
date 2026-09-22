@@ -8,6 +8,46 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-21 (63) — Flujos de CONTACTOS: de 9 pasos a 15, y el disparador que nunca disparó
+
+**Sin desplegar. Sin commitear.** Todo en el árbol de trabajo: `backend/src/marketing/*`
+(menos `meta-capi.ts`, que no es mío) y `frontend/src/components/EmailMarketingWorkflows.tsx`.
+
+**La promesa rota.** La pantalla ofrecía el disparador «Etiqueta agregada» con su
+campo de etiqueta desde el principio, y en todo el repo no había un solo
+`fireTrigger('tag_added')`: quien lo configuraba publicaba un flujo que no
+arrancaba nunca. Ahora lo lanzan los tres sitios donde se escriben etiquetas de
+verdad (el paso «Agregar etiqueta», el alta/importación de contactos y la
+sincronización de negocios), y la etiqueta del disparador filtra de verdad.
+
+**Pasos nuevos, todos con su lógica:** quitar etiqueta, actualizar un dato (lista
+blanca `name`/`company` — el correo y el teléfono son la identidad y no se tocan
+fuera de `resolveContact`), ramas por respuesta, avisar al equipo, pasar a otro
+flujo (misma marca + publicado + tope de 10 saltos) y terminar el flujo, que el
+motor ya entendía y el catálogo no ofrecía.
+
+**Lo que se cerró de paso:**
+- El paso `webhook` hacía un POST a cualquier URL: **podía llamar a la red
+  interna de Railway**. Ahora pasa por `destinoInterno` (se IMPORTA del motor de
+  marca, no se copia) y no sigue redirecciones.
+- `wait_datetime` leía la fecha en UTC: «las 8 de la mañana» salía a las 3 de la
+  madrugada de Bogotá. Mismo arreglo que el motor de marca.
+- Lo que sabe el disparador (etapa, equipo, vendedor, la respuesta) ahora viaja
+  con la inscripción: `{{etapa}}` salía VACÍO en los correos.
+
+**Que no se vuelva a desincronizar:** el catálogo se sirve por
+`GET /admin/marketing/workflows/catalogo` y la pantalla se dibuja con lo que
+llegue. `src/marketing/mkt-pasos.spec.ts` (48 pruebas) tiene dos candados que
+leen el código: un paso del catálogo sin `case` en el motor, o un disparador sin
+`fireTrigger`, ponen el CI en rojo.
+
+**Descartado a propósito:** el disparador `contact_updated`. No hay ningún camino
+real de edición de un contacto (no existe un `PATCH /admin/marketing/contacts/:id`),
+así que habría sido otra promesa rota.
+
+**Pendiente de validar:** nada se ha probado contra producción — no hay flujos de
+contactos publicados ahí. Al desplegar, mirar el primer `tag_added` real.
+
 ## 2026-09-21 (62) — UPGRADE: sale solo el MANUAL, y una comisión ya generada no se reescribe
 
 Tres decisiones de Javier, y lo que hicieron falta:

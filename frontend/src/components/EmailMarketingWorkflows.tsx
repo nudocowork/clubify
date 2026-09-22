@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -16,52 +16,102 @@ type WF = {
   drip: any; sendWindow: any; reentry: boolean; createdAt?: string; _stats: Stats;
 };
 type Folder = { id: string; name: string; createdAt?: string };
-type WFNode = { id: string; type: string; config: any; next?: string | null; yes?: string | null; no?: string | null };
-
-const NODE: Record<string, { label: string; icon: string; chip: string; color: string; branch?: boolean; yesLabel?: string; noLabel?: string }> = {
-  send_email: { label: 'Enviar correo', icon: '✉️', chip: '#dbeafe', color: '#2563eb' },
-  send_sms: { label: 'Enviar SMS', icon: '💬', chip: '#d1fae5', color: '#059669' },
-  wait_delay: { label: 'Espera (tiempo)', icon: '⏱', chip: '#ede9fe', color: '#7c3aed' },
-  wait_datetime: { label: 'Esperar fecha/hora', icon: '📅', chip: '#ede9fe', color: '#7c3aed' },
-  wait_reply: { label: 'Esperar respuesta', icon: '⏳', chip: '#fef9c3', color: '#ca8a04', branch: true, yesLabel: 'Respondió', noLabel: 'Sin respuesta' },
-  condition: { label: 'Si / No (condición)', icon: '{ }', chip: '#e0e7ff', color: '#4f46e5', branch: true, yesLabel: 'Sí', noLabel: 'No' },
-  branch: { label: 'Bifurcar A/B', icon: '⑃', chip: '#e0e7ff', color: '#4f46e5', branch: true, yesLabel: 'A', noLabel: 'B' },
-  add_tag: { label: 'Agregar etiqueta', icon: '🏷', chip: '#fae8ff', color: '#a21caf' },
-  webhook: { label: 'Webhook', icon: '🔗', chip: '#f1f5f9', color: '#475569' },
+type WFNode = {
+  id: string; type: string; config: any;
+  next?: string | null; yes?: string | null; no?: string | null;
+  /** Una salida por caso, para los pasos que abren N ramas (`branch_reply`). */
+  branches?: Record<string, string | null>;
 };
-const NODE_TYPES = Object.keys(NODE);
-const MERGE = [
-  { key: 'nombre', label: 'Nombre' }, { key: 'email', label: 'Correo' },
-  { key: 'telefono', label: 'Teléfono' }, { key: 'empresa', label: 'Empresa' }, { key: 'marca', label: 'Marca' },
-  { key: 'etapa', label: 'Columna (ventas)' }, { key: 'equipo', label: 'Equipo (ventas)' },
-  { key: 'vendedor', label: 'Vendedor (ventas)' },
-];
-const COND_FIELDS = [
-  { key: 'nombre', label: 'Nombre' }, { key: 'email', label: 'Correo' },
-  { key: 'telefono', label: 'Teléfono' }, { key: 'empresa', label: 'Empresa' }, { key: 'tags', label: 'Etiquetas' },
-  // Solo traen valor en los disparadores de ventas. En los demás llegan
-  // vacíos, y una condición sobre un campo vacío no casa — que es lo que se
-  // quiere: un flujo de «contacto nuevo» no debe colarse por la etapa de un
-  // lead que no existe.
-  { key: 'etapa', label: 'Columna del tablero (ventas)' },
-  { key: 'equipo', label: 'Equipo de ventas' },
-  { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
-];
-const TRIGGERS = [
-  { key: 'manual', label: 'Inscripción manual / lista', hint: 'Inscribe contactos a mano desde la pestaña "Inscribir".' },
-  { key: 'contact_created', label: 'Contacto nuevo', hint: 'Se inscribe solo cuando se crea un contacto nuevo.' },
-  { key: 'tag_added', label: 'Etiqueta agregada', hint: 'Se inscribe cuando al contacto se le agrega una etiqueta.' },
-  { key: 'email_reply', label: 'Responde / interactúa', hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
-  // Equipos de ventas. Cada evento es su propio disparador y no uno con
-  // filtro: «ganado» y «perdido» piden mensajes opuestos, y esconderlos
-  // detrás de una condición es cómo se le manda el equivocado a alguien.
-  { key: 'sales_lead_created', label: 'Lead nuevo (equipo de ventas)', hint: 'Cuando entra un lead al tablero, venga de donde venga.' },
-  { key: 'sales_stage_changed', label: 'El lead cambia de columna', hint: 'Al mover la tarjeta. Usa una condición sobre «Columna» para una en concreto.' },
-  { key: 'sales_lead_won', label: 'Lead ganado', hint: 'Al pasar a la columna de clientes.' },
-  { key: 'sales_lead_lost', label: 'Lead perdido', hint: 'Al pasar a la columna de no interesados.' },
-  { key: 'sales_meeting_booked', label: 'Cita agendada', hint: 'La ponga el vendedor o el propio prospecto desde el enlace.' },
-  { key: 'sales_meeting_no_show', label: 'No asistió a la cita', hint: 'Cuando el vendedor la marca como «no asistió».' },
-];
+
+// ── CATÁLOGO: lo sirve el backend ──────────────────────────────────────────
+// Hasta el 2026-09-21 el catálogo estaba COPIADO A MANO acá y se desincronizó
+// del motor: esta pantalla ofrecía el disparador «Etiqueta agregada» —con su
+// campo y todo— y en el backend no existía un solo `fireTrigger('tag_added')`,
+// así que quien lo configuraba esperaba un flujo que no arrancaba nunca. Ahora
+// hay una sola fuente —`GET /admin/marketing/workflows/catalogo`— y esta
+// pantalla se dibuja con lo que venga: añadir un paso en el backend no obliga
+// a tocar este archivo.
+type Opcion = { value: string; label: string };
+type CampoDeConfig = {
+  key: string;
+  label: string;
+  tipo: 'texto' | 'textarea' | 'numero' | 'select' | 'fechaHora' | 'condiciones' | 'casos' | 'cabeceras' | 'flujo';
+  opciones?: Opcion[];
+  def?: string | number;
+  ayuda?: string;
+  requerido?: boolean;
+};
+type Disparador = { key: string; label: string; grupo: string; latencia: 'minutos' | 'hora'; hint?: string; campos?: CampoDeConfig[] };
+type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'casos'; ramaSi?: string; ramaNo?: string; hint?: string; campos: CampoDeConfig[] };
+type Catalogo = {
+  disparadores: Disparador[];
+  pasos: Paso[];
+  campos: { key: string; label: string }[];
+  merge: { key: string; label: string }[];
+  operadores: Opcion[];
+};
+
+// Red de seguridad para cuando la petición del catálogo falla (servidor caído,
+// sesión vencida): la pantalla sigue usable con lo que el motor lleva
+// ejecutando desde siempre, y avisa arriba de que va en modo reducido.
+// A PROPÓSITO no trae los pasos nuevos: si los trajera volveríamos a tener dos
+// catálogos que se desincronizan, que es justo el bug que esto vino a cerrar.
+const CATALOGO_MINIMO: Catalogo = {
+  disparadores: [
+    { key: 'manual', label: 'Inscripción manual / lista', grupo: 'General', latencia: 'minutos', hint: 'Los inscribes tú desde la pestaña «Inscribir».' },
+  ],
+  pasos: [
+    { key: 'send_email', label: 'Enviar correo', grupo: 'Mensaje', icono: '✉️', campos: [{ key: 'subject', label: 'Asunto', tipo: 'texto', requerido: true }, { key: 'body', label: 'Contenido', tipo: 'textarea', requerido: true }] },
+    { key: 'send_sms', label: 'Enviar SMS', grupo: 'Mensaje', icono: '💬', campos: [{ key: 'message', label: 'Mensaje', tipo: 'textarea', requerido: true }] },
+    { key: 'wait_delay', label: 'Espera (tiempo)', grupo: 'Espera', icono: '⏱', campos: [{ key: 'amount', label: 'Cuánto', tipo: 'numero', def: 1 }, { key: 'unit', label: 'Unidad', tipo: 'select', def: 'days', opciones: [{ value: 'minutes', label: 'minutos' }, { value: 'hours', label: 'horas' }, { value: 'days', label: 'días' }, { value: 'weeks', label: 'semanas' }] }] },
+    { key: 'condition', label: 'Si / No (condición)', grupo: 'Lógica', icono: '🔀', ramas: 'siNo', campos: [{ key: 'conditions', label: 'Condiciones', tipo: 'condiciones' }, { key: 'match', label: 'Se cumple si', tipo: 'select', def: 'all', opciones: [{ value: 'all', label: 'se cumplen todas' }, { value: 'any', label: 'se cumple alguna' }] }] },
+    { key: 'add_tag', label: 'Agregar etiqueta', grupo: 'Contacto', icono: '🏷', campos: [{ key: 'tag', label: 'Etiqueta a agregar', tipo: 'texto', requerido: true }] },
+  ],
+  campos: [{ key: 'nombre', label: 'Nombre' }, { key: 'email', label: 'Correo' }, { key: 'tags', label: 'Etiquetas' }],
+  merge: [{ key: 'nombre', label: 'Nombre' }, { key: 'email', label: 'Correo' }, { key: 'marca', label: 'Marca' }],
+  operadores: [{ value: 'eq', label: 'es igual a' }, { value: 'neq', label: 'no es' }, { value: 'contains', label: 'contiene' }, { value: 'filled', label: 'tiene algo' }],
+};
+
+// El catálogo viaja por contexto: lo pide la pantalla una vez y lo leen el
+// lienzo, el menú «+» y el panel del paso sin pasarlo de props en props.
+const CatalogoCtx = createContext<{ cat: Catalogo; degradado: boolean }>({ cat: CATALOGO_MINIMO, degradado: false });
+const useCatalogo = () => useContext(CatalogoCtx);
+
+// El color va por FAMILIA de paso, no por paso suelto: así el lienzo se lee de
+// un vistazo y un paso nuevo del backend nace ya con su color.
+const COLOR_GRUPO: Record<string, { chip: string; color: string }> = {
+  Mensaje: { chip: '#dbeafe', color: '#2563eb' },
+  Espera: { chip: '#ede9fe', color: '#7c3aed' },
+  'Lógica': { chip: '#e0e7ff', color: '#4f46e5' },
+  Contacto: { chip: '#fae8ff', color: '#a21caf' },
+  'Integración': { chip: '#f1f5f9', color: '#475569' },
+  Salida: { chip: '#fee2e2', color: '#b91c1c' },
+};
+const colorDeGrupo = (g?: string) => COLOR_GRUPO[g ?? ''] ?? { chip: '#f1f5f9', color: '#64748b' };
+
+const pasoDef = (cat: Catalogo, type: string): Paso | null => cat.pasos.find((p) => p.key === type) ?? null;
+/** Lo que necesita una tarjeta para pintarse, aunque el paso ya no esté en el catálogo. */
+function metaPaso(cat: Catalogo, type: string) {
+  const def = pasoDef(cat, type);
+  return { def, label: def?.label ?? type, icon: def?.icono ?? '•', hint: def?.hint ?? '', grupo: def?.grupo ?? '—', ...colorDeGrupo(def?.grupo) };
+}
+/** Agrupa conservando el orden en que el backend mandó los grupos. */
+function porGrupo<T extends { grupo: string }>(items: T[]): { grupo: string; items: T[] }[] {
+  const out: { grupo: string; items: T[] }[] = [];
+  for (const it of items) {
+    const found = out.find((g) => g.grupo === it.grupo);
+    if (found) found.items.push(it); else out.push({ grupo: it.grupo, items: [it] });
+  }
+  return out;
+}
+/** Cuándo entra de verdad el contacto: hay disparadores que se revisan cada hora. */
+const notaLatencia = (d?: Disparador | null) =>
+  !d || d.key === 'manual'
+    ? 'Los inscribes tú desde «Inscribir»'
+    : d.latencia === 'minutos'
+      ? 'Automático · entra en minutos'
+      : 'Automático · se revisa cada hora';
+
 /**
  * Las acciones de un workflow, en un menú.
  *
@@ -135,6 +185,27 @@ function FilaMenu({
 }
 
 function uid() { try { return 'n' + crypto.randomUUID().slice(0, 8); } catch { return 'n' + Math.random().toString(36).slice(2, 10); } }
+function casoId() { try { return 'c' + crypto.randomUUID().slice(0, 6); } catch { return 'c' + Math.random().toString(36).slice(2, 8); } }
+function casosPorDefecto() {
+  return [
+    { id: casoId(), label: 'Dice que sí', palabras: 'sí, claro, dale, me interesa' },
+    { id: casoId(), label: 'Dice que no', palabras: 'no, no me interesa, ahora no' },
+  ];
+}
+/** Los valores con los que nace un paso, según lo que pida su catálogo. */
+function configInicial(def: Paso | null): any {
+  const cfg: any = {};
+  for (const campo of def?.campos ?? []) {
+    if (campo.tipo === 'condiciones' || campo.tipo === 'cabeceras') cfg[campo.key] = [];
+    else if (campo.tipo === 'casos') cfg[campo.key] = casosPorDefecto();
+    else if (campo.def !== undefined) cfg[campo.key] = campo.def;
+  }
+  return cfg;
+}
+function casosDe(node: WFNode | null | undefined): { id: string; label?: string; palabras?: string }[] {
+  const v = node?.config?.casos;
+  return Array.isArray(v) ? v.filter((r: any) => r && r.id) : [];
+}
 function fmtDate(s?: string) { return s ? new Date(s).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; }
 const inp = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500';
 
@@ -144,6 +215,8 @@ export default function EmailMarketingWorkflows() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cat, setCat] = useState<Catalogo>(CATALOGO_MINIMO);
+  const [degradado, setDegradado] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -151,6 +224,14 @@ export default function EmailMarketingWorkflows() {
     catch { /* noop */ } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api('/admin/marketing/workflows/catalogo')
+      .then((d: any) => {
+        if (d?.pasos?.length && d?.disparadores?.length) { setCat(d); setDegradado(false); }
+        else setDegradado(true);
+      })
+      .catch(() => setDegradado(true));
+  }, []);
 
   async function addWf() {
     setBusy(true);
@@ -212,10 +293,17 @@ export default function EmailMarketingWorkflows() {
   }
 
   const open = wfs.find((w) => w.id === openId) ?? null;
-  if (open) return <Editor key={open.id} wf={open} onBack={() => { setOpenId(null); load(); }} onDeleted={() => { setWfs((p) => p.filter((w) => w.id !== open.id)); setOpenId(null); }} />;
-  if (loading) return <div className="py-10 text-center text-sm text-slate-400">Cargando…</div>;
-
-  return (
+  const contenido = open ? (
+    <Editor
+      key={open.id}
+      wf={open}
+      otros={wfs.filter((w) => w.id !== open.id)}
+      onBack={() => { setOpenId(null); load(); }}
+      onDeleted={() => { setWfs((p) => p.filter((w) => w.id !== open.id)); setOpenId(null); }}
+    />
+  ) : loading ? (
+    <div className="py-10 text-center text-sm text-slate-400">Cargando…</div>
+  ) : (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-slate-500">Flujos por correo/SMS a tus contactos, con esperas, ramas, ventana horaria y reintentos.</p>
@@ -223,6 +311,7 @@ export default function EmailMarketingWorkflows() {
           <button onClick={addWf} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white" style={{ background: ACCENT }}>+ Nuevo workflow</button>
         </div>
       </div>
+      {degradado && <AvisoCatalogo />}
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
         <table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
@@ -255,10 +344,22 @@ export default function EmailMarketingWorkflows() {
       </div>
     </div>
   );
+
+  return <CatalogoCtx.Provider value={{ cat, degradado }}>{contenido}</CatalogoCtx.Provider>;
+}
+
+function AvisoCatalogo() {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      No se pudo leer la lista de pasos del servidor: se está mostrando la reducida. Vuelve a cargar la página
+      antes de crear un flujo nuevo — desde aquí no verás los pasos que sí existen.
+    </div>
+  );
 }
 
 type Tab = 'creador' | 'config' | 'inscribir' | 'registros';
-function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDeleted: () => void }) {
+function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack: () => void; onDeleted: () => void }) {
+  const { cat, degradado } = useCatalogo();
   const [tab, setTab] = useState<Tab>('creador');
   const [name, setName] = useState(wf.name);
   const [status, setStatus] = useState(wf.status);
@@ -274,17 +375,43 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
   const touch = () => setDirty(true);
 
   function insert(type: string, oldChild: string | null, setSlot: (v: string | null) => void) {
-    const id = uid(); const branch = NODE[type]?.branch;
-    const node: WFNode = { id, type, config: {}, ...(branch ? { yes: oldChild, no: null } : { next: oldChild }) };
+    const id = uid();
+    const def = pasoDef(cat, type);
+    const config = configInicial(def);
+    // Lo que colgaba del hueco se reengancha en la PRIMERA salida del paso
+    // nuevo: nunca se pierde media rama por meter un paso en medio.
+    let node: WFNode;
+    if (def?.ramas === 'siNo') node = { id, type, config, yes: oldChild, no: null };
+    // En un paso por casos, lo que ya colgaba pasa a «Cualquier otra»: así el
+    // flujo que había sigue valiendo para todos y los casos se van llenando.
+    else if (def?.ramas === 'casos') node = { id, type, config, branches: {}, next: oldChild };
+    else node = { id, type, config, next: oldChild };
     setNodes((n) => ({ ...n, [id]: node })); setSlot(id); touch(); setEditNode(id);
   }
   function setField(nodeId: string, field: 'next' | 'yes' | 'no', v: string | null) { setNodes((n) => ({ ...n, [nodeId]: { ...n[nodeId], [field]: v } })); touch(); }
-  function del(node: WFNode, setSlot: (v: string | null) => void) { setSlot(node.next ?? node.yes ?? null); touch(); }
+  function setBranch(nodeId: string, casoId2: string, v: string | null) {
+    setNodes((n) => ({ ...n, [nodeId]: { ...n[nodeId], branches: { ...(n[nodeId].branches || {}), [casoId2]: v } } }));
+    touch();
+  }
+  function del(node: WFNode, setSlot: (v: string | null) => void) {
+    // Se conserva la primera rama con algo colgado: quitar un «Si/No» no puede
+    // llevarse por delante toda la secuencia que venía debajo.
+    const primeraRama = Object.values(node.branches || {}).find((v) => !!v) ?? null;
+    setSlot(node.next ?? node.yes ?? primeraRama ?? null); touch();
+  }
   function patchNode(id: string, cfg: any) { setNodes((n) => ({ ...n, [id]: { ...n[id], config: { ...n[id].config, ...cfg } } })); touch(); }
+  function patchNodeRaw(id: string, patch: Partial<WFNode>) { setNodes((n) => ({ ...n, [id]: { ...n[id], ...patch } })); touch(); }
 
   async function save(publish?: boolean) {
     setBusy(true);
-    const reach = new Set<string>(); const walk = (id?: string | null) => { if (!id || reach.has(id) || !nodes[id]) return; reach.add(id); walk(nodes[id].next); walk(nodes[id].yes); walk(nodes[id].no); }; walk(root);
+    const reach = new Set<string>();
+    const walk = (id?: string | null) => {
+      if (!id || reach.has(id) || !nodes[id]) return;
+      reach.add(id);
+      walk(nodes[id].next); walk(nodes[id].yes); walk(nodes[id].no);
+      for (const v of Object.values(nodes[id].branches || {})) walk(v);
+    };
+    walk(root);
     const pruned: Record<string, WFNode> = {}; reach.forEach((id) => { pruned[id] = nodes[id]; });
     const st = publish != null ? (publish ? 'published' : 'draft') : status;
     try {
@@ -294,7 +421,7 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
   }
   async function remove() { if (!window.confirm('¿Eliminar este workflow?')) return; setBusy(true); try { await api(`/admin/marketing/workflows/${wf.id}`, { method: 'DELETE' }); onDeleted(); } catch (e: any) { toast(e.message ?? 'Error', 'error'); setBusy(false); } }
 
-  const trigDef = TRIGGERS.find((t) => t.key === trigger.type);
+  const trigDef = cat.disparadores.find((t) => t.key === trigger.type) ?? null;
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-slate-50">
@@ -318,10 +445,12 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
         {tab === 'creador' && (
           <div className="min-h-full bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px] p-6">
             <div className="flex flex-col items-center pb-40">
+              {degradado && <div className="mb-3 w-[320px]"><AvisoCatalogo /></div>}
               <div className="w-[280px] rounded-xl border px-3 py-2.5 shadow-sm" style={{ borderColor: '#a7f3d0', background: 'white' }}>
                 <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg text-sm" style={{ background: '#d1fae5', color: '#059669' }}>▶</span><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#059669' }}>Disparador</p><p className="truncate text-sm font-medium text-slate-800">{trigDef?.label ?? trigger.type}</p></div></div>
+                <p className="mt-1.5 text-[11px] text-slate-400">{notaLatencia(trigDef)}</p>
               </div>
-              <Slot value={root} setSlot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} depth={0} />
+              <Slot value={root} setSlot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} setBranch={setBranch} depth={0} />
             </div>
           </div>
         )}
@@ -329,13 +458,29 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
           <div className="p-5"><div className="mx-auto max-w-2xl space-y-4">
             <Card title="Disparador">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div><Label>Cuándo entra el contacto</Label><select value={trigger.type} onChange={(e) => { setTrigger({ ...trigger, type: e.target.value }); touch(); }} className={inp}>{TRIGGERS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</select>
-                  {trigDef?.hint && <p className="mt-1 text-xs text-slate-500">{trigDef.hint}</p>}</div>
-                {trigger.type === 'tag_added' && (
-                  <div><Label>Etiqueta</Label><input value={trigger.tag ?? ''} onChange={(e) => { setTrigger({ ...trigger, tag: e.target.value }); touch(); }} className={inp} placeholder="ej. cliente-vip" /></div>
-                )}
+                <div>
+                  <Label>Cuándo entra el contacto</Label>
+                  <select value={trigger.type} onChange={(e) => { setTrigger({ ...trigger, type: e.target.value }); touch(); }} className={inp}>
+                    {porGrupo(cat.disparadores).map((g) => (
+                      <optgroup key={g.grupo} label={g.grupo}>
+                        {g.items.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {trigDef?.hint && <p className="mt-1 text-xs text-slate-500">{trigDef.hint}</p>}
+                </div>
+                {/* Los campos del disparador salen del catálogo igual que los de
+                    un paso: si el backend añade uno, aparece acá solo. */}
+                {(trigDef?.campos ?? []).map((campo) => (
+                  <CampoControl
+                    key={campo.key}
+                    campo={campo}
+                    valor={trigger[campo.key]}
+                    onChange={(v) => { setTrigger({ ...trigger, [campo.key]: v }); touch(); }}
+                  />
+                ))}
               </div>
-              {trigger.type !== 'manual' && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">⚡ Automático. Publica el workflow para activarlo.</p>}
+              {trigger.type !== 'manual' && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">⚡ {notaLatencia(trigDef)}. Publica el workflow para activarlo.</p>}
             </Card>
             <Card title="Goteo (Drip)"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!drip.enabled} onChange={(e) => { setDrip({ ...drip, enabled: e.target.checked }); touch(); }} /> No enviar todos de golpe</label>{drip.enabled && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">Enviar a <input type="number" value={drip.batchSize ?? 50} onChange={(e) => { setDrip({ ...drip, batchSize: +e.target.value }); touch(); }} className="w-20 rounded border border-slate-300 px-2 py-1" /> contactos cada <input type="number" value={drip.intervalMinutes ?? 10} onChange={(e) => { setDrip({ ...drip, intervalMinutes: +e.target.value }); touch(); }} className="w-20 rounded border border-slate-300 px-2 py-1" /> min</div>}</Card>
             <Card title="Ventana de envío"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!win.enabled} onChange={(e) => { setWin({ ...win, enabled: e.target.checked }); touch(); }} /> Enviar solo en cierto horario</label>{win.enabled && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">De <input type="number" value={win.startHour ?? 8} onChange={(e) => { setWin({ ...win, startHour: +e.target.value }); touch(); }} className="w-16 rounded border border-slate-300 px-2 py-1" />h a <input type="number" value={win.endHour ?? 20} onChange={(e) => { setWin({ ...win, endHour: +e.target.value }); touch(); }} className="w-16 rounded border border-slate-300 px-2 py-1" />h <label className="ml-2 flex items-center gap-1"><input type="checkbox" checked={!!win.skipWeekends} onChange={(e) => { setWin({ ...win, skipWeekends: e.target.checked }); touch(); }} /> saltar findes</label></div>}</Card>
@@ -347,64 +492,147 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
         {tab === 'registros' && <LogsTab workflowId={wf.id} />}
       </div>
 
-      {editNode && nodes[editNode] && <NodeConfig node={nodes[editNode]} onClose={() => setEditNode(null)} onPatch={(cfg) => patchNode(editNode, cfg)} />}
+      {editNode && nodes[editNode] && (
+        <NodeConfig
+          node={nodes[editNode]}
+          flujos={otros}
+          onClose={() => setEditNode(null)}
+          onPatch={(cfg) => patchNode(editNode, cfg)}
+          onNode={(patch) => patchNodeRaw(editNode, patch)}
+        />
+      )}
     </div>
   );
 }
 
-function Slot({ value, setSlot, nodes, onInsert, onEdit, onDelete, setField, depth }: any) {
+function Slot({ value, setSlot, nodes, onInsert, onEdit, onDelete, setField, setBranch, depth }: any) {
+  const { cat } = useCatalogo();
   const node: WFNode | null = value ? nodes[value] : null;
-  const def = node ? NODE[node.type] : null;
+  const def = node ? pasoDef(cat, node.type) : null;
+  const hijo = (props: any) => (
+    <Slot nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} setBranch={setBranch} {...props} />
+  );
   return (
     <div className="flex flex-col items-center">
       <Insert terminal={!node} onPick={(t: string) => onInsert(t, value, setSlot)} />
       {node && (<>
         <NodeCard node={node} onEdit={() => onEdit(node.id)} onDelete={() => onDelete(node, setSlot)} />
-        {def?.branch ? (
+        {def?.ramas === 'siNo' ? (
           <div className="flex items-start gap-6 pt-1 sm:gap-10">
-            <Branch label={def.yesLabel ?? 'Sí'} bg="#ecfdf5" color="#059669"><Slot value={node.yes ?? null} setSlot={(v: string | null) => setField(node.id, 'yes', v)} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={depth + 1} /></Branch>
-            <Branch label={def.noLabel ?? 'No'} bg="#fef2f2" color="#dc2626"><Slot value={node.no ?? null} setSlot={(v: string | null) => setField(node.id, 'no', v)} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={depth + 1} /></Branch>
+            <Branch label={def.ramaSi ?? 'Sí'} bg="#ecfdf5" color="#059669">
+              {hijo({ value: node.yes ?? null, setSlot: (v: string | null) => setField(node.id, 'yes', v), depth: depth + 1 })}
+            </Branch>
+            <Branch label={def.ramaNo ?? 'No'} bg="#fef2f2" color="#dc2626">
+              {hijo({ value: node.no ?? null, setSlot: (v: string | null) => setField(node.id, 'no', v), depth: depth + 1 })}
+            </Branch>
           </div>
-        ) : (<Slot value={node.next ?? null} setSlot={(v: string | null) => setField(node.id, 'next', v)} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={depth} />)}
+        ) : def?.ramas === 'casos' ? (
+          <div className="flex items-start gap-6 pt-1 sm:gap-8">
+            {casosDe(node).map((caso) => (
+              <Branch key={caso.id} label={caso.label || caso.id} bg="#eef2ff" color="#4f46e5">
+                {hijo({ value: node.branches?.[caso.id] ?? null, setSlot: (v: string | null) => setBranch(node.id, caso.id, v), depth: depth + 1 })}
+              </Branch>
+            ))}
+            {/* La salida normal del nodo es «cualquier otra respuesta»: lo que no
+                casa con ningún caso sigue por aquí y no se queda colgado. */}
+            <Branch label="Cualquier otra" bg="#f1f5f9" color="#64748b">
+              {hijo({ value: node.next ?? null, setSlot: (v: string | null) => setField(node.id, 'next', v), depth: depth + 1 })}
+            </Branch>
+          </div>
+        ) : (
+          hijo({ value: node.next ?? null, setSlot: (v: string | null) => setField(node.id, 'next', v), depth })
+        )}
       </>)}
       {!node && depth > 0 && <span className="mt-1 rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-medium uppercase text-slate-500">Fin</span>}
     </div>
   );
 }
 function Insert({ terminal, onPick }: { terminal: boolean; onPick: (t: string) => void }) {
+  const { cat } = useCatalogo();
   const [op, setOp] = useState(false);
   return (
     <div className="relative flex flex-col items-center">
       <div className="h-4 w-px bg-slate-300" />
       <button onClick={() => setOp((o) => !o)} className="grid h-6 w-6 place-items-center rounded-full border text-sm" style={op ? { background: ACCENT, color: 'white', borderColor: ACCENT } : { background: 'white', color: '#94a3b8', borderColor: '#cbd5e1' }}>+</button>
       {!terminal && <div className="h-4 w-px bg-slate-300" />}
-      {op && <div className="absolute top-11 z-30 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-        <p className="px-2 py-1 text-[10px] font-semibold uppercase text-slate-400">Añadir paso</p>
-        {NODE_TYPES.map((t) => <button key={t} onClick={() => { onPick(t); setOp(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50"><span className="grid h-6 w-6 place-items-center rounded-md text-xs" style={{ background: NODE[t].chip, color: NODE[t].color }}>{NODE[t].icon}</span> {NODE[t].label}</button>)}
-      </div>}
+      {op && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOp(false)} />
+          <div className="absolute top-11 z-30 max-h-[60vh] w-60 overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+            {porGrupo(cat.pasos).map((g) => (
+              <div key={g.grupo}>
+                <p className="px-2 py-1 text-[10px] font-semibold uppercase text-slate-400">{g.grupo}</p>
+                {g.items.map((p) => {
+                  const c = colorDeGrupo(p.grupo);
+                  return (
+                    <button key={p.key} onClick={() => { onPick(p.key); setOp(false); }} title={p.hint} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-xs" style={{ background: c.chip, color: c.color }}>{p.icono}</span>
+                      <span className="truncate">{p.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
-function summary(node: WFNode) {
+
+/** Una línea con lo configurado, sacada de los campos del propio catálogo. */
+function resumen(def: Paso | null, node: WFNode): string {
   const c = node.config || {};
-  if (node.type === 'send_sms') return String(c.message || '(sin mensaje)').slice(0, 44);
-  if (node.type === 'send_email') return String(c.subject || '(sin asunto)').slice(0, 44);
-  if (node.type === 'wait_delay') return `Espera ${c.amount ?? 1} ${c.unit ?? 'días'}`;
-  if (node.type === 'wait_datetime') return c.at ? new Date(c.at).toLocaleString('es-CO') : '(sin fecha)';
-  if (node.type === 'wait_reply') return 'Espera interacción';
-  if (node.type === 'condition') return `${(c.conditions || []).length} condición(es)`;
-  if (node.type === 'branch') return `${c.percent ?? 50}% → A`;
-  if (node.type === 'add_tag') return c.tag ? `+${c.tag}` : '(sin etiqueta)';
-  if (node.type === 'webhook') return String(c.url || '(sin URL)').slice(0, 40);
-  return '';
+  if (!def) return 'Paso desconocido';
+  const partes: string[] = [];
+  for (const campo of def.campos) {
+    const v = c[campo.key];
+    if (campo.tipo === 'condiciones') {
+      const n = Array.isArray(v) ? v.length : 0;
+      partes.push(n ? `${n} condición${n === 1 ? '' : 'es'}` : 'Sin condiciones');
+    } else if (campo.tipo === 'casos') {
+      const rs = Array.isArray(v) ? v : [];
+      partes.push(rs.length ? rs.map((r: any) => r.label || r.id).join(' / ') : 'Sin casos');
+    } else if (campo.tipo === 'cabeceras') {
+      continue;
+    } else if (campo.tipo === 'select') {
+      const op = campo.opciones?.find((o) => o.value === String(v ?? campo.def ?? ''));
+      if (op) partes.push(op.label);
+    } else {
+      const s = String(v ?? '').trim();
+      if (s) partes.push(campo.tipo === 'textarea' ? s.slice(0, 44) : s.slice(0, 44));
+    }
+  }
+  if (!partes.length) return def.campos.length ? 'Sin configurar' : def.hint || '';
+  return partes.slice(0, 3).join(' · ');
 }
+
+/** ¿Le falta algún campo obligatorio? Es la causa nº1 de «publiqué el flujo y no llegó nada». */
+function faltaAlgo(def: Paso | null, node: WFNode): boolean {
+  if (!def) return false;
+  return def.campos.some((campo) => {
+    if (!campo.requerido) return false;
+    const v = node.config?.[campo.key];
+    if (campo.tipo === 'condiciones' || campo.tipo === 'cabeceras' || campo.tipo === 'casos') return !Array.isArray(v) || v.length === 0;
+    return String(v ?? '').trim() === '';
+  });
+}
+
 function NodeCard({ node, onEdit, onDelete }: { node: WFNode; onEdit: () => void; onDelete: () => void }) {
-  const d = NODE[node.type] ?? { label: node.type, icon: '•', chip: '#f1f5f9', color: '#475569' };
+  const { cat } = useCatalogo();
+  const d = metaPaso(cat, node.type);
+  const incompleto = faltaAlgo(d.def, node);
   return (
     <div className="group relative w-[280px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
       <button onClick={onEdit} className="flex w-full items-center gap-2 text-left">
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-sm" style={{ background: d.chip, color: d.color }}>{d.icon}</span>
-        <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: d.color }}>{d.label}</p><p className="truncate text-sm text-slate-600">{summary(node)}</p></div>
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: d.color }}>
+            <span className="truncate">{d.label}</span>
+            {incompleto && <span className="shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-700">Vacío</span>}
+          </p>
+          <p className="truncate text-sm text-slate-600">{resumen(d.def, node)}</p>
+        </div>
       </button>
       <button onClick={onDelete} className="absolute -right-2 -top-2 hidden h-5 w-5 place-items-center rounded-full bg-white text-xs text-rose-500 shadow group-hover:grid" title="Quitar paso">✕</button>
     </div>
@@ -413,79 +641,217 @@ function NodeCard({ node, onEdit, onDelete }: { node: WFNode; onEdit: () => void
 function Branch({ label, bg, color, children }: any) {
   return (
     <div className="flex flex-col items-center">
-      <span className="mb-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: bg, color }}>{label}</span>
+      <span className="mb-1 max-w-[150px] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: bg, color }}>{label}</span>
       {children}
     </div>
   );
 }
 
-function NodeConfig({ node, onClose, onPatch }: { node: WFNode; onClose: () => void; onPatch: (cfg: any) => void }) {
+function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
+  node: WFNode;
+  flujos: WF[];
+  onClose: () => void;
+  onPatch: (cfg: any) => void;
+  onNode: (patch: Partial<WFNode>) => void;
+}) {
+  const { cat } = useCatalogo();
   const c = node.config || {};
-  const d = NODE[node.type];
+  const d = metaPaso(cat, node.type);
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={onClose}>
       <div className="h-full w-full max-w-md overflow-auto bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between"><h3 className="font-semibold text-slate-800">{d?.icon} {d?.label}</h3><button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button></div>
+        <div className="flex items-center justify-between"><h3 className="font-semibold text-slate-800">{d.icon} {d.label}</h3><button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button></div>
+        {/* El formulario ENTERO sale de `campos`: no hay un `if` por tipo de paso.
+            Un paso nuevo en el backend se configura acá sin tocar esta pantalla. */}
         <div className="mt-4 space-y-3">
-          {node.type === 'send_email' && (<>
-            <div><Label>Asunto</Label><input value={c.subject ?? ''} onChange={(e) => onPatch({ subject: e.target.value })} className={inp} /></div>
-            <div><Label>Remitente (nombre)</Label><input value={c.from_name ?? ''} onChange={(e) => onPatch({ from_name: e.target.value })} className={inp} placeholder="opcional" /></div>
-            <div><Label>Contenido (HTML o texto)</Label><textarea value={c.body ?? ''} onChange={(e) => onPatch({ body: e.target.value })} rows={8} className={inp} /></div>
-            <MergeHelp />
-          </>)}
-          {node.type === 'send_sms' && (<>
-            <div><Label>Mensaje</Label><textarea value={c.message ?? ''} onChange={(e) => onPatch({ message: e.target.value })} rows={5} className={inp} /></div>
-            <MergeHelp />
-          </>)}
-          {node.type === 'wait_delay' && (
-            <div className="flex items-center gap-2"><input type="number" min={1} value={c.amount ?? 1} onChange={(e) => onPatch({ amount: +e.target.value })} className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-              <select value={c.unit ?? 'days'} onChange={(e) => onPatch({ unit: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">días</option><option value="weeks">semanas</option></select>
-            </div>
+          {d.hint && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">{d.hint}</p>}
+          {!d.def && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+              Este paso no está en la lista que respondió el servidor. Puede ser de una versión más nueva: no lo edites desde aquí o perderás su configuración.
+            </p>
           )}
-          {node.type === 'wait_datetime' && (
-            <div><Label>Esperar hasta</Label><input type="datetime-local" value={c.at ?? ''} onChange={(e) => onPatch({ at: e.target.value })} className={inp} /></div>
-          )}
-          {node.type === 'wait_reply' && (
-            <p className="text-sm text-slate-500">Espera a que el contacto <b>responda, abra o haga clic</b>. Si no interactúa en 3 días, sigue por la rama <b>“Sin respuesta”</b>. Un simple “entregado” NO cuenta como respuesta.</p>
-          )}
-          {node.type === 'condition' && <Conditions c={c} onPatch={onPatch} />}
-          {node.type === 'branch' && (
-            <div><Label>Porcentaje que va a la rama A</Label><input type="number" min={0} max={100} value={c.percent ?? 50} onChange={(e) => onPatch({ percent: +e.target.value })} className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm" /> %</div>
-          )}
-          {node.type === 'add_tag' && (
-            <div><Label>Etiqueta a agregar</Label><input value={c.tag ?? ''} onChange={(e) => onPatch({ tag: e.target.value })} className={inp} placeholder="ej. interesado" /></div>
-          )}
-          {node.type === 'webhook' && (
-            <div><Label>URL del webhook (POST)</Label><input value={c.url ?? ''} onChange={(e) => onPatch({ url: e.target.value })} className={inp} placeholder="https://…" /></div>
-          )}
+          {(d.def?.campos ?? []).map((campo) => (
+            <CampoControl
+              key={campo.key}
+              campo={campo}
+              valor={c[campo.key]}
+              node={node}
+              flujos={flujos}
+              onChange={(v) => onPatch({ [campo.key]: v })}
+              onNode={onNode}
+            />
+          ))}
+          {d.def && d.def.campos.length === 0 && <p className="text-sm text-slate-500">Este paso no necesita configuración.</p>}
         </div>
         <button onClick={onClose} className="mt-5 w-full rounded-lg py-2 text-sm font-semibold text-white" style={{ background: ACCENT }}>Listo</button>
       </div>
     </div>
   );
 }
-function Conditions({ c, onPatch }: { c: any; onPatch: (cfg: any) => void }) {
-  const conds = c.conditions ?? [];
-  const set = (i: number, patch: any) => onPatch({ conditions: conds.map((x: any, j: number) => (j === i ? { ...x, ...patch } : x)) });
+
+// ── Un campo del catálogo → su control ─────────────────────────────────────
+// `condiciones`, `casos`, `cabeceras` y `flujo` tienen editor propio; el resto
+// son controles normales.
+function CampoControl({ campo, valor, node, flujos, onChange, onNode }: {
+  campo: CampoDeConfig;
+  valor: any;
+  node?: WFNode;
+  flujos?: WF[];
+  onChange: (v: any) => void;
+  onNode?: (patch: Partial<WFNode>) => void;
+}) {
+  const ref = useRef<any>(null);
+  const texto = String(valor ?? campo.def ?? '');
+  let control: React.ReactNode;
+  switch (campo.tipo) {
+    case 'textarea':
+      control = (
+        <>
+          <textarea ref={ref} rows={6} value={texto} onChange={(e) => onChange(e.target.value)} className={inp} />
+          <MergeHelp />
+        </>
+      );
+      break;
+    case 'numero':
+      control = <input type="number" min={0} value={Number(valor ?? campo.def ?? 0)} onChange={(e) => onChange(+e.target.value)} className="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm" />;
+      break;
+    case 'select':
+      control = (
+        <select value={texto} onChange={(e) => onChange(e.target.value)} className={inp}>
+          {(campo.opciones ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+      break;
+    case 'fechaHora':
+      // `datetime-local` da «2026-09-21T14:30», que es justo lo que el motor
+      // interpreta en hora de Bogotá.
+      control = <input type="datetime-local" value={texto} onChange={(e) => onChange(e.target.value)} className={inp} />;
+      break;
+    case 'condiciones':
+      control = <CondicionesEditor valor={Array.isArray(valor) ? valor : []} onChange={onChange} />;
+      break;
+    case 'casos':
+      control = <CasosEditor valor={Array.isArray(valor) ? valor : []} node={node} onChange={onChange} onNode={onNode} />;
+      break;
+    case 'cabeceras':
+      control = <CabecerasEditor valor={Array.isArray(valor) ? valor : []} onChange={onChange} />;
+      break;
+    case 'flujo':
+      control = <FlujoSelect flujos={flujos ?? []} valor={texto} onChange={onChange} />;
+      break;
+    default:
+      control = <input ref={ref} value={texto} onChange={(e) => onChange(e.target.value)} className={inp} />;
+  }
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm"><span>Cumplir</span>
-        <select value={c.match ?? 'all'} onChange={(e) => onPatch({ match: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1"><option value="all">todas</option><option value="any">alguna</option></select>
-      </div>
-      {conds.map((cond: any, i: number) => (
-        <div key={i} className="flex flex-wrap items-center gap-1.5">
-          <select value={cond.field} onChange={(e) => set(i, { field: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">{COND_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>
-          <select value={cond.op} onChange={(e) => set(i, { op: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-sm"><option value="eq">=</option><option value="neq">≠</option><option value="contains">contiene</option><option value="filled">tiene valor</option></select>
-          {cond.op !== 'filled' && <input value={cond.value ?? ''} onChange={(e) => set(i, { value: e.target.value })} className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm" />}
-          <button onClick={() => onPatch({ conditions: conds.filter((_: any, j: number) => j !== i) })} className="text-rose-500">✕</button>
-        </div>
-      ))}
-      <button onClick={() => onPatch({ conditions: [...conds, { field: 'tags', op: 'contains', value: '' }] })} className="text-sm font-medium text-emerald-700">+ Añadir condición</button>
+    <div>
+      <Label>{campo.label}{campo.requerido && <span className="ml-1 text-rose-500" title="Obligatorio">*</span>}</Label>
+      {control}
+      {campo.ayuda && <p className="mt-1 text-[11px] text-slate-400">{campo.ayuda}</p>}
     </div>
   );
 }
+
+// Campos y operadores salen del catálogo: si el backend añade un campo del
+// contacto, aparece acá sin tocar nada.
+function CondicionesEditor({ valor, onChange }: { valor: any[]; onChange: (v: any[]) => void }) {
+  const { cat } = useCatalogo();
+  const campoPorDefecto = cat.campos[0]?.key ?? 'nombre';
+  const opPorDefecto = cat.operadores[0]?.value ?? 'eq';
+  const set = (i: number, patch: any) => onChange(valor.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="space-y-2">
+      {valor.map((cond: any, i: number) => (
+        <div key={i} className="flex flex-wrap items-center gap-1.5">
+          <select value={cond.field} onChange={(e) => set(i, { field: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+            {cat.campos.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+          </select>
+          <select value={cond.op} onChange={(e) => set(i, { op: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+            {cat.operadores.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          {cond.op !== 'filled' && <input value={cond.value ?? ''} onChange={(e) => set(i, { value: e.target.value })} className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm" />}
+          <button onClick={() => onChange(valor.filter((_, j) => j !== i))} className="text-rose-500">✕</button>
+        </div>
+      ))}
+      <button onClick={() => onChange([...valor, { field: campoPorDefecto, op: opPorDefecto, value: '' }])} className="text-sm font-medium text-emerald-700">+ Añadir condición</button>
+    </div>
+  );
+}
+
+/**
+ * Los casos de «Ramas por respuesta»: una salida por caso.
+ *
+ * Al borrar un caso se borra TAMBIÉN su salida del nodo: si se quedara, el
+ * flujo guardaría una rama que la pantalla ya no dibuja y esos pasos no los
+ * volvería a ver nadie —pero seguirían ejecutándose—.
+ */
+function CasosEditor({ valor, node, onChange, onNode }: {
+  valor: any[];
+  node?: WFNode;
+  onChange: (v: any[]) => void;
+  onNode?: (patch: Partial<WFNode>) => void;
+}) {
+  const set = (i: number, patch: any) => onChange(valor.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  function quitar(i: number) {
+    const fuera = valor[i];
+    onChange(valor.filter((_, j) => j !== i));
+    if (fuera?.id && node?.branches && onNode) {
+      const branches = { ...node.branches };
+      delete branches[fuera.id];
+      onNode({ branches });
+    }
+  }
+  return (
+    <div className="space-y-2">
+      {valor.map((caso: any, i: number) => (
+        <div key={caso.id ?? i} className="rounded-lg border border-slate-200 p-2">
+          <div className="flex items-center gap-1.5">
+            <input value={caso.label ?? ''} onChange={(e) => set(i, { label: e.target.value })} placeholder="Nombre de la rama" className="flex-1 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+            <button onClick={() => quitar(i)} className="text-rose-500" title="Quitar caso">✕</button>
+          </div>
+          <input value={caso.palabras ?? ''} onChange={(e) => set(i, { palabras: e.target.value })} placeholder="sí, claro, me interesa" className="mt-1.5 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+        </div>
+      ))}
+      <button onClick={() => onChange([...valor, { id: casoId(), label: `Caso ${valor.length + 1}`, palabras: '' }])} className="text-sm font-medium text-emerald-700">+ Añadir caso</button>
+    </div>
+  );
+}
+
+function CabecerasEditor({ valor, onChange }: { valor: any[]; onChange: (v: any[]) => void }) {
+  const set = (i: number, patch: any) => onChange(valor.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="space-y-1.5">
+      {valor.map((h: any, i: number) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <input value={h.key ?? ''} onChange={(e) => set(i, { key: e.target.value })} placeholder="Authorization" className="w-1/2 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+          <input value={h.value ?? ''} onChange={(e) => set(i, { value: e.target.value })} placeholder="Bearer …" className="w-1/2 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+          <button onClick={() => onChange(valor.filter((_, j) => j !== i))} className="text-rose-500">✕</button>
+        </div>
+      ))}
+      <button onClick={() => onChange([...valor, { key: '', value: '' }])} className="text-sm font-medium text-emerald-700">+ Añadir cabecera</button>
+    </div>
+  );
+}
+
+/**
+ * El flujo destino. Solo se ofrecen los PUBLICADOS: el motor se niega a mandar
+ * un contacto a un borrador, así que ofrecerlo sería prometer algo que no pasa.
+ */
+function FlujoSelect({ flujos, valor, onChange }: { flujos: WF[]; valor: string; onChange: (v: string) => void }) {
+  const publicados = flujos.filter((f) => f.status === 'published');
+  return (
+    <>
+      <select value={valor} onChange={(e) => onChange(e.target.value)} className={inp}>
+        <option value="">— Elige un flujo —</option>
+        {publicados.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+      </select>
+      {publicados.length === 0 && <p className="mt-1 text-[11px] text-amber-700">No hay ningún otro flujo publicado de esta marca al que mandar el contacto.</p>}
+    </>
+  );
+}
+
 function MergeHelp() {
-  return <p className="text-xs text-slate-500">Variables: {MERGE.map((m) => <code key={m.key} className="mx-0.5 rounded bg-slate-100 px-1">{`{{${m.key}}}`}</code>)}</p>;
+  const { cat } = useCatalogo();
+  return <p className="mt-1 text-xs text-slate-500">Variables: {cat.merge.map((m) => <code key={m.key} className="mx-0.5 rounded bg-slate-100 px-1">{`{{${m.key}}}`}</code>)}</p>;
 }
 function Card({ title, children }: any) { return <div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="mb-2 font-semibold text-slate-800">{title}</h3>{children}</div>; }
 function Label({ children }: any) { return <label className="mb-1 block text-xs font-medium text-slate-600">{children}</label>; }
@@ -514,7 +880,7 @@ function EnrollTab({ workflowId, published }: { workflowId: string; published: b
       <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-50">
         {rows.map((c) => (
           <label key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50">
-            <input type="checkbox" checked={sel.has(c.id)} onChange={(e) => setSel((s) => { const n = new Set(s); e.target.checked ? n.add(c.id) : n.delete(c.id); return n; })} />
+            <input type="checkbox" checked={sel.has(c.id)} onChange={(e) => setSel((s) => { const n = new Set(s); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} />
             <span className="font-medium text-slate-800">{c.name || '—'}</span>
             <span className="text-slate-400">{c.email || c.phone || ''}</span>
           </label>

@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { MktEngineService } from './mkt-engine.service';
+import { sinAcentos } from './mkt-workflow.util';
 import {
   resolveContact,
   phoneKeyOf,
@@ -39,10 +41,22 @@ const TAG_NEGOCIO = 'negocio';
  */
 @Injectable()
 export class MktContactService {
-  constructor(private prisma: PrismaService) {}
+  private readonly log = new Logger('MktContact');
 
-  /** Store Prisma-backed para el resolver, scoped a una marca. */
-  private store(whiteLabelId: string): ContactStore {
+  constructor(
+    private prisma: PrismaService,
+    private engine: MktEngineService,
+  ) {}
+
+  /**
+   * Store Prisma-backed para el resolver, scoped a una marca.
+   *
+   * `etiquetasNuevas` recoge las etiquetas que esta operación ESCRIBIÓ de
+   * verdad. Es la única forma honesta de disparar «Etiqueta agregada»: en el
+   * camino de reuso el resolver no escribe nada, y avisar ahí sería inventarse
+   * un evento que no ocurrió.
+   */
+  private store(whiteLabelId: string, etiquetasNuevas?: string[]): ContactStore {
     const prisma = this.prisma;
     return {
       async findCandidates({ phoneKey, email }) {
@@ -57,17 +71,24 @@ export class MktContactService {
       },
       async create(data) {
         try {
-          return (await prisma.mktContact.create({
+          const row = (await prisma.mktContact.create({
             data: { whiteLabelId, ...data },
             select: ROW,
           })) as ContactRow;
+          // Ficha nueva: TODAS sus etiquetas son nuevas.
+          if (etiquetasNuevas) etiquetasNuevas.push(...(data.tags ?? []));
+          return row;
         } catch (e) {
           if (isUniqueViolation(e)) throw new UniqueContactViolation(String((e as any)?.message));
           throw e;
         }
       },
       async reactivate(id, input) {
-        return (await prisma.mktContact.update({
+        // Las que tenía ANTES, para saber cuáles se están estrenando.
+        const previas = etiquetasNuevas
+          ? (await prisma.mktContact.findUnique({ where: { id }, select: { tags: true } }))?.tags ?? []
+          : [];
+        const row = (await prisma.mktContact.update({
           where: { id },
           data: {
             deleted: false,
@@ -78,6 +99,11 @@ export class MktContactService {
           },
           select: ROW,
         })) as ContactRow;
+        if (etiquetasNuevas && input.tags?.length) {
+          const antes = new Set(previas.map((t) => sinAcentos(t)));
+          etiquetasNuevas.push(...input.tags.filter((t) => !antes.has(sinAcentos(t))));
+        }
+        return row;
       },
       async findByUnique({ phoneNorm, email }) {
         const or: any[] = [];
@@ -94,7 +120,30 @@ export class MktContactService {
 
   /** Alta o reutilización idempotente de un contacto (un contacto por identidad). */
   async upsert(whiteLabelId: string, input: ResolveInput): Promise<ContactRow> {
-    return resolveContact(this.store(whiteLabelId), input);
+    const nuevas: string[] = [];
+    const row = await resolveContact(this.store(whiteLabelId, nuevas), input);
+    await this.avisarEtiquetas(whiteLabelId, row.id, nuevas);
+    return row;
+  }
+
+  /**
+   * Dispara «Etiqueta agregada» por cada etiqueta que se acaba de poner.
+   *
+   * Vive aquí y no en el motor porque este servicio es la puerta por la que
+   * entran las etiquetas que NO pone un flujo: el alta desde el panel, la
+   * importación de una lista y la sincronización de negocios. El disparador se
+   * ofrecía en la pantalla desde el principio y no lo lanzaba nadie.
+   *
+   * Nunca lanza: una automatización que falla no puede tumbar un alta.
+   */
+  private async avisarEtiquetas(whiteLabelId: string, contactId: string, etiquetas: string[]) {
+    for (const tag of [...new Set(etiquetas.map((t) => String(t ?? '').trim()).filter(Boolean))]) {
+      try {
+        await this.engine.fireTrigger('tag_added', contactId, whiteLabelId, { etiqueta: tag });
+      } catch (e) {
+        this.log.warn(`tag_added no se pudo disparar («${tag}»): ${(e as Error).message}`);
+      }
+    }
   }
 
   /** Import de una lista → cada fila pasa por el resolver (dedup automático). */
@@ -179,11 +228,15 @@ export class MktContactService {
         select: { name: true, tags: true },
       });
       const data: { tags?: { set: string[] }; name?: string } = {};
-      if (cur && !cur.tags.includes(TAG_NEGOCIO)) data.tags = { set: [...cur.tags, TAG_NEGOCIO] };
+      const estrenaEtiqueta = !!cur && !cur.tags.includes(TAG_NEGOCIO);
+      if (estrenaEtiqueta) data.tags = { set: [...(cur?.tags ?? []), TAG_NEGOCIO] };
       if (cur && !cur.name && name) data.name = name;
       if (Object.keys(data).length) {
         await this.prisma.mktContact.update({ where: { id: row.id }, data });
         updated++;
+        // La etiqueta se acaba de escribir aquí, así que el aviso sale de aquí:
+        // la ficha ya existía y el resolver no la tocó.
+        if (estrenaEtiqueta) await this.avisarEtiquetas(whiteLabelId, row.id, [TAG_NEGOCIO]);
       }
     }
     const contacts = await this.prisma.mktContact.count({

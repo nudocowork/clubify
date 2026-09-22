@@ -15,6 +15,8 @@ export type WFNode = {
   next?: string | null;
   yes?: string | null;
   no?: string | null;
+  /** Una salida por caso, para los pasos que abren N ramas (`branch_reply`). */
+  branches?: Record<string, string | null>;
 };
 export type WFGraph = Record<string, WFNode>;
 export type WFTrigger = { type: string; filters?: WFCondition[]; [k: string]: unknown };
@@ -27,34 +29,327 @@ export type WFSendWindow = {
   tz?: string;
 };
 
+/**
+ * CATÁLOGO ÚNICO del constructor de contactos.
+ *
+ * Hasta el 2026-09-21 esto no lo importaba NADIE: el catálogo de verdad vivía
+ * copiado a mano en `EmailMarketingWorkflows.tsx`, y por eso la pantalla
+ * ofrecía el disparador `tag_added` —con su campo de etiqueta y todo— cuando
+ * en el repo no existía un solo `fireTrigger('tag_added')`: quien lo
+ * configuraba se quedaba esperando un flujo que no arrancaba nunca. Ahora la
+ * pantalla lo pide por `GET /admin/marketing/workflows/catalogo` y esto es lo
+ * único que hay que tocar para añadir un disparador o un paso.
+ *
+ * Regla que sostiene el archivo: aquí solo entra lo que el motor EJECUTA y lo
+ * que algo del producto DISPARA. `mkt-pasos.spec.ts` lo comprueba leyendo el
+ * código: un paso sin `case` en el motor, o un disparador sin `fireTrigger`,
+ * ponen la prueba en rojo.
+ *
+ * Cada campo trae lo que la pantalla necesita para dibujar su formulario sola.
+ */
+export type CampoDeConfig = {
+  key: string;
+  label: string;
+  /** Qué control pinta la pantalla. `condiciones`, `casos` y `cabeceras` son editores propios. */
+  tipo:
+    | 'texto'
+    | 'textarea'
+    | 'numero'
+    | 'select'
+    | 'fechaHora'
+    | 'condiciones'
+    | 'casos'
+    | 'cabeceras'
+    | 'flujo';
+  opciones?: { value: string; label: string }[];
+  def?: string | number;
+  ayuda?: string;
+  /** Sin esto el paso no se puede guardar. */
+  requerido?: boolean;
+};
+
+export type DisparadorDeContactos = {
+  key: string;
+  label: string;
+  grupo: 'General' | 'Contacto' | 'Ventas';
+  /** Cada cuánto se mira: en tiempo real, o en el barrido de cada hora. */
+  latencia: 'minutos' | 'hora';
+  hint?: string;
+  campos?: CampoDeConfig[];
+};
+
+export type PasoDeContactos = {
+  key: string;
+  label: string;
+  grupo: 'Mensaje' | 'Espera' | 'Lógica' | 'Contacto' | 'Integración' | 'Salida';
+  icono: string;
+  /** Cómo se dibuja debajo: una salida, dos ramas, o una por caso. */
+  ramas?: 'siNo' | 'casos';
+  /** Etiquetas de las dos ramas cuando no son «Sí» y «No». */
+  ramaSi?: string;
+  ramaNo?: string;
+  hint?: string;
+  campos: CampoDeConfig[];
+};
+
+const UNIDADES = [
+  { value: 'minutes', label: 'minutos' },
+  { value: 'hours', label: 'horas' },
+  { value: 'days', label: 'días' },
+  { value: 'weeks', label: 'semanas' },
+];
+
+const CAMPO_ETIQUETA: CampoDeConfig = {
+  key: 'tag',
+  label: 'Etiqueta',
+  tipo: 'texto',
+  ayuda: 'Déjalo vacío para que valga cualquier etiqueta.',
+};
+
 // Disparadores contact-based. `manual` inscribe desde una lista.
-export const MKT_TRIGGERS: { key: string; label: string; wired: boolean; hint?: string }[] = [
-  { key: 'manual', label: 'Inscripción manual / lista', wired: true },
-  { key: 'contact_created', label: 'Contacto nuevo', wired: true, hint: 'Al crearse un contacto nuevo en la marca.' },
-  { key: 'tag_added', label: 'Etiqueta agregada', wired: true, hint: 'Cuando se le agrega una etiqueta al contacto (config: etiqueta).' },
-  { key: 'email_reply', label: 'Responde / interactúa', wired: true, hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
+export const MKT_TRIGGERS: DisparadorDeContactos[] = [
+  { key: 'manual', label: 'Inscripción manual / lista', grupo: 'General', latencia: 'minutos', hint: 'Los metes tú desde la pestaña «Inscribir».' },
+
+  // ── El contacto ──
+  {
+    key: 'contact_created',
+    label: 'Contacto nuevo',
+    grupo: 'Contacto',
+    latencia: 'minutos',
+    hint: 'Al dar de alta un contacto entra al momento. Los que llegan por importación o desde el tablero de ventas se recogen en la revisión de cada hora.',
+  },
+  {
+    key: 'tag_added',
+    label: 'Etiqueta agregada',
+    grupo: 'Contacto',
+    latencia: 'minutos',
+    hint: 'Cuando se le pone una etiqueta: desde un paso «Agregar etiqueta», al sincronizar los negocios de la marca o al dar de alta el contacto con etiquetas.',
+    campos: [CAMPO_ETIQUETA],
+  },
+  {
+    key: 'tag_removed',
+    label: 'Etiqueta eliminada',
+    grupo: 'Contacto',
+    latencia: 'minutos',
+    hint: 'Cuando un paso «Quitar etiqueta» se la retira. Sirve para deshacer: sale de «clientes» → empieza la secuencia de recuperación.',
+    campos: [CAMPO_ETIQUETA],
+  },
+  { key: 'email_reply', label: 'Responde / interactúa', grupo: 'Contacto', latencia: 'minutos', hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
+
   // ── Equipos de ventas ──
   // Cada evento es su propio disparador en vez de uno solo con un filtro,
   // porque «ganado» y «perdido» piden mensajes opuestos y esconderlos detrás
   // de una condición es la forma de mandarle el equivocado a alguien.
-  { key: 'sales_lead_created', label: 'Lead nuevo (equipo de ventas)', wired: true, hint: 'Cuando entra un lead al tablero de un equipo, venga de donde venga.' },
-  { key: 'sales_stage_changed', label: 'El lead cambia de columna', wired: true, hint: 'Al mover la tarjeta. Condición sobre «etapa» para una columna concreta.' },
-  { key: 'sales_lead_won', label: 'Lead ganado', wired: true, hint: 'Al pasar a la columna de clientes.' },
-  { key: 'sales_lead_lost', label: 'Lead perdido', wired: true, hint: 'Al pasar a la columna de no interesados.' },
-  { key: 'sales_meeting_booked', label: 'Cita agendada', wired: true, hint: 'Cuando queda una cita, la ponga el vendedor o el propio prospecto.' },
-  { key: 'sales_meeting_no_show', label: 'No asistió a la cita', wired: true, hint: 'Cuando el vendedor marca la cita como «no asistió».' },
+  { key: 'sales_lead_created', label: 'Lead nuevo (equipo de ventas)', grupo: 'Ventas', latencia: 'minutos', hint: 'Cuando entra un lead al tablero de un equipo, venga de donde venga.' },
+  { key: 'sales_stage_changed', label: 'El lead cambia de columna', grupo: 'Ventas', latencia: 'minutos', hint: 'Al mover la tarjeta. Condición sobre «etapa» para una columna concreta.' },
+  { key: 'sales_lead_won', label: 'Lead ganado', grupo: 'Ventas', latencia: 'minutos', hint: 'Al pasar a la columna de clientes.' },
+  { key: 'sales_lead_lost', label: 'Lead perdido', grupo: 'Ventas', latencia: 'minutos', hint: 'Al pasar a la columna de no interesados.' },
+  { key: 'sales_meeting_booked', label: 'Cita agendada', grupo: 'Ventas', latencia: 'minutos', hint: 'Cuando queda una cita, la ponga el vendedor o el propio prospecto.' },
+  { key: 'sales_meeting_no_show', label: 'No asistió a la cita', grupo: 'Ventas', latencia: 'minutos', hint: 'Cuando el vendedor marca la cita como «no asistió».' },
 ];
 
-export const MKT_NODE_TYPES: { key: string; label: string; branch?: boolean }[] = [
-  { key: 'send_email', label: 'Enviar correo' },
-  { key: 'send_sms', label: 'Enviar SMS' },
-  { key: 'wait_delay', label: 'Espera (tiempo)' },
-  { key: 'wait_datetime', label: 'Esperar hasta fecha/hora' },
-  { key: 'wait_reply', label: 'Esperar respuesta' },
-  { key: 'condition', label: 'Si / No (condición)', branch: true },
-  { key: 'branch', label: 'Bifurcar', branch: true },
-  { key: 'add_tag', label: 'Agregar etiqueta' },
-  { key: 'webhook', label: 'Webhook' },
+/**
+ * Los campos del contacto que un flujo puede ESCRIBIR.
+ *
+ * Lista blanca, y corta a propósito: `email` y `phone` son la IDENTIDAD. De
+ * ellos cuelgan `phoneKey`/`phoneNorm` y los índices únicos parciales de
+ * producción, y la única puerta que sabe mantenerlos coherentes es
+ * `resolveContact` (identity.ts). Un flujo que escribiera el teléfono a pelo
+ * partiría la ficha en dos o reventaría el índice.
+ */
+export const MKT_CAMPOS_EDITABLES: { value: string; label: string }[] = [
+  { value: 'name', label: 'Nombre' },
+  { value: 'company', label: 'Empresa' },
+];
+
+export const MKT_NODE_TYPES: PasoDeContactos[] = [
+  // ── Mensaje ──
+  {
+    key: 'send_email',
+    label: 'Enviar correo',
+    grupo: 'Mensaje',
+    icono: '✉️',
+    hint: 'Al correo del contacto, por la subcuenta de la marca. El cuerpo admite HTML.',
+    campos: [
+      { key: 'subject', label: 'Asunto', tipo: 'texto', requerido: true },
+      { key: 'body', label: 'Contenido', tipo: 'textarea', requerido: true, ayuda: 'Admite {{nombre}}, {{empresa}}…' },
+    ],
+  },
+  {
+    key: 'send_sms',
+    label: 'Enviar SMS',
+    grupo: 'Mensaje',
+    icono: '💬',
+    hint: 'Al teléfono del contacto, por la subcuenta de la marca.',
+    campos: [{ key: 'message', label: 'Mensaje', tipo: 'textarea', requerido: true }],
+  },
+  {
+    key: 'notify_team',
+    label: 'Avisar al equipo',
+    grupo: 'Mensaje',
+    icono: '🔔',
+    hint: 'A vosotros, no al contacto: «Fulano acaba de responder». Sale por la misma subcuenta de la marca.',
+    campos: [
+      {
+        key: 'canal',
+        label: 'Por dónde',
+        tipo: 'select',
+        def: 'sms',
+        opciones: [
+          { value: 'sms', label: 'SMS' },
+          { value: 'email', label: 'Correo' },
+        ],
+      },
+      { key: 'to', label: 'Teléfono o correo', tipo: 'texto', requerido: true, ayuda: 'A quién del equipo le llega.' },
+      { key: 'message', label: 'Aviso', tipo: 'textarea', requerido: true },
+    ],
+  },
+
+  // ── Espera ──
+  {
+    key: 'wait_delay',
+    label: 'Espera (tiempo)',
+    grupo: 'Espera',
+    icono: '⏱',
+    campos: [
+      { key: 'amount', label: 'Cuánto', tipo: 'numero', def: 1 },
+      { key: 'unit', label: 'Unidad', tipo: 'select', def: 'days', opciones: UNIDADES },
+    ],
+  },
+  {
+    key: 'wait_datetime',
+    label: 'Esperar hasta fecha/hora',
+    grupo: 'Espera',
+    icono: '📅',
+    hint: 'Hora de Bogotá. Si la fecha ya pasó, sigue de largo en vez de dejar al contacto colgado.',
+    campos: [{ key: 'at', label: 'Esperar hasta', tipo: 'fechaHora', requerido: true }],
+  },
+  {
+    key: 'wait_reply',
+    label: 'Esperar respuesta',
+    grupo: 'Espera',
+    icono: '⏳',
+    ramas: 'siNo',
+    ramaSi: 'Respondió',
+    ramaNo: 'Sin respuesta',
+    hint: 'Espera a que el contacto responda, abra o haga clic. A los 3 días sin nada, sigue por «Sin respuesta». Un «entregado» NO cuenta.',
+    campos: [],
+  },
+
+  // ── Lógica ──
+  {
+    key: 'condition',
+    label: 'Si / No (condición)',
+    grupo: 'Lógica',
+    icono: '🔀',
+    ramas: 'siNo',
+    campos: [
+      { key: 'conditions', label: 'Condiciones', tipo: 'condiciones', ayuda: 'Sin condiciones, siempre va por «Sí».' },
+      {
+        key: 'match',
+        label: 'Se cumple si',
+        tipo: 'select',
+        def: 'all',
+        opciones: [
+          { value: 'all', label: 'se cumplen todas' },
+          { value: 'any', label: 'se cumple alguna' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'branch',
+    label: 'Bifurcar A/B',
+    grupo: 'Lógica',
+    icono: '⑃',
+    ramas: 'siNo',
+    ramaSi: 'A',
+    ramaNo: 'B',
+    hint: 'Para probar dos mensajes. El reparto es fijo por contacto: el mismo contacto cae siempre en la misma rama.',
+    campos: [{ key: 'percent', label: 'Porcentaje que va a la rama A', tipo: 'numero', def: 50 }],
+  },
+  {
+    key: 'branch_reply',
+    label: 'Ramas por respuesta',
+    grupo: 'Lógica',
+    icono: '⑂',
+    ramas: 'casos',
+    hint: 'Mira LO QUE CONTESTÓ el contacto y elige rama. Va justo después de «Esperar respuesta», en la rama «Respondió»: en cualquier otro sitio no hay texto que mirar y todo se iría por «Cualquier otra».',
+    campos: [
+      {
+        key: 'casos',
+        label: 'Casos',
+        tipo: 'casos',
+        requerido: true,
+        ayuda: 'Palabras separadas por coma. Gana el primer caso que case; no distingue mayúsculas ni tildes.',
+      },
+    ],
+  },
+
+  // ── El contacto ──
+  {
+    key: 'add_tag',
+    label: 'Agregar etiqueta',
+    grupo: 'Contacto',
+    icono: '🏷',
+    hint: 'Se suma a las que ya tiene. Dispara los flujos que escuchan «Etiqueta agregada».',
+    campos: [{ key: 'tag', label: 'Etiqueta a agregar', tipo: 'texto', requerido: true }],
+  },
+  {
+    key: 'remove_tag',
+    label: 'Quitar etiqueta',
+    grupo: 'Contacto',
+    icono: '🧹',
+    hint: 'Quita SOLO esa etiqueta y deja las demás. Dispara los flujos que escuchan «Etiqueta eliminada».',
+    campos: [{ key: 'tag', label: 'Etiqueta a quitar', tipo: 'texto', requerido: true }],
+  },
+  {
+    key: 'update_field',
+    label: 'Actualizar un dato',
+    grupo: 'Contacto',
+    icono: '✏️',
+    hint: 'Solo nombre y empresa. El correo y el teléfono son la identidad del contacto y no se tocan desde aquí.',
+    campos: [
+      { key: 'campo', label: 'Dato', tipo: 'select', def: 'name', opciones: MKT_CAMPOS_EDITABLES, requerido: true },
+      { key: 'valor', label: 'Nuevo valor', tipo: 'texto', requerido: true, ayuda: 'Admite {{merge}}. Si queda vacío no se escribe nada: un dato no se borra sin querer.' },
+    ],
+  },
+
+  // ── Integración ──
+  {
+    key: 'webhook',
+    label: 'Webhook',
+    grupo: 'Integración',
+    icono: '🔗',
+    hint: 'Avisa a otro sistema. El cuerpo por defecto lleva los datos del contacto.',
+    campos: [
+      { key: 'url', label: 'URL', tipo: 'texto', requerido: true, ayuda: 'Tiene que ser pública: no se llama a direcciones de nuestra propia red.' },
+      {
+        key: 'method',
+        label: 'Método',
+        tipo: 'select',
+        def: 'POST',
+        opciones: [
+          { value: 'POST', label: 'POST' },
+          { value: 'GET', label: 'GET' },
+          { value: 'PUT', label: 'PUT' },
+        ],
+      },
+      { key: 'headers', label: 'Cabeceras', tipo: 'cabeceras' },
+      { key: 'body', label: 'Cuerpo (JSON)', tipo: 'textarea', ayuda: 'Vacío = los datos del contacto.' },
+    ],
+  },
+  {
+    key: 'goto_workflow',
+    label: 'Pasar a otro flujo',
+    grupo: 'Integración',
+    icono: '➡️',
+    hint: 'Saca al contacto de este flujo y lo mete en otro de la misma marca, ya publicado.',
+    campos: [{ key: 'workflowId', label: 'Flujo destino', tipo: 'flujo', requerido: true }],
+  },
+
+  // ── Salida ──
+  { key: 'end', label: 'Terminar el flujo', grupo: 'Salida', icono: '🚪', hint: 'Saca al contacto del flujo aquí mismo.', campos: [] },
 ];
 
 // Campos del contacto para condiciones.
@@ -64,9 +359,11 @@ export const MKT_FIELDS: { key: string; label: string }[] = [
   { key: 'telefono', label: 'Teléfono' },
   { key: 'empresa', label: 'Empresa' },
   { key: 'tags', label: 'Etiquetas' },
-  // Solo tienen valor en los disparadores de ventas. En los demás llegan
+  // Solo traen valor cuando el disparador los pone. En los demás llegan
   // vacíos, y una condición sobre un campo vacío no casa — que es lo correcto:
   // un flujo de «contacto nuevo» no debería colarse por la etapa de un lead.
+  { key: 'respuesta', label: 'Texto de la última respuesta' },
+  { key: 'etiqueta', label: 'Etiqueta del disparador' },
   { key: 'etapa', label: 'Columna del tablero (ventas)' },
   { key: 'equipo', label: 'Equipo de ventas' },
   { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
@@ -78,10 +375,75 @@ export const MKT_MERGE_FIELDS: { key: string; label: string }[] = [
   { key: 'telefono', label: 'Teléfono' },
   { key: 'empresa', label: 'Empresa' },
   { key: 'marca', label: 'Nombre de la marca' },
+  { key: 'respuesta', label: 'Lo que respondió' },
   { key: 'etapa', label: 'Columna del tablero (ventas)' },
   { key: 'equipo', label: 'Equipo de ventas' },
   { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
 ];
+
+/** Lo que la pantalla necesita para dibujarse entera. Una sola copia, esta. */
+export function catalogoDeContactos() {
+  return {
+    disparadores: MKT_TRIGGERS,
+    pasos: MKT_NODE_TYPES,
+    campos: MKT_FIELDS,
+    merge: MKT_MERGE_FIELDS,
+    operadores: [
+      { value: 'eq', label: 'es igual a' },
+      { value: 'neq', label: 'no es' },
+      { value: 'contains', label: 'contiene' },
+      { value: 'filled', label: 'tiene algo' },
+    ],
+  };
+}
+
+/** Un caso de «Ramas por respuesta»: una salida del nodo + las palabras que la eligen. */
+export type WFCaso = { id: string; label?: string; palabras?: string };
+
+/** Minúsculas y sin tildes: quien contesta «Sí» escribe «si», «SI» o «sí». */
+export function sinAcentos(texto: string): string {
+  return String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Qué caso casa con lo que respondió el contacto. Devuelve el id del primero
+ * que case, o null.
+ *
+ * Una palabra suelta casa por PALABRA COMPLETA y no por trozo: con «contiene»,
+ * un caso configurado como «no» se llevaría «nos interesa», que es justo lo
+ * contrario de lo que quiso decir. Una frase («no me interesa») sí se busca tal
+ * cual dentro del texto, porque ahí el usuario ya está siendo específico.
+ */
+export function casoQueCasa(texto: string, casos: WFCaso[] | undefined): string | null {
+  const t = sinAcentos(texto).trim();
+  if (!t || !casos?.length) return null;
+  const tokens = new Set(t.split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  for (const caso of casos) {
+    if (!caso?.id) continue;
+    const palabras = String(caso.palabras ?? '')
+      .split(/[,\n]/)
+      .map((p) => sinAcentos(p).trim())
+      .filter(Boolean);
+    for (const p of palabras) {
+      const casa = /[^\p{L}\p{N}]/u.test(p) ? t.includes(p) : tokens.has(p);
+      if (casa) return caso.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Tope de saltos entre flujos.
+ *
+ * Dos flujos que se apunten el uno al otro —con «Pasar a otro flujo» o con una
+ * etiqueta que dispara al otro— se pasarían el contacto para siempre, y cada
+ * vuelta manda los mensajes de en medio. El tope de 60 nodos del motor no cubre
+ * esto porque solo acota UNA pasada.
+ */
+export const MKT_MAX_SALTOS = 10;
 
 /** Reemplaza {{campo}} por su valor del contexto (vacío si no existe). */
 export function resolveMerge(text: string, ctx: Record<string, string>): string {

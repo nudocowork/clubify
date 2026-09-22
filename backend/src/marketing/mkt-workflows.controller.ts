@@ -14,6 +14,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { MktEngineService } from './mkt-engine.service';
+import { catalogoDeContactos } from './mkt-workflow.util';
 
 class SaveWorkflowDto {
   @IsOptional() @IsString() name?: string;
@@ -96,6 +97,21 @@ export class MktWorkflowsController {
         sendWindow: {},
       },
     });
+  }
+
+  /**
+   * El catálogo que dibuja la pantalla: disparadores, pasos y sus campos.
+   *
+   * Va ANTES de `@Get(':id')` a propósito: Nest resuelve por orden de
+   * declaración y más abajo «catalogo» se leería como el id de un workflow.
+   *
+   * Existe porque el catálogo estaba copiado a mano en el front y se
+   * desincronizó: la pantalla ofrecía el disparador `tag_added` que el motor no
+   * lanzaba nunca. Ahora hay una sola copia, la del backend.
+   */
+  @Get('catalogo')
+  async catalogo() {
+    return catalogoDeContactos();
   }
 
   @Get(':id')

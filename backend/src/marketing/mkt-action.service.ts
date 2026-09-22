@@ -46,6 +46,17 @@ export class MktActionService {
     to: string;
     subject?: string | null;
     body: string;
+    /**
+     * Aviso INTERNO al equipo, no un mensaje al contacto.
+     *
+     * Importa para el sellado de eventos: el aviso se guarda con el
+     * `contactId` del contacto (es su flujo), así que cuando el VENDEDOR abre
+     * ese correo, el proveedor devuelve nuestro id de mensaje y el motor lo
+     * leería como «el contacto respondió»: reanudaría su «esperar respuesta»
+     * por la rama equivocada y dispararía «responde/interactúa». Respuestas
+     * fantasma provocadas por nuestro propio aviso.
+     */
+    interno?: boolean;
   }) {
     const action = await this.prisma.mktAction.create({
       data: {
@@ -59,7 +70,13 @@ export class MktActionService {
         subject: input.subject ?? null,
         body: input.body,
         // payload CONGELA lo necesario para reenviar idéntico.
-        payload: { to: input.to, subject: input.subject ?? null, body: input.body, channel: input.channel },
+        payload: {
+          to: input.to,
+          subject: input.subject ?? null,
+          body: input.body,
+          channel: input.channel,
+          ...(input.interno ? { interno: true } : {}),
+        },
       },
     });
     return this.runOnce(action);
@@ -182,12 +199,25 @@ export class MktActionService {
     // contactos a los que la marca ya había escrito — los únicos que importan.
     let correlacionado = false;
     if (input.messageId) {
-      action = await this.prisma.mktAction.findFirst({
+      const fila = await this.prisma.mktAction.findFirst({
         where: { whiteLabelId: input.whiteLabelId, providerMessageId: input.messageId },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, contactId: true },
+        select: { id: true, contactId: true, payload: true },
       });
-      correlacionado = !!action;
+      correlacionado = !!fila;
+      // Un aviso INTERNO se sella (queda que se abrió) pero NO devuelve
+      // contacto: quien lo abrió fue alguien del equipo, no el contacto.
+      const esInterno = !!(fila && ((fila.payload as { interno?: boolean } | null)?.interno === true));
+      if (fila && esInterno) {
+        const columna = stampColumn(input.kind);
+        if (columna) {
+          await this.prisma.mktAction
+            .update({ where: { id: fila.id }, data: { [columna]: new Date() } })
+            .catch(() => undefined);
+        }
+        return { contactId: null, correlacionado: true };
+      }
+      action = fila ? { id: fila.id, contactId: fila.contactId } : null;
     }
     if (!action && input.email) {
       const c = await this.prisma.mktContact.findFirst({
