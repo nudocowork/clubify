@@ -119,6 +119,27 @@ Los dos despliegues de frontend que se hicieron persiguiendo esto no sobraban
 —llevaban meses de cambios sin salir—, pero no arreglaron nada porque no había
 nada roto.
 
+### Columnas aplicadas el 2026-09-22 que el código desplegado aún no usa
+
+Las migraciones **ya corrieron contra producción**; el backend que las usa
+**todavía no está desplegado** (lo tiene que lanzar Javier). Un backend viejo
+las ignora, así que no rompen nada mientras tanto.
+
+| Tabla | Columnas | Para qué |
+|---|---|---|
+| `PendingHotmartPayment` | `whiteLabelId`, `buyerReminder1At`, `buyerReminder2At`, `buyerReminder3At` | Recordatorios al comprador que no se registra y aviso al equipo de implementación |
+| `PendingStripePayment` | `buyerReminder1At`, `buyerReminder2At`, `buyerReminder3At` | Lo mismo, por Stripe |
+| `MktWorkflow`, `BrandWorkflow` | `triggers` (JSONB, default `[]`) | Varios disparadores por flujo |
+
+Scripts, los dos idempotentes:
+`backend/scripts/apply-buyer-reminder-migration.cjs` y
+`backend/scripts/apply-workflow-triggers-migration.cjs`.
+
+⚠️ **Al revés sí rompe:** si el backend sale ANTES que su migración, Prisma pide
+columnas que no existen y falla TODA lectura de esas tablas. En los pagos, el
+webhook se traga el error y **se pierden pagos en silencio**; en los flujos, el
+`tick` marca las inscripciones vivas como `error` y ahí se quedan.
+
 ### `ProductLocation` tiene dos columnas que el código desplegado aún no usa (2026-09-09)
 
 `ProductLocation.imageUrl` y `ProductLocation.description` **ya existen en la

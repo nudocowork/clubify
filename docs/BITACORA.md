@@ -8,6 +8,44 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-22 (67) — Flujos: varios disparadores con filtros, como en TeamClubify
+
+Commit `c77d8a33`, en `main`. **Sin desplegar** (lo bloquea el clasificador).
+**Migración YA aplicada:** `apply-workflow-triggers-migration.cjs` → columna
+`triggers` (JSONB, default `[]`) en `MktWorkflow` y `BrandWorkflow`.
+
+Javier comparó las pantallas: en Sellea cada flujo tenía UN disparador y sin
+filtros. Los motores ya sabían filtrar (`trigger.filters`); faltaba la pantalla.
+
+- Varios disparadores por flujo: entra si casa **cualquiera**; dentro de cada
+  uno, los filtros se cumplen **todos**. Modal «Disparadores» desde el lienzo,
+  valores en chips. Componente compartido en `frontend/src/components/flujos/`.
+- 12 operadores (antes 4) y un módulo común de los dos motores:
+  `backend/src/superadmin/brand-workflows/wf-filtros.util.ts`.
+- **Un operador desconocido ya no devuelve `true`.** Antes, un filtro que el
+  motor no entendía dejaba pasar a todo el mundo.
+- «Esperar respuesta»: tiempo máximo configurable (sin configurar, 3 días).
+- El barrido de «Contacto nuevo» inscribía **sin mirar los filtros**.
+- El constructor de contactos usa los tokens de marca (coral en Sellea) en vez
+  del verde fijo.
+- Compatibilidad: `triggers` vacío se lee como `[trigger]` y se sigue
+  escribiendo `trigger = triggers[0]`. **En producción no hay ningún flujo
+  publicado** (2 de contactos y 1 de negocios, todos en borrador) y ninguno usa
+  operadores raros — comprobado contra la base.
+
+**Orden obligatorio al desplegar: migración (hecha) → backend → frontend.** Un
+frontend nuevo contra el backend viejo da 400 al guardar, y así debe ser: si se
+hiciera tolerante, un filtro nuevo lo evaluaría el motor viejo como «siempre
+cumple» y el flujo escribiría a quien no debía.
+
+Revisión Fable: listo, tras arreglar que el campo de valor recortaba mientras se
+escribía y no dejaba poner «Plan Pro» (afectaba también al «Si / No» de antes).
+
+Pendiente de una segunda entrega: ramificar por «Disparador que entró», elegir
+etiquetas de una lista, deshacer/rehacer, mover y ampliar el lienzo de
+contactos, y SMS con botones y adjuntos. Sin arreglar y ya existía: un flujo con
+re-entrada y disparador de barrido horario reinscribe cada hora a quien terminó.
+
 ## 2026-09-22 (66) — Aviso al equipo de implementación, 3er recordatorio y color de títulos del menú
 
 Commits: `82f38281`, `e7ba7e8b` y `a330fb14`, todos en `main`. **Sin desplegar**: el
