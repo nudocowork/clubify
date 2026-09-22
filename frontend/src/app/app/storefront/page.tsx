@@ -487,6 +487,31 @@ export default function StorefrontEditor() {
               ]}
               onChange={(v) => setSf({ ...sf, descriptionColor: v })}
             />
+            {/* Títulos de categoría del menú. Vive en `theme` (JSON), igual
+                que el color del «Hecho con»: no necesita migración. Sin él,
+                el gris por defecto no se leía sobre un fondo oscuro o una foto
+                y no había dónde cambiarlo. */}
+            <HeaderColorRow
+              label={t('categoryTitleColorLabel')}
+              hint={t('categoryTitleColorHint')}
+              value={sf.theme?.categoryTitleColor ?? ''}
+              defaultLabel={t('colorMediumGray')}
+              defaultColor="#64748B"
+              presets={[
+                { color: '#FFFFFF', label: t('colorWhite') },
+                { color: '#FFFFFFCC', label: t('colorWhite80') },
+                { color: '#0F172A', label: t('colorBlack') },
+                { color: '#64748B', label: t('colorMediumGray') },
+                { color: '#FBBF24', label: t('colorGold') },
+                { color: primaryColor, label: t('colorBrand') },
+              ]}
+              onChange={(v) =>
+                setSf({
+                  ...sf,
+                  theme: { ...(sf.theme ?? {}), categoryTitleColor: v || null },
+                })
+              }
+            />
             {/* El «Hecho con {marca}» del pie.
                 Sin color propio, el badge se pinta claro u oscuro segun el
                 brillo del fondo. Eso acierta casi siempre y falla justo cuando

@@ -1127,6 +1127,8 @@
     "borderWidth": "Border — width (px)",
     "cannotPreviewYet": "Preview not available yet.",
     "cardPausedSuffix": "· paused",
+    "categoryTitleColorHint": "Menu category headings. Use it if they are hard to read on your background.",
+    "categoryTitleColorLabel": "Category title color",
     "color1": "Color 1",
     "color2": "Color 2",
     "colorAria": "Color {color}",

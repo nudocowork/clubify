@@ -1127,6 +1127,8 @@
     "borderWidth": "Borda — espessura (px)",
     "cannotPreviewYet": "Ainda não é possível pré-visualizar.",
     "cardPausedSuffix": "· pausado",
+    "categoryTitleColorHint": "Títulos das categorias do cardápio. Use se não se leem bem no seu fundo.",
+    "categoryTitleColorLabel": "Cor dos títulos de categoria",
     "color1": "Cor 1",
     "color2": "Cor 2",
     "colorAria": "Cor {color}",

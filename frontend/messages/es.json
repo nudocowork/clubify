@@ -1127,6 +1127,8 @@
     "borderWidth": "Borde — grosor (px)",
     "cannotPreviewYet": "Aún no se puede previsualizar.",
     "cardPausedSuffix": "· pausada",
+    "categoryTitleColorHint": "Títulos de categoría del menú. Úsalo si con tu fondo no se leen.",
+    "categoryTitleColorLabel": "Color de los títulos de categoría",
     "color1": "Color 1",
     "color2": "Color 2",
     "colorAria": "Color {color}",

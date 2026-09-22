@@ -157,8 +157,12 @@ type Storefront = {
   acceptedPaymentMethods?: string[];
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
-  /** Ajustes del menu que viven en JSON. `badgeColor` tinta el «Hecho con X». */
-  theme?: { badgeColor?: string | null } | null;
+  /** Ajustes del menu que viven en JSON. `badgeColor` tinta el «Hecho con X»;
+   *  `categoryTitleColor`, los títulos de categoría y subsección. */
+  theme?: {
+    badgeColor?: string | null;
+    categoryTitleColor?: string | null;
+  } | null;
   pageBackgroundGradient?: string | null;
   pageBackgroundImageUrl?: string | null;
   logoBgColor?: string | null;
@@ -306,10 +310,13 @@ function SubsectionHeader({
   title,
   primary,
   isCluvi,
+  color,
 }: {
   title: string;
   primary: string;
   isCluvi?: boolean;
+  /** `theme.categoryTitleColor`: la subsección sigue a la categoría. */
+  color?: string | null;
 }) {
   return (
     <div className="mt-5 mb-2 first:mt-0 flex items-center gap-2">
@@ -322,6 +329,7 @@ function SubsectionHeader({
         className={`text-[11px] uppercase tracking-[0.16em] font-bold m-0 ${
           isCluvi ? 'text-white/80' : 'text-ink/80'
         }`}
+        style={color ? { color, opacity: 0.85 } : undefined}
       >
         {title}
       </h3>
@@ -950,6 +958,7 @@ function StorefrontPublicInner() {
             onPick={setOpenProduct}
             backButtonConfig={s.backButtonConfig}
             mode={mode}
+            categoryColor={colorDeTitulos(s.theme?.categoryTitleColor)}
           />
           {/* Popups opcionales por categoría — auto al entrar a la
               sección via IntersectionObserver, o click si el header
@@ -3086,19 +3095,31 @@ type RenderProps = {
   /** Canal activo (mesa|delivery) — solo SECTIONS lo necesita para
    *  preservar el prefijo `/delivery` en los replaceState internos. */
   mode: StorefrontMode;
+  /** Color de los títulos de categoría y subsección (`theme.categoryTitleColor`).
+   *  null = el de cada layout. Existe porque ese default es un gris pensado
+   *  para fondo claro, y sobre un fondo oscuro o una foto no se leía. */
+  categoryColor?: string | null;
 };
 
-function MenuRenderer({ layout, menu, primary, currency, currencySymbol, onPick, backButtonConfig, mode }: RenderProps) {
+/** Solo un color con pinta de color: el valor viene de un JSON que se guarda
+ *  sin validar, y un texto largo o vacío no debe llegar al `style`. */
+function colorDeTitulos(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const c = v.trim();
+  return c && c.length <= 40 ? c : null;
+}
+
+function MenuRenderer({ layout, menu, primary, currency, currencySymbol, onPick, backButtonConfig, mode, categoryColor }: RenderProps) {
   if (layout === 'GRID')
-    return <LayoutGrid menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
+    return <LayoutGrid menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
   if (layout === 'CAROUSELS')
-    return <LayoutCarousels menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
+    return <LayoutCarousels menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
   if (layout === 'CLEAN')
-    return <LayoutClean menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
+    return <LayoutClean menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
   if (layout === 'COMPACT')
-    return <LayoutCompact menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
+    return <LayoutCompact menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
   if (layout === 'CLUVI')
-    return <LayoutCluvi menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
+    return <LayoutCluvi menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
   if (layout === 'SECTIONS')
     return (
       <LayoutSections
@@ -3111,7 +3132,7 @@ function MenuRenderer({ layout, menu, primary, currency, currencySymbol, onPick,
         mode={mode}
       />
     );
-  return <LayoutClassic menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
+  return <LayoutClassic menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
 }
 
 type LP = Omit<RenderProps, 'layout'>;
@@ -3126,11 +3147,15 @@ function AccordionSection({
   header,
   children,
   popupTrigger,
+  color,
 }: {
   catId: string;
   className?: string;
   header: React.ReactNode;
   children: React.ReactNode;
+  /** Color de los títulos: la flecha de plegar lo sigue, o quedaría la única
+   *  cosa gris e invisible sobre un fondo oscuro. */
+  color?: string | null;
   /** Si la categoría tiene popup con trigger=click, el header muestra
    *  un badge "🔔 Tocar" pulsante. CategoryPopupController captura el
    *  click globalmente vía data attribute. */
@@ -3168,6 +3193,7 @@ function AccordionSection({
           className={`text-mute text-sm shrink-0 transition-transform ${
             open ? '' : '-rotate-90'
           } group-hover:text-ink`}
+          style={color ? { color } : undefined}
           aria-hidden
         >
           ▾
@@ -3190,7 +3216,7 @@ function AccordionSection({
 }
 
 // 1️⃣ CLASSIC — foto izq + info der (estilo Rappi/UberEats)
-function LayoutClassic({ menu, primary, currency, currencySymbol, onPick }: LP) {
+function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
   return (
     <>
       {menu.map((cat) => (
@@ -3198,10 +3224,17 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick }: LP) 
           key={cat.id}
           catId={cat.id}
           popupTrigger={cat.popupConfig?.trigger ?? null}
+          color={categoryColor}
           header={
-            <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
+            <h2
+              className="text-xs uppercase tracking-[0.18em] text-mute font-semibold"
+              style={categoryColor ? { color: categoryColor } : undefined}
+            >
               {cat.name}{' '}
-              <span className="text-mute/70 font-normal normal-case tracking-normal">
+              <span
+                className="text-mute/70 font-normal normal-case tracking-normal"
+                style={categoryColor ? { color: categoryColor, opacity: 0.7 } : undefined}
+              >
                 · {cat.products.length +
                   (cat.subsections ?? []).reduce(
                     (n, s) => n + s.products.length,
@@ -3215,7 +3248,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick }: LP) 
             {getProductBlocks(cat).map((block) => (
               <Fragment key={block.id}>
                 {block.title && (
-                  <SubsectionHeader title={block.title} primary={primary} />
+                  <SubsectionHeader title={block.title} primary={primary} color={categoryColor} />
                 )}
                 {block.products.map((p) => (
               <button
@@ -3266,7 +3299,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick }: LP) 
 }
 
 // 2️⃣ GRID — 2 columnas con foto cuadrada grande (Instagram)
-function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
+function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
   return (
     <>
       {menu.map((cat) => (
@@ -3274,10 +3307,17 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
           key={cat.id}
           catId={cat.id}
           popupTrigger={cat.popupConfig?.trigger ?? null}
+          color={categoryColor}
           header={
-            <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
+            <h2
+              className="text-xs uppercase tracking-[0.18em] text-mute font-semibold"
+              style={categoryColor ? { color: categoryColor } : undefined}
+            >
               {cat.name}{' '}
-              <span className="text-mute/70 font-normal normal-case tracking-normal">
+              <span
+                className="text-mute/70 font-normal normal-case tracking-normal"
+                style={categoryColor ? { color: categoryColor, opacity: 0.7 } : undefined}
+              >
                 · {cat.products.length +
                   (cat.subsections ?? []).reduce(
                     (n, s) => n + s.products.length,
@@ -3292,7 +3332,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
               <Fragment key={block.id}>
                 {block.title && (
                   <div className="col-span-2">
-                    <SubsectionHeader title={block.title} primary={primary} />
+                    <SubsectionHeader title={block.title} primary={primary} color={categoryColor} />
                   </div>
                 )}
                 {block.products.map((p) => (
@@ -3340,7 +3380,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
 }
 
 // 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
-function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP) {
+function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
   // Cada categoría se vuelve N carruseles: 1 por productos directos +
   // 1 por subsección con productos. Cada carrusel mantiene su scroll
   // independiente — más legible que mezclar todo en uno solo.
@@ -3353,8 +3393,16 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP
       {blocksByCat.map(({ cat, blocks }) => (
         <section key={cat.id} className="mb-7">
           <div className="flex items-baseline justify-between mb-2.5 px-1">
-            <h2 className="font-bold text-base">{cat.name}</h2>
-            <span className="text-xs text-mute">
+            <h2
+              className="font-bold text-base"
+              style={categoryColor ? { color: categoryColor } : undefined}
+            >
+              {cat.name}
+            </h2>
+            <span
+              className="text-xs text-mute"
+              style={categoryColor ? { color: categoryColor, opacity: 0.7 } : undefined}
+            >
               {cat.products.length +
                 (cat.subsections ?? []).reduce(
                   (n, s) => n + s.products.length,
@@ -3367,7 +3415,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP
             <Fragment key={block.id}>
               {block.title && (
                 <div className="px-1">
-                  <SubsectionHeader title={block.title} primary={primary} />
+                  <SubsectionHeader title={block.title} primary={primary} color={categoryColor} />
                 </div>
               )}
               <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 snap-x snap-mandatory mb-3">
@@ -3411,7 +3459,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP
 }
 
 // 4️⃣ CLEAN — sin fotos, serif elegante (boutique)
-function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
+function LayoutClean({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
   return (
     <div className="font-serif">
       {menu.map((cat) => (
@@ -3419,13 +3467,20 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
           key={cat.id}
           catId={cat.id}
           popupTrigger={cat.popupConfig?.trigger ?? null}
+          color={categoryColor}
           className="mb-7"
           header={
             <div className="text-center">
-              <div className="text-[10px] tracking-[0.3em] uppercase font-semibold text-mute mb-1.5">
+              <div
+                className="text-[10px] tracking-[0.3em] uppercase font-semibold text-mute mb-1.5"
+                style={categoryColor ? { color: categoryColor } : undefined}
+              >
                 {cat.name}
               </div>
-              <div className="w-12 h-px bg-ink mx-auto" />
+              <div
+                className="w-12 h-px bg-ink mx-auto"
+                style={categoryColor ? { background: categoryColor } : undefined}
+              />
             </div>
           }
         >
@@ -3476,7 +3531,7 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
 }
 
 // 5️⃣ COMPACT — lista compacta + tabs sticky por categoría (DoorDash)
-function LayoutCompact({ menu, primary, currency, currencySymbol, onPick }: LP) {
+function LayoutCompact({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
   return (
     <>
       {menu.length > 1 && (
@@ -3498,11 +3553,18 @@ function LayoutCompact({ menu, primary, currency, currencySymbol, onPick }: LP) 
           key={cat.id}
           catId={cat.id}
           popupTrigger={cat.popupConfig?.trigger ?? null}
+          color={categoryColor}
           className="mb-5"
           header={
-            <h2 className="font-bold text-sm mt-1">
+            <h2
+              className="font-bold text-sm mt-1"
+              style={categoryColor ? { color: categoryColor } : undefined}
+            >
               {cat.name}{' '}
-              <span className="text-mute font-normal text-xs">
+              <span
+                className="text-mute font-normal text-xs"
+                style={categoryColor ? { color: categoryColor, opacity: 0.7 } : undefined}
+              >
                 · {cat.products.length +
                   (cat.subsections ?? []).reduce(
                     (n, s) => n + s.products.length,
@@ -3557,7 +3619,7 @@ function LayoutCompact({ menu, primary, currency, currencySymbol, onPick }: LP) 
 
 // 6️⃣ CLUVI — fondo oscuro + cards blancas + secciones título amarillo + VER pill
 //      (estilo bananas-grill-bar.cluvi.co)
-function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick }: LP) {
+function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
   return (
     <>
       {menu.map((cat) => (
@@ -3565,11 +3627,12 @@ function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick }: LP) {
           key={cat.id}
           catId={cat.id}
           popupTrigger={cat.popupConfig?.trigger ?? null}
+          color={categoryColor}
           className="mb-8"
           header={
             <h2
               className="font-bold uppercase text-lg tracking-tight"
-              style={{ color: primary }}
+              style={{ color: categoryColor ?? primary }}
             >
               {cat.name}
             </h2>
@@ -3583,6 +3646,7 @@ function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick }: LP) {
                     title={block.title}
                     primary={primary}
                     isCluvi
+                    color={categoryColor}
                   />
                 )}
                 {block.products.map((p) => (
