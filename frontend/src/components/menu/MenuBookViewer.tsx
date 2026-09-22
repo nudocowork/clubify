@@ -437,7 +437,10 @@ export function MenuBookViewer({
   // de hooks. Aquí solo usamos el valor ya computado.
 
   return (
-    <div ref={containerRef} className="w-full flex flex-col">
+    <div
+      ref={containerRef}
+      className="w-full flex flex-col h-[100svh] max-h-[100svh] overflow-hidden"
+    >
       {/* Chips de sección — overlay translúcido sobre la imagen, sin
           background sólido que los aísle visualmente. Se sienten como
           parte del menú. */}
@@ -474,8 +477,8 @@ export function MenuBookViewer({
         onScroll={onScrollerScroll}
         className={`${
           vertical
-            ? 'flex flex-col overflow-y-auto scroll-smooth no-scrollbar touch-pan-y overscroll-y-contain h-[82vh]'
-            : 'flex overflow-x-auto scroll-smooth no-scrollbar touch-pan-x overscroll-x-contain'
+            ? 'flex flex-col overflow-y-auto scroll-smooth no-scrollbar touch-pan-y overscroll-y-contain flex-1 min-h-0'
+            : 'flex items-stretch overflow-x-auto scroll-smooth no-scrollbar touch-pan-x overscroll-x-contain flex-1 min-h-0'
         } ${
           ampliado
             ? ''
@@ -873,17 +876,20 @@ function PaginaDelLibro({
     }, ESPERA_DEL_POPUP);
   }
 
-  // Edge-to-edge real: sin padding lateral. La imagen toma w-full y la
-  // altura del slide se adapta al aspect ratio natural (h-auto). Slide
-  // con min-h para que imágenes horizontales no queden minúsculas — la
-  // imagen se centra cuando no llena el alto. #29: en vertical el slide
-  // llena el alto del scroller (h-[82vh]) para snap por página.
+  // La página se ajusta a la PANTALLA, no solo a su ancho.
+  //
+  // Antes la imagen era `w-full h-auto`: se escalaba por ancho y el alto salía
+  // del aspect ratio. Con una página alta se salía de la pantalla y se veía
+  // cortada; con una baja quedaba un hueco blanco debajo (De Godoy, reportado
+  // por Javier el 2026-09-22). Ahora el slide llena el hueco del scroller y la
+  // imagen se contiene dentro: se ve entera, centrada y sin bandas, sea cual
+  // sea la proporción de la página y el tamaño del teléfono.
   return (
     <div
       ref={slideRef}
-      className={`flex-none w-full snap-start snap-always flex items-center justify-center ${
-        vertical ? 'h-[82vh]' : 'min-h-[60vh]'
-      } ${ampliadaEsta ? 'overflow-hidden' : ''}`}
+      className={`flex-none w-full h-full snap-start snap-always flex items-center justify-center ${
+        ampliadaEsta ? 'overflow-hidden' : ''
+      }`}
       style={{
         // Mientras está ampliada el gesto es NUESTRO; si no, se lo dejamos
         // al slider para que pase hoja como siempre.
@@ -925,7 +931,7 @@ function PaginaDelLibro({
             true,
           );
         }}
-        className={`relative inline-flex ${vertical ? 'h-full w-full justify-center' : 'w-full'}`}
+        className="relative inline-flex h-full w-full items-center justify-center"
         style={{ cursor: ampliadaEsta ? 'grab' : page.popup ? 'pointer' : 'zoom-in' }}
       >
         <img
@@ -939,11 +945,7 @@ function PaginaDelLibro({
           loading={carga.loading as 'eager' | 'lazy'}
           fetchPriority={carga.fetchPriority as 'high' | 'low' | 'auto'}
           decoding="async"
-          className={
-            vertical
-              ? 'block max-h-full w-auto max-w-full object-contain'
-              : 'block w-full h-auto'
-          }
+          className="block max-h-full max-w-full w-auto h-auto object-contain"
           draggable={false}
           style={
             ampliadaEsta
