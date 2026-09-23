@@ -92,23 +92,53 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
   // atraparía `ring-brand/30` y compañía, que llevan su propio alpha, y las
   // dejaría en color plano. Las variantes de foco se listan una a una por lo
   // mismo.
+  //
+  // LAS CLASES DE ESTADO NO SE PINTAN SIEMPRE (2026-09-23).
+  //
+  // `[class*="bg-brand-soft"]` también empareja `hover:bg-brand-soft/40`, así
+  // que el color del ratón encima quedaba puesto SIEMPRE. En el listado de
+  // Negocios de Sellea eso pintaba de coral la fila de cada negocio activo
+  // —que es la que se puede abrir y lleva esa clase— y dejaba en blanco la del
+  // suspendido: el rojo de alarma en quien está bien y nada en quien está mal.
+  // Con 133 sitios usando `hover:*brand*`, el mismo fallo ensuciaba media
+  // interfaz de toda marca blanca.
+  //
+  // `sinEstado` empareja la clase solo cuando es una clase SUYA: al principio
+  // del atributo, o detrás de un espacio. `hover:bg-brand-soft/40` lleva
+  // `hover:` pegado delante, así que ya no entra; y una etiqueta que tenga las
+  // dos (`bg-brand-soft/40 hover:bg-brand-soft/60`) sigue pintándose, cosa que
+  // un `:not([class*="hover:"])` habría roto.
+  const sinEstado = (clase: string, extra = '') =>
+    `.brand-panel [class^="${clase}"]${extra},.brand-panel [class*=" ${clase}"]${extra}`;
+  /** Las mismas clases, pero con `hover:`/`group-hover:`/`focus:` delante. */
+  const conEstado = (clase: string, extra = '') =>
+    `.brand-panel [class*="hover:${clase}"]${extra}:hover,` +
+    `.brand-panel .group:hover [class*="group-hover:${clase}"]${extra},` +
+    `.brand-panel [class*="focus:${clase}"]${extra}:focus,` +
+    `.brand-panel [class*="focus-visible:${clase}"]${extra}:focus-visible`;
+
   return `
 .brand-panel [class~="bg-sidebar-bg"]{background-color:${sb}!important}
 .brand-panel [class~="bg-sidebar-bg2"]{background-color:${sb2}!important}
 .brand-panel [class~="bg-sidebar-hover"],.brand-panel .hover\\:bg-sidebar-hover:hover{background-color:${hover}!important}
 .brand-panel [class~="bg-sidebar-active"],.brand-panel .hover\\:bg-sidebar-active:hover{background-color:${c}!important}
 .brand-panel [class~="text-sidebar-section"]{color:${section}!important}
-.brand-panel [class*="bg-brand"]:not([class*="bg-brand-soft"]){background-color:${c}!important}
-.brand-panel [class*="bg-brand-soft"]{background-color:${soft}!important}
-.brand-panel [class*="text-brand"]{color:${c}!important}
-.brand-panel [class*="border-brand"]{border-color:${c}!important}
-.brand-panel [class*="accent-brand"]{accent-color:${c}!important}
+${sinEstado('bg-brand', ':not([class*="bg-brand-soft"])')}{background-color:${c}!important}
+${conEstado('bg-brand', ':not([class*="bg-brand-soft"])')}{background-color:${c}!important}
+${sinEstado('bg-brand-soft')}{background-color:${soft}!important}
+${conEstado('bg-brand-soft')}{background-color:${soft}!important}
+${sinEstado('text-brand')}{color:${c}!important}
+${conEstado('text-brand')}{color:${c}!important}
+${sinEstado('border-brand')}{border-color:${c}!important}
+${conEstado('border-brand')}{border-color:${c}!important}
+${sinEstado('accent-brand')}{accent-color:${c}!important}
 .brand-panel [class~="ring-brand"],.brand-panel [class~="focus:ring-brand"],.brand-panel [class~="focus-visible:ring-brand"]{--tw-ring-color:${c}!important}
 .brand-panel .tab-active{background-color:${c}!important}
 .brand-panel .hover\\:bg-brand-700:hover,.brand-panel .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
 .brand-panel [class~="text-ok"]{color:${c}!important}
 .brand-panel [class~="bg-ok"]:not([class*="bg-ok-soft"]){background-color:${c}!important}
-.brand-panel [class*="bg-ok-soft"]{background-color:${soft}!important}
+${sinEstado('bg-ok-soft')}{background-color:${soft}!important}
+${conEstado('bg-ok-soft')}{background-color:${soft}!important}
 .brand-panel [class~="border-ok"]{border-color:${c}!important}
 .brand-panel .btn-primary{background-color:${c}!important;border-color:${c}!important}
 .brand-panel .btn-primary:hover{background-color:${btnHover}!important;border-color:${btnHover}!important}
