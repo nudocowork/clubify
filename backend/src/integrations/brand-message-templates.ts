@@ -449,9 +449,16 @@ export function globalMsgEnabledKey(id: string): string {
 }
 
 /**
- * ¿El ENVÍO de una plantilla está activado para esta marca? Las 'active'
- * (cobros/operativas) siempre envían. Las 'pending' (admin_*) están OFF por
- * defecto y solo envían si la marca (o global) las activó explícitamente.
+ * ¿El ENVÍO de una plantilla está activado para esta marca?
+ *
+ * Manda lo EXPLÍCITO y, si no hay nada escrito, el default del catálogo: las
+ * 'active' (cobros y operativas) vienen encendidas y las 'pending' apagadas.
+ * Precedencia: lo que dijo la marca > lo global > el default.
+ *
+ * Antes, una 'active' devolvía `true` pasara lo que pasara, así que una marca
+ * no podía apagar un recordatorio de cobro por mucho que lo intentara: la
+ * pantalla decía «puedes desactivar cualquiera» y el backend contestaba «esta
+ * plantilla ya está activa» (Javier, 2026-09-23).
  */
 export async function isBrandTemplateSendEnabled(
   prisma: Pick<PrismaService, 'setting'>,
@@ -465,20 +472,24 @@ export async function isBrandTemplateSendEnabled(
   }
   const def = brandMsgCatalog().find((t) => t.id === id);
   if (!def) return false;
-  if (def.status !== 'pending') return true;
+  const porDefecto = def.status !== 'pending';
   const keys = [globalMsgEnabledKey(id)];
   if (whiteLabelId) keys.unshift(brandMsgEnabledKey(whiteLabelId, id));
   const rows = await prisma.setting
     .findMany({ where: { key: { in: keys } } })
     .catch(() => [] as { key: string; value: string }[]);
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
-  if (
-    whiteLabelId &&
-    byKey.get(brandMsgEnabledKey(whiteLabelId, id))?.trim() === 'true'
-  ) {
-    return true;
-  }
-  return byKey.get(globalMsgEnabledKey(id))?.trim() === 'true';
+  const dicho = (clave: string): boolean | null => {
+    const v = byKey.get(clave)?.trim();
+    if (v === 'true') return true;
+    if (v === 'false') return false;
+    return null;
+  };
+  const deLaMarca = whiteLabelId ? dicho(brandMsgEnabledKey(whiteLabelId, id)) : null;
+  if (deLaMarca !== null) return deLaMarca;
+  const global = dicho(globalMsgEnabledKey(id));
+  if (global !== null) return global;
+  return porDefecto;
 }
 
 /**

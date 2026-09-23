@@ -127,9 +127,41 @@ describe('claves: correos y SMS no comparten espacio de nombres', () => {
 });
 
 describe('isBrandTemplateSendEnabled', () => {
-  it('las plantillas activas envían siempre', async () => {
+  it('las plantillas activas envían mientras nadie las apague', async () => {
     expect(
       await isBrandTemplateSendEnabled(settingsOf({}), 'payment_confirmed', WL),
+    ).toBe(true);
+  });
+
+  it('una marca PUEDE apagar una que ya enviaba', async () => {
+    // El fallo de Javier (2026-09-23): la marca apagaba un recordatorio de
+    // cobro y seguía saliendo, porque una plantilla 'active' devolvía true
+    // pasara lo que pasara.
+    const apagada = settingsOf({
+      [brandMsgEnabledKey(WL, 'payment_confirmed')]: 'false',
+    });
+    expect(
+      await isBrandTemplateSendEnabled(apagada, 'payment_confirmed', WL),
+    ).toBe(false);
+    // Apagarla en una marca no la apaga en otra.
+    expect(
+      await isBrandTemplateSendEnabled(apagada, 'payment_confirmed', 'otra'),
+    ).toBe(true);
+  });
+
+  it('lo que dice la marca manda sobre lo global, y lo global sobre el default', async () => {
+    const globalApagado = settingsOf({
+      [globalMsgEnabledKey('payment_confirmed')]: 'false',
+    });
+    expect(
+      await isBrandTemplateSendEnabled(globalApagado, 'payment_confirmed', WL),
+    ).toBe(false);
+    const marcaLaPrende = settingsOf({
+      [globalMsgEnabledKey('payment_confirmed')]: 'false',
+      [brandMsgEnabledKey(WL, 'payment_confirmed')]: 'true',
+    });
+    expect(
+      await isBrandTemplateSendEnabled(marcaLaPrende, 'payment_confirmed', WL),
     ).toBe(true);
   });
 

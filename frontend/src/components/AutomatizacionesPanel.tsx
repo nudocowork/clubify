@@ -545,7 +545,10 @@ export default function AutomatizacionesPanel() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {t.status === 'pending' ? (
+                              {/* El estado se enseña SIEMPRE, no solo en las que
+                                  aún no envían: una marca puede apagar
+                                  cualquiera, y necesita ver cuál está apagada. */}
+                              {true ? (
                                 <span
                                   className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
                                   style={
@@ -556,10 +559,10 @@ export default function AutomatizacionesPanel() {
                                   title={
                                     t.enabled
                                       ? 'El envío de este mensaje está activo'
-                                      : 'Editable, pero su envío está desactivado'
+                                      : 'Editable, pero su envío está apagado'
                                   }
                                 >
-                                  {t.enabled ? 'Envío activo' : 'Envío por activar'}
+                                  {t.enabled ? 'Envío activo' : 'Envío apagado'}
                                 </span>
                               ) : (
                                 t.isBrandCustom && (
@@ -785,8 +788,9 @@ export default function AutomatizacionesPanel() {
                                     Restaurar default
                                   </button>
                                 )}
-                                {t.status === 'pending' && (
-                                  <button
+                                {/* También en las que ya envían: apagar una es
+                                    decisión de la marca. */}
+                                <button
                                     onClick={() => toggleSend(t.id, !t.enabled)}
                                     disabled={busy}
                                     className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
@@ -800,9 +804,8 @@ export default function AutomatizacionesPanel() {
                                         : { background: '#0ea5e9', color: 'white' }
                                     }
                                   >
-                                    {t.enabled ? 'Desactivar envío' : 'Activar envío'}
+                                    {t.enabled ? 'Apagar envío' : 'Activar envío'}
                                   </button>
-                                )}
                                 <label
                                   className="text-[11px] ml-auto flex items-center gap-1"
                                   style={{ color: '#64748b' }}

@@ -1429,32 +1429,19 @@ export class SuperAdminService {
   ) {
     const def = brandMsgCatalog().find((t) => t.id === templateId);
     if (!def) throw new NotFoundException('Plantilla no encontrada');
-    const esCorreo = def.channel === 'EMAIL';
-    // Los SMS ‘active’ no se apagan: envían siempre. Los correos SÍ, porque
-    // vienen encendidos por defecto y la marca elige cuáles no quiere.
-    if (!esCorreo && def.status !== 'pending') {
-      throw new BadRequestException('Esta plantilla ya está activa');
-    }
     const key = brandMsgEnabledKey(id, templateId);
-    if (esCorreo) {
-      // Un correo se apaga guardando 'false' EXPLÍCITO: borrar la clave lo
-      // devolvería a su default, que es encendido — o sea, lo contrario de lo
-      // que pidió la marca. Al encender guardamos 'true', que además gana
-      // sobre un apagado global.
-      await this.prisma.setting.upsert({
-        where: { key },
-        update: { value: enabled ? 'true' : 'false' },
-        create: { key, value: enabled ? 'true' : 'false' },
-      });
-    } else if (enabled) {
-      await this.prisma.setting.upsert({
-        where: { key },
-        update: { value: 'true' },
-        create: { key, value: 'true' },
-      });
-    } else {
-      await this.prisma.setting.deleteMany({ where: { key } });
-    }
+    // Se guarda SIEMPRE lo que pidió la marca, 'true' o 'false'.
+    //
+    // Antes, un mensaje que ya enviaba no se podía apagar: esto contestaba
+    // «esta plantilla ya está activa» y el motor devolvía `true` de todas
+    // formas. Y apagar guardando nada tampoco vale: sin valor, la plantilla
+    // vuelve a su default, que en las de cobro es encendida — lo contrario de
+    // lo que pidió quien la apagó (Javier, 2026-09-23).
+    await this.prisma.setting.upsert({
+      where: { key },
+      update: { value: enabled ? 'true' : 'false' },
+      create: { key, value: enabled ? 'true' : 'false' },
+    });
     await this.logAction(
       actorId,
       'superadmin.white_label.automation.toggle_send',
