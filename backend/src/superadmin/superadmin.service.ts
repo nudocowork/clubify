@@ -1192,14 +1192,24 @@ export class SuperAdminService {
         const assigned = assign[t.id];
         const folderId =
           assigned && folderIds.has(assigned) ? assigned : t.folder;
-        // Envío activado: las 'active' siempre; las 'pending' (admin_*) solo si
-        // la marca (o global) las activó explícitamente.
+        // Envío activado. MISMA precedencia que el motor
+        // (`isBrandTemplateSendEnabled`): lo que dijo la marca, luego lo
+        // global, y solo si nadie dijo nada, el default del catálogo.
+        //
+        // Antes esto devolvía `true` fijo para toda plantilla que ya enviaba,
+        // así que al apagar una el panel volvía a decir «Enviando» en el mismo
+        // clic —el guardado sí escribía 'false'— y parecía que no funcionaba.
+        const dichoAqui = (clave: string): boolean | null => {
+          const v = byKey.get(clave)?.trim();
+          if (v === 'true') return true;
+          if (v === 'false') return false;
+          return null;
+        };
         const enabled = isEmail
           ? (own?.enabled ?? true)
-          : t.status !== 'pending'
-            ? true
-            : byKey.get(brandMsgEnabledKey(id, t.id))?.trim() === 'true' ||
-              byKey.get(globalMsgEnabledKey(t.id))?.trim() === 'true';
+          : (dichoAqui(brandMsgEnabledKey(id, t.id)) ??
+             dichoAqui(globalMsgEnabledKey(t.id)) ??
+             t.status !== 'pending');
         const twinId = isEmail ? null : (EMAIL_TWIN[t.id] ?? null);
         return {
           id: t.id,

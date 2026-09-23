@@ -12,7 +12,7 @@
  * la marca tiñe lo suyo sin tocar este archivo.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   correoDe,
   nombreDeCanal,
@@ -118,10 +118,37 @@ export default function DetalleDeMensaje({
   useEffect(() => {
     const previo = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // De dónde vino el foco, para devolverlo al cerrar: sin esto, quien navega
+    // con teclado cerraba el mensaje 18 y aparecía al principio de la página,
+    // con 17 filas por delante para volver donde estaba.
+    const veniaDe = document.activeElement as HTMLElement | null;
     panel.current?.focus();
     return () => {
       document.body.style.overflow = previo;
+      veniaDe?.focus?.();
     };
+  }, []);
+
+  // El Tab no se escapa del panel: por detrás siguen el buscador, las carpetas
+  // y la lista entera, y el anillo de foco desaparecía «detrás del velo».
+  const atraparElTab = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab') return;
+    const caja = panel.current;
+    if (!caja) return;
+    const focusables = caja.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusables.length) return;
+    const primero = focusables[0];
+    const ultimo = focusables[focusables.length - 1];
+    const activo = document.activeElement;
+    if (e.shiftKey && (activo === primero || activo === caja)) {
+      e.preventDefault();
+      ultimo.focus();
+    } else if (!e.shiftKey && activo === ultimo) {
+      e.preventDefault();
+      primero.focus();
+    }
   }, []);
 
   // El `||` del final es para un canal que no sea ni SMS ni EMAIL: sin él la
@@ -144,6 +171,7 @@ export default function DetalleDeMensaje({
         aria-modal="true"
         aria-labelledby="titulo-del-mensaje"
         tabIndex={-1}
+        onKeyDown={atraparElTab}
         className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[580px] flex-col bg-white shadow-md2 outline-none"
       >
         <header className="shrink-0 border-b border-line px-4 py-3 sm:px-5">

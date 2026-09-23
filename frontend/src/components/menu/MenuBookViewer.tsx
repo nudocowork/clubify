@@ -439,12 +439,15 @@ export function MenuBookViewer({
   return (
     <div
       ref={containerRef}
-      className="w-full flex flex-col h-[100svh] max-h-[100svh] overflow-hidden"
+      className="w-full flex flex-col alto-de-la-pantalla overflow-hidden"
     >
       {/* Chips de sección — overlay translúcido sobre la imagen, sin
           background sólido que los aísle visualmente. Se sienten como
           parte del menú. */}
-      <div className="sticky top-0 z-20 px-2 pt-2 pb-1.5 bg-gradient-to-b from-bg via-bg/90 to-transparent">
+      {/* Sin degradado: ahora la página va centrada y ese gris de la paleta
+          quedaba como una banda clara sobre el fondo que eligió el negocio.
+          Los chips ya llevan su propio fondo translúcido. */}
+      <div className="sticky top-0 z-20 px-2 pt-2 pb-1.5">
         <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
           {data.sections.map((s) => {
             const active = s.id === activeSectionId;
@@ -931,6 +934,7 @@ function PaginaDelLibro({
             true,
           );
         }}
+        aria-label={page.popup ? 'Abrir el aviso de esta página' : 'Ampliar la página'}
         className="relative inline-flex h-full w-full items-center justify-center"
         style={{ cursor: ampliadaEsta ? 'grab' : page.popup ? 'pointer' : 'zoom-in' }}
       >

@@ -8,6 +8,7 @@ import {
 import {
   brandMsgTplKey,
   brandMsgCatalog,
+  isBrandTemplateSendEnabled,
 } from '../integrations/brand-message-templates';
 
 /**
@@ -88,6 +89,20 @@ export class SmsTemplatesService {
       brandMsgCatalog().find((t) => t.id === id);
     if (!def) return '';
     const brand = await this.resolveTenantBrand(tenantId);
+    // APAGADA = SIN TEXTO.
+    //
+    // El interruptor de «Mensajes automáticos» solo lo miraban los avisos
+    // administrativos; los de cobro y los operativos salían por aquí sin
+    // preguntar, así que una marca apagaba un recordatorio y seguía saliendo
+    // (Javier, 2026-09-23). Devolver vacío es lo que corta el envío: quien
+    // manda ya no acepta un mensaje sin texto.
+    const marcaDelNegocio = brand?.id ?? (await this.idDeClubify());
+    const encendida = await isBrandTemplateSendEnabled(
+      this.prisma,
+      id,
+      marcaDelNegocio,
+    );
+    if (!encendida) return '';
     const brandRow = brand?.id
       ? await this.prisma.setting.findUnique({
           where: { key: brandMsgTplKey(brand.id, id) },
@@ -103,6 +118,18 @@ export class SmsTemplatesService {
       merged.platform = brand?.name || 'Clubify';
     }
     return interpolateSms(tpl, merged);
+  }
+
+  /**
+   * La marca «plataforma» para un negocio histórico sin marca: sin esto, lo que
+   * Clubify apaga desde su propio panel se guarda con SU id y el negocio viejo
+   * lo seguiría recibiendo.
+   */
+  private async idDeClubify(): Promise<string | null> {
+    const wl = await this.prisma.whiteLabel
+      .findFirst({ where: { slug: 'clubify' }, select: { id: true } })
+      .catch(() => null);
+    return wl?.id ?? null;
   }
 
   /** Marca (id + nombre) del negocio, para el override por marca y {platform}. */

@@ -679,3 +679,18 @@ html[data-native] body {
 html[data-native] .solo-web {
   display: none !important;
 }
+
+/* El alto de la pantalla, con respaldo.
+ *
+ * `svh` descuenta la barra del navegador móvil, que es justo lo que hacía que
+ * la última página del menú libro se viera cortada. Pero un navegador que no
+ * lo conoce (Chrome < 108, Safari < 15.4) DESCARTA la declaración entera: sin
+ * la línea de `vh` delante, el visor se quedaba sin alto y la carta pública se
+ * veía en blanco. Dos declaraciones, y cada navegador se queda con la última
+ * que entiende. Tailwind no puede expresar esto en una clase. */
+.alto-de-la-pantalla {
+  height: 100vh;
+  height: 100svh;
+  max-height: 100vh;
+  max-height: 100svh;
+}

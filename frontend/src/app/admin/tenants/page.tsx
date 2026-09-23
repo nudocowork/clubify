@@ -427,8 +427,12 @@ export default function TenantsPage() {
                 // activo salía teñido —era el único que llevaba el color del
                 // ratón encima— y el suspendido, en blanco: justo al revés de
                 // lo que la vista tiene que gritar (Javier, 2026-09-23).
+                // Sin `/40` y con un borde a la izquierda: la fila del
+                // suspendido lleva SIEMPRE `opacity-70` (no se puede entrar a
+                // ella), y un rosa al 40 % debajo de esa opacidad quedaba a
+                // tres puntos del blanco — o sea, invisible.
                 className={`border-t border-line2 transition group ${
-                  tn.status === 'SUSPENDED' ? 'bg-bad-soft/40' : ''
+                  tn.status === 'SUSPENDED' ? 'bg-bad-soft border-l-4 border-l-bad' : ''
                 } ${
                   canEnter
                     ? 'hover:bg-brand-soft/40 cursor-pointer'

@@ -457,6 +457,14 @@ export class GrowBusinessService {
     body: string,
     ctx?: SendContext,
   ) {
+    if (!body?.trim()) {
+      // Un cuerpo vacío es SIEMPRE un error de arriba: hoy, una plantilla que
+      // la marca apagó (el texto sale vacío a propósito). Cortarlo aquí, en el
+      // único sitio por el que pasan todos los envíos, evita tener que revisar
+      // los veinte llamadores uno a uno y que a alguno se le olvide.
+      this.logger.log(`SMS no enviado a ${toPhone}: sin texto (plantilla apagada o vacía)`);
+      return { ok: false as const, message: 'mensaje vacío: plantilla apagada o sin texto' };
+    }
     if (await this.estaBloqueado(toPhone)) {
       this.logger.log(
         `SMS no enviado: ${toPhone} esta en la lista de no molestar`,

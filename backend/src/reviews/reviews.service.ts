@@ -17,6 +17,7 @@ import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-cre
 import {
   REVIEW_ALERT_DEFAULT,
   resolveBrandTemplateText,
+  isBrandTemplateSendEnabled,
 } from '../integrations/brand-message-templates';
 
 const DEFAULT_REVIEW_ALERT_TEMPLATE = REVIEW_ALERT_DEFAULT;
@@ -313,6 +314,17 @@ export class ReviewsService {
       });
       return;
     }
+
+    // Si la marca apagó este aviso, no sale. El resto de mensajes se cortan
+    // porque su texto llega vacío; aquí no vale, porque el negocio puede tener
+    // su propia plantilla y el default está escrito en este archivo: hay que
+    // preguntar antes (Javier, 2026-09-23).
+    const encendido = await isBrandTemplateSendEnabled(
+      this.prisma,
+      'op_review_alert',
+      tenant.whiteLabelId,
+    );
+    if (!encendido) return;
 
     // Precedencia: plantilla propia del negocio > override de la marca
     // (Master Admin → Automatizaciones) > default del catálogo.

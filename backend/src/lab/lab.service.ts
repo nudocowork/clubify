@@ -364,16 +364,12 @@ export class LabService {
       { authorId: user.id },
     ];
     if (mandaEnLaMarca) visibles.push({ status: 'PENDING' });
-    // Con una pestaña de estado elegida se respeta tal cual: la pestaña manda.
-    if (options.status) {
-      and.push({ status: options.status });
-      if (!mandaEnLaMarca && !PUBLIC_STATUSES.includes(options.status)) {
-        // Un estado no público solo se lista de lo propio.
-        and.push({ authorId: user.id });
-      }
-    } else {
-      and.push({ OR: visibles });
-    }
+    // La pestaña de estado ACOTA, nunca amplía: se suma al mismo filtro de
+    // visibilidad. Con la rama de antes, quien manda en la marca podía pedir
+    // `status=REJECTED` y leer las rechazadas de otros autores, que es justo lo
+    // que no debe pasar.
+    if (options.status) and.push({ status: options.status });
+    and.push({ OR: visibles });
     const where: Prisma.LabProposalWhereInput = {
       category,
       AND: and,
@@ -437,10 +433,17 @@ export class LabService {
     if (!proposal || !puedeVerPropuesta(visor, proposal.whiteLabelId)) {
       throw new NotFoundException(NO_ENCONTRADA);
     }
+    // Quien manda en la marca abre las que están ESPERANDO revisión: son las
+    // que su propio muro le enseña, y sin esto pulsar una daba «no encontrada»
+    // en la misma pantalla. Las rechazadas siguen siendo del autor y del
+    // equipo de la plataforma.
+    const puedeModerarLaPendiente =
+      proposal.status === 'PENDING' && visor.alcance === 'MARCA_ADMIN';
     if (
       !PUBLIC_STATUSES.includes(proposal.status) &&
       proposal.authorId !== userId &&
-      visor.alcance !== 'PLATAFORMA_EQUIPO'
+      visor.alcance !== 'PLATAFORMA_EQUIPO' &&
+      !puedeModerarLaPendiente
     ) {
       throw new NotFoundException(NO_ENCONTRADA);
     }

@@ -531,6 +531,10 @@ export async function resolveBrandTemplate(
   prisma: Pick<PrismaService, 'setting'>,
   opts: { id: string; whiteLabelId?: string | null; vars: Record<string, string> },
 ): Promise<string> {
+  // Una plantilla apagada por la marca devuelve texto vacío, y sin texto no se
+  // manda nada: es el mismo corte que en los mensajes de cobro.
+  const encendida = await isBrandTemplateSendEnabled(prisma, opts.id, opts.whiteLabelId);
+  if (!encendida) return '';
   const tpl = (await resolveBrandTemplateText(prisma, opts.id, opts.whiteLabelId)) ?? '';
   return interpolateSms(tpl, opts.vars);
 }

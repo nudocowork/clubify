@@ -115,7 +115,11 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
     `.brand-panel [class*="hover:${clase}"]${extra}:hover,` +
     `.brand-panel .group:hover [class*="group-hover:${clase}"]${extra},` +
     `.brand-panel [class*="focus:${clase}"]${extra}:focus,` +
-    `.brand-panel [class*="focus-visible:${clase}"]${extra}:focus-visible`;
+    `.brand-panel [class*="focus-visible:${clase}"]${extra}:focus-visible,` +
+    // `active:` existe en el repo (el tirador que cambia el ancho de una
+    // columna). Sin esta línea, mientras se arrastra se veía el verde de
+    // Clubify dentro del panel de otra marca.
+    `.brand-panel [class*="active:${clase}"]${extra}:active`;
 
   return `
 .brand-panel [class~="bg-sidebar-bg"]{background-color:${sb}!important}
