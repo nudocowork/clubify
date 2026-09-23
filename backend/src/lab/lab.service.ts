@@ -344,9 +344,38 @@ export class LabService {
     // marca. Va dentro de AND para no pisar el OR de la búsqueda.
     const and: Prisma.LabProposalWhereInput[] = [filtroDeMarca(visor)];
     if (options.q && options.q.trim()) and.push(busqueda(options.q.trim()));
+    // QUIÉN VE LO QUE TODAVÍA NO ES PÚBLICO.
+    //
+    // Una propuesta nace PENDING y el muro solo enseña las que ya pasaron
+    // revisión. Resultado: quien la escribía no volvía a verla —«¿se envió?»— y
+    // el administrador de la marca tampoco veía lo que su gente acababa de
+    // mandar (Javier, 2026-09-23: «sigo sin ver las nuevas propuestas de
+    // Humberto; deberían aparecer como Enviadas»).
+    //
+    // Ahora, además de las públicas, cada uno ve:
+    //  · las SUYAS, en cualquier estado (salen marcadas «Enviada»);
+    //  · si manda en la marca —o es del equipo de la plataforma—, las que
+    //    están esperando revisión, que son justo las que tiene que atender.
+    // Las rechazadas siguen siendo cosa de su autor y de quien modera.
+    const mandaEnLaMarca =
+      visor.alcance === 'MARCA_ADMIN' || visor.alcance === 'PLATAFORMA_EQUIPO';
+    const visibles: Prisma.LabProposalWhereInput[] = [
+      { status: { in: PUBLIC_STATUSES } },
+      { authorId: user.id },
+    ];
+    if (mandaEnLaMarca) visibles.push({ status: 'PENDING' });
+    // Con una pestaña de estado elegida se respeta tal cual: la pestaña manda.
+    if (options.status) {
+      and.push({ status: options.status });
+      if (!mandaEnLaMarca && !PUBLIC_STATUSES.includes(options.status)) {
+        // Un estado no público solo se lista de lo propio.
+        and.push({ authorId: user.id });
+      }
+    } else {
+      and.push({ OR: visibles });
+    }
     const where: Prisma.LabProposalWhereInput = {
       category,
-      status: options.status ?? { in: PUBLIC_STATUSES },
       AND: and,
     };
 

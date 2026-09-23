@@ -83,7 +83,7 @@ function cumple(fila: any, where: any): boolean {
   });
 }
 
-function montar() {
+function montar(opciones: { extra?: any[] } = {}) {
   // Id distinto en cada alta, como la base de verdad. Con un id FIJO, un test
   // de «no repitas el aviso» pasa aunque la clave esté mal —el doble clic
   // devolvía dos veces el mismo id—: fue justo lo que escondió el bug de la
@@ -105,6 +105,7 @@ function montar() {
     { ...base, id: 'p-clubify', title: 'Idea de Clubify', whiteLabelId: CLUBIFY, status: 'EVALUATING', authorId: 'u-afiliado-clubify' },
     { ...base, id: 'p-sellea', title: 'Idea de Sellea', whiteLabelId: SELLEA, status: 'EVALUATING', authorId: 'u-humberto' },
     { ...base, id: 'p-sellea-pendiente', title: 'Pendiente de Sellea', whiteLabelId: SELLEA, status: 'PENDING', authorId: 'u-humberto' },
+    ...(opciones.extra ?? []).map((p) => ({ ...base, ...p })),
   ];
   const prisma = {
     whiteLabel: {
@@ -280,7 +281,15 @@ describe('el administrador general de Sellea', () => {
   it('su feed es el de Sellea y nada de Clubify', async () => {
     const { svc } = montar();
     const r = await svc.listPublic(sesion.humberto, 'CLIENTS');
-    expect(r.items.map((p) => p.id)).toEqual(['p-sellea']);
+    // La pendiente entra porque manda en la marca (y además es suya): es lo
+    // que tiene que revisar. Ninguna de Clubify se cuela.
+    expect(r.items.map((p) => p.id)).toEqual(['p-sellea', 'p-sellea-pendiente']);
+  });
+
+  it('ve las que están esperando revisión, que antes no aparecían', async () => {
+    const { svc } = montar();
+    const r = await svc.listPublic(sesion.humberto, 'CLIENTS');
+    expect(r.items.map((p) => p.status)).toContain('PENDING');
   });
 
   it('su propuesta nace con la marca Sellea', async () => {
@@ -317,7 +326,8 @@ describe('el administrador general de Sellea', () => {
     const quien = sesion.javierEnSellea;
 
     const r = await svc.listPublic(quien, 'CLIENTS');
-    expect(r.items.map((p) => p.id)).toEqual(['p-sellea']);
+    // Lee lo mismo que el administrador de la marca, pendientes incluidas.
+    expect(r.items.map((p) => p.id)).toEqual(['p-sellea', 'p-sellea-pendiente']);
     expect((await svc.getById('p-sellea', quien)).canParticipate).toBe(false);
     expect((await svc.contexto(quien)).soloLectura).toBe(true);
 
@@ -610,5 +620,41 @@ describe('afiliados y negocios', () => {
     const c = await svc.contexto(sesion.afiliadoClubify);
     expect(c.alcance).toBe('PLATAFORMA_MIEMBRO');
     expect(c.marca?.name).toBe('Clubify');
+  });
+});
+
+describe('lo que aún no pasó revisión', () => {
+  // En una marca blanca el Lab es solo de su administrador general, así que
+  // esto se prueba en el de Clubify, donde sí participan afiliados y dueños.
+  it('un participante NO ve la pendiente de otro', async () => {
+    const { svc } = montar({
+      extra: [
+        {
+          id: 'p-clubify-pendiente',
+          title: 'Pendiente de otro',
+          whiteLabelId: CLUBIFY,
+          status: 'PENDING',
+          authorId: 'u-afiliado-clubify',
+        },
+      ],
+    });
+    const r = await svc.listPublic(sesion.duenoClubify, 'CLIENTS');
+    expect(r.items.map((p) => p.id)).not.toContain('p-clubify-pendiente');
+  });
+
+  it('pero SÍ ve la suya, para saber que se envió', async () => {
+    const { svc } = montar({
+      extra: [
+        {
+          id: 'p-mia',
+          title: 'La mía, recién enviada',
+          whiteLabelId: CLUBIFY,
+          status: 'PENDING',
+          authorId: 'u-dueno-clubify',
+        },
+      ],
+    });
+    const r = await svc.listPublic(sesion.duenoClubify, 'CLIENTS');
+    expect(r.items.map((p) => p.id)).toContain('p-mia');
   });
 });

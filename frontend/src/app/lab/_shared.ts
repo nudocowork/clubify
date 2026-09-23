@@ -86,7 +86,7 @@ export const STATUS_META: Record<
   LabStatus,
   { label: string; badge: string; dot: string }
 > = {
-  PENDING: { label: 'Pendiente', badge: 'badge-mute', dot: 'bg-gray-400' },
+  PENDING: { label: 'Enviada', badge: 'badge-mute', dot: 'bg-gray-400' },
   REJECTED: { label: 'Rechazada', badge: 'badge-bad', dot: 'bg-red-500' },
   EVALUATING: { label: 'En evaluación', badge: 'badge-warn', dot: 'bg-yellow-500' },
   APPROVED: { label: 'Aprobada', badge: 'badge-warn', dot: 'bg-orange-500' },
