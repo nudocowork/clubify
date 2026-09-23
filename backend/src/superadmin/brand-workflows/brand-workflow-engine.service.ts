@@ -127,6 +127,8 @@ export class BrandWorkflowEngineService {
     nodeType: string;
     message?: string;
     status: string;
+    /** El correo o el teléfono al que salió, para que el registro lo diga. */
+    recipient?: string | null;
     result?: string | null;
   }) {
     try {
@@ -226,7 +228,7 @@ export class BrandWorkflowEngineService {
           whiteLabelId: wf.whiteLabelId,
           feature: 'flujo-de-marca',
         });
-        await this.log_({ ...base, message, status: res.ok ? 'sent' : 'failed', result: res.ok ? null : res.message ?? 'error' });
+        await this.log_({ ...base, message, status: res.ok ? 'sent' : 'failed', recipient: phone, result: res.ok ? null : res.message ?? 'error' });
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'send_email': {
@@ -255,7 +257,7 @@ export class BrandWorkflowEngineService {
         const res = await this.grow.sendEmailWithCreds(creds, email, subject, html, {
           ctx: { tenantId: enr.tenantId, whiteLabelId: wf.whiteLabelId, feature: 'flujo-de-marca' },
         });
-        await this.log_({ ...base, message: subject, status: res.ok ? 'sent' : 'failed', result: res.ok ? null : res.message ?? 'error' });
+        await this.log_({ ...base, message: subject, status: res.ok ? 'sent' : 'failed', recipient: email, result: res.ok ? null : res.message ?? 'error' });
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'wait_delay': {
@@ -301,7 +303,7 @@ export class BrandWorkflowEngineService {
                 whiteLabelId: wf.whiteLabelId,
                 feature: 'flujo-de-marca',
               });
-        await this.log_({ ...base, message, status: res.ok ? 'sent' : 'failed', result: res.ok ? null : res.message ?? 'error' });
+        await this.log_({ ...base, message, status: res.ok ? 'sent' : 'failed', recipient: destino, result: res.ok ? null : res.message ?? 'error' });
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'wait_datetime': {

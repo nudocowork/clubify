@@ -1554,12 +1554,21 @@ function LogsTab({ workflowId }: { workflowId: string }) {
   useEffect(() => { api(`/admin/workflows/${workflowId}/logs`).then((r: any) => setLogs(r ?? [])).catch(() => setLogs([])); }, [workflowId]);
   return (
     <div className="absolute inset-0 overflow-auto p-5"><div className="mx-auto max-w-3xl">
-      <h3 className="mb-3 text-sm font-semibold">Registros de ejecución</h3>
+      <h3 className="mb-1 text-sm font-semibold">Registros de ejecución</h3>
+      <p className="mb-3 text-xs text-slate-500">Cada línea: cuándo, qué negocio, qué se envió, <strong>a quién</strong> y cómo terminó.</p>
       {!logs ? <p className="py-8 text-center text-sm text-slate-400">Cargando…</p> : logs.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">Sin registros aún.</p> : (
-        <div className="space-y-1 text-sm">{logs.map((l) => (<div key={l.id} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white px-2 py-1.5"><span className="w-28 shrink-0 text-[11px] text-slate-400">{new Date(l.createdAt).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span><span className="w-28 shrink-0 truncate">{l.tenantName}</span><span className="min-w-0 flex-1 truncate text-slate-500">{l.message || l.result}</span><span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]" style={l.status === 'sent' ? { background: '#dcfce7', color: '#15803d' } : l.status === 'failed' ? { background: '#fee2e2', color: '#b91c1c' } : { background: '#f1f5f9', color: '#64748b' }}>{l.status}</span></div>))}</div>
+        <div className="space-y-1 text-sm">{logs.map((l) => (<div key={l.id} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white px-2 py-1.5"><span className="w-28 shrink-0 text-[11px] text-slate-400">{new Date(l.createdAt).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span><span className="w-28 shrink-0 truncate">{l.tenantName}</span><span className="min-w-0 flex-1 truncate text-slate-500">{l.message || l.result}</span><span className="w-52 shrink-0 truncate text-[11px] text-slate-500" title={l.recipient ?? ''}>{l.recipient || '—'}</span><span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]" style={l.status === 'sent' ? { background: '#dcfce7', color: '#15803d' } : l.status === 'failed' ? { background: '#fee2e2', color: '#b91c1c' } : { background: '#f1f5f9', color: '#64748b' }}>{ESTADO_DEL_REGISTRO[l.status] ?? l.status}</span></div>))}</div>
       )}
     </div></div>
   );
 }
+// El estado lo lee el dueño de la marca: en español, no «sent»/«failed».
+const ESTADO_DEL_REGISTRO: Record<string, string> = {
+  sent: 'enviado',
+  failed: 'falló',
+  skipped: 'omitido',
+  info: 'info',
+};
+
 function Card({ title, children }: any) { return <div className="rounded-2xl border border-slate-200 bg-white p-4"><h3 className="mb-2 text-sm font-semibold">{title}</h3>{children}</div>; }
 function Label({ children }: any) { return <p className="mb-1 text-xs font-medium text-slate-500">{children}</p>; }

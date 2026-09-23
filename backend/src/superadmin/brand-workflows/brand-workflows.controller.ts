@@ -289,5 +289,7 @@ export class BrandWorkflowsController {
     const tenants = tIds.length ? await this.prisma.tenant.findMany({ where: { id: { in: tIds } }, select: { id: true, name: true } }) : [];
     const nameOf = new Map(tenants.map((t) => [t.id, t.name]));
     return rows.map((r) => ({ ...r, tenantName: r.tenantId ? nameOf.get(r.tenantId) ?? '—' : '—' }));
+    // `recipient` viaja dentro de `...r`: es la columna que dice a qué correo o
+    // teléfono salió cada envío.
   }
 }
