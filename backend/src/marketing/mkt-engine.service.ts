@@ -36,7 +36,6 @@ import {
   momentoDeLaCita,
   queHacerSiYaPaso,
   refDeEvento,
-  MEMORIA_DEL_BARRIDO_MS,
   VENTANA_DEL_BARRIDO_MS,
 } from './mkt-ventas.util';
 // El guardián de la red interna vive en el motor de MARCA y se importa, no se
@@ -463,6 +462,7 @@ export class MktEngineService {
             assignedUserId: await this.miembroDelEquipo(lead, cfg.asignarA),
           },
         });
+        await this.anotarEnElLead(lead, `Tarea creada por un flujo: «${titulo}»`);
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'create_opportunity': {
@@ -504,6 +504,7 @@ export class MktEngineService {
             position: await this.finDeLaEtapa(destino.etapa.id, lead.salesTeamId),
           },
         });
+        await this.anotarEnElLead(lead, `Oportunidad creada por un flujo en «${destino.embudo.name}»`);
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'update_opportunity': {
@@ -557,15 +558,28 @@ export class MktEngineService {
             // `wonAt` NO se toca: el flujo no puede marcar «ganada» ni tocar una
             // que ya lo esté, así que la fecha de la venta la pone solo el CRM.
             data.lostAt = cierraSinVenta ? new Date() : null;
+            // Al reabrir se limpia también el motivo: si no, queda una
+            // oportunidad abierta con «no tenía presupuesto» colgando.
+            if (!cierraSinVenta) data.lostReason = null;
           }
         }
         const valor = String(cfg.valor ?? '').trim();
         if (valor !== '' && Number.isFinite(Number(valor))) data.value = Math.max(0, Number(valor));
         if (Object.keys(data).length) {
-          await this.prisma.salesOpportunity.updateMany({
-            where: { id: opp.id, salesTeamId: lead.salesTeamId },
+          // Se exige el estado que se leyó: entre la lectura y esta línea un
+          // vendedor puede haber ganado la oportunidad, y escribir «perdida»
+          // encima dejaría una venta registrada sobre una tarjeta perdida.
+          const escrito = await this.prisma.salesOpportunity.updateMany({
+            where: { id: opp.id, salesTeamId: lead.salesTeamId, status: opp.status },
             data,
           });
+          if (escrito.count === 0) {
+            this.log.warn(
+              'update_opportunity: alguien cambió la oportunidad mientras tanto; no se escribe encima.',
+            );
+          } else {
+            await this.anotarEnElLead(lead, 'Un flujo actualizó una oportunidad');
+          }
         }
         return { kind: 'continue', next: node.next ?? null };
       }
@@ -577,10 +591,13 @@ export class MktEngineService {
         }
         // `confirmedAt: null` en el where hace el paso idempotente: la segunda
         // vuelta no cuenta y no reescribe la fecha de la confirmación.
-        await this.prisma.salesMeeting.updateMany({
+        const confirmada = await this.prisma.salesMeeting.updateMany({
           where: { id: cita.id, salesTeamId: cita.salesTeamId, status: { in: ESTADOS_DE_CITA_VIVA }, confirmedAt: null },
           data: { status: 'CONFIRMADA', confirmedAt: new Date() },
         });
+        if (confirmada.count && cita.leadId) {
+          await this.anotarEnElLead({ id: cita.leadId, salesTeamId: cita.salesTeamId }, 'Un flujo confirmó la cita');
+        }
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'meeting_cancel': {
@@ -592,10 +609,16 @@ export class MktEngineService {
         // Solo desde un estado VIVO. Una cita `REALIZADA` o `NO_ASISTIO` es un
         // desenlace y voltearla escondería los plantones, que es justo lo que
         // el equipo necesita ver.
-        await this.prisma.salesMeeting.updateMany({
+        const cancelada = await this.prisma.salesMeeting.updateMany({
           where: { id: cita.id, salesTeamId: cita.salesTeamId, status: { in: ESTADOS_DE_CITA_VIVA } },
           data: { status: 'CANCELADA' },
         });
+        if (cancelada.count && cita.leadId) {
+          await this.anotarEnElLead(
+            { id: cita.leadId, salesTeamId: cita.salesTeamId },
+            'Un flujo canceló la cita. El evento sigue en el Google Calendar del vendedor.',
+          );
+        }
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'notify_team': {
@@ -736,13 +759,56 @@ export class MktEngineService {
     const marca = `hecho_${nodeId}_${this.saltosDePaso(enr.context)}`;
     const contexto = { ...((enr.context as Record<string, unknown>) || {}) };
     if (contexto[marca] === true) return false;
-    const r = await this.prisma.mktEnrollment.updateMany({
-      where: { id: enr.id, NOT: { context: { path: [marca], equals: true } } },
-      data: { context: { ...contexto, [marca]: true } as Prisma.InputJsonValue },
-    });
-    if (r.count === 0) return false;
+    // SQL crudo a propósito.
+    //
+    // `NOT: { context: { path: [marca], equals: true } }` se traduce a
+    // `NOT (context #> '{marca}' = 'true')`, y en Postgres, la PRIMERA vez —que
+    // es siempre— esa ruta no existe: NULL = 'true' da NULL, NOT NULL da NULL,
+    // y la fila no se actualiza. Resultado: `count` 0 y el paso no creaba NUNCA
+    // la tarea ni la oportunidad. El test no lo veía porque la base falsa
+    // evalúa el NOT con la lógica de JavaScript, que no es la de SQL.
+    const contextoNuevo = JSON.stringify({ ...contexto, [marca]: true });
+    const filas = await this.prisma.$executeRaw`
+      UPDATE "MktEnrollment"
+         SET "context" = ${contextoNuevo}::jsonb, "updatedAt" = now()
+       WHERE "id" = ${enr.id}
+         AND COALESCE("context" ->> ${marca}, '') <> 'true'`;
+    if (filas === 0) return false;
     enr.context = { ...contexto, [marca]: true };
     return true;
+  }
+
+  /**
+   * Deja constancia en la ficha del lead de lo que hizo el flujo.
+   *
+   * El módulo de ventas lo hace en cada operación suya, y sin esto el vendedor
+   * veía una tarea salida de la nada, sin saber qué la creó. Además refresca
+   * `lastActivityAt`: el propio motor elige el lead más activo del contacto, y
+   * un lead trabajado solo por flujos se iba quedando atrás.
+   *
+   * Nunca rompe el paso: si falla, el flujo sigue (la tarea ya se creó).
+   */
+  private async anotarEnElLead(
+    lead: { id: string; salesTeamId: string },
+    texto: string,
+  ): Promise<void> {
+    await Promise.all([
+      this.prisma.salesLeadActivity
+        .create({
+          data: {
+            leadId: lead.id,
+            salesTeamId: lead.salesTeamId,
+            // Sin usuario: no lo hizo una persona, lo hizo un flujo.
+            userId: null,
+            kind: 'sistema',
+            body: texto,
+          },
+        })
+        .catch(() => null),
+      this.prisma.salesLead
+        .updateMany({ where: { id: lead.id }, data: { lastActivityAt: new Date() } })
+        .catch(() => null),
+    ]);
   }
 
   /** El paso necesitaba un lead y este contacto no lo es: se dice y el flujo sigue. */
@@ -766,7 +832,10 @@ export class MktEngineService {
    */
   private async leadDelContacto(contactId: string, whiteLabelId: string) {
     return this.prisma.salesLead.findFirst({
-      where: { mktContactId: contactId, whiteLabelId },
+      // La marca se comprueba por el EQUIPO del lead: `SalesLead.whiteLabelId`
+      // es una copia que en los equipos antiguos está vacía, y filtrando por
+      // ella todos los pasos de ventas se quedaban sin hacer nada, en silencio.
+      where: { mktContactId: contactId, team: { whiteLabelId } },
       orderBy: { lastActivityAt: 'desc' },
       select: { id: true, name: true, salesTeamId: true, assignedUserId: true },
     });
@@ -794,7 +863,8 @@ export class MktEngineService {
       },
       orderBy: { startAt: 'asc' },
       take: 50,
-      select: { id: true, startAt: true, salesTeamId: true },
+      // `leadId` para poder dejar el rastro en la ficha del lead.
+      select: { id: true, startAt: true, salesTeamId: true, leadId: true },
     });
     return elegirCitaDeReferencia(citas);
   }
@@ -1208,20 +1278,24 @@ export class MktEngineService {
    * `scripts/apply-mkt-eventos-de-ventas.cjs`. Si ese índice está puesto, la
    * inscripción repetida choca y `enroll` la cuenta como omitida.
    */
-  private async eventosYaDisparados(workflowIds: string[], desde: Date): Promise<Set<string>> {
+  private async eventosYaDisparados(workflowIds: string[], refs: string[]): Promise<Set<string>> {
     const vistos = new Set<string>();
-    if (!workflowIds.length) return vistos;
-    const previas = await this.prisma.mktEnrollment.findMany({
-      where: {
-        workflowId: { in: workflowIds },
-        enteredAt: { gte: new Date(desde.getTime() - MEMORIA_DEL_BARRIDO_MS) },
-      },
-      select: { workflowId: true, context: true },
-      take: 5000,
-    });
-    for (const e of previas) {
-      const ref = String((e.context as Record<string, unknown> | null)?.eventoRef ?? '').trim();
-      if (ref) vistos.add(claveDeEvento(e.workflowId, ref));
+    const unicas = [...new Set(refs.filter(Boolean))];
+    if (!workflowIds.length || !unicas.length) return vistos;
+    // Se pregunta por las REFERENCIAS de este lote, sin mirar fechas.
+    //
+    // Antes se leían las inscripciones de las últimas horas y se comparaba en
+    // memoria: pasada esa ventana, cualquier escritura sobre la cita —los
+    // crons de recordatorio tocan `updatedAt` sin cambiar nada— volvía a
+    // inscribir al mismo contacto por el mismo evento. Preguntando por la
+    // referencia exacta, un evento entra UNA vez y punto.
+    const filas = await this.prisma.$queryRaw<{ workflowId: string; ref: string | null }[]>`
+      SELECT "workflowId", "context" ->> 'eventoRef' AS ref
+        FROM "MktEnrollment"
+       WHERE "workflowId" = ANY(${workflowIds}::text[])
+         AND "context" ->> 'eventoRef' = ANY(${unicas}::text[])`;
+    for (const f of filas) {
+      if (f.ref) vistos.add(claveDeEvento(f.workflowId, f.ref));
     }
     return vistos;
   }
@@ -1346,7 +1420,10 @@ export class MktEngineService {
         },
       });
       if (!citas.length) continue;
-      const yaFueron = await this.eventosYaDisparados(flujos.map((w) => w.id), desde);
+      const yaFueron = await this.eventosYaDisparados(
+        flujos.map((w) => w.id),
+        citas.map((c) => refDeEvento('cita', c.id, c.status)),
+      );
       const contactos = await this.contactosDelBarrido(citas.map((c) => c.lead?.mktContactId), marca);
       const vendedores = await this.nombresDeUsuario(citas.map((c) => c.lead?.assignedUserId));
       for (const cita of citas) {
@@ -1376,12 +1453,16 @@ export class MktEngineService {
     desde: Date,
     todos: { id: string; whiteLabelId: string; trigger: unknown; triggers: unknown }[],
   ): Promise<void> {
-    const TIPOS = ['sales_opportunity_created', 'sales_opportunity_stage_changed', 'sales_opportunity_status'];
+    const TIPOS = ['sales_opportunity_created', 'sales_opportunity_status'];
     const escuchan = todos.filter((wf) => TIPOS.some((t) => escuchaEl(wf, t)));
     if (!escuchan.length) return;
     for (const [marca, flujos] of this.porMarca(escuchan)) {
       const oportunidades = await this.prisma.salesOpportunity.findMany({
-        where: { whiteLabelId: marca, updatedAt: { gte: desde } },
+        // Por la RELACIÓN con el equipo, no por la columna copiada: el
+        // `whiteLabelId` de la oportunidad se desnormaliza al crearla y en los
+        // equipos antiguos viene vacío. Filtrando por ahí, esos disparadores no
+        // se disparaban nunca y nadie se enteraba.
+        where: { pipeline: { team: { whiteLabelId: marca } }, updatedAt: { gte: desde } },
         orderBy: { updatedAt: 'asc' },
         take: 500,
         select: {
@@ -1390,6 +1471,12 @@ export class MktEngineService {
           value: true,
           stageId: true,
           createdAt: true,
+          // Las fechas del desenlace: son la señal de que la oportunidad se
+          // cerró DE VERDAD en esta vuelta. Mirar solo `updatedAt` hacía que
+          // corregir el monto de una cerrada hace semanas mandara «ganada o
+          // perdida» como si acabara de pasar.
+          wonAt: true,
+          lostAt: true,
           salesTeamId: true,
           pipeline: { select: { name: true } },
           stage: { select: { name: true } },
@@ -1397,7 +1484,16 @@ export class MktEngineService {
         },
       });
       if (!oportunidades.length) continue;
-      const yaFueron = await this.eventosYaDisparados(flujos.map((w) => w.id), desde);
+      const cerroEnEstaVuelta = (o: { status: string; wonAt: Date | null; lostAt: Date | null }) =>
+        o.status !== 'abierta' &&
+        ((o.wonAt != null && o.wonAt >= desde) || (o.lostAt != null && o.lostAt >= desde));
+      const yaFueron = await this.eventosYaDisparados(
+        flujos.map((w) => w.id),
+        oportunidades.flatMap((o) => [
+          refDeEvento('oportunidad', o.id, 'creada'),
+          refDeEvento('oportunidad', o.id, 'estado', o.status),
+        ]),
+      );
       const contactos = await this.contactosDelBarrido(oportunidades.map((o) => o.lead?.mktContactId), marca);
       const vendedores = await this.nombresDeUsuario(oportunidades.map((o) => o.lead?.assignedUserId));
       const equipos = await this.nombresDeEquipo(oportunidades.map((o) => o.salesTeamId), marca);
@@ -1419,20 +1515,17 @@ export class MktEngineService {
           flujos,
           yaFueron,
         };
-        // La etapa con la que NACE no es un cambio de etapa: si lo fuera, toda
-        // oportunidad nueva entraría por los dos disparadores a la vez.
         if (o.createdAt >= desde) {
           await this.disparar('sales_opportunity_created', {
             ...comun,
             ref: refDeEvento('oportunidad', o.id, 'creada'),
           });
-        } else {
-          await this.disparar('sales_opportunity_stage_changed', {
-            ...comun,
-            ref: refDeEvento('oportunidad', o.id, 'etapa', o.stageId),
-          });
         }
-        if (o.status !== 'abierta') {
+        // «Cambió de etapa» NO existe todavía: sin una fecha del último
+        // movimiento, lo único que se ve es que la fila se tocó, y corregir el
+        // monto disparaba «pasaste a Contactado» a un cliente. Vuelve cuando el
+        // módulo de ventas deje constancia del movimiento.
+        if (cerroEnEstaVuelta(o)) {
           await this.disparar('sales_opportunity_status', {
             ...comun,
             ajustes: { embudo: comun.ajustes.embudo, estado: o.status },

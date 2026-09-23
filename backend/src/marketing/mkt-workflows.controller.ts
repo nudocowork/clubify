@@ -11,6 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { TenantContext } from '../common/tenant/tenant-context';
 import { IsArray, IsBoolean, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -241,7 +242,15 @@ export class MktWorkflowsController {
     }
 
     const clave = canal === 'sms' ? claveTelefonoDePrueba(whiteLabelId) : claveCorreoDePrueba(whiteLabelId);
-    const res = await ejecutarPruebaDeFlujo({
+    // SIN el filtro por negocio, a propósito.
+    //
+    // `MessageLog` lleva `tenantId`, así que el middleware global lo filtra por
+    // los negocios de la marca en cada consulta. En una sesión de marca blanca
+    // eso dejaba el tope en nada —el contador siempre daba 0— y encima impedía
+    // escribir la fila de la prueba (nace sin negocio), así que la prueba no
+    // aparecía en el historial. Justo para el usuario del que protege el tope.
+    const res = await TenantContext.runWithoutTenant(() =>
+      ejecutarPruebaDeFlujo({
       canal,
       destino: body.destino,
       leerDestinoGuardado: async () =>
@@ -257,8 +266,9 @@ export class MktWorkflowsController {
             createdAt: { gte: new Date(Date.now() - VENTANA_PRUEBAS_MIN * 60_000) },
           },
         }),
-      enviar,
-    });
+        enviar,
+      }),
+    );
     if (!res.ok && res.deEntrada) throw new BadRequestException(res.motivo);
     return res;
   }

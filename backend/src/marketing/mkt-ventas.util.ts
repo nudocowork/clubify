@@ -135,9 +135,3 @@ export function claveDeEvento(workflowId: string, ref: string): string {
  */
 export const VENTANA_DEL_BARRIDO_MS = 90 * 60000;
 
-/**
- * Cuánto hacia atrás se leen las inscripciones para saber qué eventos ya se
- * dispararon. Más ancha que la ventana del barrido: un evento solo puede
- * aparecer en dos vueltas seguidas, y con tres horas sobra de largo.
- */
-export const MEMORIA_DEL_BARRIDO_MS = 3 * 3600000;

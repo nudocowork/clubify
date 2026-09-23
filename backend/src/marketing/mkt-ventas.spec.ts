@@ -95,9 +95,39 @@ function ordenar(filas: any[], orderBy: any): any[] {
 
 type Registro = { modelo: string; op: string; where?: any; data?: any };
 
+/**
+ * El motor filtra por la RELACIÓN con el equipo (`team: { whiteLabelId }`) y no
+ * por la columna copiada, porque en los equipos antiguos esa columna está
+ * vacía. Este falso no tiene relaciones, así que traduce ese filtro al campo
+ * que sí guarda cada fila. Sin esto, las pruebas dirían que no pasa nada
+ * cuando en la base sí pasaría.
+ */
+function conRelaciones(tabla: any) {
+  const traducir = (where: any): any => {
+    if (!where || typeof where !== 'object') return where;
+    const salida: any = { ...where };
+    const dentro = salida.pipeline?.team ?? salida.team;
+    if (dentro && 'whiteLabelId' in dentro) {
+      salida.whiteLabelId = dentro.whiteLabelId;
+      delete salida.team;
+      delete salida.pipeline;
+    }
+    return salida;
+  };
+  return new Proxy(tabla, {
+    get(objetivo, prop: string) {
+      const valor = objetivo[prop];
+      if (typeof valor !== 'function') return valor;
+      return (args: any = {}) => valor({ ...args, where: traducir(args.where) });
+    },
+  });
+}
+
 function tabla(nombre: string, filas: any[], reg: Registro[]) {
   const buscar = ({ where, orderBy }: any = {}) => ordenar(filas.filter((f) => casaWhere(f, where)), orderBy);
   return {
+    /** Las filas de verdad, para el SQL crudo (que no pasa por este falso). */
+    __filas: filas,
     findFirst: async (args: any = {}) => {
       reg.push({ modelo: nombre, op: 'findFirst', where: args.where });
       return buscar(args)[0] ?? null;
@@ -124,6 +154,17 @@ function tabla(nombre: string, filas: any[], reg: Registro[]) {
       return fila ?? { id: where?.id, ...data };
     },
     updateMany: async ({ where, data }: any) => {
+      // El candado del paso NO puede volver a ser un `NOT` sobre una clave del
+      // JSON: en Postgres, cuando la clave no existe, ese filtro da NULL y la
+      // fila no se actualiza nunca — así que el paso no creaba ni la tarea ni
+      // la oportunidad, y ninguna prueba lo veía porque este falso resolvía el
+      // NOT con la lógica de JavaScript. Si alguien lo reintroduce, esto lo
+      // dice en voz alta.
+      if (nombre === 'mktEnrollment' && where?.NOT && 'context' in (where.NOT ?? {})) {
+        throw new Error(
+          'El candado del paso no puede ser un NOT sobre el JSON: en Postgres no casa nunca. Usa el UPDATE con COALESCE.',
+        );
+      }
       reg.push({ modelo: nombre, op: 'updateMany', where, data });
       const afectadas = filas.filter((f) => casaWhere(f, where));
       for (const f of afectadas) Object.assign(f, data);
@@ -182,15 +223,43 @@ function motor(m: Mundo = {}) {
       m.inscripciones ?? [{ id: 'e1', contactId: 'c1', whiteLabelId: MARCA, workflowId: 'wf1', status: 'active', context: {} }],
       reg,
     ),
-    salesLead: tabla('salesLead', m.leads ?? [{ ...LEAD }], reg),
+    salesLead: conRelaciones(tabla('salesLead', m.leads ?? [{ ...LEAD }], reg)),
     salesMeeting: tabla('salesMeeting', m.citas ?? [], reg),
-    salesOpportunity: tabla('salesOpportunity', m.oportunidades ?? [], reg),
+    salesOpportunity: conRelaciones(tabla('salesOpportunity', m.oportunidades ?? [], reg)),
     salesPipeline: tabla('salesPipeline', m.embudos ?? [], reg),
     salesPipelineStage: tabla('salesPipelineStage', m.etapas ?? [], reg),
     salesTeamMember: tabla('salesTeamMember', m.miembros ?? [], reg),
     salesTask: tabla('salesTask', m.tareas ?? [], reg),
+    // El rastro que el flujo deja en la ficha del lead (lo que el módulo de
+    // ventas escribe en cada operación suya).
+    salesLeadActivity: tabla('salesLeadActivity', [], reg),
     salesTeam: tabla('salesTeam', m.equipos ?? [{ id: EQUIPO, whiteLabelId: MARCA, name: 'Cierre' }], reg),
     user: tabla('user', [{ id: 'u-vendedor', fullName: 'Pedro', email: 'pedro@x.com' }], reg),
+  };
+  // SQL CRUDO CON LA SEMÁNTICA DE POSTGRES, no la de JavaScript.
+  //
+  // El candado de «hazlo una sola vez» y el dedupe del barrido son SQL. Cuando
+  // este falso resolvía el filtro JSON con `===` de JS, un `NOT` sobre una
+  // clave AUSENTE daba `true` y la prueba pasaba… mientras en Postgres daba
+  // NULL y el paso no creaba NADA. Aquí se imita lo que hace la base: si la
+  // marca no está, `context ->> clave` es NULL y el `COALESCE` lo convierte en
+  // cadena vacía, que sí es distinta de 'true'.
+  const filasDe = (nombre: string) => (prisma[nombre] as any).__filas as any[];
+  prisma.$executeRaw = async (_partes: TemplateStringsArray, ...valores: any[]) => {
+    const [contextoNuevo, id, marca] = valores as [string, string, string];
+    const fila = filasDe('mktEnrollment').find((f) => f.id === id);
+    if (!fila) return 0;
+    const actual = fila.context?.[marca];
+    const comoTexto = actual === undefined || actual === null ? '' : String(actual);
+    if (comoTexto === 'true') return 0;
+    fila.context = JSON.parse(contextoNuevo);
+    return 1;
+  };
+  prisma.$queryRaw = async (_partes: TemplateStringsArray, ...valores: any[]) => {
+    const [workflowIds, refs] = valores as [string[], string[]];
+    return filasDe('mktEnrollment')
+      .filter((f) => workflowIds.includes(f.workflowId) && refs.includes(String(f.context?.eventoRef ?? '')))
+      .map((f) => ({ workflowId: f.workflowId, ref: String(f.context?.eventoRef ?? '') }));
   };
   const svc = Object.create(MktEngineService.prototype) as any;
   svc.prisma = prisma;
@@ -842,9 +911,9 @@ describe('barrido: oportunidades', () => {
     ...extra,
   });
 
-  it('una oportunidad recién creada entra por «creada», no por «cambió de etapa»', async () => {
+  it('una oportunidad recién creada entra por «creada»', async () => {
     const { svc, enrolls } = motor({
-      flujos: [flujoDe('sales_opportunity_created', {}, 'wfA'), flujoDe('sales_opportunity_stage_changed', {}, 'wfB')],
+      flujos: [flujoDe('sales_opportunity_created', {}, 'wfA')],
       oportunidades: [oportunidad({ createdAt: new Date() })],
     });
     await svc.escanearVentas();
@@ -857,20 +926,24 @@ describe('barrido: oportunidades', () => {
     });
   });
 
-  it('una que ya existía y se movió entra por «cambió de etapa»', async () => {
+  it('tocar una oportunidad vieja no inventa ningún evento', async () => {
+    // El barrido solo ve que la fila se tocó. Con «cambió de etapa» fuera del
+    // catálogo, corregirle el monto a una oportunidad abierta no dispara nada.
     const { svc, enrolls } = motor({
-      flujos: [flujoDe('sales_opportunity_created', {}, 'wfA'), flujoDe('sales_opportunity_stage_changed', {}, 'wfB')],
+      flujos: [
+        flujoDe('sales_opportunity_created', {}, 'wfA'),
+        flujoDe('sales_opportunity_status', {}, 'wfB'),
+      ],
       oportunidades: [oportunidad()],
     });
     await svc.escanearVentas();
-    expect(enrolls.map((e) => e.wfId)).toEqual(['wfB']);
-    expect(enrolls[0].contexto.eventoRef).toBe('oportunidad:o1:etapa:s2');
+    expect(enrolls).toEqual([]);
   });
 
   it('el filtro por embudo no deja pasar el de otro nombre', async () => {
     const { svc, enrolls } = motor({
-      flujos: [flujoDe('sales_opportunity_stage_changed', { embudo: 'Chat general' })],
-      oportunidades: [oportunidad()],
+      flujos: [flujoDe('sales_opportunity_created', { embudo: 'Chat general' })],
+      oportunidades: [oportunidad({ createdAt: new Date() })],
     });
     await svc.escanearVentas();
     expect(enrolls).toEqual([]);
@@ -879,11 +952,46 @@ describe('barrido: oportunidades', () => {
   it('cerrar la oportunidad entra por «ganada o perdida»', async () => {
     const { svc, enrolls } = motor({
       flujos: [flujoDe('sales_opportunity_status', { estado: 'ganada' })],
-      oportunidades: [oportunidad({ status: 'ganada' })],
+      oportunidades: [oportunidad({ status: 'ganada', wonAt: new Date() })],
     });
     await svc.escanearVentas();
     expect(enrolls).toHaveLength(1);
     expect(enrolls[0].contexto).toMatchObject({ estado_oportunidad: 'Ganada', eventoRef: 'oportunidad:o1:estado:ganada' });
+  });
+
+  it('editar una cerrada hace semanas NO la vuelve a anunciar', async () => {
+    // El fallo que cazó la revisión: mirando solo `updatedAt`, corregirle el
+    // monto a una oportunidad ganada en agosto mandaba «¡ganada!» hoy.
+    const { svc, enrolls } = motor({
+      flujos: [flujoDe('sales_opportunity_status', { estado: 'ganada' })],
+      oportunidades: [
+        oportunidad({ status: 'ganada', wonAt: new Date(Date.now() - 30 * 86400000) }),
+      ],
+    });
+    await svc.escanearVentas();
+    expect(enrolls).toEqual([]);
+  });
+
+  it('un evento ya disparado no vuelve a entrar, por vieja que sea la inscripción', async () => {
+    // El dedupe pregunta por la REFERENCIA, no por una ventana de horas: los
+    // crons de recordatorio tocan la cita sin cambiarla y antes eso reinscribía.
+    const { svc, enrolls } = motor({
+      flujos: [flujoDe('sales_opportunity_status', { estado: 'ganada' }, 'wf1')],
+      oportunidades: [oportunidad({ status: 'ganada', wonAt: new Date() })],
+      inscripciones: [
+        {
+          id: 'e-vieja',
+          contactId: 'c1',
+          whiteLabelId: MARCA,
+          workflowId: 'wf1',
+          status: 'done',
+          enteredAt: new Date(Date.now() - 90 * 86400000),
+          context: { eventoRef: 'oportunidad:o1:estado:ganada' },
+        },
+      ],
+    });
+    await svc.escanearVentas();
+    expect(enrolls).toEqual([]);
   });
 
   it('una oportunidad abierta no entra por «ganada o perdida»', async () => {
@@ -951,13 +1059,15 @@ describe('el catálogo de ventas', () => {
     expect(deVentas.every((p) => !!p.icono && Array.isArray(p.campos))).toBe(true);
     // Los del barrido dicen «se revisa cada hora»: prometer «entra en minutos»
     // haría que alguien lo diera por roto a los cinco minutos de publicar.
-    const porBarrido = ['sales_meeting_status', 'sales_opportunity_created', 'sales_opportunity_stage_changed', 'sales_opportunity_status'];
+    const porBarrido = ['sales_meeting_status', 'sales_opportunity_created', 'sales_opportunity_status'];
     expect(MKT_TRIGGERS.filter((d) => porBarrido.includes(d.key)).map((d) => d.latencia)).toEqual([
       'hora',
       'hora',
       'hora',
-      'hora',
     ]);
+    // «Cambió de etapa» NO se ofrece: sin una marca del movimiento, el barrido
+    // no distingue mover la tarjeta de corregirle el monto.
+    expect(MKT_TRIGGERS.some((d) => d.key === 'sales_opportunity_stage_changed')).toBe(false);
   });
 
   it('la referencia de un evento distingue el estado, no solo la fila', () => {

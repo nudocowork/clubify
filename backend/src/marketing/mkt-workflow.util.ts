@@ -356,14 +356,11 @@ export const MKT_TRIGGERS: DisparadorDeContactos[] = [
     hint: 'Cuando se abre una oportunidad en el CRM del equipo, la abra una persona o un flujo.',
     campos: [FILTRO_EMBUDO, FILTRO_ETAPA],
   },
-  {
-    key: 'sales_opportunity_stage_changed',
-    label: 'Oportunidad cambió de etapa',
-    grupo: 'Ventas',
-    latencia: 'hora',
-    hint: 'Al mover la tarjeta de columna. La etapa con la que NACE la oportunidad no cuenta como cambio: eso es «Oportunidad creada».',
-    campos: [FILTRO_EMBUDO, FILTRO_ETAPA],
-  },
+  // «Oportunidad cambió de etapa» NO está, a propósito (2026-09-23). El barrido
+  // solo puede ver que la fila se tocó, no que la tarjeta se movió: corregir el
+  // monto de una oportunidad disparaba «pasaste a Contactado» al cliente. Vuelve
+  // cuando el módulo de ventas deje una marca del movimiento (una fecha de
+  // último cambio de etapa, o un evento propio).
   {
     key: 'sales_opportunity_status',
     label: 'Oportunidad ganada o perdida',
@@ -754,7 +751,7 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
     label: 'Cancelar cita',
     grupo: 'Ventas',
     icono: '🔴',
-    hint: 'Cancela la próxima cita viva del contacto. Una cita ya realizada o marcada como plantón NO se toca. El evento de Google Calendar no se borra: se cancela en la agenda del equipo.',
+    hint: 'Cancela la próxima cita viva del contacto en la agenda del equipo. Una cita ya realizada o marcada como plantón NO se toca. OJO: el evento sigue en el Google Calendar del vendedor —avísale, o añade un paso «Crear tarea» para que lo borre él.',
     campos: [],
   },
 
