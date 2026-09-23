@@ -16,6 +16,11 @@ import {
   WFSendWindow,
   WFTrigger,
 } from './brand-workflow.util';
+// Los helpers del paso «Enviar correo» viven en el motor de contactos y se
+// importan, no se copian: la regla de qué plantilla vale y cuándo NO se envía
+// tiene que ser la misma en los dos constructores. Es un archivo de helpers
+// puros, sin Nest, así que importarlo no ata los módulos.
+import { correoDelPaso } from '../../marketing/prueba-y-plantilla.util';
 import { disparadoresDe, disparadorQueCasa, escuchaEl, etiquetaDeDisparador } from './wf-filtros.util';
 
 const DIA_MS = 86400000;
@@ -232,9 +237,34 @@ export class BrandWorkflowEngineService {
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'send_email': {
-        const subject = resolveMerge(String(cfg.subject || ''), ctx);
-        const bodyText = resolveMerge(String(cfg.body || ''), ctx);
-        const html = /<[a-z][\s\S]*>/i.test(bodyText) ? bodyText : bodyText.replace(/\n/g, '<br>');
+        // La plantilla es una REFERENCIA por id: se lee AHORA, así que el flujo
+        // manda la versión que tenga el día del envío. Se busca sin filtrar por
+        // marca a propósito y es `correoDelPaso` quien la rechaza si es ajena:
+        // así el motivo que queda en el registro distingue «ya no existe» de
+        // «es de otra marca», que son dos problemas distintos para quien lo lea.
+        const templateId = String(cfg.templateId || '').trim();
+        const plantilla = templateId
+          ? await this.prisma.mktEmailTemplate.findUnique({
+              where: { id: templateId },
+              select: { id: true, whiteLabelId: true, isPreset: true, subject: true, html: true },
+            })
+          : null;
+        const correo = correoDelPaso({
+          templateId,
+          plantilla,
+          whiteLabelId: wf.whiteLabelId,
+          subject: cfg.subject,
+          body: cfg.body,
+          merge: (t) => resolveMerge(t, ctx),
+        });
+        if (!correo.ok) {
+          // Fail-closed: con la plantilla rota NO sale un correo en blanco a
+          // todos los negocios del flujo. El paso se salta con el motivo.
+          await this.log_({ ...base, status: 'skipped', result: correo.motivo });
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        const subject = correo.subject;
+        const html = correo.html;
         const winAt = this.nextSendTime(wf.sendWindow as WFSendWindow, Date.now());
         if (winAt) return { kind: 'wait', resumeAt: winAt, waitKind: 'window', resumeNodeId: node.id };
         const dripAt = await this.dripDefer(wf);

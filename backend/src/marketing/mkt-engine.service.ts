@@ -25,6 +25,7 @@ import {
   WFSendWindow,
   WFCondition,
 } from './mkt-workflow.util';
+import { correoDelPaso } from './prueba-y-plantilla.util';
 import {
   claveDeEvento,
   diaEnBogota,
@@ -169,6 +170,26 @@ export class MktEngineService {
           where: { id: enr.contactId },
           select: { email: true },
         });
+        // La plantilla es una REFERENCIA por id: se lee AHORA, así que el flujo
+        // manda la versión que tenga el día del envío. Se busca sin filtrar por
+        // marca a propósito y es `correoDelPaso` quien la rechaza si es ajena:
+        // así el motivo que queda anotado distingue «ya no existe» de «es de
+        // otra marca», que son dos problemas distintos para quien lo lea.
+        const templateId = String(cfg.templateId || '').trim();
+        const plantilla = templateId
+          ? await this.prisma.mktEmailTemplate.findUnique({
+              where: { id: templateId },
+              select: { id: true, whiteLabelId: true, isPreset: true, subject: true, html: true },
+            })
+          : null;
+        const correo = correoDelPaso({
+          templateId,
+          plantilla,
+          whiteLabelId: wf.whiteLabelId,
+          subject: cfg.subject,
+          body: cfg.body,
+          merge: (t) => resolveMerge(t, ctx),
+        });
         await this.actions.dispatch({
           workflowId: wf.id,
           enrollmentId: enr.id,
@@ -177,8 +198,11 @@ export class MktEngineService {
           nodeId: node.id,
           channel: 'email',
           to: c?.email ?? '',
-          subject: resolveMerge(String(cfg.subject || ''), ctx),
-          body: resolveMerge(String(cfg.body || ''), ctx),
+          subject: correo.ok ? correo.subject : null,
+          body: correo.ok ? correo.html : '',
+          // Fail-closed: con la plantilla rota no sale un correo en blanco; el
+          // paso se salta y el motivo queda en el registro.
+          omitido: correo.ok ? null : correo.motivo,
         });
         return { kind: 'continue', next: node.next ?? null };
       }

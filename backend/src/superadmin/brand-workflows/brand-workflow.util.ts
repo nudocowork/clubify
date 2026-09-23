@@ -46,10 +46,27 @@ export type CampoDeConfig = {
   /** Qué control pinta la pantalla. `condiciones`, `rutas` y `cabeceras` son editores propios. */
   tipo: 'texto' | 'textarea' | 'numero' | 'select' | 'fechaHora' | 'condiciones' | 'rutas' | 'cabeceras' | 'flujo';
   opciones?: { value: string; label: string }[];
+  /**
+   * De qué lista de la MARCA se completan las opciones al servir el catálogo.
+   * Mismo mecanismo que en el constructor de contactos: la lista se lee al
+   * servir el catálogo —que ya es por marca— y no en la pantalla, para no
+   * tener dos copias que se separen.
+   */
+  catalogo?: 'plantillas';
   def?: string | number;
   ayuda?: string;
   /** Sin esto el paso no se puede guardar. */
   requerido?: boolean;
+  /**
+   * No se pinta cuando ESE otro campo del paso tiene valor.
+   *
+   * Existe por «Enviar correo»: con una plantilla elegida, el cuerpo escrito en
+   * el paso no se manda. Dejarlo a la vista invita a escribir un correo que
+   * nadie va a leer. Un campo oculto tampoco cuenta como obligatorio.
+   */
+  ocultoSi?: string;
+  /** Obligatorio SALVO que ese otro campo del paso tenga valor. */
+  requeridoSalvo?: string;
 };
 
 export type DisparadorDeMarca = {
@@ -85,6 +102,12 @@ export type PasoDeMarca = {
   ramas?: 'siNo' | 'rutas';
   hint?: string;
   campos: CampoDeConfig[];
+  /**
+   * Este paso MANDA algo, y por qué canal. La pantalla dibuja «Enviar prueba»
+   * con esto, en vez de con una lista de tipos de paso escrita a mano que se
+   * olvidaría de actualizar el día que haya un canal más.
+   */
+  prueba?: 'sms' | 'email';
 };
 
 const UNIDADES = [
@@ -151,6 +174,7 @@ export const WF_NODE_TYPES: PasoDeMarca[] = [
     grupo: 'Mensaje',
     icono: '💬',
     hint: 'SMS al dueño del negocio, por la subcuenta de la marca.',
+    prueba: 'sms',
     campos: [{ key: 'message', label: 'Mensaje', tipo: 'textarea', requerido: true, ayuda: 'Admite {{negocio}}, {{owner}}, {{plan}}…' }],
   },
   {
@@ -159,9 +183,19 @@ export const WF_NODE_TYPES: PasoDeMarca[] = [
     grupo: 'Mensaje',
     icono: '✉️',
     hint: 'Al correo del dueño, por la subcuenta de la marca. El cuerpo va tal cual: admite HTML.',
+    prueba: 'email',
     campos: [
-      { key: 'subject', label: 'Asunto', tipo: 'texto', requerido: true },
-      { key: 'body', label: 'Cuerpo', tipo: 'textarea', requerido: true },
+      {
+        key: 'templateId',
+        label: 'Plantilla',
+        tipo: 'select',
+        def: '',
+        catalogo: 'plantillas',
+        opciones: [{ value: '', label: 'Sin plantilla (escribo el cuerpo aquí)' }],
+        ayuda: 'Se guarda una referencia, no una copia: si editas la plantilla, el flujo manda la versión nueva.',
+      },
+      { key: 'subject', label: 'Asunto', tipo: 'texto', requerido: true, requeridoSalvo: 'templateId', ayuda: 'Con plantilla, si lo dejas vacío se usa el asunto de la plantilla.' },
+      { key: 'body', label: 'Cuerpo', tipo: 'textarea', requerido: true, ocultoSi: 'templateId' },
     ],
   },
   {
@@ -307,18 +341,38 @@ const DISPARADORES_DE_COBRO = ['payment_approved', 'payment_failed', 'payment_re
  * aprobado · entra en minutos» a quien nunca lo va a ver es prometer algo que
  * no existe, que es el defecto que más veces hemos tenido aquí.
  */
-export function catalogoDeMarca(pasarela?: string | null) {
+export function catalogoDeMarca(pasarela?: string | null, plantillas?: { value: string; label: string }[]) {
   const puedeCobro = !!pasarela && COBRO_POR_PASARELA[String(pasarela).toUpperCase()] === true;
   const disparadores = puedeCobro
     ? WF_TRIGGERS
     : WF_TRIGGERS.filter((d) => !DISPARADORES_DE_COBRO.includes(d.key));
   return {
     disparadores: disparadores.map((d) => ({ ...d, filtros: filtrosDelDisparador(d.key) })),
-    pasos: WF_NODE_TYPES,
+    pasos: conPlantillas(WF_NODE_TYPES, plantillas),
     campos: WF_FIELDS,
     merge: WF_MERGE_FIELDS,
     operadores: WF_OPERADORES,
   };
+}
+
+/**
+ * Completa el desplegable de plantillas de correo con las de la marca.
+ *
+ * Devuelve COPIAS: `WF_NODE_TYPES` es una constante del módulo compartida entre
+ * peticiones, y escribirle las plantillas de una marca se las enseñaría a la
+ * siguiente — que es una fuga de marca de libro.
+ */
+function conPlantillas(pasos: PasoDeMarca[], plantillas: { value: string; label: string }[] | undefined): PasoDeMarca[] {
+  if (!plantillas) return pasos;
+  return pasos.map((p) => {
+    if (!p.campos.some((c) => c.catalogo === 'plantillas')) return p;
+    return {
+      ...p,
+      campos: p.campos.map((c) =>
+        c.catalogo === 'plantillas' ? { ...c, opciones: [...(c.opciones ?? []), ...plantillas] } : c,
+      ),
+    };
+  });
 }
 
 /**

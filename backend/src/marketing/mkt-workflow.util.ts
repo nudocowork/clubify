@@ -81,11 +81,21 @@ export type CampoDeConfig = {
    * exactamente cómo se desincronizó el catálogo la vez anterior. Lo que
    * declare `opciones` se queda delante (el «— cualquiera —» de cabecera).
    */
-  catalogo?: 'embudos' | 'etapas' | 'miembros';
+  catalogo?: 'embudos' | 'etapas' | 'miembros' | 'plantillas';
   def?: string | number;
   ayuda?: string;
   /** Sin esto el paso no se puede guardar. */
   requerido?: boolean;
+  /**
+   * No se pinta cuando ESE otro campo del paso tiene valor.
+   *
+   * Existe por «Enviar correo»: con una plantilla elegida, el cuerpo escrito en
+   * el paso no se manda. Dejarlo a la vista invita a escribir un correo que
+   * nadie va a leer. Un campo oculto tampoco cuenta como obligatorio.
+   */
+  ocultoSi?: string;
+  /** Obligatorio SALVO que ese otro campo del paso tenga valor. */
+  requeridoSalvo?: string;
 };
 
 /**
@@ -128,6 +138,12 @@ export type PasoDeContactos = {
   ramaNo?: string;
   hint?: string;
   campos: CampoDeConfig[];
+  /**
+   * Este paso MANDA algo, y por qué canal. La pantalla dibuja «Enviar prueba»
+   * con esto, en vez de con una lista de tipos de paso escrita a mano que se
+   * olvidaría de actualizar el día que haya un canal más.
+   */
+  prueba?: 'sms' | 'email';
   /**
    * Plantilla del resumen de la tarjeta: `{clave}` se cambia por el valor del
    * campo (el texto de la opción, en los desplegables). Sin plantilla, la
@@ -392,9 +408,19 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
     grupo: 'Mensaje',
     icono: '✉️',
     hint: 'Al correo del contacto, por la subcuenta de la marca. El cuerpo admite HTML.',
+    prueba: 'email',
     campos: [
-      { key: 'subject', label: 'Asunto', tipo: 'texto', requerido: true },
-      { key: 'body', label: 'Contenido', tipo: 'textarea', requerido: true, ayuda: 'Admite {{nombre}}, {{empresa}}…' },
+      {
+        key: 'templateId',
+        label: 'Plantilla',
+        tipo: 'select',
+        def: '',
+        catalogo: 'plantillas',
+        opciones: [{ value: '', label: 'Sin plantilla (escribo el cuerpo aquí)' }],
+        ayuda: 'Se guarda una referencia, no una copia: si editas la plantilla, el flujo manda la versión nueva.',
+      },
+      { key: 'subject', label: 'Asunto', tipo: 'texto', requerido: true, requeridoSalvo: 'templateId', ayuda: 'Con plantilla, si lo dejas vacío se usa el asunto de la plantilla.' },
+      { key: 'body', label: 'Contenido', tipo: 'textarea', requerido: true, ocultoSi: 'templateId', ayuda: 'Admite {{nombre}}, {{empresa}}…' },
     ],
   },
   {
@@ -403,6 +429,7 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
     grupo: 'Mensaje',
     icono: '💬',
     hint: 'Al teléfono del contacto, por la subcuenta de la marca.',
+    prueba: 'sms',
     campos: [{ key: 'message', label: 'Mensaje', tipo: 'textarea', requerido: true }],
   },
   {
@@ -924,6 +951,13 @@ export type ListasDeLaMarca = {
   embudos: { value: string; label: string }[];
   etapas: { value: string; label: string }[];
   miembros: { value: string; label: string }[];
+  /**
+   * Las plantillas de correo que la marca puede usar en «Enviar correo»: las
+   * suyas más las de fábrica. Van por ID —al revés que los embudos— porque una
+   * plantilla SÍ es una fila concreta, y el paso guarda una referencia a ella
+   * para leer su HTML del día en que se envíe.
+   */
+  plantillas: { value: string; label: string }[];
 };
 
 /**

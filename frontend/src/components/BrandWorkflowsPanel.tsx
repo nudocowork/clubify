@@ -10,7 +10,11 @@ import {
   type FiltrosCat,
   type OperadorCat,
 } from '@/components/flujos/disparadores';
-import { aplicarPlantilla } from '@/components/flujos/resumen';
+import { aplicarPlantilla, campoObligatorio, campoVisible } from '@/components/flujos/resumen';
+import { PruebaDeEnvio } from '@/components/flujos/PruebaDeEnvio';
+
+/** Raíz de las rutas de este constructor. La usan el catálogo y las pruebas. */
+const BASE = '/admin/workflows';
 
 // Constructor visual de Workflows de la MARCA (audiencia: sus negocios/tenants).
 // SMS al dueño por la subcuenta de Grow Business de la marca. Backend:
@@ -55,9 +59,14 @@ type CampoDeConfig = {
   def?: string | number;
   ayuda?: string;
   requerido?: boolean;
+  /** No se pinta cuando ESE otro campo del paso tiene valor (la plantilla tapa el cuerpo). */
+  ocultoSi?: string;
+  /** Obligatorio SALVO que ese otro campo tenga valor. */
+  requeridoSalvo?: string;
 };
 type Disparador = { key: string; label: string; grupo: string; latencia: 'minutos' | 'hora'; hint?: string; campos?: CampoDeConfig[]; filtros?: FiltrosCat };
-type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'rutas'; hint?: string; campos: CampoDeConfig[]; resumen?: string };
+/** `prueba` dice que el paso MANDA algo y por qué canal: con eso se dibuja «Enviar prueba». */
+type Paso = { key: string; label: string; grupo: string; icono: string; ramas?: 'siNo' | 'rutas'; hint?: string; campos: CampoDeConfig[]; resumen?: string; prueba?: 'sms' | 'email' };
 type Catalogo = {
   disparadores: Disparador[];
   pasos: Paso[];
@@ -215,7 +224,7 @@ export default function BrandWorkflowsPanel() {
   // el constructor cae al mínimo en vez de quedarse sin pasos que ofrecer.
   useEffect(() => {
     let vivo = true;
-    api('/admin/workflows/catalogo')
+    api(`${BASE}/catalogo`)
       .then((d: any) => {
         if (!vivo) return;
         if (d?.pasos?.length && d?.disparadores?.length) { setCat({ ...CATALOGO_MINIMO, ...d }); setCatDegradado(false); }
@@ -1119,6 +1128,9 @@ function resumen(def: Paso | null, node: WFNode): string {
   const partes: string[] = [];
   for (const campo of def.campos) {
     const v = c[campo.key];
+    // Un campo que la pantalla no enseña tampoco cuenta en la tarjeta: con una
+    // plantilla elegida, el cuerpo escrito antes ya no es lo que se manda.
+    if (!campoVisible(campo, c)) continue;
     if (campo.tipo === 'condiciones') {
       const n = Array.isArray(v) ? v.length : 0;
       partes.push(n ? `${n} condición${n === 1 ? '' : 'es'}` : 'Sin condiciones');
@@ -1128,7 +1140,11 @@ function resumen(def: Paso | null, node: WFNode): string {
     } else if (campo.tipo === 'cabeceras') {
       continue;
     } else if (campo.tipo === 'select') {
-      const op = campo.opciones?.find((o) => o.value === String(v ?? campo.def ?? ''));
+      const elegido = String(v ?? campo.def ?? '');
+      // Un desplegable SIN elegir no dice nada de lo que hace el paso, igual
+      // que un texto vacío: «Sin plantilla (escribo el cuerpo aquí)» ocuparía
+      // la tarjeta entera sin aportar.
+      const op = elegido ? campo.opciones?.find((o) => o.value === elegido) : null;
       if (op) partes.push(op.label);
     } else {
       const s = String(v ?? '').trim();
@@ -1143,7 +1159,7 @@ function resumen(def: Paso | null, node: WFNode): string {
 function faltaAlgo(def: Paso | null, node: WFNode): boolean {
   if (!def) return false;
   return def.campos.some((campo) => {
-    if (!campo.requerido) return false;
+    if (!campoObligatorio(campo, node.config)) return false;
     const v = node.config?.[campo.key];
     if (campo.tipo === 'condiciones' || campo.tipo === 'cabeceras' || campo.tipo === 'rutas') return !Array.isArray(v) || v.length === 0;
     return String(v ?? '').trim() === '';
@@ -1300,7 +1316,7 @@ function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
             Este paso no está en el catálogo que respondió el servidor. Puede ser de una versión más nueva del panel: no lo edites desde aquí o perderás su configuración.
           </p>
         )}
-        {(s.def?.campos ?? []).map((campo) => (
+        {(s.def?.campos ?? []).filter((campo) => campoVisible(campo, c)).map((campo) => (
           <CampoControl
             key={campo.key}
             campo={campo}
@@ -1311,6 +1327,10 @@ function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
             onNode={onNode}
           />
         ))}
+        {/* Probar el paso ANTES de publicarlo: manda lo que hay escrito ahora
+            al destino de prueba de la marca. Qué pasos lo enseñan lo dice el
+            catálogo (`prueba`), no una lista de tipos escrita aquí. */}
+        {s.def?.prueba && <PruebaDeEnvio canal={s.def.prueba} base={BASE} config={c} />}
         {s.def && s.def.campos.length === 0 && !s.hint && (
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-600">Este paso no necesita configuración.</p>
         )}
@@ -1399,7 +1419,9 @@ function CampoControl({ campo, valor, node, flujos, onChange, onNode }: {
 
   return (
     <div>
-      <Label>{campo.label}{campo.requerido && <span className="ml-1 text-rose-500" title="Obligatorio">*</span>}</Label>
+      {/* El asterisco mira si el campo es obligatorio AHORA: con una plantilla
+          elegida, el asunto deja de serlo (cae al de la plantilla). */}
+      <Label>{campo.label}{campoObligatorio(campo, node?.config) && <span className="ml-1 text-rose-500" title="Obligatorio">*</span>}</Label>
       {control}
       {campo.ayuda && <p className="mt-1 text-[11px] text-slate-400">{campo.ayuda}</p>}
     </div>

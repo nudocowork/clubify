@@ -11,6 +11,34 @@ type CampoParaResumen = {
 };
 
 /**
+ * Campos que dependen de OTRO campo del mismo paso.
+ *
+ * Nació con «Enviar correo»: al elegir una plantilla, el cuerpo escrito en el
+ * paso deja de mandarse y el asunto deja de ser obligatorio (cae al de la
+ * plantilla). Se resuelve con dos banderas genéricas del catálogo en vez de con
+ * un `if` por tipo de paso, que es lo que estas pantallas llevan años evitando.
+ */
+type CampoCondicionado = { key: string; requerido?: boolean; ocultoSi?: string; requeridoSalvo?: string };
+
+const tieneValor = (config: Record<string, any> | undefined, clave: string | undefined) =>
+  !!clave && String(config?.[clave] ?? '').trim() !== '';
+
+/** ¿Este campo se pinta, o lo tapa otro que ya está relleno? */
+export function campoVisible(campo: CampoCondicionado, config: Record<string, any> | undefined): boolean {
+  return !tieneValor(config, campo.ocultoSi);
+}
+
+/**
+ * ¿Falta rellenarlo AHORA MISMO? Un campo oculto nunca falta: marcar en rojo
+ * algo que la pantalla no enseña es la peor forma de decir «te falta algo».
+ */
+export function campoObligatorio(campo: CampoCondicionado, config: Record<string, any> | undefined): boolean {
+  if (!campo.requerido) return false;
+  if (!campoVisible(campo, config)) return false;
+  return !tieneValor(config, campo.requeridoSalvo);
+}
+
+/**
  * Rellena `{clave}` con el valor del campo (el texto de la opción en los
  * desplegables, o su valor por defecto si el paso no lo trae).
  *

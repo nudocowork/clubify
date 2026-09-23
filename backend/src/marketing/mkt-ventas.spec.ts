@@ -913,6 +913,7 @@ describe('el catálogo de ventas', () => {
       embudos: [{ value: 'Closers', label: 'Closers' }],
       etapas: [{ value: 'Propuesta', label: 'Propuesta' }],
       miembros: [{ value: 'u1', label: 'Pedro' }],
+      plantillas: [],
     });
     const crear = cat.pasos.find((p) => p.key === 'create_opportunity')!;
     expect(crear.campos.find((c) => c.key === 'embudo')?.opciones).toEqual([
@@ -933,6 +934,7 @@ describe('el catálogo de ventas', () => {
       embudos: [{ value: 'Solo de Sellea', label: 'Solo de Sellea' }],
       etapas: [],
       miembros: [],
+      plantillas: [],
     });
     const limpio = catalogoDeContactos();
     const crear = limpio.pasos.find((p) => p.key === 'create_opportunity')!;

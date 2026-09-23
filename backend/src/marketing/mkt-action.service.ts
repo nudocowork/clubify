@@ -57,6 +57,15 @@ export class MktActionService {
      * fantasma provocadas por nuestro propio aviso.
      */
     interno?: boolean;
+    /**
+     * Motivo por el que este envío NO se hace. Cuando viene, la fila nace
+     * `skipped` y no se llama al proveedor.
+     *
+     * Existe para el paso «Enviar correo» con una plantilla que ya no sirve
+     * (borrada, de otra marca, vacía): mandar el correo igual, sin cuerpo, es
+     * peor que no mandarlo — y sin fila el usuario no tendría dónde enterarse.
+     */
+    omitido?: string | null;
   }) {
     const action = await this.prisma.mktAction.create({
       data: {
@@ -66,7 +75,9 @@ export class MktActionService {
         whiteLabelId: input.whiteLabelId,
         nodeId: input.nodeId,
         channel: input.channel,
-        status: 'pending',
+        status: input.omitido ? 'skipped' : 'pending',
+        error: input.omitido ?? null,
+        completedAt: input.omitido ? new Date() : null,
         subject: input.subject ?? null,
         body: input.body,
         // payload CONGELA lo necesario para reenviar idéntico.
@@ -79,6 +90,7 @@ export class MktActionService {
         },
       },
     });
+    if (input.omitido) return action;
     return this.runOnce(action);
   }
 
