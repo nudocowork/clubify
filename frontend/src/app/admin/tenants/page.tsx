@@ -422,7 +422,14 @@ export default function TenantsPage() {
               <tr
                 key={tn.id}
                 onClick={() => canEnter && enterTenant(tn)}
+                // El color dice el ESTADO, no si la fila se puede abrir: el
+                // suspendido en rojo y el que está bien, limpio. Antes el
+                // activo salía teñido —era el único que llevaba el color del
+                // ratón encima— y el suspendido, en blanco: justo al revés de
+                // lo que la vista tiene que gritar (Javier, 2026-09-23).
                 className={`border-t border-line2 transition group ${
+                  tn.status === 'SUSPENDED' ? 'bg-bad-soft/40' : ''
+                } ${
                   canEnter
                     ? 'hover:bg-brand-soft/40 cursor-pointer'
                     : 'opacity-70'

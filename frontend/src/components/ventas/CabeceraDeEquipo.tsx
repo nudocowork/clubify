@@ -48,7 +48,10 @@ const PESTANAS = [
   { sufijo: '/conversaciones', etiqueta: 'Conversaciones' },
   { sufijo: '/contactos', etiqueta: 'Contactos' },
   { sufijo: '/crm', etiqueta: 'CRM' },
-  { sufijo: '/board', etiqueta: 'Leads' },
+  // «Leads» (el tablero) sale de las pestañas por decisión de Javier
+  // (2026-09-23): junto al CRM se leían como lo mismo. La PANTALLA sigue
+  // existiendo y su URL (`/board`) funciona —los leads se siguen repartiendo
+  // desde Banco y Contactos—; lo que se quita es la pestaña, no la función.
   { sufijo: '/seguimientos', etiqueta: 'Seguimientos' },
   { sufijo: '/clientes', etiqueta: 'Clientes' },
   { sufijo: '/colaboradores', etiqueta: 'Colaboradores' },
