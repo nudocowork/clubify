@@ -16,7 +16,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { MktEngineService } from './mkt-engine.service';
-import { catalogoDeContactos, MKT_OPERADORES } from './mkt-workflow.util';
+import { catalogoDeContactos, MKT_OPERADORES, type ListasDeLaMarca } from './mkt-workflow.util';
 import { disparadoresParaGuardar } from '../superadmin/brand-workflows/wf-filtros.util';
 
 /** `trigger` + `triggers` listos para la base, o un 400 que dice qué falla. */
@@ -126,8 +126,65 @@ export class MktWorkflowsController {
    * lanzaba nunca. Ahora hay una sola copia, la del backend.
    */
   @Get('catalogo')
-  async catalogo() {
-    return catalogoDeContactos();
+  async catalogo(@CurrentUser() user: AuthUser) {
+    return catalogoDeContactos(await this.listasDeVentas(await this.brandId(user)));
+  }
+
+  /**
+   * Los embudos, las etapas y los miembros de los equipos de ventas DE ESTA
+   * MARCA, para los desplegables de los pasos y disparadores de ventas.
+   *
+   * Los embudos y las etapas van por NOMBRE (ver `ListasDeLaMarca`): una marca
+   * puede tener varios equipos con su propia copia de «Closers», y el paso
+   * tiene que caer en el embudo del equipo DEL LEAD. Se agrupan por nombre y se
+   * dice entre paréntesis en cuántos equipos existe, para que quien configura
+   * entienda que no está eligiendo el tablero de uno concreto.
+   *
+   * Se parte de los EQUIPOS de la marca y no del `whiteLabelId` del embudo:
+   * esa columna es una desnormalización y los embudos de antes pueden tenerla
+   * vacía — filtrando por ella desaparecerían de la lista.
+   */
+  private async listasDeVentas(whiteLabelId: string): Promise<ListasDeLaMarca> {
+    const equipos = await this.prisma.salesTeam.findMany({
+      where: { whiteLabelId },
+      select: { id: true },
+    });
+    const vacio: ListasDeLaMarca = { embudos: [], etapas: [], miembros: [] };
+    if (!equipos.length) return vacio;
+    const salesTeamId = { in: equipos.map((t) => t.id) };
+    const [embudos, etapas, miembros] = await Promise.all([
+      this.prisma.salesPipeline.findMany({
+        where: { salesTeamId },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        select: { name: true },
+      }),
+      this.prisma.salesPipelineStage.findMany({
+        where: { salesTeamId },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        select: { name: true },
+      }),
+      this.prisma.salesTeamMember.findMany({
+        where: { teamId: salesTeamId, isActive: true },
+        select: { userId: true, user: { select: { fullName: true, email: true } } },
+      }),
+    ]);
+    const porNombre = (filas: { name: string }[]) => {
+      const cuenta = new Map<string, number>();
+      for (const f of filas) cuenta.set(f.name, (cuenta.get(f.name) ?? 0) + 1);
+      return [...cuenta.entries()].map(([name, n]) => ({
+        value: name,
+        label: n > 1 ? `${name} (en ${n} equipos)` : name,
+      }));
+    };
+    const personas = new Map<string, string>();
+    for (const m of miembros) {
+      personas.set(m.userId, m.user?.fullName?.trim() || m.user?.email || 'Sin nombre');
+    }
+    return {
+      embudos: porNombre(embudos),
+      etapas: porNombre(etapas),
+      miembros: [...personas.entries()].map(([value, label]) => ({ value, label })),
+    };
   }
 
   @Get(':id')

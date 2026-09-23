@@ -44,7 +44,8 @@ type Opcion = { value: string; label: string };
 type CampoDeConfig = {
   key: string;
   label: string;
-  tipo: 'texto' | 'textarea' | 'numero' | 'select' | 'fechaHora' | 'condiciones' | 'casos' | 'cabeceras' | 'flujo';
+  tipo: 'texto' | 'textarea' | 'numero' | 'select' | 'fechaHora' | 'condiciones' | 'casos' | 'cabeceras' | 'flujo' | 'paso';
+  /** Las de los embudos, etapas y miembros ya vienen completadas por el servidor. */
   opciones?: (Opcion & { singular?: string })[];
   def?: string | number;
   ayuda?: string;
@@ -93,6 +94,7 @@ const COLOR_GRUPO: Record<string, { chip: string; color: string }> = {
   Espera: { chip: '#ede9fe', color: '#7c3aed' },
   'Lógica': { chip: '#e0e7ff', color: '#4f46e5' },
   Contacto: { chip: '#fae8ff', color: '#a21caf' },
+  Ventas: { chip: '#dcfce7', color: '#15803d' },
   'Integración': { chip: '#f1f5f9', color: '#475569' },
   Salida: { chip: '#fee2e2', color: '#b91c1c' },
 };
@@ -503,6 +505,7 @@ function Editor({ wf, otros, onBack, onDeleted }: { wf: WF; otros: WF[]; onBack:
         <NodeConfig
           node={nodes[editNode]}
           flujos={otros}
+          nodos={nodes}
           onClose={() => setEditNode(null)}
           onPatch={(cfg) => patchNode(editNode, cfg)}
           onNode={(patch) => patchNodeRaw(editNode, patch)}
@@ -607,6 +610,10 @@ function resumen(def: Paso | null, node: WFNode): string {
       partes.push(rs.length ? rs.map((r: any) => r.label || r.id).join(' / ') : 'Sin casos');
     } else if (campo.tipo === 'cabeceras') {
       continue;
+    } else if (campo.tipo === 'paso') {
+      // El id del paso («n3f9a1») no le dice nada a nadie y aquí no está el
+      // grafo para traducirlo: basta con decir si tiene destino o no.
+      partes.push(String(v ?? '').trim() ? 'a otro paso' : 'sin destino');
     } else if (campo.tipo === 'select') {
       const op = campo.opciones?.find((o) => o.value === String(v ?? campo.def ?? ''));
       if (op) partes.push(op.label);
@@ -659,9 +666,11 @@ function Branch({ label, bg, color, children }: any) {
   );
 }
 
-function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
+function NodeConfig({ node, flujos, nodos, onClose, onPatch, onNode }: {
   node: WFNode;
   flujos: WF[];
+  /** Todos los pasos del flujo: los necesita «Ir a un paso». */
+  nodos: Record<string, WFNode>;
   onClose: () => void;
   onPatch: (cfg: any) => void;
   onNode: (patch: Partial<WFNode>) => void;
@@ -689,6 +698,7 @@ function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
               valor={c[campo.key]}
               node={node}
               flujos={flujos}
+              nodos={nodos}
               onChange={(v) => onPatch({ [campo.key]: v })}
               onNode={onNode}
             />
@@ -702,13 +712,14 @@ function NodeConfig({ node, flujos, onClose, onPatch, onNode }: {
 }
 
 // ── Un campo del catálogo → su control ─────────────────────────────────────
-// `condiciones`, `casos`, `cabeceras` y `flujo` tienen editor propio; el resto
-// son controles normales.
-function CampoControl({ campo, valor, node, flujos, onChange, onNode }: {
+// `condiciones`, `casos`, `cabeceras`, `flujo` y `paso` tienen editor propio;
+// el resto son controles normales.
+function CampoControl({ campo, valor, node, flujos, nodos, onChange, onNode }: {
   campo: CampoDeConfig;
   valor: any;
   node?: WFNode;
   flujos?: WF[];
+  nodos?: Record<string, WFNode>;
   onChange: (v: any) => void;
   onNode?: (patch: Partial<WFNode>) => void;
 }) {
@@ -750,6 +761,9 @@ function CampoControl({ campo, valor, node, flujos, onChange, onNode }: {
       break;
     case 'flujo':
       control = <FlujoSelect flujos={flujos ?? []} valor={texto} onChange={onChange} />;
+      break;
+    case 'paso':
+      control = <PasoSelect nodos={nodos ?? {}} actual={node?.id} valor={texto} onChange={onChange} />;
       break;
     default:
       control = <input ref={ref} value={texto} onChange={(e) => onChange(e.target.value)} className={inp} />;
@@ -859,6 +873,36 @@ function FlujoSelect({ flujos, valor, onChange }: { flujos: WF[]; valor: string;
         {publicados.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
       </select>
       {publicados.length === 0 && <p className="mt-1 text-[11px] text-amber-700">No hay ningún otro flujo publicado de esta marca al que mandar el contacto.</p>}
+    </>
+  );
+}
+
+/**
+ * El paso destino de «Ir a un paso de este flujo».
+ *
+ * Se ofrecen los pasos del flujo MENOS el propio «Ir a»: apuntarse a sí mismo
+ * es un bucle cerrado que el motor corta a las 50 vueltas, pero mejor no
+ * ofrecerlo siquiera. Cada opción lleva el icono y el tipo del paso porque los
+ * ids («n3f9a1») no le dicen nada a nadie.
+ */
+function PasoSelect({ nodos, actual, valor, onChange }: {
+  nodos: Record<string, WFNode>;
+  actual?: string;
+  valor: string;
+  onChange: (v: string) => void;
+}) {
+  const { cat } = useCatalogo();
+  const destinos = Object.values(nodos).filter((n) => n.id !== actual);
+  return (
+    <>
+      <select value={valor} onChange={(e) => onChange(e.target.value)} className={inp}>
+        <option value="">— Elige un paso —</option>
+        {destinos.map((n) => {
+          const d = metaPaso(cat, n.type);
+          return <option key={n.id} value={n.id}>{d.icon} {d.label} · {resumen(d.def, n).slice(0, 40)}</option>;
+        })}
+      </select>
+      {destinos.length === 0 && <p className="mt-1 text-[11px] text-amber-700">Este flujo todavía no tiene otro paso al que ir.</p>}
     </>
   );
 }

@@ -180,7 +180,10 @@ export function porGrupo<T extends { grupo: string }>(items: T[]): { grupo: stri
 /** Una línea bajo el nombre del disparador en el lienzo. */
 export function resumenDeDisparador<C extends CampoBase>(d: Disparador, def: DisparadorCat<C> | null | undefined): string {
   const partes: string[] = [];
-  const etiqueta = String(d.tag ?? '').trim();
+  // El ajuste que distingue a este disparador de otro del mismo tipo (la misma
+  // regla que `etiquetaDeDisparador` en el backend): sin esto, dos tarjetas de
+  // «Estado de la cita cambió» se ven idénticas en el lienzo.
+  const etiqueta = String(d.tag ?? d.estado ?? d.etapa ?? d.embudo ?? '').trim();
   if (etiqueta) partes.push(`«${etiqueta}»`);
   const n = d.filters?.length ?? 0;
   if (n) partes.push(`${n} filtro${n === 1 ? '' : 's'}`);

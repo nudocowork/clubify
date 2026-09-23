@@ -68,9 +68,20 @@ export type CampoDeConfig = {
     | 'condiciones'
     | 'casos'
     | 'cabeceras'
-    | 'flujo';
+    | 'flujo'
+    | 'paso';
   /** `singular` es la forma para «1» en el resumen de la tarjeta: «1 día», no «1 días». */
   opciones?: { value: string; label: string; singular?: string }[];
+  /**
+   * De qué lista de la MARCA se completan las opciones al servir el catálogo.
+   *
+   * Los embudos, las etapas y los miembros son datos de los equipos de ventas
+   * de cada marca, no una lista fija: van en el catálogo —que ya es por
+   * marca— y no en la pantalla, porque una segunda copia en el front es
+   * exactamente cómo se desincronizó el catálogo la vez anterior. Lo que
+   * declare `opciones` se queda delante (el «— cualquiera —» de cabecera).
+   */
+  catalogo?: 'embudos' | 'etapas' | 'miembros';
   def?: string | number;
   ayuda?: string;
   /** Sin esto el paso no se puede guardar. */
@@ -108,7 +119,7 @@ export type DisparadorDeContactos = {
 export type PasoDeContactos = {
   key: string;
   label: string;
-  grupo: 'Mensaje' | 'Espera' | 'Lógica' | 'Contacto' | 'Integración' | 'Salida';
+  grupo: 'Mensaje' | 'Espera' | 'Lógica' | 'Contacto' | 'Ventas' | 'Integración' | 'Salida';
   icono: string;
   /** Cómo se dibuja debajo: una salida, dos ramas, o una por caso. */
   ramas?: 'siNo' | 'casos';
@@ -126,10 +137,10 @@ export type PasoDeContactos = {
 };
 
 const UNIDADES = [
-  { value: 'minutes', label: 'minutos' },
-  { value: 'hours', label: 'horas' },
-  { value: 'days', label: 'días' },
-  { value: 'weeks', label: 'semanas' },
+  { value: 'minutes', label: 'minutos', singular: 'minuto' },
+  { value: 'hours', label: 'horas', singular: 'hora' },
+  { value: 'days', label: 'días', singular: 'día' },
+  { value: 'weeks', label: 'semanas', singular: 'semana' },
 ];
 
 // Las de «Esperar respuesta». Sin semanas: una respuesta que tarda más de unos
@@ -147,7 +158,7 @@ const UNIDADES_DE_ESPERA = [
  */
 export const ESPERA_DE_RESPUESTA_POR_DEFECTO = { amount: 3, unit: 'days' } as const;
 
-const MS_POR_UNIDAD: Record<string, number> = {
+export const MS_POR_UNIDAD: Record<string, number> = {
   minutes: 60000,
   hours: 3600000,
   days: 86400000,
@@ -175,6 +186,86 @@ const CAMPO_ETIQUETA: CampoDeConfig = {
   label: 'Etiqueta',
   tipo: 'texto',
   ayuda: 'Déjalo vacío para que valga cualquier etiqueta.',
+};
+
+// ── Equipos de ventas: los valores que existen de verdad ───────────────────
+
+/**
+ * Los estados de cita que se pueden escuchar.
+ *
+ * Son los de `SalesMeeting.status` MENOS `PENDIENTE`: una cita nace pendiente,
+ * así que escuchar ese estado sería escuchar «cita agendada» —que ya tiene su
+ * propio disparador— dos veces.
+ *
+ * NO hay «reagendada»: Clubify PRO no tiene ese estado (lo dicen
+ * `sales-teams/agenda-del-dia.ts` y `configuracion-de-equipo.ts`). Aquí
+ * reagendar es mover la cita de hora, y la cita vuelve a `PENDIENTE`.
+ */
+export const ESTADOS_DE_CITA: { value: string; label: string }[] = [
+  { value: 'CONFIRMADA', label: 'Confirmada' },
+  { value: 'REALIZADA', label: 'Realizada' },
+  { value: 'NO_ASISTIO', label: 'No asistió' },
+  { value: 'CANCELADA', label: 'Cancelada' },
+];
+
+/**
+ * Desde qué estados una cita todavía se puede confirmar o cancelar.
+ *
+ * `REALIZADA` y `NO_ASISTIO` son un DESENLACE: reescribirlos desde un flujo
+ * borraría lo que pasó de verdad en la reunión. En TeamClubify eso escondió 50
+ * plantones —aparecían 8 de ~58— porque un paso «cancelar cita» corría 15 h
+ * después del plantón y volteaba el `no_show` a `cancelada`.
+ */
+export const ESTADOS_DE_CITA_VIVA = ['PENDIENTE', 'CONFIRMADA'];
+
+/** Los cuatro estados de una oportunidad, para leerlos (filtros y {{merge}}). */
+export const ESTADOS_DE_OPORTUNIDAD: { value: string; label: string }[] = [
+  { value: 'abierta', label: 'Abierta' },
+  { value: 'ganada', label: 'Ganada' },
+  { value: 'perdida', label: 'Perdida' },
+  { value: 'abandonada', label: 'Abandonada' },
+];
+
+/**
+ * Los estados que un flujo puede ESCRIBIR en una oportunidad. Falta «ganada» a
+ * propósito.
+ *
+ * Ganar una oportunidad en el CRM no es escribir una palabra: mueve el lead a
+ * la columna de clientes, le pone el valor de la venta y dispara
+ * `sales_lead_won` (`crm-de-equipo.service.ts`, y si algo de eso falla se
+ * deshace el cambio). Ese camino vive en el módulo de ventas y desde aquí no se
+ * puede llamar sin dejar los dos módulos dependiendo el uno del otro. Escribir
+ * «ganada» a pelo dejaría la oportunidad ganada sin venta y sin implementación
+ * — el bug que ese archivo ya tuvo una vez.
+ */
+export const ESTADOS_DE_OPORTUNIDAD_DEL_FLUJO: { value: string; label: string }[] = [
+  { value: 'abierta', label: 'Abierta' },
+  { value: 'perdida', label: 'Perdida' },
+  { value: 'abandonada', label: 'Abandonada' },
+];
+
+const CUALQUIERA = { value: '', label: '— cualquiera —' };
+
+/** El embudo por el que filtra un disparador. Vacío = cualquiera. */
+const FILTRO_EMBUDO: CampoDeConfig = {
+  key: 'embudo',
+  label: 'Solo de este embudo',
+  tipo: 'select',
+  def: '',
+  opciones: [CUALQUIERA],
+  catalogo: 'embudos',
+  ayuda: 'Se compara por NOMBRE: vale para el embudo con ese nombre de cualquier equipo de la marca.',
+};
+
+/** La etapa por la que filtra un disparador. Vacío = cualquiera. */
+const FILTRO_ETAPA: CampoDeConfig = {
+  key: 'etapa',
+  label: 'Solo de esta etapa',
+  tipo: 'select',
+  def: '',
+  opciones: [CUALQUIERA],
+  catalogo: 'etapas',
+  ayuda: 'También por nombre. Déjalo en «cualquiera» para que valga toda etapa del embudo.',
 };
 
 // Disparadores contact-based. `manual` inscribe desde una lista.
@@ -206,6 +297,13 @@ export const MKT_TRIGGERS: DisparadorDeContactos[] = [
     campos: [CAMPO_ETIQUETA],
   },
   { key: 'email_reply', label: 'Responde / interactúa', grupo: 'Contacto', latencia: 'minutos', hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
+  {
+    key: 'contact_updated',
+    label: 'Contacto actualizado',
+    grupo: 'Contacto',
+    latencia: 'minutos',
+    hint: 'Cuando cambia un dato de la ficha: lo escribe un paso «Actualizar un dato», lo rellena la sincronización de negocios o vuelve un contacto que estaba dado de baja. Poner una etiqueta NO cuenta: para eso está «Etiqueta agregada».',
+  },
 
   // ── Equipos de ventas ──
   // Cada evento es su propio disparador en vez de uno solo con un filtro,
@@ -217,6 +315,59 @@ export const MKT_TRIGGERS: DisparadorDeContactos[] = [
   { key: 'sales_lead_lost', label: 'Lead perdido', grupo: 'Ventas', latencia: 'minutos', hint: 'Al pasar a la columna de no interesados.' },
   { key: 'sales_meeting_booked', label: 'Cita agendada', grupo: 'Ventas', latencia: 'minutos', hint: 'Cuando queda una cita, la ponga el vendedor o el propio prospecto.' },
   { key: 'sales_meeting_no_show', label: 'No asistió a la cita', grupo: 'Ventas', latencia: 'minutos', hint: 'Cuando el vendedor marca la cita como «no asistió».' },
+  {
+    key: 'sales_meeting_status',
+    label: 'Estado de la cita cambió',
+    grupo: 'Ventas',
+    latencia: 'hora',
+    hint: 'Confirmada, realizada, no asistió o cancelada. Se revisa cada hora y entra UNA vez por cada estado al que llega la cita: si vuelve a un estado por el que ya pasó, no se repite.',
+    campos: [
+      {
+        key: 'estado',
+        label: 'Solo cuando pasa a',
+        tipo: 'select',
+        def: '',
+        opciones: [CUALQUIERA, ...ESTADOS_DE_CITA],
+        ayuda: 'Una cita recién agendada no entra por aquí: para eso está «Cita agendada».',
+      },
+    ],
+  },
+  {
+    key: 'sales_opportunity_created',
+    label: 'Oportunidad creada',
+    grupo: 'Ventas',
+    latencia: 'hora',
+    hint: 'Cuando se abre una oportunidad en el CRM del equipo, la abra una persona o un flujo.',
+    campos: [FILTRO_EMBUDO, FILTRO_ETAPA],
+  },
+  {
+    key: 'sales_opportunity_stage_changed',
+    label: 'Oportunidad cambió de etapa',
+    grupo: 'Ventas',
+    latencia: 'hora',
+    hint: 'Al mover la tarjeta de columna. La etapa con la que NACE la oportunidad no cuenta como cambio: eso es «Oportunidad creada».',
+    campos: [FILTRO_EMBUDO, FILTRO_ETAPA],
+  },
+  {
+    key: 'sales_opportunity_status',
+    label: 'Oportunidad ganada o perdida',
+    grupo: 'Ventas',
+    latencia: 'hora',
+    hint: 'Cuando la oportunidad se cierra: ganada, perdida o abandonada.',
+    campos: [
+      FILTRO_EMBUDO,
+      {
+        key: 'estado',
+        label: 'Solo cuando queda',
+        tipo: 'select',
+        def: '',
+        opciones: [
+          CUALQUIERA,
+          ...ESTADOS_DE_OPORTUNIDAD.filter((e) => e.value !== 'abierta'),
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -316,6 +467,51 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
     ],
     resumen: 'Espera respuesta · {amount} {unit}',
   },
+  {
+    key: 'wait_appointment',
+    label: 'Esperar respecto a la cita',
+    grupo: 'Espera',
+    icono: '📅',
+    hint: 'Espera hasta X antes o después de la próxima cita del contacto con el equipo de ventas. Sirve para el recordatorio de la víspera y para el seguimiento del día después.',
+    campos: [
+      {
+        key: 'direction',
+        label: 'Cuándo',
+        tipo: 'select',
+        def: 'before',
+        opciones: [
+          { value: 'before', label: 'antes de la cita' },
+          { value: 'after', label: 'después de la cita' },
+        ],
+      },
+      { key: 'amount', label: 'Cuánto', tipo: 'numero', def: 1 },
+      { key: 'unit', label: 'Unidad', tipo: 'select', def: 'hours', opciones: UNIDADES },
+      {
+        key: 'sinCita',
+        label: 'Si todavía no tiene cita',
+        tipo: 'select',
+        def: 'esperar',
+        opciones: [
+          { value: 'esperar', label: 'esperar a que agende (revisa cada 6 horas)' },
+          { value: 'seguir', label: 'seguir el flujo igual' },
+        ],
+        ayuda: 'Con «seguir», los mensajes que vengan detrás salen TODOS de golpe: el contacto aún no tiene reunión de la que hablar.',
+      },
+      {
+        key: 'siYaPaso',
+        label: 'Si ese momento ya pasó',
+        tipo: 'select',
+        def: 'auto',
+        opciones: [
+          { value: 'auto', label: 'lo sensato (antes: sacarlo · después: seguir)' },
+          { value: 'seguir', label: 'seguir el flujo (el mensaje sale tarde)' },
+          { value: 'salir', label: 'sacarlo del flujo' },
+        ],
+        ayuda: 'Pasa cuando el contacto entra al flujo con la cita casi encima: el recordatorio de «24 horas antes» ya no tiene sentido.',
+      },
+    ],
+    resumen: '{amount} {unit} {direction}',
+  },
 
   // ── Lógica ──
   {
@@ -366,6 +562,22 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
       },
     ],
   },
+  {
+    key: 'goto_node',
+    label: 'Ir a un paso de este flujo',
+    grupo: 'Lógica',
+    icono: '↪️',
+    hint: 'Manda al contacto a otro paso de ESTE mismo flujo. Con una espera de por medio sirve para insistir; sin ella, para juntar dos ramas en un solo final.',
+    campos: [
+      {
+        key: 'paso',
+        label: 'Paso destino',
+        tipo: 'paso',
+        requerido: true,
+        ayuda: 'Sin destino, el contacto termina el flujo aquí.',
+      },
+    ],
+  },
 
   // ── El contacto ──
   {
@@ -394,6 +606,129 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
       { key: 'campo', label: 'Dato', tipo: 'select', def: 'name', opciones: MKT_CAMPOS_EDITABLES, requerido: true },
       { key: 'valor', label: 'Nuevo valor', tipo: 'texto', requerido: true, ayuda: 'Admite {{merge}}. Si queda vacío no se escribe nada: un dato no se borra sin querer.' },
     ],
+  },
+
+  // ── Equipos de ventas ──
+  // Todos estos pasos trabajan sobre el LEAD del contacto en un equipo de ESTA
+  // marca (`SalesLead.mktContactId`). Un contacto que no es lead de nadie —la
+  // mayoría de una lista de correo— no tiene sobre qué crear una tarea ni una
+  // oportunidad: el paso lo dice en el registro y el flujo sigue.
+  {
+    key: 'create_task',
+    label: 'Crear tarea',
+    grupo: 'Ventas',
+    icono: '✅',
+    hint: 'Una tarea del CRM del equipo, sobre el lead de este contacto. Aparece en «Tareas» del equipo.',
+    campos: [
+      {
+        key: 'titulo',
+        label: 'Acción',
+        tipo: 'texto',
+        requerido: true,
+        ayuda: 'Un título corto, como en el CRM: «Llamar», «Seguimiento». Admite {{merge}}.',
+      },
+      { key: 'detalle', label: 'Qué hay que hacer', tipo: 'textarea', ayuda: 'El título solo no dice nada dentro de un mes. Admite {{merge}}.' },
+      {
+        key: 'asignarA',
+        label: 'Para quién',
+        tipo: 'select',
+        def: '',
+        opciones: [{ value: '', label: 'Quien lleva el lead' }],
+        catalogo: 'miembros',
+        ayuda: 'Si la persona elegida ya no está en el equipo del lead, la tarea queda para quien lo lleva.',
+      },
+      {
+        key: 'vence',
+        label: 'Vence en (días)',
+        tipo: 'numero',
+        def: 1,
+        ayuda: 'Días desde hoy, en hora de Bogotá. 0 = hoy mismo.',
+      },
+    ],
+    // Sin `{vence}` en la plantilla: «vence hoy» es un 0, y un 0 hace que el
+    // resumen tire de los valores por defecto del catálogo y enseñe una tarjeta
+    // que no dice lo que el paso hace (ver `aplicarPlantilla`).
+    resumen: 'Tarea «{titulo}»',
+  },
+  {
+    key: 'create_opportunity',
+    label: 'Crear oportunidad',
+    grupo: 'Ventas',
+    icono: '💼',
+    hint: 'Abre una oportunidad en el CRM del equipo del lead. Si ya tiene una ABIERTA en ese embudo, la MUEVE a la etapa elegida en vez de crear otra.',
+    campos: [
+      {
+        key: 'embudo',
+        label: 'Embudo',
+        tipo: 'select',
+        def: '',
+        opciones: [{ value: '', label: 'El primero del equipo' }],
+        catalogo: 'embudos',
+        ayuda: 'Por nombre: la oportunidad nace en el embudo así llamado DEL EQUIPO DEL LEAD, no en el de otro equipo.',
+      },
+      {
+        key: 'etapa',
+        label: 'Etapa',
+        tipo: 'select',
+        def: '',
+        opciones: [{ value: '', label: 'La primera del embudo' }],
+        catalogo: 'etapas',
+      },
+      { key: 'nombre', label: 'Nombre de la oportunidad', tipo: 'texto', ayuda: 'Vacío = el nombre del lead. Admite {{merge}}.' },
+      { key: 'valor', label: 'Valor', tipo: 'numero', def: 0 },
+    ],
+    resumen: 'Oportunidad en {embudo} · {etapa}',
+  },
+  {
+    key: 'update_opportunity',
+    label: 'Actualizar oportunidad',
+    grupo: 'Ventas',
+    icono: '📈',
+    hint: 'Mueve de etapa, cambia el valor o cierra la oportunidad más reciente del lead. Si no tiene ninguna, no hace nada: para crearla está el paso de arriba.',
+    campos: [
+      {
+        key: 'embudo',
+        label: 'De este embudo',
+        tipo: 'select',
+        def: '',
+        opciones: [{ value: '', label: 'Cualquiera (la más reciente)' }],
+        catalogo: 'embudos',
+      },
+      {
+        key: 'etapa',
+        label: 'Moverla a',
+        tipo: 'select',
+        def: '',
+        opciones: [{ value: '', label: 'Dejarla donde está' }],
+        catalogo: 'etapas',
+        ayuda: 'La etapa tiene que existir en el embudo de la oportunidad; si no, no se mueve (una etapa de otro embudo la dejaría fuera de todas las columnas).',
+      },
+      {
+        key: 'estado',
+        label: 'Dejarla como',
+        tipo: 'select',
+        def: '',
+        opciones: [{ value: '', label: 'Sin cambiar' }, ...ESTADOS_DE_OPORTUNIDAD_DEL_FLUJO],
+        ayuda: 'No se puede marcar «ganada» desde un flujo: ganar mueve el lead a clientes y registra la venta, y eso lo hace el CRM.',
+      },
+      { key: 'valor', label: 'Valor', tipo: 'texto', ayuda: 'Vacío = no se toca.' },
+    ],
+  },
+  {
+    key: 'meeting_confirm',
+    label: 'Confirmar cita',
+    grupo: 'Ventas',
+    icono: '🟢',
+    hint: 'Marca como confirmada la próxima cita viva del contacto. Es lo que se pone cuando el cliente contesta «ahí estaré»: el Banco del equipo la ve en verde.',
+    campos: [],
+  },
+  {
+    key: 'meeting_cancel',
+    label: 'Cancelar cita',
+    grupo: 'Ventas',
+    icono: '🔴',
+    hint: 'Cancela la próxima cita viva del contacto. Una cita ya realizada o marcada como plantón NO se toca. El evento de Google Calendar no se borra: se cancela en la agenda del equipo.',
+    campos: [],
   },
 
   // ── Integración ──
@@ -430,6 +765,28 @@ export const MKT_NODE_TYPES: PasoDeContactos[] = [
   },
 
   // ── Salida ──
+  {
+    key: 'remove_from_workflows',
+    label: 'Quitar de otros flujos',
+    grupo: 'Salida',
+    icono: '🚫',
+    hint: 'Saca al contacto de las inscripciones que tenga en marcha. Es lo que se pone cuando alguien compra y hay que callar de golpe todas las secuencias de venta.',
+    campos: [
+      {
+        key: 'modo',
+        label: 'De cuáles',
+        tipo: 'select',
+        def: 'otros',
+        opciones: [
+          { value: 'otros', label: 'de todos menos de este' },
+          { value: 'todos', label: 'de todos, incluido este' },
+          { value: 'uno', label: 'de uno en concreto' },
+        ],
+      },
+      { key: 'workflowId', label: 'Flujo del que sacarlo', tipo: 'flujo', ayuda: 'Solo se usa con «de uno en concreto».' },
+    ],
+    resumen: 'Quitar {modo}',
+  },
   { key: 'end', label: 'Terminar el flujo', grupo: 'Salida', icono: '🚪', hint: 'Saca al contacto del flujo aquí mismo.', campos: [] },
 ];
 
@@ -448,6 +805,12 @@ export const MKT_FIELDS: { key: string; label: string }[] = [
   { key: 'etapa', label: 'Columna del tablero (ventas)' },
   { key: 'equipo', label: 'Equipo de ventas' },
   { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
+  { key: 'campo', label: 'Dato que cambió' },
+  { key: 'cita_estado', label: 'Estado de la cita' },
+  { key: 'embudo', label: 'Embudo (CRM)' },
+  { key: 'etapa_oportunidad', label: 'Etapa de la oportunidad' },
+  { key: 'estado_oportunidad', label: 'Estado de la oportunidad' },
+  { key: 'valor_oportunidad', label: 'Valor de la oportunidad' },
 ];
 
 export const MKT_MERGE_FIELDS: { key: string; label: string }[] = [
@@ -460,6 +823,16 @@ export const MKT_MERGE_FIELDS: { key: string; label: string }[] = [
   { key: 'etapa', label: 'Columna del tablero (ventas)' },
   { key: 'equipo', label: 'Equipo de ventas' },
   { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
+  // Solo traen valor cuando entró por el disparador que los pone. En los demás
+  // quedan VACÍOS, nunca con un relleno inventado: un correo que dice «tu cita
+  // del » es raro, pero uno que dice una fecha falsa hace perder una reunión.
+  { key: 'cita_fecha', label: 'Fecha de la cita' },
+  { key: 'cita_hora', label: 'Hora de la cita' },
+  { key: 'cita_estado', label: 'Estado de la cita' },
+  { key: 'embudo', label: 'Embudo (CRM)' },
+  { key: 'etapa_oportunidad', label: 'Etapa de la oportunidad' },
+  { key: 'estado_oportunidad', label: 'Estado de la oportunidad' },
+  { key: 'valor_oportunidad', label: 'Valor de la oportunidad' },
 ];
 
 /** Los operadores del constructor de contactos: los 12, etiquetas incluidas. */
@@ -503,14 +876,79 @@ export function filtrosDelDisparador(key: string): FiltrosDelDisparador {
   if (key === 'sales_meeting_booked' || key === 'sales_meeting_no_show') {
     return { campos: [campoDe('equipo'), campoDe('vendedor'), ...CAMPOS_DEL_CONTACTO], operadores, nuevo: { field: 'equipo', op: 'eq' } };
   }
+  if (key === 'sales_meeting_status') {
+    return {
+      campos: [campoDe('cita_estado'), campoDe('equipo'), campoDe('vendedor'), ...CAMPOS_DEL_CONTACTO],
+      operadores,
+      nuevo: { field: 'cita_estado', op: 'eq' },
+    };
+  }
+  if (key.startsWith('sales_opportunity_')) {
+    return {
+      campos: [
+        campoDe('embudo'),
+        campoDe('etapa_oportunidad'),
+        campoDe('estado_oportunidad'),
+        campoDe('valor_oportunidad'),
+        campoDe('equipo'),
+        campoDe('vendedor'),
+        ...CAMPOS_DEL_CONTACTO,
+      ],
+      operadores,
+      // Lo más útil de una oportunidad es cuánto vale: «mayor que X» separa la
+      // secuencia del cliente grande de la del pequeño.
+      nuevo: { field: 'valor_oportunidad', op: 'gt' },
+    };
+  }
+  if (key === 'contact_updated') {
+    return {
+      campos: [campoDe('campo'), ...CAMPOS_DEL_CONTACTO],
+      operadores,
+      nuevo: { field: 'campo', op: 'contains' },
+    };
+  }
   return { campos: CAMPOS_DEL_CONTACTO, operadores, nuevo: { field: 'tags', op: 'has_tag' } };
 }
 
+/**
+ * Las listas de la MARCA que completan los desplegables del catálogo: los
+ * embudos, las etapas y los miembros de sus equipos de ventas.
+ *
+ * Van por NOMBRE y no por id a propósito. Una marca puede tener varios equipos,
+ * cada uno con su copia de «Closers»; el flujo es de la marca, no de un equipo.
+ * Guardando el nombre, el paso cae en el embudo así llamado DEL EQUIPO DEL
+ * LEAD; guardando un id, todo el mundo acabaría en el tablero de un solo equipo
+ * —o en ninguno—. Los miembros sí van por id: una persona es una persona.
+ */
+export type ListasDeLaMarca = {
+  embudos: { value: string; label: string }[];
+  etapas: { value: string; label: string }[];
+  miembros: { value: string; label: string }[];
+};
+
+/**
+ * Completa los desplegables que dependen de la marca. Devuelve copias: el
+ * catálogo del módulo es una constante compartida entre peticiones y escribirle
+ * las opciones de una marca se las enseñaría a la siguiente.
+ */
+function conListas<T extends { campos?: CampoDeConfig[] }>(items: T[], listas: ListasDeLaMarca | undefined): T[] {
+  if (!listas) return items;
+  return items.map((it) => {
+    if (!it.campos?.some((c) => c.catalogo)) return it;
+    return {
+      ...it,
+      campos: it.campos.map((c) =>
+        c.catalogo ? { ...c, opciones: [...(c.opciones ?? []), ...listas[c.catalogo]] } : c,
+      ),
+    };
+  });
+}
+
 /** Lo que la pantalla necesita para dibujarse entera. Una sola copia, esta. */
-export function catalogoDeContactos() {
+export function catalogoDeContactos(listas?: ListasDeLaMarca) {
   return {
-    disparadores: MKT_TRIGGERS.map((d) => ({ ...d, filtros: filtrosDelDisparador(d.key) })),
-    pasos: MKT_NODE_TYPES,
+    disparadores: conListas(MKT_TRIGGERS, listas).map((d) => ({ ...d, filtros: filtrosDelDisparador(d.key) })),
+    pasos: conListas(MKT_NODE_TYPES, listas),
     campos: MKT_FIELDS,
     merge: MKT_MERGE_FIELDS,
     operadores: MKT_OPERADORES,
@@ -556,6 +994,19 @@ export function casoQueCasa(texto: string, casos: WFCaso[] | undefined): string 
  * esto porque solo acota UNA pasada.
  */
 export const MKT_MAX_SALTOS = 10;
+
+/**
+ * Tope de saltos DENTRO del mismo flujo («Ir a un paso»).
+ *
+ * El tope de 60 nodos del motor no cubre esto: solo acota una pasada, y un «Ir
+ * a» con una espera de por medio vuelve en la pasada siguiente. Sin este
+ * contador, «espera un día y vuelve a intentarlo» es un flujo que escribe al
+ * contacto todos los días para siempre.
+ *
+ * 50 y no 10: insistir durante un mes es un diseño legítimo; cincuenta vueltas
+ * ya es un bucle que nadie quiso.
+ */
+export const MKT_MAX_SALTOS_DE_PASO = 50;
 
 /** Reemplaza {{campo}} por su valor del contexto (vacío si no existe). */
 export function resolveMerge(text: string, ctx: Record<string, string>): string {

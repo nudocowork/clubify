@@ -206,7 +206,11 @@ export function etiquetaDeDisparador(t: WFTrigger, indice: number, catalogo: { k
   const nombre = String(t.name ?? '').trim();
   if (nombre) return nombre;
   const base = catalogo.find((d) => d.key === t.type)?.label ?? t.type;
-  const detalle = String(t.tag ?? '').trim();
+  // El ajuste que distingue a este disparador de otro del mismo tipo: la
+  // etiqueta, el estado de la cita, la etapa o el embudo. Sin esto, dos
+  // «Estado de la cita cambió» —uno para cancelada y otro para confirmada— se
+  // llaman igual en el registro, y no hay forma de saber por cuál entró nadie.
+  const detalle = String(t.tag ?? t.estado ?? t.etapa ?? t.embudo ?? '').trim();
   return detalle ? `${base} · ${detalle}` : `${base} #${indice + 1}`;
 }
 

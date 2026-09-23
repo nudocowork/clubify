@@ -56,7 +56,7 @@ export class MktContactService {
    * camino de reuso el resolver no escribe nada, y avisar ahí sería inventarse
    * un evento que no ocurrió.
    */
-  private store(whiteLabelId: string, etiquetasNuevas?: string[]): ContactStore {
+  private store(whiteLabelId: string, etiquetasNuevas?: string[], datosEscritos?: string[]): ContactStore {
     const prisma = this.prisma;
     return {
       async findCandidates({ phoneKey, email }) {
@@ -103,6 +103,14 @@ export class MktContactService {
           const antes = new Set(previas.map((t) => sinAcentos(t)));
           etiquetasNuevas.push(...input.tags.filter((t) => !antes.has(sinAcentos(t))));
         }
+        // Se anota lo que esta operación ESCRIBIÓ de verdad, igual que con las
+        // etiquetas: es lo que hace honesto el disparador «Contacto
+        // actualizado». En el camino de reuso el resolver no escribe nada, y
+        // avisar ahí sería inventarse un cambio que no hubo.
+        if (datosEscritos) {
+          if (input.name) datosEscritos.push('nombre');
+          if (input.company) datosEscritos.push('empresa');
+        }
         return row;
       },
       async findByUnique({ phoneNorm, email }) {
@@ -121,9 +129,33 @@ export class MktContactService {
   /** Alta o reutilización idempotente de un contacto (un contacto por identidad). */
   async upsert(whiteLabelId: string, input: ResolveInput): Promise<ContactRow> {
     const nuevas: string[] = [];
-    const row = await resolveContact(this.store(whiteLabelId, nuevas), input);
+    const datos: string[] = [];
+    const row = await resolveContact(this.store(whiteLabelId, nuevas, datos), input);
     await this.avisarEtiquetas(whiteLabelId, row.id, nuevas);
+    await this.avisarCambioDeDatos(whiteLabelId, row.id, datos);
     return row;
+  }
+
+  /**
+   * Dispara «Contacto actualizado» cuando se han reescrito datos de una ficha
+   * que YA existía.
+   *
+   * Solo se avisa una vez por operación, con la lista de lo que cambió en
+   * `campo`: un filtro «campo contiene nombre» es lo que se quiere expresar, y
+   * dos avisos por una misma edición inscribirían dos veces.
+   *
+   * Nunca lanza: una automatización que falla no puede tumbar un alta.
+   */
+  private async avisarCambioDeDatos(whiteLabelId: string, contactId: string, campos: string[]) {
+    const lista = [...new Set(campos)];
+    if (!lista.length) return;
+    try {
+      await this.engine.fireTrigger('contact_updated', contactId, whiteLabelId, {
+        campo: lista.join(', '),
+      });
+    } catch (e) {
+      this.log.warn(`contact_updated no se pudo disparar: ${(e as Error).message}`);
+    }
   }
 
   /**
@@ -235,8 +267,9 @@ export class MktContactService {
         await this.prisma.mktContact.update({ where: { id: row.id }, data });
         updated++;
         // La etiqueta se acaba de escribir aquí, así que el aviso sale de aquí:
-        // la ficha ya existía y el resolver no la tocó.
+        // la ficha ya existía y el resolver no la tocó. Lo mismo con el nombre.
         if (estrenaEtiqueta) await this.avisarEtiquetas(whiteLabelId, row.id, [TAG_NEGOCIO]);
+        if (data.name) await this.avisarCambioDeDatos(whiteLabelId, row.id, ['nombre']);
       }
     }
     const contacts = await this.prisma.mktContact.count({

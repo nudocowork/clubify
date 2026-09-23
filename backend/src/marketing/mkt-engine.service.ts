@@ -9,8 +9,13 @@ import {
   evalWF,
   msDeEsperaDeRespuesta,
   sinAcentos,
+  ESTADOS_DE_CITA,
+  ESTADOS_DE_CITA_VIVA,
+  ESTADOS_DE_OPORTUNIDAD,
+  ESTADOS_DE_OPORTUNIDAD_DEL_FLUJO,
   MKT_CAMPOS_EDITABLES,
   MKT_MAX_SALTOS,
+  MKT_MAX_SALTOS_DE_PASO,
   MKT_TRIGGERS,
   WFCaso,
   WFGraph,
@@ -20,6 +25,19 @@ import {
   WFSendWindow,
   WFCondition,
 } from './mkt-workflow.util';
+import {
+  claveDeEvento,
+  diaEnBogota,
+  elegirCitaDeReferencia,
+  elegirPorNombre,
+  horaEnBogota,
+  mismoNombre,
+  momentoDeLaCita,
+  queHacerSiYaPaso,
+  refDeEvento,
+  MEMORIA_DEL_BARRIDO_MS,
+  VENTANA_DEL_BARRIDO_MS,
+} from './mkt-ventas.util';
 // El guardián de la red interna vive en el motor de MARCA y se importa, no se
 // copia: dos copias de una comprobación de seguridad se separan a la primera
 // corrección y una de las dos se queda vieja. Es un archivo de helpers puros,
@@ -309,7 +327,251 @@ export class MktEngineService {
             where: { id: enr.contactId },
             data: { [campo]: valor },
           });
+          // El dato cambió de verdad: se avisa. Cuenta como un salto entre
+          // flujos porque puede encadenar —«contacto actualizado» → un flujo
+          // que actualiza otro dato— exactamente igual que las etiquetas.
+          await this.fireTrigger(
+            'contact_updated',
+            enr.contactId,
+            wf.whiteLabelId,
+            { campo, valor },
+            this.saltosDe(enr.context) + 1,
+          );
         }
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'goto_node': {
+        const destino = String(cfg.paso ?? '').trim();
+        // Sin destino termina el flujo aquí: mandarlo a `next` sería seguir
+        // por donde el usuario ya dijo que NO quería seguir.
+        if (!destino) return { kind: 'continue', next: null };
+        const saltos = this.saltosDePaso(enr.context) + 1;
+        if (saltos > MKT_MAX_SALTOS_DE_PASO) {
+          this.log.warn(`goto_node: ${saltos} vueltas dentro del flujo ${wf.id}; se saca al contacto para cortar el bucle.`);
+          return { kind: 'removed' };
+        }
+        await this.guardarContexto(enr, { saltosDePaso: saltos });
+        return { kind: 'continue', next: destino };
+      }
+      case 'remove_from_workflows': {
+        const modo = String(cfg.modo ?? 'otros');
+        // SIEMPRE acotado a la marca del flujo: `MktEnrollment` guarda su
+        // `whiteLabelId`, y sin él un flujo de una marca podría parar las
+        // secuencias que otra marca tiene en marcha con la misma persona.
+        const base = {
+          contactId: enr.contactId,
+          whiteLabelId: wf.whiteLabelId,
+          status: { in: ['active', 'waiting'] },
+        };
+        const fuera = { status: 'removed', resumeAt: null, completedAt: new Date() };
+        if (modo === 'todos') {
+          await this.prisma.mktEnrollment.updateMany({ where: base, data: fuera });
+          return { kind: 'removed' };
+        }
+        if (modo === 'uno') {
+          const pedido = String(cfg.workflowId ?? '').trim();
+          const otro = pedido
+            ? await this.prisma.mktWorkflow.findFirst({
+                where: { id: pedido, whiteLabelId: wf.whiteLabelId },
+                select: { id: true },
+              })
+            : null;
+          if (!otro) {
+            this.log.warn('remove_from_workflows: el flujo elegido no existe o no es de esta marca.');
+            return { kind: 'continue', next: node.next ?? null };
+          }
+          await this.prisma.mktEnrollment.updateMany({ where: { ...base, workflowId: otro.id }, data: fuera });
+          if (otro.id === wf.id) return { kind: 'removed' };
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        await this.prisma.mktEnrollment.updateMany({
+          where: { ...base, workflowId: { not: wf.id } },
+          data: fuera,
+        });
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'wait_appointment': {
+        const cita = await this.citaDelContacto(enr.contactId, wf.whiteLabelId);
+        if (!cita) {
+          // Sin cita TODAVÍA se RETIENE al contacto y se vuelve a mirar en 6 h.
+          // Seguir de largo soltaría de una vez todos los mensajes que hablan
+          // de una reunión que aún no existe.
+          if (String(cfg.sinCita ?? 'esperar') === 'seguir') {
+            return { kind: 'continue', next: node.next ?? null };
+          }
+          return { kind: 'wait', resumeAt: new Date(Date.now() + 6 * 3600000), waitKind: 'cita', resumeNodeId: node.id };
+        }
+        const momento = momentoDeLaCita(cita.startAt, cfg);
+        if (momento > Date.now()) {
+          // Se aparca en el paso SIGUIENTE: al volver hay que enviar, no
+          // recalcular la espera y descubrir que el momento «ya pasó».
+          return { kind: 'wait', resumeAt: new Date(momento), waitKind: 'cita', resumeNodeId: node.next ?? null };
+        }
+        if (queHacerSiYaPaso(cfg) === 'salir') {
+          this.log.log(`wait_appointment: el momento ya pasó y el recordatorio ya no sirve; se saca al contacto ${enr.contactId}.`);
+          return { kind: 'removed' };
+        }
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'create_task': {
+        const titulo = resolveMerge(String(cfg.titulo ?? ''), ctx).replace(/\s+/g, ' ').trim().slice(0, 40);
+        if (!titulo) {
+          this.log.warn('create_task sin acción configurada: no se crea nada.');
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        const lead = await this.leadDelContacto(enr.contactId, wf.whiteLabelId);
+        if (!lead) return this.sinLead('create_task', node);
+        // El candado va ANTES de crear: una tarea duplicada se la come el
+        // vendedor y la tiene que borrar a mano, así que preferimos perder una
+        // si el proceso se cae justo aquí a que salgan dos.
+        if (!(await this.reservarPaso(enr, node.id))) return { kind: 'continue', next: node.next ?? null };
+        const dias = Number(cfg.vence);
+        const vence = String(cfg.vence ?? '') !== '' && Number.isFinite(dias)
+          ? diaEnBogota(Date.now() + dias * 86400000)
+          : null;
+        await this.prisma.salesTask.create({
+          data: {
+            salesTeamId: lead.salesTeamId,
+            leadId: lead.id,
+            title: titulo,
+            body: cfg.detalle ? resolveMerge(String(cfg.detalle), ctx).slice(0, 2000) : null,
+            dueDate: vence,
+            assignedUserId: await this.miembroDelEquipo(lead, cfg.asignarA),
+          },
+        });
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'create_opportunity': {
+        const lead = await this.leadDelContacto(enr.contactId, wf.whiteLabelId);
+        if (!lead) return this.sinLead('create_opportunity', node);
+        const destino = await this.embudoYEtapa(lead.salesTeamId, cfg.embudo, cfg.etapa);
+        if (!destino) {
+          this.log.warn(`create_opportunity: el equipo del lead no tiene el embudo «${String(cfg.embudo ?? '')}» o su etapa «${String(cfg.etapa ?? '')}».`);
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        // Una oportunidad ABIERTA por lead y embudo: si ya la tiene, se MUEVE.
+        // Crear otra dejaría al mismo lead en dos columnas del mismo tablero.
+        const abierta = await this.prisma.salesOpportunity.findFirst({
+          where: { leadId: lead.id, salesTeamId: lead.salesTeamId, pipelineId: destino.embudo.id, status: 'abierta' },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, stageId: true },
+        });
+        if (abierta) {
+          if (abierta.stageId !== destino.etapa.id) {
+            await this.prisma.salesOpportunity.updateMany({
+              where: { id: abierta.id, salesTeamId: lead.salesTeamId },
+              data: { stageId: destino.etapa.id, position: await this.finDeLaEtapa(destino.etapa.id, lead.salesTeamId) },
+            });
+          }
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        if (!(await this.reservarPaso(enr, node.id))) return { kind: 'continue', next: node.next ?? null };
+        await this.prisma.salesOpportunity.create({
+          data: {
+            salesTeamId: lead.salesTeamId,
+            whiteLabelId: wf.whiteLabelId,
+            pipelineId: destino.embudo.id,
+            stageId: destino.etapa.id,
+            leadId: lead.id,
+            name: resolveMerge(String(cfg.nombre ?? ''), ctx).trim().slice(0, 120) || lead.name || 'Oportunidad',
+            value: Math.max(0, Number(cfg.valor) || 0),
+            source: 'flujo',
+            assignedUserId: lead.assignedUserId,
+            position: await this.finDeLaEtapa(destino.etapa.id, lead.salesTeamId),
+          },
+        });
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'update_opportunity': {
+        const lead = await this.leadDelContacto(enr.contactId, wf.whiteLabelId);
+        if (!lead) return this.sinLead('update_opportunity', node);
+        const embudoPedido = String(cfg.embudo ?? '').trim();
+        let pipelineId: string | undefined;
+        if (embudoPedido) {
+          const embudos = await this.embudosDelEquipo(lead.salesTeamId);
+          const embudo = elegirPorNombre(embudos, embudoPedido);
+          if (!embudo) {
+            this.log.warn(`update_opportunity: el equipo del lead no tiene el embudo «${embudoPedido}».`);
+            return { kind: 'continue', next: node.next ?? null };
+          }
+          pipelineId = embudo.id;
+        }
+        const opp = await this.prisma.salesOpportunity.findFirst({
+          where: { leadId: lead.id, salesTeamId: lead.salesTeamId, ...(pipelineId ? { pipelineId } : {}) },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, pipelineId: true, stageId: true, status: true },
+        });
+        if (!opp) {
+          this.log.log('update_opportunity: el lead no tiene ninguna oportunidad que actualizar.');
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        const data: Record<string, unknown> = {};
+        const etapaPedida = String(cfg.etapa ?? '').trim();
+        if (etapaPedida) {
+          // La etapa se busca en el embudo DE LA OPORTUNIDAD: escribir una de
+          // otro embudo deja la tarjeta fuera de todas las columnas.
+          const etapas = await this.etapasDelEmbudo(opp.pipelineId, lead.salesTeamId);
+          const etapa = etapas.find((e) => mismoNombre(e.name, etapaPedida));
+          if (!etapa) {
+            this.log.warn(`update_opportunity: el embudo de la oportunidad no tiene la etapa «${etapaPedida}».`);
+          } else if (etapa.id !== opp.stageId) {
+            data.stageId = etapa.id;
+            data.position = await this.finDeLaEtapa(etapa.id, lead.salesTeamId);
+          }
+        }
+        const estado = String(cfg.estado ?? '').trim();
+        if (estado && ESTADOS_DE_OPORTUNIDAD_DEL_FLUJO.some((e) => e.value === estado) && estado !== opp.status) {
+          // Una oportunidad YA GANADA no la reabre ni la pierde un flujo: al
+          // ganarla, el CRM movió el lead a clientes y registró la venta. Desde
+          // aquí solo se cambiaría la palabra, y quedaría una venta contada
+          // sobre una oportunidad «perdida». El desenlace se respeta.
+          if (opp.status === 'ganada') {
+            this.log.warn('update_opportunity: la oportunidad ya está ganada; el estado se deja como está.');
+          } else {
+            const cierraSinVenta = estado === 'perdida' || estado === 'abandonada';
+            data.status = estado;
+            // `wonAt` NO se toca: el flujo no puede marcar «ganada» ni tocar una
+            // que ya lo esté, así que la fecha de la venta la pone solo el CRM.
+            data.lostAt = cierraSinVenta ? new Date() : null;
+          }
+        }
+        const valor = String(cfg.valor ?? '').trim();
+        if (valor !== '' && Number.isFinite(Number(valor))) data.value = Math.max(0, Number(valor));
+        if (Object.keys(data).length) {
+          await this.prisma.salesOpportunity.updateMany({
+            where: { id: opp.id, salesTeamId: lead.salesTeamId },
+            data,
+          });
+        }
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'meeting_confirm': {
+        const cita = await this.citaDelContacto(enr.contactId, wf.whiteLabelId, true);
+        if (!cita) {
+          this.log.log('meeting_confirm: el contacto no tiene ninguna cita viva.');
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        // `confirmedAt: null` en el where hace el paso idempotente: la segunda
+        // vuelta no cuenta y no reescribe la fecha de la confirmación.
+        await this.prisma.salesMeeting.updateMany({
+          where: { id: cita.id, salesTeamId: cita.salesTeamId, status: { in: ESTADOS_DE_CITA_VIVA }, confirmedAt: null },
+          data: { status: 'CONFIRMADA', confirmedAt: new Date() },
+        });
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'meeting_cancel': {
+        const cita = await this.citaDelContacto(enr.contactId, wf.whiteLabelId, true);
+        if (!cita) {
+          this.log.log('meeting_cancel: el contacto no tiene ninguna cita viva.');
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        // Solo desde un estado VIVO. Una cita `REALIZADA` o `NO_ASISTIO` es un
+        // desenlace y voltearla escondería los plantones, que es justo lo que
+        // el equipo necesita ver.
+        await this.prisma.salesMeeting.updateMany({
+          where: { id: cita.id, salesTeamId: cita.salesTeamId, status: { in: ESTADOS_DE_CITA_VIVA } },
+          data: { status: 'CANCELADA' },
+        });
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'notify_team': {
@@ -405,6 +667,169 @@ export class MktEngineService {
   /** Cuántas veces ha rebotado ya este contacto de un flujo a otro. */
   private saltosDe(context: unknown): number {
     return Number((context as Record<string, unknown> | null)?.saltos ?? 0) || 0;
+  }
+
+  /** Cuántas vueltas lleva dentro de ESTE flujo por un «Ir a un paso». */
+  private saltosDePaso(context: unknown): number {
+    return Number((context as Record<string, unknown> | null)?.saltosDePaso ?? 0) || 0;
+  }
+
+  /**
+   * Escribe algo en el contexto de la inscripción y lo deja también en la copia
+   * en memoria, que es la que sigue usando el resto de la pasada.
+   */
+  private async guardarContexto(
+    enr: { id: string; context: unknown },
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    const contexto = { ...((enr.context as Record<string, unknown>) || {}), ...patch };
+    await this.prisma.mktEnrollment.update({
+      where: { id: enr.id },
+      data: { context: contexto as Prisma.InputJsonValue },
+    });
+    enr.context = contexto;
+  }
+
+  /**
+   * Candado de «esto se hace UNA vez» para los pasos que CREAN algo.
+   *
+   * El motor ya reclama la inscripción antes de avanzarla (`tick`), así que dos
+   * pods no la procesan a la vez; lo que queda por cubrir es el proceso que se
+   * cae a mitad de un nodo: 5 minutos después la inscripción se retoma desde el
+   * MISMO nodo y lo volvería a ejecutar.
+   *
+   * Es un UPDATE CONDICIONAL y se mira el `count`, no un «leer, decidir,
+   * escribir»: la marca solo se escribe si no estaba, y quien la escribe es
+   * quien puede crear. Se marca ANTES de crear a propósito — si el proceso se
+   * cae entre las dos cosas se pierde una tarea, y eso se arregla; dos tareas
+   * iguales en el CRM las tiene que borrar alguien a mano.
+   *
+   * La marca lleva la VUELTA del flujo, no solo el nodo: un «Ir a un paso» que
+   * vuelve sobre un «Crear tarea» es un diseño legítimo —insistir cada día— y
+   * sin el contador la segunda vuelta se quedaría sin tarea sin decir nada.
+   */
+  private async reservarPaso(enr: { id: string; context: unknown }, nodeId: string): Promise<boolean> {
+    const marca = `hecho_${nodeId}_${this.saltosDePaso(enr.context)}`;
+    const contexto = { ...((enr.context as Record<string, unknown>) || {}) };
+    if (contexto[marca] === true) return false;
+    const r = await this.prisma.mktEnrollment.updateMany({
+      where: { id: enr.id, NOT: { context: { path: [marca], equals: true } } },
+      data: { context: { ...contexto, [marca]: true } as Prisma.InputJsonValue },
+    });
+    if (r.count === 0) return false;
+    enr.context = { ...contexto, [marca]: true };
+    return true;
+  }
+
+  /** El paso necesitaba un lead y este contacto no lo es: se dice y el flujo sigue. */
+  private sinLead(paso: string, node: WFNode): NodeResult {
+    this.log.log(`${paso}: el contacto no es lead de ningún equipo de esta marca; no hay sobre qué actuar.`);
+    return { kind: 'continue', next: node.next ?? null };
+  }
+
+  // ── El puente con Equipos de Ventas ──
+  /**
+   * El lead de este contacto DENTRO de la marca del flujo.
+   *
+   * `SalesLead.mktContactId` es el enlace: lo escribe el propio puente de
+   * ventas (`sales-automations.service.ts`) la primera vez que un lead dispara
+   * algo, y el alta de leads lo resuelve por identidad. El `whiteLabelId` no es
+   * decoración: sin él, un flujo de Sellea podría crear tareas en el equipo de
+   * otra marca que tuviera al mismo contacto.
+   *
+   * Si hay varios (la misma persona en dos equipos) gana el de actividad más
+   * reciente, que es donde de verdad se le está trabajando.
+   */
+  private async leadDelContacto(contactId: string, whiteLabelId: string) {
+    return this.prisma.salesLead.findFirst({
+      where: { mktContactId: contactId, whiteLabelId },
+      orderBy: { lastActivityAt: 'desc' },
+      select: { id: true, name: true, salesTeamId: true, assignedUserId: true },
+    });
+  }
+
+  /**
+   * La cita de la que habla el flujo: la próxima viva o, si no queda ninguna
+   * por delante, la última que tuvo.
+   *
+   * `soloPorDelante` es para los pasos que ESCRIBEN sobre la cita (confirmar,
+   * cancelar). Una reunión que ya pasó y que nadie cerró es casi siempre un
+   * plantón sin registrar: cancelarla la contaría como cancelación y escondería
+   * lo que de verdad ocurrió. Se dan dos horas de gracia para que un «ahí
+   * estaré» que llega con la reunión empezando siga confirmando la suya.
+   */
+  private async citaDelContacto(contactId: string, whiteLabelId: string, soloPorDelante = false) {
+    const lead = await this.leadDelContacto(contactId, whiteLabelId);
+    if (!lead) return null;
+    const citas = await this.prisma.salesMeeting.findMany({
+      where: {
+        leadId: lead.id,
+        salesTeamId: lead.salesTeamId,
+        status: { in: ESTADOS_DE_CITA_VIVA },
+        ...(soloPorDelante ? { startAt: { gte: new Date(Date.now() - 2 * 3600000) } } : {}),
+      },
+      orderBy: { startAt: 'asc' },
+      take: 50,
+      select: { id: true, startAt: true, salesTeamId: true },
+    });
+    return elegirCitaDeReferencia(citas);
+  }
+
+  /**
+   * A quién se le deja la tarea. Si la persona elegida ya no está en el equipo
+   * DEL LEAD, la tarea vuelve a quien lo lleva: una tarea asignada a alguien de
+   * otro equipo no la ve nadie.
+   */
+  private async miembroDelEquipo(
+    lead: { salesTeamId: string; assignedUserId: string | null },
+    pedido: unknown,
+  ): Promise<string | null> {
+    const userId = String(pedido ?? '').trim();
+    if (!userId) return lead.assignedUserId;
+    const miembro = await this.prisma.salesTeamMember.findFirst({
+      where: { teamId: lead.salesTeamId, userId, isActive: true },
+      select: { userId: true },
+    });
+    return miembro?.userId ?? lead.assignedUserId;
+  }
+
+  private async embudosDelEquipo(salesTeamId: string) {
+    return this.prisma.salesPipeline.findMany({
+      where: { salesTeamId },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, name: true },
+    });
+  }
+
+  private async etapasDelEmbudo(pipelineId: string, salesTeamId: string) {
+    return this.prisma.salesPipelineStage.findMany({
+      where: { pipelineId, salesTeamId },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, name: true },
+    });
+  }
+
+  /**
+   * El embudo y la etapa que pide el paso, buscados POR NOMBRE en el equipo del
+   * lead. Devuelve null si el nombre configurado no existe ahí: ver
+   * `elegirPorNombre`.
+   */
+  private async embudoYEtapa(salesTeamId: string, nombreEmbudo: unknown, nombreEtapa: unknown) {
+    const embudo = elegirPorNombre(await this.embudosDelEquipo(salesTeamId), nombreEmbudo);
+    if (!embudo) return null;
+    const etapa = elegirPorNombre(await this.etapasDelEmbudo(embudo.id, salesTeamId), nombreEtapa);
+    if (!etapa) return null;
+    return { embudo, etapa };
+  }
+
+  /** La posición con la que una tarjeta cae al final de su columna. */
+  private async finDeLaEtapa(stageId: string, salesTeamId: string): Promise<number> {
+    const ultima = await this.prisma.salesOpportunity.findFirst({
+      where: { stageId, salesTeamId },
+      orderBy: { position: 'desc' },
+      select: { position: true },
+    });
+    return (ultima?.position ?? -1) + 1;
   }
 
   private async complete(enrId: string, status: 'completed' | 'removed') {
@@ -555,6 +980,11 @@ export class MktEngineService {
       await this.advance(enr);
       return 'inscrito';
     } catch (e) {
+      // El índice único parcial sobre `(workflowId, context->>'eventoRef')` es
+      // el candado del barrido de ventas cuando hay más de un pod: si otro ya
+      // inscribió por ESTE mismo evento, esto es lo que se ve. No es un fallo —
+      // es la segunda vuelta haciendo lo correcto.
+      if ((e as { code?: string })?.code === 'P2002') return 'omitido';
       this.log.warn(`mkt enroll falló: ${(e as Error).message}`);
       return 'fallo';
     }
@@ -709,6 +1139,297 @@ export class MktEngineService {
     } catch (e) {
       this.log.warn(`scanTriggers falló: ${(e as Error).message}`);
     }
+    // Aparte, con su propio try: que el barrido de ventas falle no puede dejar
+    // sin recoger a los contactos nuevos, ni al revés.
+    try {
+      await this.escanearVentas();
+    } catch (e) {
+      this.log.warn(`escanearVentas falló: ${(e as Error).message}`);
+    }
+  }
+
+  // ── Barrido de cada hora: lo que pasa en Equipos de Ventas ────────────────
+  //
+  // POR QUÉ UN BARRIDO Y NO UN AVISO EN EL MOMENTO. Los disparadores de ventas
+  // que ya había (`sales_lead_created`, `sales_stage_changed`…) los lanza el
+  // propio módulo de ventas al pasar la cosa. Estos no: el estado de la cita y
+  // las oportunidades se cambian desde media docena de sitios del CRM, y
+  // enganchar un aviso en cada uno significa tocar ese módulo entero. El
+  // barrido mira lo que cambió en la última hora y media y lo reconoce por su
+  // referencia, así que llega tarde —el catálogo lo dice: «se revisa cada
+  // hora»— pero no se salta ningún camino ni deja medio módulo tocado.
+
+  /** Los flujos publicados agrupados por marca: el barrido consulta por marca. */
+  private porMarca<T extends { whiteLabelId: string }>(wfs: T[]): Map<string, T[]> {
+    const mapa = new Map<string, T[]>();
+    for (const wf of wfs) {
+      const lista = mapa.get(wf.whiteLabelId);
+      if (lista) lista.push(wf);
+      else mapa.set(wf.whiteLabelId, [wf]);
+    }
+    return mapa;
+  }
+
+  /**
+   * Qué eventos ya inscribieron a alguien, para no repetirlos.
+   *
+   * La ventana del barrido solapa a propósito con la vuelta anterior, así que
+   * el mismo cambio se ve dos veces. La referencia del evento viaja en el
+   * contexto de la inscripción (`eventoRef`) y de ahí se lee: una consulta por
+   * marca, no una por candidato.
+   *
+   * Es una comprobación en memoria, no un candado: el candado de verdad —para
+   * el día que haya dos pods corriendo el cron— es el índice único parcial
+   * sobre `(workflowId, context->>'eventoRef')` que instala
+   * `scripts/apply-mkt-eventos-de-ventas.cjs`. Si ese índice está puesto, la
+   * inscripción repetida choca y `enroll` la cuenta como omitida.
+   */
+  private async eventosYaDisparados(workflowIds: string[], desde: Date): Promise<Set<string>> {
+    const vistos = new Set<string>();
+    if (!workflowIds.length) return vistos;
+    const previas = await this.prisma.mktEnrollment.findMany({
+      where: {
+        workflowId: { in: workflowIds },
+        enteredAt: { gte: new Date(desde.getTime() - MEMORIA_DEL_BARRIDO_MS) },
+      },
+      select: { workflowId: true, context: true },
+      take: 5000,
+    });
+    for (const e of previas) {
+      const ref = String((e.context as Record<string, unknown> | null)?.eventoRef ?? '').trim();
+      if (ref) vistos.add(claveDeEvento(e.workflowId, ref));
+    }
+    return vistos;
+  }
+
+  /** Los contactos del barrido, con su contexto, en una sola consulta. */
+  private async contactosDelBarrido(ids: (string | null | undefined)[], whiteLabelId: string) {
+    const mapa = new Map<string, Record<string, string>>();
+    const unicos = [...new Set(ids.filter((v): v is string => !!v))];
+    if (!unicos.length) return mapa;
+    const [marca, filas] = await Promise.all([
+      this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId }, select: { name: true } }),
+      this.prisma.mktContact.findMany({
+        // El `whiteLabelId` aquí es el aislamiento: un `mktContactId` de un lead
+        // de otra marca no devuelve fila y ese evento no inscribe a nadie.
+        where: { id: { in: unicos }, whiteLabelId, deleted: false },
+        select: { id: true, name: true, email: true, phone: true, company: true, tags: true },
+      }),
+    ]);
+    // Sin nombre de marca, {{marca}} queda VACÍO. Nunca «Clubify»: un correo
+    // firmado con la marca equivocada delata la plataforma.
+    for (const c of filas) mapa.set(c.id, ctxDeContacto(c, marca?.name ?? ''));
+    return mapa;
+  }
+
+  /** Cómo se llama cada vendedor, en una sola consulta. */
+  private async nombresDeUsuario(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+    const mapa = new Map<string, string>();
+    const unicos = [...new Set(ids.filter((v): v is string => !!v))];
+    if (!unicos.length) return mapa;
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unicos } },
+      select: { id: true, fullName: true, email: true },
+    });
+    for (const u of users) mapa.set(u.id, u.fullName?.trim() || u.email || '');
+    return mapa;
+  }
+
+  /**
+   * Los ajustes propios del disparador (el estado de la cita, el embudo, la
+   * etapa) son parte de su IDENTIDAD, no un filtro: vacío = vale cualquiera, y
+   * puesto tiene que coincidir. Es la misma regla que la etiqueta de
+   * `tag_added`.
+   */
+  private ajustesQueCasan(valores: Record<string, string>) {
+    return (t: WFTrigger) =>
+      Object.entries(valores).every(([clave, valor]) => {
+        const pedido = String((t as Record<string, unknown>)[clave] ?? '').trim();
+        return !pedido || mismoNombre(pedido, valor);
+      });
+  }
+
+  /**
+   * Inscribe por un evento del barrido en los flujos que lo escuchan.
+   *
+   * `ref` es lo que hace que un evento visto dos veces inscriba una: viaja en
+   * el contexto de la inscripción y la vuelta siguiente lo reconoce.
+   */
+  private async disparar(
+    tipo: string,
+    ev: {
+      contactId: string;
+      ctxContacto: Record<string, string>;
+      /** Lo que pone ESTE evento y no vive en el contacto: viaja con la inscripción. */
+      extra: Record<string, string>;
+      /** Los ajustes del disparador contra los que se compara (valores crudos). */
+      ajustes: Record<string, string>;
+      ref: string;
+      flujos: { id: string; trigger: unknown; triggers: unknown }[];
+      yaFueron: Set<string>;
+    },
+  ): Promise<void> {
+    const ctx = { ...ev.ctxContacto, ...ev.extra };
+    const cumple = this.ajustesQueCasan(ev.ajustes);
+    for (const wf of ev.flujos) {
+      const clave = claveDeEvento(wf.id, ev.ref);
+      if (ev.yaFueron.has(clave)) continue;
+      const casa = disparadorQueCasa(disparadoresDe(wf), tipo, ctx, cumple);
+      if (!casa) continue;
+      ev.yaFueron.add(clave);
+      await this.enroll(wf.id, ev.contactId, {
+        ...ev.extra,
+        eventoRef: ev.ref,
+        ...contextoDeEntrada(casa.disparador, casa.indice),
+      });
+    }
+  }
+
+  async escanearVentas(): Promise<void> {
+    const desde = new Date(Date.now() - VENTANA_DEL_BARRIDO_MS);
+    const wfs = await this.prisma.mktWorkflow.findMany({
+      where: { status: 'published', rootId: { not: null } },
+    });
+    await this.escanearCitas(desde, wfs);
+    await this.escanearOportunidades(desde, wfs);
+  }
+
+  /** «Estado de la cita cambió». */
+  private async escanearCitas(
+    desde: Date,
+    todos: { id: string; whiteLabelId: string; trigger: unknown; triggers: unknown }[],
+  ): Promise<void> {
+    const escuchan = todos.filter((wf) => escuchaEl(wf, 'sales_meeting_status'));
+    if (!escuchan.length) return;
+    for (const [marca, flujos] of this.porMarca(escuchan)) {
+      const citas = await this.prisma.salesMeeting.findMany({
+        // El equipo lleva la marca; la cita no. Sin este filtro el barrido de
+        // una marca vería las citas de todas.
+        where: {
+          team: { whiteLabelId: marca },
+          updatedAt: { gte: desde },
+          status: { in: ESTADOS_DE_CITA.map((e) => e.value) },
+          leadId: { not: null },
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 500,
+        select: {
+          id: true,
+          status: true,
+          startAt: true,
+          team: { select: { name: true } },
+          lead: { select: { mktContactId: true, assignedUserId: true } },
+        },
+      });
+      if (!citas.length) continue;
+      const yaFueron = await this.eventosYaDisparados(flujos.map((w) => w.id), desde);
+      const contactos = await this.contactosDelBarrido(citas.map((c) => c.lead?.mktContactId), marca);
+      const vendedores = await this.nombresDeUsuario(citas.map((c) => c.lead?.assignedUserId));
+      for (const cita of citas) {
+        const ctxContacto = contactos.get(cita.lead?.mktContactId ?? '');
+        if (!ctxContacto) continue;
+        await this.disparar('sales_meeting_status', {
+          contactId: cita.lead!.mktContactId!,
+          ctxContacto,
+          extra: {
+            cita_estado: ESTADOS_DE_CITA.find((e) => e.value === cita.status)?.label ?? cita.status,
+            cita_fecha: diaEnBogota(cita.startAt.getTime()),
+            cita_hora: horaEnBogota(cita.startAt),
+            equipo: cita.team?.name ?? '',
+            vendedor: vendedores.get(cita.lead?.assignedUserId ?? '') ?? '',
+          },
+          ajustes: { estado: cita.status },
+          ref: refDeEvento('cita', cita.id, cita.status),
+          flujos,
+          yaFueron,
+        });
+      }
+    }
+  }
+
+  /** «Oportunidad creada», «cambió de etapa» y «ganada o perdida». */
+  private async escanearOportunidades(
+    desde: Date,
+    todos: { id: string; whiteLabelId: string; trigger: unknown; triggers: unknown }[],
+  ): Promise<void> {
+    const TIPOS = ['sales_opportunity_created', 'sales_opportunity_stage_changed', 'sales_opportunity_status'];
+    const escuchan = todos.filter((wf) => TIPOS.some((t) => escuchaEl(wf, t)));
+    if (!escuchan.length) return;
+    for (const [marca, flujos] of this.porMarca(escuchan)) {
+      const oportunidades = await this.prisma.salesOpportunity.findMany({
+        where: { whiteLabelId: marca, updatedAt: { gte: desde } },
+        orderBy: { updatedAt: 'asc' },
+        take: 500,
+        select: {
+          id: true,
+          status: true,
+          value: true,
+          stageId: true,
+          createdAt: true,
+          salesTeamId: true,
+          pipeline: { select: { name: true } },
+          stage: { select: { name: true } },
+          lead: { select: { mktContactId: true, assignedUserId: true } },
+        },
+      });
+      if (!oportunidades.length) continue;
+      const yaFueron = await this.eventosYaDisparados(flujos.map((w) => w.id), desde);
+      const contactos = await this.contactosDelBarrido(oportunidades.map((o) => o.lead?.mktContactId), marca);
+      const vendedores = await this.nombresDeUsuario(oportunidades.map((o) => o.lead?.assignedUserId));
+      const equipos = await this.nombresDeEquipo(oportunidades.map((o) => o.salesTeamId), marca);
+      for (const o of oportunidades) {
+        const ctxContacto = contactos.get(o.lead?.mktContactId ?? '');
+        if (!ctxContacto) continue;
+        const comun = {
+          contactId: o.lead!.mktContactId!,
+          ctxContacto,
+          extra: {
+            embudo: o.pipeline?.name ?? '',
+            etapa_oportunidad: o.stage?.name ?? '',
+            estado_oportunidad: ESTADOS_DE_OPORTUNIDAD.find((e) => e.value === o.status)?.label ?? o.status,
+            valor_oportunidad: String(o.value ?? ''),
+            equipo: equipos.get(o.salesTeamId) ?? '',
+            vendedor: vendedores.get(o.lead?.assignedUserId ?? '') ?? '',
+          },
+          ajustes: { embudo: o.pipeline?.name ?? '', etapa: o.stage?.name ?? '' },
+          flujos,
+          yaFueron,
+        };
+        // La etapa con la que NACE no es un cambio de etapa: si lo fuera, toda
+        // oportunidad nueva entraría por los dos disparadores a la vez.
+        if (o.createdAt >= desde) {
+          await this.disparar('sales_opportunity_created', {
+            ...comun,
+            ref: refDeEvento('oportunidad', o.id, 'creada'),
+          });
+        } else {
+          await this.disparar('sales_opportunity_stage_changed', {
+            ...comun,
+            ref: refDeEvento('oportunidad', o.id, 'etapa', o.stageId),
+          });
+        }
+        if (o.status !== 'abierta') {
+          await this.disparar('sales_opportunity_status', {
+            ...comun,
+            ajustes: { embudo: comun.ajustes.embudo, estado: o.status },
+            ref: refDeEvento('oportunidad', o.id, 'estado', o.status),
+          });
+        }
+      }
+    }
+  }
+
+  /** Cómo se llama cada equipo de la marca, en una sola consulta. */
+  private async nombresDeEquipo(ids: string[], whiteLabelId: string): Promise<Map<string, string>> {
+    const mapa = new Map<string, string>();
+    const unicos = [...new Set(ids.filter(Boolean))];
+    if (!unicos.length) return mapa;
+    const equipos = await this.prisma.salesTeam.findMany({
+      where: { id: { in: unicos }, whiteLabelId },
+      select: { id: true, name: true },
+    });
+    for (const t of equipos) mapa.set(t.id, t.name);
+    return mapa;
   }
 
   // Motor durable: cada 5 min procesa inscripciones vencidas + reintentos.
