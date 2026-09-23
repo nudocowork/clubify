@@ -1,7 +1,17 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import ListaDeCarpetas from '@/components/automatizaciones/ListaDeCarpetas';
+import FilaDeMensaje from '@/components/automatizaciones/FilaDeMensaje';
+import DetalleDeMensaje from '@/components/automatizaciones/DetalleDeMensaje';
+import {
+  coincideConBusqueda,
+  correoDe,
+  type BorradorDeCorreo,
+  type BrandMsgFolder,
+  type BrandMsgTemplate,
+} from '@/components/automatizaciones/tipos';
 
 // Panel de Automatizaciones de la PROPIA marca (panel /admin). Se scopea solo
 // contra `/admin/automations/*` (el backend resuelve la marca del token). Lista
@@ -9,51 +19,18 @@ import { toast } from '@/components/Toast';
 // (Administrativa / Cobros / Operativas + las que crees). Editar vacío = volver
 // al default. Los workflows "pending" son editables pero su envío se activa
 // en un paso posterior.
-
-/** El correo que acompaña a una automatización (misma condición de envío). */
-type EmailTwin = {
-  id: string;
-  subject: string;
-  subjectDefault: string;
-  body: string;
-  bodyDefault: string;
-  vars: string[];
-  enabled: boolean;
-  isBrandCustom: boolean;
-};
-type BrandMsgTemplate = {
-  id: string;
-  label: string;
-  description: string;
-  vars: string[];
-  folderId: string;
-  status: 'active' | 'pending';
-  enabled: boolean;
-  channel: string;
-  audience: string;
-  default: string;
-  text: string;
-  isBrandCustom: boolean;
-  source: 'brand' | 'global' | 'default';
-  /** Correo gemelo, si esta automatización también sale por email. */
-  email?: EmailTwin | null;
-  /** Solo tarjetas de canal EMAIL sin gemelo (bienvenida, panel creado). */
-  subject?: string;
-  subjectDefault?: string;
-};
-type BrandMsgFolder = { id: string; name: string; system: boolean };
-
-/**
- * Cómo se llama el canal DE CARA AL USUARIO.
- *
- * Por dentro se llama `SMS`, pero lo que sale es un WhatsApp. Vive en una sola
- * función porque la cabecera decía «WhatsApp» y el botón de probar decía
- * «Probar» a secas: al lado de «Probar correo» se leía como un botón genérico
- * y parecía que no había forma de probar el mensaje. Sí la había.
- */
-function nombreDeCanal(canal: string): string {
-  return canal === 'SMS' ? 'WhatsApp' : canal;
-}
+//
+// LA PANTALLA (rediseño 2026-09-23): dos columnas. A la izquierda el buscador,
+// las carpetas y los destinos de prueba; a la derecha los mensajes de la
+// carpeta elegida, uno por línea. Editar abre un panel lateral.
+//
+// Antes eran todas las carpetas apiladas, cada mensaje una tarjeta que se
+// desplegaba hacia abajo y dos bloques de color a pantalla completa arriba con
+// los campos de prueba. Con ~30 mensajes no se sabía dónde estabas, y el editor
+// de correo quedaba a media pantalla de scroll de su propio botón de guardar.
+//
+// Los ENDPOINTS y los datos son exactamente los de antes: esto es solo la
+// pantalla.
 
 export default function AutomatizacionesPanel() {
   const [loading, setLoading] = useState(true);
@@ -68,12 +45,16 @@ export default function AutomatizacionesPanel() {
   const [testingId, setTestingId] = useState<string | null>(null);
   // Borradores del correo, por id de plantilla de correo.
   const [mailDrafts, setMailDrafts] = useState<
-    Record<string, { subject: string; body: string }>
+    Record<string, BorradorDeCorreo>
   >({});
   const [emailDraft, setEmailDraft] = useState('');
   const [emailConnected, setEmailConnected] = useState(true);
   const [testingMailId, setTestingMailId] = useState<string | null>(null);
   const [savingMailId, setSavingMailId] = useState<string | null>(null);
+  // Carpeta elegida y buscador. `null` = todas: solo se usa mientras hay algo
+  // escrito en el buscador, porque el buscador mira TODAS las carpetas.
+  const [carpetaActiva, setCarpetaActiva] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState('');
   // Nota descartable (2-3 líneas): explica que estas automatizaciones vienen
   // activas por defecto. Se recuerda el descarte por navegador (patrón
   // localStorage de InsightsCard). `noteChecked` evita el flash antes de leerla.
@@ -107,7 +88,7 @@ export default function AutomatizacionesPanel() {
     if (d?.testEmail !== undefined) setEmailDraft(d.testEmail ?? '');
     // Un correo puede venir como gemelo de una automatización o como tarjeta
     // suelta (bienvenida, panel creado): los dos casos alimentan el borrador.
-    const mails: Record<string, { subject: string; body: string }> = {};
+    const mails: Record<string, BorradorDeCorreo> = {};
     for (const t of list) {
       if (t.email) {
         mails[t.email.id] = { subject: t.email.subject, body: t.email.body };
@@ -140,7 +121,7 @@ export default function AutomatizacionesPanel() {
   /** Manda este correo al correo de prueba, con el texto que hay en pantalla. */
   async function testMail(emailId: string, subject: string, body: string) {
     if (!emailDraft.trim()) {
-      toast('Escribe un correo de prueba arriba primero', 'error');
+      toast('Escribe un correo de prueba en «Cambiar destinos de prueba»', 'error');
       return;
     }
     setTestingMailId(emailId);
@@ -284,6 +265,10 @@ export default function AutomatizacionesPanel() {
           body: JSON.stringify({ folderId }),
         }),
       );
+      // Seguir al mensaje a su carpeta nueva: si no, desaparece de la lista que
+      // estás mirando y parece que se ha borrado.
+      setCarpetaActiva(folderId);
+      toast('Mensaje movido de carpeta', 'success');
     } catch (e: any) {
       toast(e.message ?? 'Error al mover', 'error');
     } finally {
@@ -341,6 +326,8 @@ export default function AutomatizacionesPanel() {
       applyData(
         await api(`/admin/automations/folders/${f.id}`, { method: 'DELETE' }),
       );
+      // La carpeta elegida ya no existe: volver a la primera en el render.
+      setCarpetaActiva(null);
       toast('Carpeta borrada', 'success');
     } catch (e: any) {
       toast(e.message ?? 'Error al borrar', 'error');
@@ -349,494 +336,212 @@ export default function AutomatizacionesPanel() {
     }
   }
 
+  // ---- Qué se ve ----------------------------------------------------------
+
+  const q = busqueda.trim().toLowerCase();
+  const enBusqueda = q.length > 0;
+
+  const filtrados = useMemo(
+    () => templates.filter((t) => coincideConBusqueda(t, q)),
+    [templates, q],
+  );
+  const conteos = useMemo(() => {
+    const r: Record<string, number> = {};
+    for (const t of filtrados) r[t.folderId] = (r[t.folderId] ?? 0) + 1;
+    return r;
+  }, [filtrados]);
+
+  // Sin búsqueda siempre hay una carpeta elegida: `null` solo tiene sentido
+  // mientras se busca (el buscador mira todas las carpetas a la vez).
+  useEffect(() => {
+    if (enBusqueda || !folders.length) return;
+    // También cubre la carpeta que ya no existe (la acabas de borrar): sin esto
+    // el listado se quedaba enseñando «todas» sin que nadie lo hubiera pedido.
+    if (carpetaActiva && folders.some((f) => f.id === carpetaActiva)) return;
+    setCarpetaActiva(folders[0].id);
+  }, [enBusqueda, carpetaActiva, folders]);
+
+  const carpetaValida = folders.some((f) => f.id === carpetaActiva)
+    ? carpetaActiva
+    : null;
+  const carpeta = folders.find((f) => f.id === carpetaValida) ?? null;
+  const visibles = carpetaValida
+    ? filtrados.filter((t) => t.folderId === carpetaValida)
+    : filtrados;
+  const enviando = visibles.filter((t) => t.enabled).length;
+  const nombreDeCarpeta = useMemo(
+    () => Object.fromEntries(folders.map((f) => [f.id, f.name])),
+    [folders],
+  );
+
+  const abierto = templates.find((t) => t.id === openId) ?? null;
+  const correoAbierto = abierto ? correoDe(abierto) : null;
+  // `useCallback` para que el efecto de Escape del panel no se vuelva a montar
+  // en cada render del listado.
+  const cerrarDetalle = useCallback(() => setOpenId(null), []);
+
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <h1 className="text-xl font-bold m-0">Automatizaciones</h1>
-        {!loading && (
-          <button
-            onClick={createFolder}
-            disabled={busy}
-            className="text-sm font-semibold rounded-[9px] py-1.5 px-3"
-            style={{ border: '1px solid #cbd5e1', color: '#334155', background: 'white' }}
-          >
-            + Carpeta
-          </button>
-        )}
+      <div className="mb-3">
+        <h1 className="m-0 text-xl font-bold">Automatizaciones</h1>
+        <p className="m-0 mt-0.5 text-xs text-mute">
+          Los mensajes que el sistema envía solo a tus negocios, por WhatsApp y
+          por correo. Elige una carpeta y abre un mensaje para editarlo.
+        </p>
       </div>
+
       {noteChecked && !noteDismissed && (
-        <div
-          className="rounded-lg p-3 mb-4 flex items-start gap-2"
-          style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534' }}
-        >
-          <span className="text-base leading-none" aria-hidden>✅</span>
-          <p className="text-xs leading-relaxed m-0 flex-1">
-            Estas automatizaciones vienen <b>activas por defecto</b> para que tus
+        <div className="mb-4 flex items-start gap-2 rounded-card border border-line bg-bg2 p-3">
+          <span className="text-base leading-none" aria-hidden>
+            ✅
+          </span>
+          <p className="m-0 flex-1 text-xs leading-relaxed text-mute">
+            Vienen <b className="text-ink">activas por defecto</b> para que tus
             negocios reciban avisos de cobro, cancelaciones y novedades sin
-            configurarlas. Puedes <b>desactivar o editar</b> cualquiera desde su
-            tarjeta. Correo y WhatsApp se controlan por separado.
+            configurarlas. Puedes apagar o editar cualquiera desde su panel, y
+            correo y WhatsApp se controlan por separado.
           </p>
           <button
+            type="button"
             onClick={dismissNote}
-            aria-label="Descartar nota"
-            className="text-sm leading-none shrink-0 hover:opacity-70"
-            style={{ color: '#166534' }}
+            aria-label="Descartar la nota"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-input text-sm text-mute hover:bg-white"
           >
             ✕
           </button>
         </div>
       )}
-      <div
-        className="rounded-lg p-3 text-xs mb-4"
-        style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
-      >
-        Los mensajes de WhatsApp que el sistema envía a tus negocios, organizados
-        en carpetas. Personaliza el texto; deja el campo vacío y guarda para volver
-        al default. Los tokens <code>{'{token}'}</code> se reemplazan al enviar. Los
-        marcados <b>“Envío por activar”</b> son editables; abre uno y pulsa{' '}
-        <b>“Activar envío”</b> para que empiece a enviarse.
-      </div>
 
-      {!loading && (
-        <div
-          className="rounded-lg p-3 mb-4 flex flex-wrap items-center gap-2"
-          style={{ background: '#fffbeb', border: '1px solid #fde68a' }}
-        >
-          <span className="text-xs font-semibold" style={{ color: '#92400e' }}>
-            🧪 Número de prueba
-          </span>
-          <span className="text-[11px]" style={{ color: '#a16207' }}>
-            Se guarda para probar tus mensajes sin escribirlo cada vez.
-          </span>
-          <input
-            value={phoneDraft}
-            onChange={(e) => setPhoneDraft(e.target.value)}
-            placeholder="+57 300 123 4567"
-            className="text-xs rounded-[8px] px-2.5 py-1.5 flex-1 min-w-[180px]"
-            style={{ border: '1px solid #e5e7eb', color: '#111827' }}
+      {loading ? (
+        <div className="text-sm text-mute2">Cargando…</div>
+      ) : (
+        <div className="flex flex-col gap-4 min-[900px]:flex-row min-[900px]:items-start min-[900px]:gap-5">
+          <ListaDeCarpetas
+            carpetas={folders}
+            conteos={conteos}
+            totalFiltrado={filtrados.length}
+            busqueda={busqueda}
+            onBuscar={(v) => {
+              setBusqueda(v);
+              // Buscar mira TODAS las carpetas: si se quedara la elegida, una
+              // búsqueda que solo casa en otra carpeta se vería vacía y
+              // parecería que el buscador no funciona.
+              if (v.trim()) setCarpetaActiva(null);
+            }}
+            carpetaActiva={carpetaValida}
+            onElegirCarpeta={setCarpetaActiva}
+            telefono={phoneDraft}
+            onTelefono={setPhoneDraft}
+            onGuardarTelefono={savePhone}
+            correo={emailDraft}
+            onCorreo={setEmailDraft}
+            onGuardarCorreo={saveEmail}
+            guardando={busy}
+            growConnected={growConnected}
+            emailConnected={emailConnected}
           />
-          <button
-            onClick={savePhone}
-            disabled={busy}
-            className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-            style={{ background: 'white', border: '1px solid #cbd5e1', color: '#334155' }}
-          >
-            Guardar
-          </button>
-          {!growConnected && (
-            <span className="text-[11px] w-full" style={{ color: '#b45309' }}>
-              ⚠ Esta marca aún no tiene subcuenta de mensajería conectada; la prueba no se enviará hasta conectarla.
-            </span>
-          )}
-          <div className="w-full flex flex-wrap items-center gap-2 pt-2" style={{ borderTop: '1px solid #fde68a' }}>
-            <span className="text-xs font-semibold" style={{ color: '#92400e' }}>
-              📧 Correo de prueba
-            </span>
-            <span className="text-[11px]" style={{ color: '#a16207' }}>
-              Se guarda para probar tus correos sin escribirlo cada vez.
-            </span>
-            <input
-              value={emailDraft}
-              onChange={(e) => setEmailDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') saveEmail();
-              }}
-              placeholder="tu@correo.com"
-              className="text-xs rounded-[8px] px-2.5 py-1.5 flex-1 min-w-[180px] font-mono"
-              style={{ border: '1px solid #e5e7eb', color: '#111827' }}
-            />
-            <button
-              onClick={saveEmail}
-              disabled={busy}
-              className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-              style={{
-                background: 'white',
-                border: '1px solid #cbd5e1',
-                color: '#334155',
-              }}
-            >
-              Guardar
-            </button>
-            {!emailConnected && (
-              <span className="text-[11px] w-full" style={{ color: '#b45309' }}>
-                ⚠ Esta marca todavía no tiene remitente propio de correo; sus
-                correos no salen. Configúralo en Master Admin → Marcas.
-              </span>
-            )}
-          </div>
+
+          <section className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="m-0 text-sm font-bold text-ink">
+                  {carpeta ? carpeta.name : 'Todas las carpetas'}
+                </h2>
+                <p className="m-0 text-[11px] text-mute">
+                  {visibles.length}{' '}
+                  {visibles.length === 1 ? 'mensaje' : 'mensajes'} · {enviando}{' '}
+                  enviando
+                  {enBusqueda ? ` · buscando «${busqueda.trim()}»` : ''}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {carpeta && !carpeta.system && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => renameFolder(carpeta)}
+                      disabled={busy}
+                      className="min-h-[44px] rounded-input px-3 text-xs font-semibold text-mute hover:bg-bg2 disabled:opacity-50"
+                    >
+                      Renombrar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteFolder(carpeta)}
+                      disabled={busy}
+                      className="min-h-[44px] rounded-input px-3 text-xs font-semibold text-bad hover:bg-bad-soft disabled:opacity-50"
+                    >
+                      Borrar
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={createFolder}
+                  disabled={busy}
+                  className="min-h-[44px] rounded-input border border-line bg-white px-3 text-xs font-semibold text-ink hover:bg-bg2 disabled:opacity-50"
+                >
+                  + Carpeta
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-card border border-line bg-white">
+              {visibles.length === 0 ? (
+                <p className="m-0 px-4 py-8 text-center text-xs text-mute2">
+                  {enBusqueda
+                    ? `Ningún mensaje coincide con «${busqueda.trim()}».`
+                    : 'Esta carpeta está vacía. Abre un mensaje de otra carpeta y cámbiale la carpeta desde su panel.'}
+                </p>
+              ) : (
+                visibles.map((t) => (
+                  <FilaDeMensaje
+                    key={t.id}
+                    t={t}
+                    carpeta={
+                      carpetaValida ? null : nombreDeCarpeta[t.folderId] ?? null
+                    }
+                    abierta={openId === t.id}
+                    onAbrir={() => setOpenId(t.id)}
+                  />
+                ))
+              )}
+            </div>
+          </section>
         </div>
       )}
 
-      {loading ? (
-        <div className="text-sm" style={{ color: '#9aa4af' }}>
-          Cargando…
-        </div>
-      ) : (
-        <div className="space-y-5 max-w-3xl">
-          {folders.map((f) => {
-            const items = templates.filter((t) => t.folderId === f.id);
-            return (
-              <div key={f.id}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span
-                    className="text-xs font-bold uppercase tracking-wide"
-                    style={{ color: '#6b7280' }}
-                  >
-                    📁 {f.name}
-                  </span>
-                  {!f.system && (
-                    <span className="flex items-center gap-2">
-                      <button
-                        onClick={() => renameFolder(f)}
-                        disabled={busy}
-                        className="text-[11px]"
-                        style={{ color: '#64748b' }}
-                      >
-                        editar
-                      </button>
-                      <button
-                        onClick={() => deleteFolder(f)}
-                        disabled={busy}
-                        className="text-[11px]"
-                        style={{ color: '#b91c1c' }}
-                      >
-                        borrar
-                      </button>
-                    </span>
-                  )}
-                </div>
-                {items.length === 0 ? (
-                  <div
-                    className="text-[11px] rounded-lg px-3 py-2"
-                    style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}
-                  >
-                    Sin workflows. Mueve alguno aquí desde su menú “Carpeta”.
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {items.map((t) => {
-                      const open = openId === t.id;
-                      const draft = drafts[t.id] ?? t.text;
-                      const dirty = draft !== t.text;
-                      return (
-                        <div
-                          key={t.id}
-                          className="rounded-lg overflow-hidden bg-white"
-                          style={{ border: '1px solid #eef0f2' }}
-                        >
-                          <button
-                            onClick={() => setOpenId(open ? null : t.id)}
-                            className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left"
-                            style={{ background: open ? '#f8fafc' : 'white' }}
-                          >
-                            <div className="min-w-0">
-                              <div
-                                className="text-sm font-semibold truncate"
-                                style={{ color: '#2b3a30' }}
-                              >
-                                {t.label}
-                              </div>
-                              <div
-                                className="text-[11px] truncate"
-                                style={{ color: '#9aa4af' }}
-                              >
-                                {nombreDeCanal(t.channel)}
-                                {t.email ? ' · Email' : ''} · {t.audience}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {/* El estado se enseña SIEMPRE, no solo en las que
-                                  aún no envían: una marca puede apagar
-                                  cualquiera, y necesita ver cuál está apagada. */}
-                              {true ? (
-                                <span
-                                  className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
-                                  style={
-                                    t.enabled
-                                      ? { background: '#dcfce7', color: '#15803d' }
-                                      : { background: '#fef3c7', color: '#92400e' }
-                                  }
-                                  title={
-                                    t.enabled
-                                      ? 'El envío de este mensaje está activo'
-                                      : 'Editable, pero su envío está apagado'
-                                  }
-                                >
-                                  {t.enabled ? 'Envío activo' : 'Envío apagado'}
-                                </span>
-                              ) : (
-                                t.isBrandCustom && (
-                                  <span
-                                    className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
-                                    style={{ background: '#dcfce7', color: '#15803d' }}
-                                  >
-                                    Personalizado
-                                  </span>
-                                )
-                              )}
-                              <span style={{ color: '#9aa4af' }}>
-                                {open ? '▾' : '▸'}
-                              </span>
-                            </div>
-                          </button>
-                          {open && (
-                            <div
-                              className="px-3 py-3 space-y-2"
-                              style={{ borderTop: '1px solid #eef0f2' }}
-                            >
-                              <div className="text-[11px]" style={{ color: '#6b7280' }}>
-                                {t.description}
-                              </div>
-                              {t.vars.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {t.vars.map((v) => (
-                                    <code
-                                      key={v}
-                                      className="text-[10px] px-1.5 py-0.5 rounded-[5px] font-mono"
-                                      style={{ background: '#f3f4f6', color: '#4b5563' }}
-                                    >
-                                      {`{${v}}`}
-                                    </code>
-                                  ))}
-                                </div>
-                              )}
-                              <textarea
-                                value={draft}
-                                onChange={(e) =>
-                                  setDrafts((p) => ({ ...p, [t.id]: e.target.value }))
-                                }
-                                rows={Math.min(
-                                  10,
-                                  Math.max(3, draft.split('\n').length + 1),
-                                )}
-                                placeholder={t.default}
-                                className="w-full font-mono text-xs rounded-[8px] p-2"
-                                style={{
-                                  border: '1px solid #e5e7eb',
-                                  color: '#111827',
-                                  resize: 'vertical',
-                                }}
-                              />
-                              {t.email && (() => {
-                                const mail = t.email;
-                                const d =
-                                  mailDrafts[mail.id] ?? {
-                                    subject: mail.subject,
-                                    body: mail.body,
-                                  };
-                                const mailDirty =
-                                  d.subject !== mail.subject || d.body !== mail.body;
-                                return (
-                                  <div
-                                    className="rounded-[8px] p-2.5 mt-1 space-y-2"
-                                    style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[11px] font-bold" style={{ color: '#334155' }}>
-                                        📧 Correo
-                                      </span>
-                                      {!mail.enabled && (
-                                        <span
-                                          className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
-                                          style={{ background: '#fee2e2', color: '#b91c1c' }}
-                                        >
-                                          Apagado
-                                        </span>
-                                      )}
-                                      <span className="text-[10px]" style={{ color: '#94a3b8' }}>
-                                        Mismo disparo que el WhatsApp de arriba.
-                                      </span>
-                                    </div>
-                                    <label className="block text-[11px] font-semibold" style={{ color: '#64748b' }}>
-                                      Asunto
-                                      <input
-                                        value={d.subject}
-                                        onChange={(e) =>
-                                          setMailDrafts((p) => ({
-                                            ...p,
-                                            [mail.id]: { ...d, subject: e.target.value },
-                                          }))
-                                        }
-                                        placeholder={mail.subjectDefault}
-                                        className="w-full text-xs rounded-[8px] p-2 mt-1 font-normal"
-                                        style={{ border: '1px solid #e5e7eb', color: '#111827' }}
-                                      />
-                                    </label>
-                                    <label className="block text-[11px] font-semibold" style={{ color: '#64748b' }}>
-                                      Cuerpo
-                                      <textarea
-                                        value={d.body}
-                                        onChange={(e) =>
-                                          setMailDrafts((p) => ({
-                                            ...p,
-                                            [mail.id]: { ...d, body: e.target.value },
-                                          }))
-                                        }
-                                        rows={Math.min(14, Math.max(4, d.body.split('\n').length + 1))}
-                                        placeholder={mail.bodyDefault}
-                                        className="w-full font-mono text-xs rounded-[8px] p-2 mt-1 font-normal"
-                                        style={{ border: '1px solid #e5e7eb', color: '#111827', resize: 'vertical' }}
-                                      />
-                                    </label>
-                                    <div className="text-[11px]" style={{ color: '#94a3b8' }}>
-                                      Texto plano: una línea en blanco separa párrafos y{' '}
-                                      <code>**así**</code> pone negrita. El logo, los colores
-                                      y el botón los pone tu marca.
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <button
-                                        onClick={() => saveMail(mail.id, d.subject, d.body)}
-                                        disabled={savingMailId === mail.id || !mailDirty}
-                                        className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                        style={{
-                                          background: mailDirty ? '#16a34a' : '#e5e7eb',
-                                          color: mailDirty ? 'white' : '#9aa4af',
-                                        }}
-                                      >
-                                        {savingMailId === mail.id ? 'Guardando…' : 'Guardar correo'}
-                                      </button>
-                                      <button
-                                        onClick={() => testMail(mail.id, d.subject, d.body)}
-                                        disabled={testingMailId === mail.id || !emailDraft.trim()}
-                                        title={
-                                          emailDraft.trim()
-                                            ? 'Enviar este correo a tu correo de prueba'
-                                            : 'Escribe un correo de prueba arriba'
-                                        }
-                                        className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                        style={{ background: 'white', color: '#0369a1', border: '1px solid #bae6fd' }}
-                                      >
-                                        {testingMailId === mail.id ? 'Enviando…' : '📧 Probar correo'}
-                                      </button>
-                                      {mail.isBrandCustom && (
-                                        <button
-                                          onClick={() => saveMail(mail.id, '', '')}
-                                          disabled={savingMailId === mail.id}
-                                          className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                          style={{ background: 'white', color: '#b91c1c', border: '1px solid #fecaca' }}
-                                        >
-                                          Restaurar default
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => toggleSend(mail.id, !mail.enabled)}
-                                        disabled={busy}
-                                        className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                        style={{
-                                          background: 'white',
-                                          color: mail.enabled ? '#b45309' : '#15803d',
-                                          border: '1px solid #e5e7eb',
-                                        }}
-                                      >
-                                        {mail.enabled ? 'Apagar correo' : 'Encender correo'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                              <div className="flex flex-wrap items-center gap-2">
-                                <button
-                                  onClick={() => save(t.id, draft)}
-                                  disabled={savingId === t.id || !dirty}
-                                  className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                  style={{
-                                    background: dirty ? '#16a34a' : '#e5e7eb',
-                                    color: dirty ? 'white' : '#9aa4af',
-                                  }}
-                                >
-                                  {savingId === t.id ? 'Guardando…' : 'Guardar'}
-                                </button>
-                                {t.channel === 'SMS' && (
-                                  <button
-                                    onClick={() => testSend(t.id, draft)}
-                                    disabled={testingId === t.id || !phoneDraft.trim()}
-                                    title={
-                                      phoneDraft.trim()
-                                        ? `Enviar este ${nombreDeCanal(t.channel)} a tu número de prueba`
-                                        : 'Escribe arriba un número de prueba para poder enviarlo'
-                                    }
-                                    className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                    style={{ background: 'white', color: '#0369a1', border: '1px solid #bae6fd' }}
-                                  >
-                                    {testingId === t.id
-                                      ? 'Enviando…'
-                                      : `🧪 Probar ${nombreDeCanal(t.channel)}`}
-                                  </button>
-                                )}
-                                {t.channel === 'SMS' && !phoneDraft.trim() && (
-                                  // Un botón apagado y sin explicación se lee
-                                  // como «esto no se puede probar». Sí se
-                                  // puede: lo que falta es el número.
-                                  <span
-                                    className="text-[11px]"
-                                    style={{ color: '#a16207' }}
-                                  >
-                                    Pon un número de prueba arriba
-                                  </span>
-                                )}
-                                {t.isBrandCustom && (
-                                  <button
-                                    onClick={() => save(t.id, '')}
-                                    disabled={savingId === t.id}
-                                    className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                    style={{
-                                      background: 'white',
-                                      color: '#b91c1c',
-                                      border: '1px solid #fecaca',
-                                    }}
-                                  >
-                                    Restaurar default
-                                  </button>
-                                )}
-                                {/* También en las que ya envían: apagar una es
-                                    decisión de la marca. */}
-                                <button
-                                    onClick={() => toggleSend(t.id, !t.enabled)}
-                                    disabled={busy}
-                                    className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                                    style={
-                                      t.enabled
-                                        ? {
-                                            background: 'white',
-                                            color: '#b45309',
-                                            border: '1px solid #fde68a',
-                                          }
-                                        : { background: '#0ea5e9', color: 'white' }
-                                    }
-                                  >
-                                    {t.enabled ? 'Apagar envío' : 'Activar envío'}
-                                  </button>
-                                <label
-                                  className="text-[11px] ml-auto flex items-center gap-1"
-                                  style={{ color: '#64748b' }}
-                                >
-                                  Carpeta:
-                                  <select
-                                    value={t.folderId}
-                                    onChange={(e) => moveTo(t.id, e.target.value)}
-                                    disabled={busy}
-                                    className="text-[11px] rounded-[6px] px-1.5 py-1"
-                                    style={{ border: '1px solid #e5e7eb' }}
-                                  >
-                                    {folders.map((fo) => (
-                                      <option key={fo.id} value={fo.id}>
-                                        {fo.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      {abierto && (
+        <DetalleDeMensaje
+          key={abierto.id}
+          t={abierto}
+          carpetas={folders}
+          draftTexto={drafts[abierto.id] ?? abierto.text}
+          onDraftTexto={(v) =>
+            setDrafts((p) => ({ ...p, [abierto.id]: v }))
+          }
+          draftCorreo={correoAbierto ? mailDrafts[correoAbierto.id] ?? null : null}
+          onDraftCorreo={(v) =>
+            correoAbierto &&
+            setMailDrafts((p) => ({ ...p, [correoAbierto.id]: v }))
+          }
+          guardandoTexto={savingId === abierto.id}
+          guardandoCorreo={!!correoAbierto && savingMailId === correoAbierto.id}
+          probandoTexto={testingId === abierto.id}
+          probandoCorreo={!!correoAbierto && testingMailId === correoAbierto.id}
+          ocupado={busy}
+          telefonoPrueba={phoneDraft}
+          correoPrueba={emailDraft}
+          growConnected={growConnected}
+          emailConnected={emailConnected}
+          onGuardarTexto={(texto) => save(abierto.id, texto)}
+          onProbarTexto={(texto) => testSend(abierto.id, texto)}
+          onGuardarCorreo={saveMail}
+          onProbarCorreo={testMail}
+          onAlternarEnvio={toggleSend}
+          onMover={(folderId) => moveTo(abierto.id, folderId)}
+          onCerrar={cerrarDetalle}
+        />
       )}
     </div>
   );
