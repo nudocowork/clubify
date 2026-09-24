@@ -535,6 +535,7 @@ export class FinanceReportService {
             select: {
               amount: true,
               amountPaid: true,
+              recipientCodeId: true,
               recipientCode: { select: { code: true, ownerName: true, role: true } },
             },
           },
@@ -552,19 +553,43 @@ export class FinanceReportService {
       }),
     ]);
 
+    type Persona = {
+      code: string;
+      codeId: string | null;
+      nombre: string;
+      rol: string;
+      count: number;
+      totalUsd: number;
+      pagadoUsd: number;
+      pendienteUsd: number;
+      /** Cuándo se le transfirió y con qué comprobante. Ver abajo. */
+      pagadoEl: Date | null;
+      comprobanteUrl: string | null;
+      referencia: string | null;
+    };
+
     const persona = (
-      mapa: Map<string, { code: string; nombre: string; rol: string; count: number; totalUsd: number; pagadoUsd: number; pendienteUsd: number }>,
-      c: { amount: unknown; amountPaid: unknown; recipientCode: { code: string; ownerName: string; role: string } | null },
+      mapa: Map<string, Persona>,
+      c: {
+        amount: unknown;
+        amountPaid: unknown;
+        recipientCodeId: string | null;
+        recipientCode: { code: string; ownerName: string; role: string } | null;
+      },
     ) => {
       const code = c.recipientCode?.code ?? '—';
       const p = mapa.get(code) ?? {
         code,
+        codeId: c.recipientCodeId ?? null,
         nombre: c.recipientCode?.ownerName ?? 'Sin beneficiario asignado',
         rol: c.recipientCode?.role ?? '—',
         count: 0,
         totalUsd: 0,
         pagadoUsd: 0,
         pendienteUsd: 0,
+        pagadoEl: null,
+        comprobanteUrl: null,
+        referencia: null,
       };
       p.count += 1;
       p.totalUsd = round2(p.totalUsd + Number(c.amount));
@@ -573,6 +598,32 @@ export class FinanceReportService {
       mapa.set(code, p);
       return p;
     };
+
+    // El COMPROBANTE de cada transferencia.
+    //
+    // Lo pide el encargo de Sara (PDF del 17-09-2026): «cuando las comisiones se
+    // marquen como pagadas en su módulo respectivo y se anexen los respectivos
+    // comprobantes, se debe registrar en contabilidad». Hasta ahora Contabilidad
+    // decía CUÁNTO se había pagado de cada corte, pero no cuándo ni con qué
+    // respaldo, y para cuadrar contra el banco hace falta el comprobante.
+    //
+    // Vive en `BatchPersonPayment`, una fila por (corte, beneficiario) — que es
+    // exactamente la granularidad con la que se paga.
+    const pagos = cortes.length
+      ? await this.prisma.batchPersonPayment.findMany({
+          where: { batchId: { in: cortes.map((b) => b.id) } },
+          select: {
+            batchId: true,
+            recipientCodeId: true,
+            proofUrl: true,
+            reference: true,
+            paidAt: true,
+          },
+        })
+      : [];
+    const comprobante = new Map(
+      pagos.map((x) => [`${x.batchId}|${x.recipientCodeId}`, x]),
+    );
 
     const lista = cortes.map((b) => {
       const mapa = new Map<string, ReturnType<typeof persona>>();
@@ -595,7 +646,14 @@ export class FinanceReportService {
         totalUsd: round2(totalUsd),
         pagadoUsd: round2(pagadoUsd),
         pendienteUsd: round2(totalUsd - pagadoUsd),
-        personas: [...mapa.values()].sort((a, b2) => b2.totalUsd - a.totalUsd),
+        personas: [...mapa.values()]
+          .map((p) => {
+            const x = p.codeId ? comprobante.get(`${b.id}|${p.codeId}`) : null;
+            return x
+              ? { ...p, pagadoEl: x.paidAt, comprobanteUrl: x.proofUrl, referencia: x.reference }
+              : p;
+          })
+          .sort((a, b2) => b2.totalUsd - a.totalUsd),
       };
     });
 

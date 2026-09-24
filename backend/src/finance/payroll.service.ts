@@ -117,6 +117,21 @@ export class PayrollService {
   }
 
   // ── Cortes de nómina ──────────────────────────────────────────────────────
+  /**
+   * Genera un corte de nómina.
+   *
+   * Un segundo corte del MISMO período, cuando el primero todavía no tiene
+   * pagos, casi nunca es lo que se quiere: es que faltó un colaborador. Le pasó
+   * a Sara con la quincena del 1-15 de septiembre — agregó al que faltaba y
+   * volvió a generar, y acabó con dos cortes de las mismas fechas en vez de uno
+   * completo.
+   *
+   * La pantalla ya lo avisa, pero el aviso se puede ignorar y la pantalla no es
+   * la última palabra: aquí se rechaza. Con el corte ya PAGADO (o con abonos)
+   * sí se deja generar otro, porque entonces la única salida es un corte nuevo
+   * con la misma fecha y solo los que faltan — que es justo lo que pidió el
+   * encargo.
+   */
   async generateRun(input: {
     periodLabel: string;
     periodStart?: string | null;
@@ -125,6 +140,31 @@ export class PayrollService {
     whiteLabelId?: string | null;
     actorId?: string | null;
   }) {
+    if (input.periodEnd) {
+      const fin = new Date(input.periodEnd);
+      if (!Number.isNaN(fin.getTime())) {
+        // Por el DÍA en que termina, no por el instante: el panel lo manda al
+        // mediodía, pero un corte viejo pudo guardarse a otra hora.
+        const dia = fin.toISOString().slice(0, 10);
+        const gemelo = await this.prisma.payrollRun.findFirst({
+          where: {
+            whiteLabelId: input.whiteLabelId ?? null,
+            periodEnd: {
+              gte: new Date(`${dia}T00:00:00.000Z`),
+              lte: new Date(`${dia}T23:59:59.999Z`),
+            },
+            amountPaidUsd: { lte: 0 },
+          },
+          select: { id: true, periodLabel: true },
+        });
+        if (gemelo) {
+          throw new BadRequestException(
+            `Ya hay un corte sin pagos que termina ese día: «${gemelo.periodLabel}». ` +
+              'Si falta un colaborador, agrégalo a ese corte desde su detalle en vez de generar otro igual.',
+          );
+        }
+      }
+    }
     const items = input.items.map((it) => {
       const base = Number(it.baseUsd) || 0;
       const bonus = Number(it.bonusUsd ?? 0) || 0;

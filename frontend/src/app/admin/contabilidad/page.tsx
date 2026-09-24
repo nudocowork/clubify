@@ -82,7 +82,10 @@ type CorteComisiones = {
   code: string; cutoffDate: string; periodStart: string | null; periodEnd: string | null;
   status: string; paymentDate: string | null; receivedAt: string | null;
   count: number; totalUsd: number; pagadoUsd: number; pendienteUsd: number;
-  personas: Array<{ code: string; nombre: string; rol: string; count: number; totalUsd: number; pagadoUsd: number; pendienteUsd: number }>;
+  // `pagadoEl`, `comprobanteUrl` y `referencia` salen de la transferencia real
+  // a esa persona en ese corte: cuadrar contra el banco necesita el respaldo,
+  // no solo el monto.
+  personas: Array<{ code: string; nombre: string; rol: string; count: number; totalUsd: number; pagadoUsd: number; pendienteUsd: number; pagadoEl: string | null; comprobanteUrl: string | null; referencia: string | null }>;
 };
 type CortesDeComisiones = {
   period: string; cortes: CorteComisiones[]; totalCortesUsd: number; pagadoCortesUsd: number;
@@ -825,7 +828,21 @@ export default function ContabilidadPage() {
                                 <span className="text-mute ml-1.5">{p.code}</span>
                               </td>
                               <td className="px-4 py-2 text-mute">{p.rol}</td>
-                              <td className="px-4 py-2" />
+                              <td className="px-4 py-2 whitespace-nowrap">
+                                {/* El respaldo de la transferencia, que es lo que hace falta para cuadrar contra el banco. */}
+                                {p.pagadoEl && <span className="text-[10px] text-mute">pagado {fmtDate(p.pagadoEl)}</span>}
+                                {p.comprobanteUrl && (
+                                  <a
+                                    href={p.comprobanteUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={p.referencia ? `Referencia ${p.referencia}` : 'Comprobante'}
+                                    className="text-[10px] text-brand font-semibold ml-2 hover:underline"
+                                  >
+                                    comprobante
+                                  </a>
+                                )}
+                              </td>
                               <td className="px-4 py-2 text-mute tabular-nums">{p.count}</td>
                               <td className="px-4 py-2 tabular-nums">{money(p.totalUsd)}</td>
                               <td className="px-4 py-2 tabular-nums text-ok">{money(p.pagadoUsd)}</td>

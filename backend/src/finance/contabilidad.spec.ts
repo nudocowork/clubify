@@ -596,6 +596,9 @@ describe('las comisiones repartidas por corte', () => {
       },
     };
     prisma.commission.findMany = async () => sueltas;
+    // Los comprobantes de la transferencia viven aparte (`BatchPersonPayment`).
+    // Estos casos miran el REPARTO por corte, no el respaldo: lista vacía.
+    prisma.batchPersonPayment = { findMany: async () => [] };
     return new FinanceReportService(prisma, {} as any, {} as any);
   }
 
