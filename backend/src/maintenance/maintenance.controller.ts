@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { MaintenanceService } from './maintenance.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 
 /**
  * Endpoints SUPER_ADMIN para gestionar el modo mantenimiento.
@@ -27,7 +28,16 @@ export class MaintenanceAdminController {
     return this.svc.getStatus({ forceFresh: true });
   }
 
+  // El mantenimiento es GLOBAL: `MaintenanceGuard` está registrado como
+  // APP_GUARD y las claves que escribe esto no llevan marca. Sin este candado,
+  // el administrador de una marca blanca —que es un SUPER_ADMIN con
+  // `whiteLabelId`— dejaba a Clubify y al resto de marcas en 503.
+  //
+  // Solo la escritura: el GET de arriba devuelve lo mismo que
+  // `/api/public/maintenance/status`, que es público, así que cerrarlo no
+  // protegería nada y revivía el 403 del panel que cuenta el comentario.
   @Patch()
+  @UseGuards(SoloPlataformaGuard)
   update(
     @Body()
     body: {

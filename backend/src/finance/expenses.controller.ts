@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { SoloPlataformaGuard } from './solo-plataforma.guard';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';

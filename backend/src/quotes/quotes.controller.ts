@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   IsDateString,
@@ -28,6 +29,7 @@ import {
   AuthUser,
   CurrentUser,
 } from '../common/decorators/current-user.decorator';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 import { QuotesService } from './quotes.service';
 
 class CreateQuoteDto {
@@ -54,8 +56,18 @@ class ListQuotesQuery {
     | 'exclude';
 }
 
+/**
+ * Cotizaciones es un módulo de la PLATAFORMA: cotiza los planes de Clubify,
+ * con los precios globales de `admin/pricing`. `Quote` no tiene marca ni
+ * negocio, así que ninguna consulta de aquí está filtrada por nada.
+ *
+ * Sin este candado, el admin de cualquier marca blanca —que es un SUPER_ADMIN
+ * con `whiteLabelId`— listaba y borraba TODAS las cotizaciones, con el nombre,
+ * teléfono, correo y precio de cada cliente (auditoría del 2026-09-24).
+ */
 @Controller('admin/quotes')
 @Roles('SUPER_ADMIN')
+@UseGuards(SoloPlataformaGuard)
 export class QuotesController {
   constructor(private svc: QuotesService) {}
 

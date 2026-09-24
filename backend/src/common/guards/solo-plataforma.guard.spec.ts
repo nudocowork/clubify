@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
 import { SoloPlataformaGuard } from './solo-plataforma.guard';
-import { olvidarMarcaClubify } from './alcance-de-marca';
+import { olvidarMarcaClubify } from '../../finance/alcance-de-marca';
 
 /**
  * Un admin de marca blanca es SUPER_ADMIN con `whiteLabelId`: el RolesGuard lo
@@ -29,7 +29,7 @@ function guard() {
 
 beforeEach(() => olvidarMarcaClubify());
 
-describe('Contabilidad solo para la plataforma', () => {
+describe('Lo de la plataforma no lo toca una marca blanca', () => {
   it('sesión sin marca (operador de la plataforma) entra', async () => {
     expect(await guard().canActivate(contexto({ role: 'SUPER_ADMIN', whiteLabelId: null }))).toBe(true);
   });

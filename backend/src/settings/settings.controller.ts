@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Patch, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { SettingsService } from './settings.service';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
@@ -84,11 +85,25 @@ export class SettingsController {
     return this.svc.getBranding();
   }
 
+  // De aquí en adelante, todo lo que lleva `admin/` son ajustes GLOBALES de la
+  // plataforma: el logo y el WhatsApp de Clubify, sus precios, sus enlaces de
+  // pago, su cupón y su política de prueba. Una marca blanca tiene los suyos en
+  // su ficha de `WhiteLabel`, no aquí.
+  //
+  // `@Roles('SUPER_ADMIN')` no bastaba: el admin de una marca blanca ES un
+  // SUPER_ADMIN con `whiteLabelId` (auditoría del 2026-09-24). Podía cambiarle
+  // el logo y el WhatsApp de soporte a Clubify, y LEER el PIN del escáner, que
+  // es uno solo para los 136 negocios.
+  //
+  // Si alguna pantalla de una marca empieza a dar 403 por esto, la pantalla es
+  // la que sobra: estaba enseñando datos de la plataforma.
+
   /** Lectura admin del branding global. SUPER_ADMIN ve TODO (incluyendo
    *  el PIN sensible del escáner). MARKETING solo ve los campos de diseño
    *  — el PIN se filtra para no exponerlo al rol de marketing. */
   @Get('admin/branding')
   @Roles('SUPER_ADMIN', 'MARKETING')
+  @UseGuards(SoloPlataformaGuard)
   getBrandingAdmin(@CurrentUser() user: AuthUser) {
     if (user.role === 'MARKETING') {
       return this.svc.getBranding();
@@ -100,6 +115,7 @@ export class SettingsController {
    *  NO puede setear el scannerStaffPin — se descarta del body si lo manda. */
   @Patch('admin/branding')
   @Roles('SUPER_ADMIN', 'MARKETING')
+  @UseGuards(SoloPlataformaGuard)
   setBranding(@CurrentUser() user: AuthUser, @Body() body: BrandingDto) {
     if (user.role === 'MARKETING') {
       const { scannerStaffPin: _omit, ...safe } = body;
@@ -114,12 +130,14 @@ export class SettingsController {
    * si más adelante se quiere exponer en landing se cambia a @Public). */
   @Get('admin/pricing')
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   getPricing() {
     return this.svc.getPricing();
   }
 
   @Patch('admin/pricing')
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   setPricing(@Body() body: PricingDto) {
     return this.svc.setPricing(body);
   }
@@ -148,6 +166,7 @@ export class SettingsController {
   /** Los enlaces AÑADIDOS a mano, para editarlos desde /admin/branding. */
   @Get('admin/enlaces-de-venta')
   @Roles('SUPER_ADMIN', 'MARKETING')
+  @UseGuards(SoloPlataformaGuard)
   getEnlacesExtra() {
     return this.svc.getEnlacesExtra();
   }
@@ -157,12 +176,14 @@ export class SettingsController {
    *  panel como viene y lo que no sirve se descarta en vez de romper el guardado. */
   @Patch('admin/enlaces-de-venta')
   @Roles('SUPER_ADMIN', 'MARKETING')
+  @UseGuards(SoloPlataformaGuard)
   setEnlacesExtra(@Body() body: { enlaces?: unknown }) {
     return this.svc.setEnlacesExtra(body?.enlaces ?? []);
   }
 
   @Patch('admin/landing-plans')
   @Roles('SUPER_ADMIN', 'MARKETING')
+  @UseGuards(SoloPlataformaGuard)
   setLandingPlans(@Body() body: LandingPlansDto) {
     return this.svc.setLandingPlans(body);
   }
@@ -180,24 +201,28 @@ export class SettingsController {
    *  o null = sin cupón. */
   @Get('admin/billing/hotmart-coupon')
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   getHotmartCoupon() {
     return this.svc.getHotmartCoupon();
   }
 
   @Patch('admin/billing/hotmart-coupon')
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   setHotmartCoupon(@Body() body: HotmartCouponDto) {
     return this.svc.setHotmartCoupon(body.couponCode ?? null);
   }
 
   @Get('admin/trial-policy')
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   getTrialPolicy() {
     return this.svc.getTrialPolicy();
   }
 
   @Patch('admin/trial-policy')
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   setTrialPolicy(@Body() body: TrialPolicyDto) {
     return this.svc.setTrialPolicy(body.maxTrialDaysNoCredits);
   }

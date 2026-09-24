@@ -1,5 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { SoloPlataformaGuard } from './solo-plataforma.guard';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { MovementsService } from './movements.service';
 import { rangoDe } from './where-periodo';

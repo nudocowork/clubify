@@ -8,7 +8,7 @@ import {
   Post,
   Query, UseGuards,
 } from '@nestjs/common';
-import { SoloPlataformaGuard } from './solo-plataforma.guard';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { PaymentGateway } from '@prisma/client';
 import { IncomeRecordService } from './income-record.service';

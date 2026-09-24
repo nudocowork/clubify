@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
-import { SoloPlataformaGuard } from './solo-plataforma.guard';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PayrollService, RunItemInput } from './payroll.service';
