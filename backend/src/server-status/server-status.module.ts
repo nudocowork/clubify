@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { EmailModule } from '../email/email.module';
+import { AuthModule } from '../auth/auth.module';
 import { RailwayMetricsService } from './railway-metrics.service';
 import { ServerStatusController } from './server-status.controller';
 import { ServerStatusService } from './server-status.service';
@@ -10,7 +10,9 @@ import { ServerStatusService } from './server-status.service';
  * snapshots diarios para crecimiento/proyección. PrismaService es global.
  */
 @Module({
-  imports: [EmailModule],
+  // AuthModule trae PreregAlertsService: la alerta de capacidad sale por SMS
+  // al equipo, no por correo (ver checkAndAlert).
+  imports: [AuthModule],
   controllers: [ServerStatusController],
   providers: [ServerStatusService, RailwayMetricsService],
 })

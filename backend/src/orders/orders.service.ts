@@ -22,7 +22,7 @@ import { PromotionsService } from '../promotions/promotions.service';
 import { AutomationsService } from '../automations/automations.service';
 import { OrdersGateway } from './orders.gateway';
 import { variantUnitPrice } from './variant-price';
-import { EmailService } from '../email/email.service';
+import { BrandEmailService } from '../email/brand-email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
@@ -315,7 +315,7 @@ export class OrdersService {
     private promotions: PromotionsService,
     private automations: AutomationsService,
     private gateway: OrdersGateway,
-    private email: EmailService,
+    private brandEmail: BrandEmailService,
     private wallet: WalletService,
     private appConfig: AppConfigService,
     private growBusiness: GrowBusinessService,
@@ -1030,8 +1030,12 @@ export class OrdersService {
         })),
         trackingUrl,
       });
-      this.email
-        .send({
+      // Por Grow Business, como el de «pedido listo»: `EmailService` no manda
+      // nada en producción (ver `sendStatusEmail`).
+      this.brandEmail
+        .sendRaw({
+          whiteLabelId: tenant.whiteLabelId,
+          tenantId: tenant.id,
           to: customer.email,
           subject: tpl.subject,
           html: tpl.html,
@@ -2095,7 +2099,19 @@ export class OrdersService {
       next === 'CONFIRMED'
         ? orderConfirmedTemplate(tplArgs)
         : orderReadyTemplate(tplArgs);
-    await this.email.send({
+    // Sale por la subcuenta de Grow Business, que es el único transporte vivo.
+    //
+    // Antes iba por `EmailService.send`, que sin `RESEND_API_KEY` —y en Railway
+    // no existe— cae a un adaptador de consola: imprimía una línea y devolvía
+    // «ok». Este correo lleva así desde siempre, y son 174 pedidos solo en
+    // septiembre: el cliente final nunca supo que su pedido estaba listo.
+    //
+    // El marco lo pone la marca (logo, color, «Enviado por»); el remitente, la
+    // subcuenta que transporta. Se pasa el negocio además de la marca para que
+    // pueda usar su propia subcuenta de cobros si la marca no tiene una.
+    await this.brandEmail.sendRaw({
+      whiteLabelId: tenant.whiteLabelId,
+      tenantId,
       to: customer.email,
       subject: tpl.subject,
       html: tpl.html,

@@ -37,6 +37,11 @@ const NOMBRES: Array<{ id: Tipo; label: string; desc: string }> = [
   { id: 'nueva_compra', label: 'Nueva compra', desc: 'Alta nueva ya activada.' },
   { id: 'trial', label: 'Pruebas', desc: 'Pruebas gratuitas a punto de vencer.' },
   { id: 'lab', label: 'Lab', desc: 'Cambios de estado en el Lab.' },
+  {
+    id: 'infraestructura',
+    label: 'Infraestructura',
+    desc: 'La base de datos llenándose. Solo cuando sube de nivel, no todos los días.',
+  },
 ];
 
 export function AvisosAlEquipo() {

@@ -24,7 +24,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
-import { EmailService } from '../email/email.service';
+import { BrandEmailService } from '../email/brand-email.service';
 import { welcomeStaffTemplate } from '../email/templates/templates';
 
 class InviteStaffBody {
@@ -64,7 +64,7 @@ export class StaffController {
   constructor(
     private prisma: PrismaService,
     private auth: AuthService,
-    private email: EmailService,
+    private brandEmail: BrandEmailService,
   ) {}
 
   @Get()
@@ -155,8 +155,14 @@ export class StaffController {
         tempPassword,
         loginUrl: `${process.env.APP_URL ?? 'http://localhost:4848'}/login`,
       });
-      this.email
-        .send({
+      // Por Grow Business. Antes iba por `EmailService.send`, que sin
+      // `RESEND_API_KEY` cae al adaptador de consola y devuelve «ok»: el
+      // empleado recién creado NUNCA recibía su usuario ni su contraseña
+      // temporal, y el panel no daba ningún error (auditoría del 2026-09-24).
+      this.brandEmail
+        .sendRaw({
+          whiteLabelId: tenant.whiteLabelId,
+          tenantId: tenant.id,
           to: created.email,
           subject: tpl.subject,
           html: tpl.html,

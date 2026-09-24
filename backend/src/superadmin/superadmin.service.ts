@@ -493,7 +493,7 @@ export class SuperAdminService {
           : (process.env.PUBLIC_APP_URL || 'https://app.soyclubify.com'));
     const acceptUrl = `${baseUrl}/aceptar-invitacion-marca/${token}`;
 
-    await this.email.send({
+    const correo = {
       to: email,
       subject: `Te invitaron a administrar ${wl.name}`,
       html: whiteLabelInviteEmailHtml({
@@ -505,7 +505,21 @@ export class SuperAdminService {
         expiresAt,
       }),
       text: `Hola ${fullName}, te invitaron a administrar ${wl.name}. Acepta tu invitación aquí: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
-    });
+    };
+    // Iba por `EmailService.send`, que en producción imprime en la consola y
+    // devuelve «ok»: este correo lleva el token de aceptación, así que el panel
+    // decía «invitación enviada» y la persona nunca recibía nada. Hay una del
+    // 19 de junio todavía sin aceptar.
+    //
+    // Primero la subcuenta de la marca, para que el remitente sea el suyo. Si
+    // no tiene —lo normal en una marca recién creada—, sale por la plataforma.
+    // Es la excepción razonada a «una marca sin subcuenta no envía»: esa regla
+    // protege al CLIENTE FINAL de ver un remitente de Clubify, y aquí el
+    // destinatario es quien va a administrar la marca dentro de la plataforma.
+    const r = await this.brandEmail.sendRaw({ whiteLabelId, ...correo });
+    if (!r.sent && r.reason === 'no_connection') {
+      await this.brandEmail.sendRaw({ whiteLabelId: null, ...correo });
+    }
 
     await this.logAction(actorId, 'superadmin.white_label_admin_invite.create', `whiteLabel:${whiteLabelId}`, {
       whiteLabelName: wl.name, email, fullName,
@@ -2715,7 +2729,11 @@ export class SuperAdminService {
       : (process.env.PUBLIC_APP_URL || 'https://app.soyclubify.com');
     const acceptUrl = `${baseUrl}/aceptar-invitacion-plataforma/${token}`;
 
-    await this.email.send({
+    // Como la invitación de marca: `EmailService` no manda nada en producción.
+    // Esta es de la PLATAFORMA, así que sale por su subcuenta sin más vueltas.
+    // Hay una del 17 de junio esperando un correo que nunca salió.
+    await this.brandEmail.sendRaw({
+      whiteLabelId: null,
       to: email,
       subject: `Te invitaron a administrar ${platformName}`,
       html: ownerInviteEmailHtml({ fullName, platformName, acceptUrl, expiresAt }),

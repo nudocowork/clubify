@@ -27,7 +27,9 @@ export type TipoAviso =
   | 'lab'
   /** Equipo de implementación: cliente que pagó y no se registra (30 min y
    *  24 h), con sus datos y su enlace de activación para reenviárselo. */
-  | 'implementacion';
+  | 'implementacion'
+  /** Infraestructura de la plataforma: la base de datos llenandose. */
+  | 'infraestructura';
 
 /**
  * Todos los tipos, para validar lo que llega desde la pantalla de «Avisos al
@@ -42,6 +44,7 @@ export const TIPOS_DE_AVISO = [
   'trial',
   'lab',
   'implementacion',
+  'infraestructura',
 ] as const satisfies readonly TipoAviso[];
 type _TodosLosTiposListados = Exclude<
   TipoAviso,

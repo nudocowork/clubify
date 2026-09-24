@@ -155,7 +155,11 @@ function montar(opciones: { extra?: any[] } = {}) {
     // [teléfono, texto] y las pruebas leen el SMS sin castear a `any`.
     sendInternalAlert: vi.fn(async (_telefono: string, _texto: string) => ({ ok: true })),
   };
-  const email = { send: vi.fn(async () => null) };
+  // El correo del Lab sale por Grow Business (BrandEmailService), no por
+  // EmailService: aquel no manda nada en produccion.
+  const email = {
+    sendRaw: vi.fn(async (_opts: { whiteLabelId: string | null }) => ({ sent: true as const })),
+  };
   const media = {
     // Tipado con su argumento: así `mock.calls[0][0]` es el objeto de la subida
     // y se puede mirar la carpeta sin castear a `any`.
@@ -266,14 +270,16 @@ describe('la moderación de la plataforma', () => {
       'APPROVED',
       null,
     );
-    expect(email.send).not.toHaveBeenCalled();
+    expect(email.sendRaw).not.toHaveBeenCalled();
 
     await notificar(
       { id: 'p-historica', title: 'Histórica', whiteLabelId: null, author: { fullName: 'Ana', email: 'ana@clubify.test' } },
       'APPROVED',
       null,
     );
-    expect(email.send).toHaveBeenCalledTimes(1);
+    expect(email.sendRaw).toHaveBeenCalledTimes(1);
+    // Por la plataforma: el filtro de arriba ya garantiza que la propuesta es suya.
+    expect(email.sendRaw.mock.calls[0][0]).toMatchObject({ whiteLabelId: null });
   });
 });
 

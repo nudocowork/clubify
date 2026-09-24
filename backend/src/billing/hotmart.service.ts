@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
-import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
 import {
   anularComisionesDeTransaccion,
@@ -313,9 +312,6 @@ export class HotmartService {
     private prisma: PrismaService,
     private moduleRef: ModuleRef,
     private growBusiness: GrowBusinessService,
-    // Solo para los avisos de cadena de referidos (notifyReferralChain); el
-    // correo al COMPRADOR sale por PendingActivationService → BrandEmailService.
-    private email: EmailService,
     private pendingActivation: PendingActivationService,
     private billing: BillingService,
     private referralsService: ReferralsService,
@@ -3313,8 +3309,17 @@ export class HotmartService {
         await this.growBusiness.sendSms(tenantId, r.phone, message).catch(() => null);
       }
       if (useEmail && r.email) {
-        await this.email
-          .send({ to: r.email, subject, text: message, html: htmlMessage })
+        // Por Grow Business: `EmailService.send` no manda nada en producción
+        // (sin `RESEND_API_KEY` imprime en la consola y devuelve «ok»), así que
+        // este aviso al afiliado no ha salido nunca.
+        await this.brandEmail
+          .sendRaw({
+            tenantId,
+            to: r.email,
+            subject,
+            text: message,
+            html: htmlMessage,
+          })
           .catch(() => null);
       }
     }

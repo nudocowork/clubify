@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { QueueService } from '../jobs/queue.service';
-import { EmailService } from '../email/email.service';
+import { BrandEmailService } from '../email/brand-email.service';
 import { OnboardingService } from './onboarding.service';
 import { resolveBrandEmail } from '../email/brand-email';
 import { accountActivatedTemplate } from '../email/templates/templates';
@@ -31,7 +31,7 @@ export class OnboardingWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jobs: QueueService,
-    private readonly email: EmailService,
+    private readonly brandEmail: BrandEmailService,
     private readonly onboarding: OnboardingService,
   ) {}
 
@@ -230,10 +230,18 @@ export class OnboardingWebhookService {
         select: { email: true, fullName: true },
       });
       if (!owner?.email) return;
-      this.email.send({
+      // Por Grow Business. Antes iba por `EmailService.send`, que sin
+      // `RESEND_API_KEY` —y en Railway no existe— imprime en la consola y
+      // devuelve «ok»: este correo no ha salido nunca.
+      //
+      // Ya no se pasan `from` ni `replyTo`: el remitente lo pone la subcuenta
+      // que transporta, no nosotros. El opt-in por marca (`hasBrandSender`) se
+      // queda como estaba — esto arregla el transporte, no cambia a quién se le
+      // manda.
+      this.brandEmail.sendRaw({
+        whiteLabelId: tenant.whiteLabelId,
+        tenantId,
         to: owner.email,
-        from: brandEmail.from,
-        replyTo: brandEmail.replyTo,
         ...accountActivatedTemplate({
           tenant: {
             brandName: tenant.brandName,

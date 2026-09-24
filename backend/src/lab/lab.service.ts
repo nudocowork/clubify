@@ -14,7 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
-import { EmailService } from '../email/email.service';
+import { BrandEmailService } from '../email/brand-email.service';
 import { MediaService } from '../media/media.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { resolveBrandScope } from '../common/white-label/brand-scope.util';
@@ -172,7 +172,7 @@ export class LabService {
   constructor(
     private prisma: PrismaService,
     private alerts: PreregAlertsService,
-    private email: EmailService,
+    private brandEmail: BrandEmailService,
     private media: MediaService,
   ) {}
 
@@ -1085,11 +1085,15 @@ export class LabService {
       // Solo propuestas de la plataforma. Ahora el autor puede ser el
       // administrador de una marca blanca, y este correo lleva un enlace fijo a
       // app.soyclubify.com y la firma genérica de la plataforma: fuga de marca.
-      // (Hoy además no sale para nadie: sin RESEND_API_KEY, EmailService cae a
-      // la consola.)
+      //
+      // El transporte pasa a ser Grow Business: `EmailService.send` no mandaba
+      // nada en producción —sin `RESEND_API_KEY` cae al adaptador de consola y
+      // devuelve «ok»—, así que este aviso no ha salido nunca. Va por la
+      // plataforma porque el filtro de arriba ya garantiza que es suya.
       const { clubifyId } = await resolveBrandScope(this.prisma, null);
       if (!esDeLaPlataforma(proposal.whiteLabelId, clubifyId)) return;
-      await this.email.send({
+      await this.brandEmail.sendRaw({
+        whiteLabelId: null,
         to: proposal.author.email,
         subject: `Tu propuesta en el Lab cambió de estado`,
         html: `

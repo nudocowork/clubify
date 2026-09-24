@@ -76,7 +76,7 @@ describe('el webhook atribuye la venta al afiliado del sck', () => {
     };
     const svc: any = new HotmartService(
       prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
-      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
     );
     return { svc, creados };
   }

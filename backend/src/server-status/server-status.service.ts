@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as fs from 'fs';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EmailService } from '../email/email.service';
+import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { RailwayMetricsService } from './railway-metrics.service';
 
 /**
@@ -62,7 +62,7 @@ export class ServerStatusService {
   constructor(
     private prisma: PrismaService,
     private railway: RailwayMetricsService,
-    private email: EmailService,
+    private alerts: PreregAlertsService,
   ) {}
 
   // =========================================================================
@@ -870,22 +870,40 @@ export class ServerStatusService {
       const prevRaw = await this.getSetting(K.lastAlertLevel);
       const prevRank = rank[prevRaw ?? 'ok'] ?? 0;
       const curRank = rank[lvl.level] ?? 0;
-      await this.setSetting(K.lastAlertLevel, lvl.level);
-      if (curRank <= prevRank || curRank < rank['warn']) return; // solo escaladas ≥ advertencia
+      if (curRank <= prevRank || curRank < rank['warn']) {
+        // Sin escalada no hay aviso, pero el nivel sí se guarda: es lo que
+        // permite detectar la PRÓXIMA subida, y también bajar de nuevo.
+        await this.setSetting(K.lastAlertLevel, lvl.level);
+        return;
+      }
 
-      const to = (await this.getSetting(K.alertEmail)) || process.env.PLATFORM_ALERT_EMAIL;
-      if (!to) return;
-      await this.email.send({
-        to,
-        subject: `⚠️ Estado del Servidor: base de datos al ${round1(pct)}% (${lvl.label})`,
-        html: `<div style="font-family:system-ui,sans-serif">
-          <h2>Alerta de capacidad</h2>
-          <p>La base de datos alcanzó <b>${round1(pct)}%</b> de su capacidad (${prettyBytes(capacity.usedBytes)} de ${prettyBytes(capacity.limitBytes)}).</p>
-          <p>Nivel: <b>${lvl.label}</b>. Revisa el panel Estado del Servidor en /superadmin.</p>
-        </div>`,
-        text: `Base de datos al ${round1(pct)}% (${lvl.label}). Revisa /superadmin → Estado del Servidor.`,
-      });
-      this.logger.warn(`Alerta de capacidad enviada a ${to} (${lvl.level}, ${round1(pct)}%).`);
+      // Por SMS al equipo, que es el único canal que se sabe que llega.
+      //
+      // Iba por correo a `PLATFORM_ALERT_EMAIL`, y ahí había DOS fallos: la
+      // variable no existe en Railway, así que `to` salía vacío y la función se
+      // iba sin avisar; y aunque existiera, `EmailService.send` cae al
+      // adaptador de consola sin `RESEND_API_KEY`. La única alarma de capacidad
+      // de la base no podía llegarle a nadie (auditoría del 2026-09-24).
+      const texto =
+        `⚠️ Base de datos al ${round1(pct)}% (${lvl.label}): ` +
+        `${prettyBytes(capacity.usedBytes)} de ${prettyBytes(capacity.limitBytes)}. ` +
+        `Míralo en /superadmin → Estado del Servidor.`;
+      const aviso = await this.alerts.sendTeamAlert(texto, 'infraestructura');
+
+      // El nivel se sella DESPUÉS y solo si el aviso salió. Antes se escribía
+      // arriba del todo: un envío fallido dejaba el nivel como «ya notificado»
+      // y la alerta no se reintentaba NUNCA.
+      if (!aviso.ok) {
+        this.logger.warn(
+          `Alerta de capacidad NO salió (${lvl.level}, ${round1(pct)}%): ` +
+            `${aviso.sent} de ${aviso.total} destinatarios. Se reintenta en la próxima pasada.`,
+        );
+        return;
+      }
+      await this.setSetting(K.lastAlertLevel, lvl.level);
+      this.logger.warn(
+        `Alerta de capacidad avisada a ${aviso.sent} persona(s) (${lvl.level}, ${round1(pct)}%).`,
+      );
     } catch (e: any) {
       this.logger.warn(`checkAndAlert falló: ${e?.message ?? e}`);
     }

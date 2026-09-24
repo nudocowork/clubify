@@ -106,8 +106,8 @@ function montar(filas: Fila[], grupo?: { currentPeriodEndDespues: Date | null })
     },
   };
   const svc: any = new HotmartService(
-    prisma, {} as any, growBusiness, {} as any, {} as any, billing, {} as any,
-    {} as any, {} as any, smsTemplates, brandEmail, {} as any, {} as any, {} as any, {} as any,
+    prisma, {} as any, growBusiness, {} as any, billing, {} as any, {} as any,
+    {} as any, smsTemplates, brandEmail, {} as any, {} as any, {} as any, {} as any,
   );
   svc.notifyReferralChain = async () => undefined;
   svc.maybeSendAdminNotice = async () => false;
