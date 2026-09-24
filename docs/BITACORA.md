@@ -8,6 +8,45 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-24 (73) — Encargo de Contabilidad: lo que faltaba del PDF del 17-sep
+
+El documento es **`Software Clubify (5).pdf`** (17-09, el de Sara). Lo contrasté
+punto por punto contra producción antes de tocar nada.
+
+### Ya estaba hecho — verificado, no supuesto
+
+- **Nómina**: la pantalla ya avisa si vas a generar un corte con la misma fecha
+  de fin, deja añadir al colaborador que falte desde el detalle si el corte
+  sigue sin pagos, y te dice que generes uno nuevo solo con los que faltan si ya
+  tiene abonos. Los cuatro pasos del encargo.
+- **El corte duplicado que pedía borrar YA NO EXISTE**: en producción queda un
+  solo `PayrollRun`, el PAGADO del 1-15 de septiembre ($1.008, 4 renglones).
+- **Comisiones por corte** (`GET /admin/contabilidad/comisiones/cortes`) ya
+  devuelve código, fechas de inicio y fin, estado, personas y roles, y lo
+  generado sin corte se informa aparte.
+- **Nicolás Rojas sí aparece**: 3 comisiones, $160, en `CORTE-2026-09-15`, más
+  $100 en el del 31-ago. Están los tres roles (INFLUENCER, VENDOR, AMBASSADOR)
+  y el histórico llega hasta el corte del 30-jun.
+- **El socio sale de la utilidad** (`finance/socio.ts`).
+
+### Lo que faltaba, y se hizo (`2b30237f`)
+
+1. **El comprobante de cada transferencia.** Contabilidad decía CUÁNTO se había
+   pagado de un corte, pero no cuándo ni con qué respaldo. Ahora cada persona
+   trae su fecha, su referencia y el enlace, desde `BatchPersonPayment` — una
+   fila por (corte, beneficiario).
+2. **El backend rechaza un segundo corte del mismo día** si el que existe no
+   tiene pagos. La pantalla avisaba; un aviso se ignora.
+
+### Un descuadre real que vi de paso, y NO es de código
+
+En `CORTE-2026-09-15`, que sigue **abierto**, todos figuran pagados menos
+**Nicolás Rojas: $160, pagado $0**. O se le transfirió y falta registrarlo con
+su comprobante, o está pendiente. Es de Sara.
+
+Verificado: `tsc` 0 errores en backend y frontend, 104 tests de finanzas en
+verde (8 nuevos), eslint limpio.
+
 ## 2026-09-24 (72) — Cancelar te quitaba los días que ya habías pagado
 
 Reporte: LICORES EL AMANECER aparecía suspendido aunque en Hotmart figura como
