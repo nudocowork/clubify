@@ -12,6 +12,7 @@ import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { cobrarCreditoDeActivacion } from '../common/creditos-de-marca';
 import { fmtSmsDate } from './sms-templates';
+import { precioDeLaFactura, suscripcionDeLaFactura } from './stripe-campos';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { HotmartService } from './hotmart.service';
@@ -19,6 +20,16 @@ import { IncomeRecordService } from '../finance/income-record.service';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
+
+/**
+ * La versión de la API de Stripe que este SDK sabe leer.
+ *
+ * Es la última que entiende `stripe@17`; si se sube el paquete, se sube esto.
+ * OJO: no manda sobre la forma de los WEBHOOKS —esa la fija la cuenta en el
+ * panel de Stripe, y hoy es `2026-05-27.dahlia`—, solo sobre las respuestas de
+ * las llamadas que hacemos nosotros.
+ */
+const VERSION_DE_API = '2025-02-24.acacia' as const;
 
 /** Contexto extraído de un evento de pago Stripe, normalizado. */
 type StripeCtx = {
@@ -159,7 +170,17 @@ export class StripeService {
     return {
       whiteLabelId: wl.id,
       slug: wl.slug,
-      client: new Stripe(secretKey),
+      // La versión va FIJA a la que este SDK sabe leer.
+      //
+      // Sin fijarla, el cliente hereda la versión de la cuenta y cambia bajo los
+      // pies cuando Stripe la sube. La cuenta de Sellea ya está en
+      // `2026-05-27.dahlia`, donde `subscription.current_period_end` se movió
+      // dentro de los items: `subscriptions.retrieve` devolvía un objeto que
+      // este código no sabe leer, y la fecha del próximo cobro salía vacía.
+      //
+      // Al subir el paquete `stripe` hay que subir también esta constante, y
+      // revisar `onPaymentSucceeded` — ahí está lo que cambia de forma.
+      client: new Stripe(secretKey, { apiVersion: VERSION_DE_API }),
       webhookSecret,
     };
   }
@@ -220,8 +241,20 @@ export class StripeService {
     switch (event.type) {
       case 'checkout.session.completed':
       case 'invoice.paid':
-      case 'invoice.payment_succeeded':
         return this.onPaymentSucceeded(brand, event);
+      // `invoice.payment_succeeded` es el GEMELO de `invoice.paid`: Stripe manda
+      // los dos por la misma factura, con `event.id` distintos. La idempotencia
+      // de arriba reclama el evento, no la factura, así que no los veía: las 7
+      // facturas de producción se procesaron DOS veces (auditoría 2026-09-24).
+      // Se veía como compras pendientes duplicadas —5 filas para 3 pagos— y
+      // como el correo de confirmación llegando dos veces con dos minutos de
+      // diferencia.
+      //
+      // Se queda `invoice.paid`, que es el más completo: también cubre la
+      // factura saldada con crédito o fuera de banda, donde no hay intento de
+      // pago y el gemelo no llega.
+      case 'invoice.payment_succeeded':
+        return { ok: true, action: 'gemelo_de_invoice_paid' };
       case 'invoice.payment_failed':
         return this.onPaymentFailed(brand, event);
       case 'customer.subscription.deleted':
@@ -376,7 +409,7 @@ export class StripeService {
     if (event.type === 'checkout.session.completed') {
       email = obj.customer_details?.email ?? obj.customer_email ?? null;
       customerId = typeof obj.customer === 'string' ? obj.customer : null;
-      subscriptionId = typeof obj.subscription === 'string' ? obj.subscription : null;
+      subscriptionId = suscripcionDeLaFactura(obj);
       if (obj.currency === 'usd' && typeof obj.amount_total === 'number') {
         amountUsd = obj.amount_total / 100;
       }
@@ -384,11 +417,11 @@ export class StripeService {
       // invoice.*
       email = obj.customer_email ?? null;
       customerId = typeof obj.customer === 'string' ? obj.customer : null;
-      subscriptionId = typeof obj.subscription === 'string' ? obj.subscription : null;
+      subscriptionId = suscripcionDeLaFactura(obj);
       if (obj.currency === 'usd' && typeof obj.amount_paid === 'number') {
         amountUsd = obj.amount_paid / 100;
       }
-      priceId = obj.lines?.data?.[0]?.price?.id ?? null;
+      priceId = precioDeLaFactura(obj);
       const periodEnd = obj.lines?.data?.[0]?.period?.end;
       if (typeof periodEnd === 'number') nextCharge = new Date(periodEnd * 1000);
     }
