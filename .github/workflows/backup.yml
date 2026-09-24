@@ -39,12 +39,20 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install pg_dump (matching prod Postgres version)
+      # La versión TIENE que ser >= la del servidor: `pg_dump` se niega a
+      # respaldar una base más nueva que él. Producción corre Postgres 18.6
+      # (comprobado el 2026-09-24) y aquí se instalaba la 16, así que el
+      # respaldo habría fallado igual aunque los secretos estuvieran puestos.
+      # Si algún día Railway sube de versión, esta línea sube con ella.
+      - name: Instalar pg_dump 18 (la versión de producción)
         run: |
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo install -d /usr/share/postgresql-common/pgdg
+          # `apt-key` está retirado: la llave va a su propio archivo.
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc             -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
+          sudo apt-get install -y postgresql-client-18
+          pg_dump --version
 
       - name: Install @aws-sdk/client-s3
         working-directory: backend
