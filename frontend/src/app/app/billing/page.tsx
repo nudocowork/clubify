@@ -113,10 +113,22 @@ export default function BillingPage() {
   async function confirmCancel() {
     setCanceling(true);
     try {
-      await api('/billing/cancel', {
+      // Cancelar avisa de que no se renueve; no renuncia a lo pagado. Si
+      // quedan días por delante, el backend deja la cuenta ACTIVA hasta el
+      // final del período y aquí NO se cierra la sesión: echar a alguien que
+      // todavía tiene servicio pagado es justo lo que le pasó a LICORES EL
+      // AMANECER el 23-09-2026.
+      const r = await api<{ suspendedNow?: boolean }>('/billing/cancel', {
         method: 'POST',
         body: JSON.stringify({ reason: cancelReason || undefined }),
       });
+      if (r?.suspendedNow === false) {
+        setCancelOpen(false);
+        setCanceling(false);
+        toast(t('canceledKeepsAccess'), 'info');
+        api<Status>('/billing/status').then(setS).catch(() => null);
+        return;
+      }
       clearSession();
       router.push('/login?canceled=1');
     } catch (e: any) {
@@ -441,7 +453,22 @@ export default function BillingPage() {
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
             <h2 className="text-lg font-bold">{t('cancelModalTitle')}</h2>
             <p className="text-sm text-mute mt-2 leading-relaxed">
-              {t('cancelModalDesc')}
+              {/*
+                Lo que decía antes —«tu cuenta queda suspendida
+                inmediatamente»— era verdad del comportamiento viejo, y ese era
+                el problema: cancelar la renovación te quitaba días que ya
+                habías pagado. Ahora se dice la fecha exacta hasta la que sigues
+                teniendo servicio.
+              */}
+              {s?.currentPeriodEnd && new Date(s.currentPeriodEnd) > new Date()
+                ? t('cancelModalDescHasta', {
+                    fecha: new Date(s.currentPeriodEnd).toLocaleDateString('es-CO', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    }),
+                  })
+                : t('cancelModalDesc')}
             </p>
             <div className="mt-4">
               <label className="label">{t('cancelReasonLabel')}</label>

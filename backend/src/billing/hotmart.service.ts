@@ -47,6 +47,7 @@ import {
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { fmtSmsDate } from './sms-templates';
 import { IncomeRecordService } from '../finance/income-record.service';
+import { desconectaAlCancelar } from './cancelacion';
 import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -3647,29 +3648,3 @@ export function esPrimeraCompraHotmart(
   return !tenant.hotmartTransactionId;
 }
 
-/**
- * ¿Una cancelación desconecta el servicio en el acto?
- *
- * La regla de fondo es la decisión de Javier del 2026-09-10: quien pagó hasta
- * el 25 y avisa el 10 sigue hasta el 25. Pero eso protege días PAGADOS: si el
- * último cobro falló (`failedPaymentCount` > 0) o el período ya venció, no
- * queda nada que respetar y se desconecta ya.
- *
- * VALMONT BARBERIA (15-09-2026) canceló después de dos cobros fallidos y se
- * quedaba activo hasta el 13-10 sin haber pagado ese período.
- */
-export function desconectaAlCancelar(
-  tenant: {
-    status?: string | null;
-    failedPaymentCount?: number | null;
-    currentPeriodEnd?: Date | null;
-  },
-  ahora: Date,
-): boolean {
-  // Solo un negocio ACTIVO se desconecta aquí. Uno ya suspendido por mora no
-  // necesita otra suspensión (se le pisaría la fecha), y uno en prueba que
-  // nunca pagó sigue como antes (Fable, 15-09-2026).
-  if (tenant.status && tenant.status !== 'ACTIVE') return false;
-  if ((tenant.failedPaymentCount ?? 0) > 0) return true;
-  return !tenant.currentPeriodEnd || tenant.currentPeriodEnd <= ahora;
-}

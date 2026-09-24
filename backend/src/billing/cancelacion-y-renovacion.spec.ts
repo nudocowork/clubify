@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { desconectaAlCancelar } from './cancelacion';
 import {
-  desconectaAlCancelar,
   esPrimeraCompraHotmart,
   type HotmartWebhookPayload,
 } from './hotmart.service';

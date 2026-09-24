@@ -240,7 +240,7 @@
     "badge_PAST_DUE": "Pagamento pendente",
     "badge_SUSPENDED": "Suspensa",
     "badge_TRIAL": "Aguardando pagamento",
-    "cancelModalDesc": "Sua conta é suspensa imediatamente. Sua loja pública deixará de receber pedidos. Seus dados são mantidos por 30 dias caso você volte. Depois são excluídos.",
+    "cancelModalDesc": "Você não será cobrado de novo. Como o período que você pagou já terminou, a conta é suspensa agora e sua loja deixa de receber pedidos. Seus dados são mantidos por 30 dias caso você volte. Depois são excluídos.",
     "cancelModalTitle": "Tem certeza de que quer cancelar?",
     "cancelMyAccount": "Cancelar minha conta",
     "cancelReasonLabel": "Por que está cancelando? (opcional)",
@@ -290,7 +290,9 @@
     "title": "Assinatura e faturamento",
     "underConstruction": "🚧 Em construção",
     "upgradeInfoLink": "Atualize seu InfoLink para PRO",
-    "yourInfoLinkPlan": "Seu plano de InfoLink"
+    "yourInfoLinkPlan": "Seu plano de InfoLink",
+    "cancelModalDescHasta": "Você não será cobrado de novo, e não perde o que já pagou: mantém o acesso até {fecha}. Nesse dia sua loja deixa de receber pedidos. Seus dados são mantidos por 30 dias caso você volte. Depois são excluídos.",
+    "canceledKeepsAccess": "Cancelada. Você mantém o acesso até o fim do período que já pagou."
   },
   "admin_tenants_id": {
     "accountAssigned": "Subconta atribuída",

@@ -19,6 +19,8 @@ import {
   type RenewalStateResult,
 } from './dunning';
 import { diasDeFechaTardia } from './fecha-de-cobro';
+import { desconectaAlCancelar } from './cancelacion';
+import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { horaLocal, fechaLocal } from '../automations/hora-local';
 import {
   CLAVE_ULTIMA_PASADA,
@@ -426,22 +428,71 @@ export class BillingService {
     return { creds, phone };
   }
 
+  /**
+   * El dueño cancela desde su panel (`POST /billing/cancel`).
+   *
+   * EL FALLO (LICORES EL AMANECER, 2026-09-23): esto suspendía EN EL ACTO. El
+   * negocio había pagado su trimestre hasta el 26, recibió a las 14:00 el SMS
+   * de «te cobramos en 3 días», entró a cancelar la renovación a las 14:08… y
+   * perdió los tres días que ya tenía pagados. La función incluso calculaba
+   * `accessUntil` con la fecha correcta, se la devolvía a la pantalla, y
+   * suspendía igual.
+   *
+   * La regla correcta ya existía y es la misma que aplica el webhook de la
+   * pasarela: `desconectaAlCancelar`. Cancelar avisa de que NO se renueve; no
+   * renuncia a lo pagado. Las dos puertas deciden ahora con el mismo criterio.
+   *
+   * Tampoco marcaba `canceledAt`, así que el cron de cobro seguía tratando al
+   * negocio como si fuera a renovar, y no dejaba rastro en la auditoría: la
+   * suspensión aparecía de la nada y no había forma de saber quién la hizo.
+   */
   async cancelSubscription(tenantId: string, reason?: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, status: true, trialEndsAt: true, currentPeriodEnd: true },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        trialEndsAt: true,
+        currentPeriodEnd: true,
+        failedPaymentCount: true,
+      },
     });
     if (!t) throw new Error('Tenant not found');
 
+    const now = new Date();
+    const desconectarYa = desconectaAlCancelar(t, now);
     await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
-        status: 'SUSPENDED',
-        suspendedAt: new Date(),
+        canceledAt: now,
+        ...(desconectarYa ? { status: 'SUSPENDED' as const, suspendedAt: now } : {}),
       },
     });
-    this.logger.log(`Tenant ${tenantId} canceled subscription. Reason: ${reason ?? '—'}`);
-    return { ok: true, accessUntil: t.currentPeriodEnd ?? t.trialEndsAt };
+    invalidateTenantStatusCache(tenantId);
+
+    const accessUntil = t.currentPeriodEnd ?? t.trialEndsAt;
+    this.audit.log({
+      actorId: null,
+      tenantId,
+      action: 'billing.canceled_by_owner',
+      resource: `tenant:${tenantId}`,
+      metadata: {
+        brandName: t.brandName,
+        reason: reason?.trim() || null,
+        previousStatus: t.status,
+        suspendedNow: desconectarYa,
+        accessUntil: accessUntil?.toISOString() ?? null,
+      },
+    });
+    this.logger.log(
+      `Tenant ${tenantId} canceló su suscripción. ` +
+        (desconectarYa
+          ? 'Sin días pagados por delante: desconectado.'
+          : `Sigue activo hasta ${accessUntil?.toISOString() ?? '—'}.`) +
+        ` Motivo: ${reason ?? '—'}`,
+    );
+    return { ok: true, accessUntil, suspendedNow: desconectarYa };
   }
 
   /**

@@ -240,7 +240,7 @@
     "badge_PAST_DUE": "Payment pending",
     "badge_SUSPENDED": "Suspended",
     "badge_TRIAL": "Awaiting payment",
-    "cancelModalDesc": "Your account is suspended immediately. Your public storefront will stop receiving orders. Your data is kept for 30 days in case you come back. After that it's deleted.",
+    "cancelModalDesc": "You won't be charged again. The period you paid for has already ended, so your account is suspended now and your storefront stops taking orders. Your data is kept for 30 days in case you come back. After that it is deleted.",
     "cancelModalTitle": "Are you sure you want to cancel?",
     "cancelMyAccount": "Cancel my account",
     "cancelReasonLabel": "Why are you canceling? (optional)",
@@ -290,7 +290,9 @@
     "title": "Subscription & billing",
     "underConstruction": "🚧 Under construction",
     "upgradeInfoLink": "Upgrade your InfoLink to PRO",
-    "yourInfoLinkPlan": "Your InfoLink plan"
+    "yourInfoLinkPlan": "Your InfoLink plan",
+    "cancelModalDescHasta": "You won't be charged again, and you don't lose what you already paid for: you keep access until {fecha}. That day your storefront stops taking orders. Your data is kept for 30 days in case you come back. After that it is deleted.",
+    "canceledKeepsAccess": "Canceled. You keep access until the end of the period you already paid for."
   },
   "admin_tenants_id": {
     "accountAssigned": "Subaccount assigned",
