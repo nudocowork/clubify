@@ -8,6 +8,81 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-24 (69) — Los cuatro arreglos que no podían esperar
+
+Salen de la auditoría de la entrada 68. **Están en `main` y SIN desplegar.**
+
+`1a8befd6` · `99b92a6c` · `f9e951f7` · `84bc7b43`
+
+### 1. Lo de la plataforma deja de estar al alcance de una marca
+
+Un admin de marca blanca **es** un `SUPER_ADMIN` con `whiteLabelId`, y
+`RolesGuard` solo compara el rol. `SoloPlataformaGuard` existía desde el
+incidente de Contabilidad pero solo se había aplicado a los 4 controladores de
+`finance/`. Se mueve a `common/guards/` y se aplica a:
+
+- `PATCH /api/admin/maintenance` — **el admin de Sellea podía dejar a Clubify y
+  al resto de marcas en 503**. El GET NO se cierra a propósito: devuelve lo
+  mismo que la ruta pública y cerrarlo revíve el 403 del panel de Fidelia.
+- Los 11 ajustes globales de `settings.controller` (branding, precios, enlaces
+  de pago, cupón, política de prueba) — incluía LEER el PIN del escáner.
+- Las plantillas SMS globales y Cotizaciones entera.
+
+**NO se tocaron comisiones ni afiliados.** Ahí las guardas se revirtieron a
+propósito (`94a0db70`) y es terreno de Jhon. Queda abierto: cerrar o reabrir
+cortes de otra marca, y el JWT que suplanta a un afiliado ajeno.
+
+### 2. Stripe
+
+La cuenta emite en `2026-05-27.dahlia`. Ahí la suscripción se movió a
+`parent.subscription_details.subscription` y el precio a
+`lines[0].pricing.price_details.price`. **0 de 30 facturas de producción traían
+el campo donde el código lo buscaba.** Hay 5 compras pagadas sin cuenta creada.
+
+Además `invoice.paid` e `invoice.payment_succeeded` son la MISMA factura y los
+dos llamaban al mismo manejador: **7 de 7 facturas procesadas dos veces**.
+
+Y la causa de fondo: el cliente de Stripe se construía sin fijar `apiVersion`,
+así que heredó la de la cuenta y cambió sola. Ahora va fija.
+
+### 3. Qué commit corre
+
+`/api/health` decía `commit: "dev"` siempre, porque `RAILWAY_GIT_COMMIT_SHA`
+solo existe si despliega la integración de GitHub y nosotros subimos un tarball.
+El SHA viaja ahora en `backend/build-info.json`, que `desplegar.cjs` reescribe
+en la copia limpia.
+
+**Lo importante:** `esperarQueEntre()` ya no da por bueno que se reiniciara
+ALGO. Espera a que producción responda con TU commit. Si en 12 minutos no lo
+hace, dice «o el build falló, o lo que quedó arriba es de otro».
+
+### 4. Los correos que no salían
+
+Eran **nueve**, no seis. Entre ellos «pedido listo» al cliente final (174 en
+septiembre), las dos invitaciones de administrador —que llevan el token, y hay
+gente esperando desde junio— y **el usuario y contraseña del empleado nuevo**.
+Todos a `BrandEmailService`.
+
+La alerta de capacidad de la base pasa a SMS al equipo (tipo nuevo
+«Infraestructura» en Avisos al equipo) y el nivel se sella DESPUÉS de que el
+envío confirme.
+
+**Sin migrar: `auth/auth.service.ts`** (invitación al afiliado). Tiene 41 líneas
+sin commitear de la otra máquina. Está en `PENDIENTES_DE_MIGRAR` dentro de
+`src/email/transporte-vivo.spec.ts`. **Si esas líneas son tuyas y ya las
+commiteaste, migra esa llamada y borra la entrada** — hay un test que avisa si
+la lista se queda con entradas ya migradas.
+
+### Al desplegar
+
+Los correos de pedidos llevan meses sin salir. En cuanto entre esto, los
+clientes finales empezarán a recibirlos. No es un fallo: es lo que faltaba.
+
+Tres candados nuevos que saben ponerse en rojo: metadatos de `@UseGuards`,
+barrido del transporte de correo muerto, y la lista de excepciones.
+
+Verificado: `tsc` 0 errores en backend y frontend, 732 tests en verde.
+
 ## 2026-09-24 (68) — Auditoría de infraestructura (solo lectura, nada tocado)
 
 **No se cambió ni una línea de código.** Cuatro frentes en paralelo sobre
