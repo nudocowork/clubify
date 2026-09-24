@@ -709,7 +709,9 @@ export class ReferralsService {
     // Si ya existe en ReferralCode (cualquier role) o en User
     // con role AFFILIATE_*, lanza 409. Permite que 2 personas
     // con el mismo nombre se registren, pero no con el mismo correo.
-    await this.assertUniqueAffiliateEmail(dto.email);
+    const { cuentaExistente } = await this.assertUniqueAffiliateEmail(dto.email, {
+      permitirCuentaNoAfiliada: true,
+    });
     let code = codeGen();
     while (await this.prisma.referralCode.findUnique({ where: { code } })) {
       code = codeGen();
@@ -750,8 +752,13 @@ export class ReferralsService {
     // Si el aplicante tipeó password, auto-creamos cuenta AFFILIATE_INFLUENCER
     // así puede entrar inmediatamente a /login. Si falla (email duplicado,
     // etc), no rompemos la creación del referralCode — admin lo arregla.
+    //
+    // PERO si ya tenía cuenta (un dueño de negocio, por ejemplo) NO se toca:
+    // `inviteAffiliate` REASIGNA la contraseña, y hacerlo aquí le robaría su
+    // cuenta a alguien que solo quería recomendar. Entra con la de siempre, y
+    // ve su código en `GET /referrals/me`, que ya admite TENANT_OWNER.
     let createdAccount = false;
-    if (dto.password && dto.password.trim().length >= 8) {
+    if (!cuentaExistente && dto.password && dto.password.trim().length >= 8) {
       const inviteResult = await this.auth
         .inviteAffiliate({
           email: dto.email,
@@ -774,6 +781,9 @@ export class ReferralsService {
       legacyShareLink: `${appUrl}/?ref=${code}`,
       // Si creamos cuenta, el frontend muestra el CTA "Entrar al panel".
       accountReady: createdAccount,
+      // Ya tenía cuenta: el panel le dice que entre con su contraseña de
+      // siempre, en vez de dejarle esperando una que nunca se le mandó.
+      yaTeniaCuenta: !!cuentaExistente,
     };
   }
 
@@ -3165,17 +3175,25 @@ export class ReferralsService {
    */
   async assertUniqueAffiliateEmail(
     rawEmail: string,
-    opts: { ignoreCodeId?: string; ignoreUserId?: string } = {},
-  ) {
+    opts: {
+      ignoreCodeId?: string;
+      ignoreUserId?: string;
+      /**
+       * Deja pasar un correo que YA tiene cuenta en la plataforma pero que NO
+       * es de un afiliado — típicamente el dueño de un negocio que quiere
+       * recomendar. Quien lo active se compromete a NO tocarle la contraseña
+       * (ver `createCode`). Por defecto va apagado: los flujos de invitación
+       * sí reasignan contraseña y deben seguir rechazándolo.
+       */
+      permitirCuentaNoAfiliada?: boolean;
+    } = {},
+  ): Promise<{ cuentaExistente: { id: string; role: string } | null }> {
     const email = (rawEmail ?? '').trim().toLowerCase();
-    if (!email) return;
+    if (!email) return { cuentaExistente: null };
     // HOTFIX 2026-06-05 (bug #1 CRÍTICO): incluimos VENDOR + AFFILIATE_VENDOR.
     // Antes faltaban → 2 vendedores podían crearse con mismo email Y peor:
     // si el email coincidía con un TENANT_OWNER existente, el inviteAffiliate
     // posterior re-hasheaba silenciosamente su password (account takeover).
-    // También bloqueamos cualquier User existente cuyo email coincida — sin
-    // importar el role — porque el flujo de invite SIEMPRE re-asigna password
-    // y romper a un user inocente es peor que un 409.
     const dupCode = await this.prisma.referralCode.findFirst({
       where: {
         ownerEmail: email,
@@ -3186,18 +3204,34 @@ export class ReferralsService {
     });
     if (dupCode) {
       throw new ConflictException(
-        'Este correo ya se encuentra registrado.',
+        'Ya existe un código de referido con este correo. Entra con tu cuenta para verlo.',
       );
     }
     const dupUser = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true, role: true },
     });
-    if (dupUser && dupUser.id !== opts.ignoreUserId) {
+    if (!dupUser || dupUser.id === opts.ignoreUserId) {
+      return { cuentaExistente: null };
+    }
+    // Ya es afiliado: es un duplicado de verdad, venga de donde venga.
+    if (dupUser.role.startsWith('AFFILIATE_')) {
       throw new ConflictException(
-        'Este correo ya se encuentra registrado.',
+        'Ya existe un código de referido con este correo. Entra con tu cuenta para verlo.',
       );
     }
+    // Tiene cuenta, pero NO de afiliado. El dueño de un negocio recomendando
+    // Clubify es el mejor referidor que hay, y hasta el 2026-09-24 el
+    // formulario público le decía «Este correo ya se encuentra registrado» y lo
+    // dejaba sin salida: ni código, ni explicación, ni a dónde ir.
+    //
+    // Se le deja pasar SOLO si quien llama se hace cargo de no tocarle la
+    // contraseña. Si no, se mantiene el 409 de siempre: el flujo de invitación
+    // la reasigna, y eso le robaría la cuenta.
+    if (opts.permitirCuentaNoAfiliada) {
+      return { cuentaExistente: dupUser };
+    }
+    throw new ConflictException('Este correo ya se encuentra registrado.');
   }
 
   /**

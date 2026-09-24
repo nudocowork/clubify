@@ -8,6 +8,52 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-24 (70) — El dueño de un negocio ya puede sacar su código de referido
+
+Reporte de un cliente: Fernando (`fer.pineda.fmn@gmail.com`) intenta generar su
+código en `/refer` y le sale **«Este correo ya se encuentra registrado»**.
+
+**No era un duplicado.** Comprobado en producción: no tiene ningún
+`ReferralCode`. Lo que tiene es cuenta de **`TENANT_OWNER`** desde el 26 de
+junio — es cliente de pago.
+
+**Y el mensaje tampoco era un bug: era una protección del 2026-06-05.** El alta
+pública llama a `inviteAffiliate` con la contraseña del formulario, y eso
+**REASIGNA** la contraseña del usuario que tenga ese correo. Si dejaban pasar a
+Fernando, le pisaban la contraseña de su negocio en silencio. Robo de cuenta.
+El comentario del código lo cuenta entero.
+
+Lo que estaba mal era la salida: ni código, ni explicación, ni a dónde ir.
+
+### El arreglo
+
+`assertUniqueAffiliateEmail` ahora distingue tres casos en vez de dos:
+
+1. Ya hay un `ReferralCode` con ese correo, o el usuario ya es `AFFILIATE_*`
+   → duplicado de verdad, 409 (con mensaje útil: «entra con tu cuenta para
+   verlo»).
+2. Hay cuenta pero NO es de afiliado → **se le crea el código y NO se le toca la
+   contraseña**. Entra con la de siempre. `GET /referrals/me` ya admitía
+   `TENANT_OWNER`, así que ve su código sin tocar nada más.
+3. No hay nada → como siempre.
+
+El caso 2 va detrás de un `permitirCuentaNoAfiliada` que **solo activa
+`createCode`** (el formulario público). Los otros 10 sitios que llaman a ese
+helper son flujos de invitación que SÍ reasignan contraseña y siguen
+rechazándolo. Hay un test que se pone rojo si alguien lo pone por defecto.
+
+Dato que confirma que la pareja es normal y no una rareza: en producción hay
+**77 códigos cuyo `ownerEmail` ya existe como `User`**.
+
+### Mientras no se despliegue
+
+Fernando sigue sin poder. Las dos salidas de hoy: que use otro correo, o
+desplegar. Crear el código desde el panel de admin **tampoco funciona** — ese
+camino usa el mismo helper sin el permiso.
+
+Verificado: `tsc` 0 errores en backend y frontend, 154 tests de referidos en
+verde, 8 nuevos.
+
 ## 2026-09-24 (69) — Los cuatro arreglos que no podían esperar
 
 Salen de la auditoría de la entrada 68. **Están en `main` y SIN desplegar.**

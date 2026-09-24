@@ -101,7 +101,27 @@ function ReferInner() {
                   </>
                 )}
               </div>
-              {result.accountReady && (
+              {/*
+                Quien ya tenía cuenta (el dueño de un negocio, por ejemplo)
+                entra con SU contraseña de siempre: no se le toca, y la que
+                escribió en este formulario no se usó. Decírselo aquí evita que
+                se quede esperando una contraseña nueva que nunca va a llegar.
+              */}
+              {result.yaTeniaCuenta ? (
+                <div className="mt-5 rounded-lg bg-brand-soft p-4">
+                  <div className="text-sm font-semibold mb-2">
+                    Ya tienes cuenta con este correo
+                  </div>
+                  <p className="text-xs text-mute mb-3">
+                    Tu código quedó asociado a ella. Entra con tu contraseña de
+                    siempre —la que escribiste aquí no se usó— y lo verás en tu
+                    panel de referidos.
+                  </p>
+                  <Link href="/login" className="btn-primary w-full justify-center text-sm">
+                    Entrar con mi cuenta
+                  </Link>
+                </div>
+              ) : result.accountReady ? (
                 <div className="mt-5 rounded-lg bg-brand-soft p-4">
                   <div className="text-sm font-semibold mb-2">
                     Tu cuenta está lista
@@ -113,7 +133,7 @@ function ReferInner() {
                     Entrar a mi panel
                   </Link>
                 </div>
-              )}
+              ) : null}
             </div>
           </>
         ) : (
