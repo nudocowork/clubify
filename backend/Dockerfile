@@ -35,6 +35,13 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package*.json ./
+# Qué commit es esto. `scripts/desplegar.cjs` lo escribe en la copia limpia
+# justo antes de subir, y `/api/health` lo devuelve. Sin esto, la respuesta era
+# `commit: "dev"` SIEMPRE —Railway solo inyecta el SHA cuando despliega desde
+# su integración con GitHub, y aquí se sube un tarball con `railway up`— así que
+# no había forma de comprobar si un despliegue entró. Es el punto ciego que hace
+# posible «la otra máquina me sobrescribió y no me enteré».
+COPY --from=build /app/build-info.json ./build-info.json
 # Scripts operativos (migraciones aditivas, diagnósticos de solo lectura).
 # OJO: el startCommand de railway.json es `node dist/main.js` a secas — NO
 # corre migraciones al arrancar. El comentario anterior decía lo contrario y

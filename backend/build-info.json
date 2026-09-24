@@ -1,0 +1,4 @@
+{
+  "_": "Lo reescribe scripts/desplegar.cjs en la copia limpia, justo antes de subir. En el repo se queda con este valor a propósito: si /api/health dice 'desconocido', lo que corre NO salió del script de despliegue.",
+  "commit": "desconocido"
+}

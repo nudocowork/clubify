@@ -268,6 +268,25 @@ if (sueltos) {
 }
 console.log('  Copia verificada: solo lo que está en git.\n');
 
+// Qué commit es esto, dentro del paquete que se sube.
+//
+// Railway solo inyecta `RAILWAY_GIT_COMMIT_SHA` cuando despliega desde su
+// integración con GitHub; con `railway up` sube un tarball sin nada de git,
+// así que `/api/health` contestaba `commit: "dev"` desde siempre. Sin eso no
+// había forma de comprobar si un despliegue entró — el punto ciego que hace
+// posible «la otra máquina me sobrescribió y no me enteré».
+//
+// Se escribe AQUÍ, después de verificar que la copia está limpia: el archivo
+// está en git con el valor `desconocido`, así que ensuciarlo ahora es
+// deliberado y no dispara el candado de arriba.
+const SHA = git('rev-parse HEAD');
+const SHA_CORTO = SHA.slice(0, 7);
+fs.writeFileSync(
+  path.join(COPIA, 'backend', 'build-info.json'),
+  JSON.stringify({ commit: SHA, desplegadoEl: new Date().toISOString() }, null, 2) + '\n',
+);
+console.log(`  Sellado con el commit ${SHA_CORTO}.\n`);
+
 if (OBJETIVO === 'backend') {
   // Se sube desde la RAÍZ del repo, no desde backend/ — el railway.json de la
   // raíz es el que apunta al Dockerfile correcto.
@@ -417,14 +436,16 @@ async function esperarQueEntre() {
     try {
       const res = await fetch(SALUD);
       const j = await res.json();
-      // Menos de 5 minutos de vida = contenedor nuevo. El build tarda ~3.
-      if (typeof j.uptimeSec === 'number' && j.uptimeSec < 300) {
-        console.log('\n\n  ✓ Entró. El backend lleva ' + j.uptimeSec + 's en pie.');
-        console.log(
-          '    Comprueba una ruta que solo exista en tu commit: si da 404\n' +
-            '    mientras otra da 401, tu código NO está arriba.\n',
-        );
+      // La prueba de verdad: que el commit que contesta sea el que subiste.
+      // `uptimeSec` solo decía que arrancó UN contenedor — podía ser un
+      // reinicio de la imagen anterior, o lo que subió la otra máquina.
+      if (j.commit === SHA_CORTO) {
+        console.log('\n\n  ✓ Entró. Producción responde con tu commit ' + SHA_CORTO + '.');
         return;
+      }
+      // Arrancó algo que no es lo tuyo: se sigue esperando hasta el límite.
+      if (typeof j.uptimeSec === 'number' && j.uptimeSec < 300) {
+        process.stdout.write(`(arriba ${j.commit}, esperando ${SHA_CORTO})`);
       }
     } catch {
       /* reiniciando: se reintenta */
@@ -432,7 +453,9 @@ async function esperarQueEntre() {
   }
 
   throw new Error(
-    'El backend NO se reinició en 12 minutos: el build falló.\n' +
+    `Producción NO responde con tu commit (${SHA_CORTO}) tras 12 minutos.\n` +
+      '    O el build falló, o lo que quedó arriba es de otro.\n' +
+      '    curl -s https://api.soyclubify.com/api/health   → qué commit corre\n' +
       '    railway logs --build <id>       → por qué falló el build\n' +
       '    railway logs --deployment <id>  → por qué no arrancó\n' +
       '    Producción sigue con la imagen anterior.',
