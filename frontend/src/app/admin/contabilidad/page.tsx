@@ -4,6 +4,8 @@ import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
   SelectorPeriodo,
+  diaEnPeriodo,
+  diaPorDefectoDelPeriodo,
   esMes,
   nombreDePeriodo,
   periodoActual,
@@ -997,7 +999,7 @@ export default function ContabilidadPage() {
         </>
       )}
 
-      {showEgreso && <EgresoModal cats={cats} onClose={() => setShowEgreso(false)} onSaved={() => { setShowEgreso(false); void load(); }} />}
+      {showEgreso && <EgresoModal cats={cats} periodo={periodo} onClose={() => setShowEgreso(false)} onSaved={() => { setShowEgreso(false); void load(); }} />}
       {showRec && <RecurrenteModal cats={cats} onClose={() => setShowRec(false)} onSaved={() => { setShowRec(false); void load(); }} />}
       {payFor && <PagoModal exp={payFor} onClose={() => setPayFor(null)} onSaved={() => { setPayFor(null); void load(); }} />}
       {(showEmp || editEmp) && <EmpModal emp={editEmp} onClose={() => { setShowEmp(false); setEditEmp(null); }} onSaved={() => { setShowEmp(false); setEditEmp(null); void load(); }} />}
@@ -1142,25 +1144,63 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   );
 }
 
-function EgresoModal({ cats, onClose, onSaved }: { cats: Cat[]; onClose: () => void; onSaved: () => void }) {
+/**
+ * El período manda sobre la fecha, no al revés.
+ *
+ * Antes este formulario no tenía campo de fecha y el backend caía a la fecha
+ * del sistema: estando en mayo, el egreso se guardaba en septiembre y
+ * desaparecía de la pantalla donde lo acababas de crear. Ahora la fecha se pide
+ * siempre, nace dentro del período que estás mirando, y salirse de él exige
+ * decirlo a propósito. El backend lo vuelve a comprobar por su cuenta.
+ */
+function EgresoModal({ cats, periodo, onClose, onSaved }: { cats: Cat[]; periodo: string; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ concept: '', categoryId: '', supplier: '', amountUsd: '', method: 'Tarjeta', account: '', status: 'PENDING', note: '' });
+  const [fecha, setFecha] = useState(() => diaPorDefectoDelPeriodo(periodo));
+  const [confirmaOtroPeriodo, setConfirmaOtroPeriodo] = useState(false);
   const [mode, setMode] = useState<'fijo' | 'pct'>('fijo');
   const [pct, setPct] = useState({ rate: '8.6', base: '' });
   const [busy, setBusy] = useState(false);
   const calc = mode === 'pct' ? (Number(pct.rate.replace(',', '.')) || 0) * (Number(pct.base.replace(',', '.')) || 0) / 100 : 0;
+  const fueraDelPeriodo = !!fecha && !diaEnPeriodo(fecha, periodo);
   async function save() {
     if (!f.concept.trim()) { toast('Ponle un concepto'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { toast('Ponle una fecha al egreso'); return; }
+    if (fueraDelPeriodo && !confirmaOtroPeriodo) { toast(`Esa fecha es de otro período. Confírmalo para guardarla.`); return; }
     setBusy(true);
-    const body: any = { concept: f.concept, categoryId: f.categoryId || undefined, supplier: f.supplier || undefined, method: f.method, account: f.account || undefined, status: f.status, note: f.note || undefined };
+    const body: any = { concept: f.concept, categoryId: f.categoryId || undefined, supplier: f.supplier || undefined, method: f.method, account: f.account || undefined, status: f.status, note: f.note || undefined, expenseDate: fecha, periodo, confirmarOtroPeriodo: fueraDelPeriodo || undefined };
     if (mode === 'pct') { body.pctRate = Number(pct.rate.replace(',', '.')); body.pctBase = Number(pct.base.replace(',', '.')); }
     else body.amountUsd = Number(f.amountUsd.replace(',', '.'));
-    const r = await api(`/admin/contabilidad/egresos`, { method: 'POST', body: JSON.stringify(body) }).catch(() => null);
+    const r = await api(`/admin/contabilidad/egresos`, { method: 'POST', body: JSON.stringify(body) }).catch((e: any) => { toast(e?.message || 'No se pudo guardar'); return null; });
     setBusy(false);
-    if (r) { toast('Egreso guardado'); onSaved(); } else toast('No se pudo guardar');
+    if (!r) return;
+    // Queda en el período de SU fecha, no en el que estabas mirando. Si no es
+    // el mismo, se dice — si no, parece que el egreso se perdió.
+    toast(fueraDelPeriodo ? `Egreso guardado en ${nombreDePeriodo(fecha.slice(0, 7))}` : 'Egreso guardado');
+    onSaved();
   }
   return (
     <Modal title="Crear egreso" onClose={onClose}>
       <div className="mb-3"><label className="label">Concepto</label><input className="input w-full" value={f.concept} onChange={(e) => setF({ ...f, concept: e.target.value })} placeholder="Fee pasarela, Meta Ads, Railway…" /></div>
+      <div className="mb-3">
+        <label className="label">Fecha</label>
+        <input type="date" className="input w-full" value={fecha} onChange={(e) => { setFecha(e.target.value); setConfirmaOtroPeriodo(false); }} />
+        {fueraDelPeriodo ? (
+          <div className="mt-2 rounded-lg border border-warn bg-warn-soft p-3">
+            <div className="text-xs font-semibold mb-1 text-warn-ink">Esa fecha es de otro período</div>
+            <p className="text-xs text-mute mb-2">
+              Estás gestionando <b>{nombreDePeriodo(periodo)}</b> y esta fecha cae en{' '}
+              <b>{nombreDePeriodo(fecha.slice(0, 7))}</b>. Si guardas, el egreso queda ahí
+              y no lo verás en esta pantalla.
+            </p>
+            <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+              <input type="checkbox" checked={confirmaOtroPeriodo} onChange={(e) => setConfirmaOtroPeriodo(e.target.checked)} />
+              Sí, registrarlo en {nombreDePeriodo(fecha.slice(0, 7))}
+            </label>
+          </div>
+        ) : (
+          <p className="text-xs text-mute mt-1">Queda registrado en {nombreDePeriodo(fecha.slice(0, 7))}.</p>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div><label className="label">Categoría</label><select className="input w-full" value={f.categoryId} onChange={(e) => setF({ ...f, categoryId: e.target.value })}><option value="">—</option>{cats.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
         <div><label className="label">Proveedor / persona</label><input className="input w-full" value={f.supplier} onChange={(e) => setF({ ...f, supplier: e.target.value })} placeholder="Opcional" /></div>

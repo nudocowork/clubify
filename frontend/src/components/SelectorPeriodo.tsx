@@ -39,6 +39,59 @@ export function periodoActual(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Los meses que abarca un período: "2026-T2" → ["2026-04","2026-05","2026-06"]. */
+function mesesDe(p: string): string[] | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(p);
+  if (m) return Number(m[2]) >= 1 && Number(m[2]) <= 12 ? [p] : null;
+  const t = /^(\d{4})-T([1-4])$/.exec(p);
+  if (t) {
+    const primero = (Number(t[2]) - 1) * 3 + 1;
+    return [0, 1, 2].map((i) => `${t[1]}-${String(primero + i).padStart(2, '0')}`);
+  }
+  const a = /^(\d{4})$/.exec(p);
+  if (a) {
+    return Array.from({ length: 12 }, (_, i) => `${a[1]}-${String(i + 1).padStart(2, '0')}`);
+  }
+  return null;
+}
+
+/** El día de hoy como "YYYY-MM-DD", en la hora de quien mira (Bogotá). */
+export function hoyComoDia(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * ¿Este día pertenece al período que se está gestionando?
+ *
+ * Se compara como TEXTO a propósito: en UTC, las 00:00 del 1 de mayo son las
+ * 19:00 del 30 de abril en Bogotá, y un egreso del día 1 se contaría en el mes
+ * anterior. Mismo criterio que `finance/fecha-del-movimiento.ts` en el backend.
+ */
+export function diaEnPeriodo(dia: string, periodo: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return false;
+  const p = (periodo ?? '').trim();
+  if (!p || p === 'todo') return true;
+  const meses = mesesDe(p);
+  return !meses || meses.includes(dia.slice(0, 7));
+}
+
+/**
+ * Qué fecha traer puesta al abrir un formulario desde un período.
+ *
+ * Hoy SOLO si hoy cae dentro del período. Si no, el primer día del período —
+ * nunca la fecha del sistema: es lo que hacía que un egreso creado desde mayo
+ * se guardara en septiembre.
+ */
+export function diaPorDefectoDelPeriodo(periodo: string): string {
+  const hoy = hoyComoDia();
+  const p = (periodo ?? '').trim();
+  if (!p || p === 'todo') return hoy;
+  const meses = mesesDe(p);
+  if (!meses) return hoy;
+  return meses.includes(hoy.slice(0, 7)) ? hoy : `${meses[0]}-01`;
+}
+
 export function nombreDePeriodo(p: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(p);
   if (m) return `${MESES[Number(m[2]) - 1]} ${m[1]}`;

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ExpenseService } from './expense.service';
@@ -19,7 +19,19 @@ class CreateExpenseBody {
   @IsOptional() @IsString() status?: 'PENDING' | 'REVIEW' | 'PARTIAL' | 'PAID';
   @IsOptional() @IsString() receiptUrl?: string;
   @IsOptional() @IsString() note?: string;
-  @IsOptional() @IsString() expenseDate?: string;
+  /**
+   * OBLIGATORIA. Antes era opcional y el servicio caía a la fecha del
+   * sistema: un egreso creado desde mayo terminaba en septiembre.
+   */
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'Falta la fecha del egreso: ponla en formato AAAA-MM-DD.',
+  })
+  expenseDate!: string;
+  /** El período que se está gestionando ("2026-05"), para contrastar. */
+  @IsOptional() @IsString() periodo?: string;
+  /** Guardar aunque la fecha sea de otro período. */
+  @IsOptional() @IsBoolean() confirmarOtroPeriodo?: boolean;
 }
 class PayExpenseBody {
   @IsNumber() amountPaidUsd!: number;

@@ -8,6 +8,61 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-24 (71) — Contabilidad: el egreso se guarda en el mes que tú dices
+
+Reporte de Javier: estando en **mayo de 2026**, crear un egreso lo guardaba en
+**septiembre**. Desaparecía de la pantalla donde lo acababas de crear.
+
+**La causa, una sola línea:** `expense.service.ts` hacía
+`expenseDate: input.expenseDate ? new Date(input.expenseDate) : new Date()`, y
+el formulario **no tenía campo de fecha**, así que nunca mandaba nada.
+
+### Lo que SÍ estaba bien, comprobado antes de tocar
+
+- **Movimientos es una vista DERIVADA**, no una tabla: sale de `IncomeRecord` +
+  `Expense` + `PayrollRun`. No hay nada que arreglar ahí.
+- **Los ingresos no se crean a mano**: nacen de cobros reales, con la fecha del
+  pago. Esa fecha NO debe poder editarse.
+- **Los cortes de nómina ya piden `periodStart`/`periodEnd`.**
+- Todo el módulo ya acotaba igual por `where-periodo.ts`.
+
+O sea: el único movimiento contable que se inventaba la fecha era el egreso.
+
+### El arreglo
+
+Pieza nueva `finance/fecha-del-movimiento.ts`, espejada en el frontend dentro de
+`SelectorPeriodo.tsx` para que no puedan discrepar:
+
+- La fecha se compara **como TEXTO** contra el período. En UTC, las 00:00 del
+  1 de mayo son las 19:00 del 30 de abril en Bogotá: comparando instantes, un
+  egreso del día 1 se contaba en el mes anterior.
+- Para GUARDAR, el día se convierte al **mediodía de Bogotá**, que sobrevive a
+  que alguien lea la fila desde otra zona.
+- Un día que no existe (31 de febrero) se **rechaza**, en vez de rebosar al mes
+  siguiente como hace `Date.UTC`.
+
+Backend: `expenseDate` pasa a ser **obligatoria** (`AAAA-MM-DD`) y desaparece el
+respaldo a `new Date()`. Si llega `periodo` y la fecha cae fuera, se rechaza con
+un 400 que lo explica, salvo que venga `confirmarOtroPeriodo`.
+
+Frontend: campo **Fecha** obligatorio, con el día por defecto **dentro del
+período que estás mirando** — hoy solo si hoy cae dentro; si no, el día 1 del
+período. Debajo dice siempre en qué mes va a quedar. Si eliges una fecha de
+otro período sale un aviso con una casilla para confirmarlo, y al guardar el
+mensaje dice dónde quedó.
+
+El período seleccionado **nunca** se mueve solo.
+
+### Lo que NO cubre la comprobación del backend
+
+El 400 por «fecha de otro período» necesita saber dónde estaba la persona, y eso
+solo lo sabe quien llama: viaja en `periodo`. Lo que **sí** es imposible de
+saltar es que la fecha sea obligatoria — ahí ya no hay respaldo a la fecha del
+sistema, venga la petición de donde venga.
+
+Verificado: `tsc` 0 errores en backend y frontend, 96 tests de finanzas en verde
+(19 nuevos), eslint limpio.
+
 ## 2026-09-24 (70) — El dueño de un negocio ya puede sacar su código de referido
 
 Reporte de un cliente: Fernando (`fer.pineda.fmn@gmail.com`) intenta generar su

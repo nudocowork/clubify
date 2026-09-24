@@ -1,7 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { enRango } from './where-periodo';
 import { alcanceDeMarca, combinar } from './alcance-de-marca';
+import { nombreDelPeriodo } from '../common/periodo-contable';
+import {
+  ES_UN_DIA,
+  fechaDentroDelPeriodo,
+  instanteDelDia,
+} from './fecha-del-movimiento';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -19,7 +25,16 @@ export interface CreateExpenseInput {
   status?: 'PENDING' | 'REVIEW' | 'PARTIAL' | 'PAID';
   receiptUrl?: string | null;
   note?: string | null;
-  expenseDate?: string | null;
+  /**
+   * El día del egreso, "YYYY-MM-DD". OBLIGATORIO: hasta el 2026-09-24 era
+   * opcional y caía a `new Date()`, así que un egreso creado desde mayo se
+   * guardaba en septiembre sin decir nada.
+   */
+  expenseDate: string;
+  /** El período que la persona está gestionando, para contrastar la fecha. */
+  periodo?: string | null;
+  /** Guardar aunque la fecha caiga fuera de ese período (elección consciente). */
+  confirmarOtroPeriodo?: boolean;
   whiteLabelId?: string | null;
   actorId?: string | null;
 }
@@ -82,6 +97,33 @@ export class ExpenseService {
   }
 
   async create(input: CreateExpenseInput) {
+    // La FECHA primero: sin ella no hay egreso.
+    //
+    // Esta comprobación vive en el servicio y no solo en el formulario a
+    // propósito: es la que no se puede saltar. El aviso de «esa fecha es de
+    // otro período» sí necesita saber dónde estaba la persona, y eso solo lo
+    // sabe quien llama — por eso `periodo` viaja en la petición.
+    const dia = (input.expenseDate ?? '').trim();
+    if (!ES_UN_DIA.test(dia)) {
+      throw new BadRequestException(
+        'Falta la fecha del egreso: ponla en formato AAAA-MM-DD.',
+      );
+    }
+    const fecha = instanteDelDia(dia);
+    if (!fecha) {
+      throw new BadRequestException(`El día ${dia} no existe en el calendario.`);
+    }
+    if (
+      input.periodo &&
+      !input.confirmarOtroPeriodo &&
+      !fechaDentroDelPeriodo(dia, input.periodo)
+    ) {
+      throw new BadRequestException(
+        `La fecha ${dia} no pertenece a ${nombreDelPeriodo(input.periodo)}. ` +
+          'Corrígela, o confirma que quieres registrarla en ese otro período.',
+      );
+    }
+
     // Monto: fijo, o calculado por porcentaje sobre una base.
     let amount = input.amountUsd ?? null;
     if ((amount == null || amount === 0) && input.pctRate != null && input.pctBase != null) {
@@ -103,7 +145,7 @@ export class ExpenseService {
         note: input.note ?? null,
         pctRate: input.pctRate ?? null,
         pctBase: input.pctBase ?? null,
-        expenseDate: input.expenseDate ? new Date(input.expenseDate) : new Date(),
+        expenseDate: fecha,
         whiteLabelId: input.whiteLabelId ?? null,
         actorId: input.actorId ?? null,
       },
