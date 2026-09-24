@@ -8,6 +8,59 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-24 (68) — Auditoría de infraestructura (solo lectura, nada tocado)
+
+**No se cambió ni una línea de código.** Cuatro frentes en paralelo sobre
+Clubify PRO y TeamClubify, todo verificado contra producción o contra la base
+en solo lectura. Informe completo en documento vivo:
+https://claude.ai/code/artifact/af00d9e9-93a1-469a-801e-e7a36f017348
+
+Lo único que sí se tocó hoy, antes de la auditoría, es el commit `9c5627d5`
+(`pg_dump` 18 en el flujo de respaldo). Ese arreglo **todavía no ha corrido**.
+
+### Lo que hay que saber antes de volver a tocar esto
+
+1. **No existe ni un respaldo de ninguna de las dos bases.** No son 100 fallos
+   desde junio como puse en la entrada anterior: son **135 de 135 desde el
+   13-may-2026**, y R2 tiene **0 objetos**. Faltan los 6 secretos de GitHub.
+   Antes de nada, mirar en el panel de Railway si `Postgres-Nq8w` tiene
+   respaldos gestionados activos — eso cambia la gravedad de todo.
+2. **El repositorio `nudocowork/clubify` es PÚBLICO.** Verificado. Nadie ha
+   barrido el historial buscando credenciales.
+3. **`@Roles('SUPER_ADMIN')` a secas NO aísla marcas.** Un admin de marca
+   blanca *es* un SUPER_ADMIN con `whiteLabelId`. El `SoloPlataformaGuard` que
+   lo arregla solo se aplicó a los 4 controladores de `finance/`. Queda abierto,
+   entre otros, `PATCH /api/admin/maintenance`: **el admin de Sellea puede
+   apagar toda la plataforma**.
+4. **Stripe cambió a `2026-05-27.dahlia`** y leemos la suscripción y el precio
+   donde ya no están. 0 de 30 payloads traen el campo donde el código lo busca.
+   5 compras pagadas sin cuenta creada. Y cada factura se procesa **dos veces**
+   (`invoice.paid` + `invoice.payment_succeeded`, 7 de 7).
+5. **`/api/health` dice `commit: "dev"` siempre.** Nadie puede verificar qué
+   corre en producción. Y `railway.json` usa ese endpoint como healthcheck, así
+   que **no toca la base**: con Postgres caído el servicio sigue en verde
+   mientras toda la API da 500.
+6. **TeamClubify tiene DOS instancias vivas** — Vercel y Railway — con el mismo
+   dominio dado de alta en las dos y contra la misma base, sirviendo código
+   distinto (comprobado byte a byte). Hacer push actualiza Railway; los usuarios
+   siguen con el build de Vercel.
+
+### Trampas de método, para la otra máquina
+
+- **`grep -rn` recursivo desde bash tarda más de 120 s en este repo** (OneDrive)
+  y se va a segundo plano. Su fichero de salida vacío **no significa "cero
+  resultados"**. Usar ripgrep con ruta acotada. Un agente de esta auditoría
+  afirmó algo falso justo por eso, y se corrigió solo.
+- **`railway status` en este repo devuelve `Service: None`**, y el enlace de
+  `backend/` ya apuntó una vez al servicio `recordatorios-cobro` (que lleva en
+  Failed desde el 19-ago). Todas las consultas de hoy llevaron `--service` a
+  mano. Conviene `railway link --service backend`.
+
+### Pendiente de la sesión anterior
+
+El **frontend sigue sin desplegar** (`node scripts/desplegar.cjs frontend`
+desde la raíz). El backend sí está desplegado y las tres migraciones aplicadas.
+
 ## 2026-09-22 (67) — Flujos: varios disparadores con filtros, como en TeamClubify
 
 Commit `c77d8a33`, en `main`. **Sin desplegar** (lo bloquea el clasificador).
