@@ -8,6 +8,72 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-24 (72) — Cancelar te quitaba los días que ya habías pagado
+
+Reporte: LICORES EL AMANECER aparecía suspendido aunque en Hotmart figura como
+comprado y con cobro el 26.
+
+### La secuencia, reconstruida de la base
+
+```
+23-sep 14:00:06  SMS «te cobramos en 3 días»  (su trimestre vence el 26)
+23-sep 14:07:24  intento de acceso fallido
+23-sep 14:07:34  otro intento fallido
+23-sep 14:07:51  entra
+23-sep 14:08:48  SUSPENDIDO
+```
+
+`POST /billing/cancel` —el botón «cancelar mi cuenta» del panel del NEGOCIO—
+suspendía **en el acto**. Había pagado hasta el 26 y perdió sus últimos tres
+días. La función calculaba `accessUntil` con la fecha correcta, se la devolvía a
+la pantalla, y suspendía igual.
+
+### Lo que descarté antes de llegar ahí (por si vuelve el tema)
+
+- **NO fue el cron de mora.** `failedPaymentCount = 0` y `currentPeriodEnd` en
+  el futuro: ni siquiera era candidato.
+- **NO fue un webhook de Hotmart.** Su último evento es de julio.
+- **NO fue renovaciones ni créditos**: ese camino salta la marca `clubify`.
+- **NO fue un grupo de negocios** (no tiene) ni el ajuste de prueba (audita, y
+  no había registro).
+- No había **ningún** rastro en `AuditLog` ni **ningún** aviso enviado. Eso era
+  parte del problema.
+
+### El arreglo
+
+La regla correcta ya existía: `desconectaAlCancelar`, la que aplica el webhook
+de la pasarela desde la decisión del 2026-09-10. Había **dos puertas de
+cancelación con criterios contrarios**. Ahora vive en `billing/cancelacion.ts`
+y las dos la usan. Además la cancelación por panel marca `canceledAt`, escribe
+`billing.canceled_by_owner` en la auditoría e invalida el cache de estado.
+
+En la pantalla: el modal prometía «Tu cuenta queda suspendida inmediatamente»
+—era verdad, y ese era el problema—. Ahora dice la fecha exacta hasta la que
+conserva el servicio, en los tres idiomas, y si le quedan días ya no se le
+cierra la sesión.
+
+### Producción
+
+**LICORES EL AMANECER reactivado a mano**: `ACTIVE`, `suspendedAt` a null,
+vencimiento intacto el 26. **No se le puso `canceledAt`**: canceló a propósito,
+así que si de verdad no quiere seguir, eso lo confirma una persona hablando con
+él, no un script. Sara avisada por SMS.
+
+### Otros 7 suspendidos con el período aún vigente — sin tocar, para decidir
+
+| Negocio | Vence | Lectura |
+|---|---|---|
+| Essentrix | 15-dic | **Correcto**: protesta + reembolso, el dinero volvió |
+| VALMONT BARBERIA | 13-oct | **Correcto**: canceló con 2 cobros fallidos detrás |
+| Protein Station | 23-oct | Mismo patrón que Licores — probable |
+| BUENOS DIAZ MEXICAN GRILL | 12-oct | Mismo patrón — probable |
+| Inoxalum | 8-nov | `lastChargeAt` nulo: mirar aparte |
+| MYKOZ | 11-oct | Suspendido por un cron a las 03:00 exactas: otra causa |
+| demo demo | 6-oct | Parece de pruebas |
+
+Verificado: `tsc` 0 errores en backend y frontend, 230 tests de cobros en verde
+(7 nuevos), eslint limpio.
+
 ## 2026-09-24 (71) — Contabilidad: el egreso se guarda en el mes que tú dices
 
 Reporte de Javier: estando en **mayo de 2026**, crear un egreso lo guardaba en
