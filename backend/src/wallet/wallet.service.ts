@@ -11,6 +11,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
 import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
 import { removeBorderConnectedWhite } from './logo-chroma';
+import { imagenesSinFranjaAjena } from './franja-por-defecto';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
@@ -544,9 +545,33 @@ export class WalletService implements OnModuleDestroy {
       null;
     const tenantIcons = await this.generateTenantIcons(pushLogoUrl);
 
+    // FUGA DE MARCA. `certs/wallet-defaults/strip*.png` es un degradado VERDE
+    // CLUBIFY (#3dc66f → #22984e), y se metía SIEMPRE: solo lo tapaba
+    // `dynamicStrips` cuando generábamos una. Las tarjetas que no generan
+    // franja —la informativa, y también POINTS, CASHBACK, MEMBERSHIP, GIFT—
+    // salían con esa banda verde cruzando el pase. Una credencial de fondo
+    // negro de un restaurante de Sellea con la banda verde de Clubify en
+    // medio: exactamente lo que no puede pasar.
+    //
+    // Es el MISMO problema que el logo, que ya se arregló mandando un PNG
+    // transparente cuando el negocio no tiene el suyo (ver el comentario de
+    // arriba). A la franja se le olvidó.
+    //
+    // Sin `strip*.png`, Apple pinta el pase con su `backgroundColor`, que es
+    // el color de la tarjeta: una sola superficie. Que es justo lo que una
+    // credencial quiere.
+    //
+    // También cubre el caso en que la generación FALLE en una tarjeta de
+    // sellos: preferimos un pase liso del color del negocio antes que uno con
+    // la banda de otra marca.
+    const imagenesBase = imagenesSinFranjaAjena(
+      this.loadDefaultImages(),
+      Object.keys(dynamicStrips).length > 0,
+    );
+
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
-      ...this.loadDefaultImages(),
+      ...imagenesBase,
       ...tenantIcons, // override icon*.png con el logo del tenant si existe
       ...tenantLogos, // override logo*.png (transparente o tenant)
       ...dynamicStrips, // override strip*.png si los generamos
@@ -2374,9 +2399,15 @@ export class WalletService implements OnModuleDestroy {
       normalize(r.tenant.pushLogoUrl) ?? usedLogoUrl ?? logoCandidates[0] ?? null;
     const tenantIcons = await this.generateTenantIcons(pushLogoUrl);
 
+    // Sin `strip*.png`, por lo mismo que en el pase de fidelización: la franja
+    // por defecto es el degradado VERDE CLUBIFY, y una reserva no genera
+    // ninguna propia. Un `eventTicket` de un restaurante de otra marca salía
+    // con la banda verde de la plataforma cruzándolo.
+    const imagenesBase = imagenesSinFranjaAjena(this.loadDefaultImages(), false);
+
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
-      ...this.loadDefaultImages(),
+      ...imagenesBase,
       ...tenantIcons,
       ...tenantLogos,
     };

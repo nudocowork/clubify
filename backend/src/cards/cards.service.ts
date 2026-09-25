@@ -1,4 +1,11 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { motivoParaRechazarElColor } from './color-de-la-credencial';
 import { sanearPremiosIntermedios } from './premios-intermedios';
 import { CardType } from '@prisma/client';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
@@ -126,6 +133,21 @@ export class CardsService {
    * "Wallet Avanzado", la neutralizamos aquí (además del gate del editor), para
    * que ni un POST directo pueda saltarse el permiso. Aislado: se consulta la
    * marca por el tenant. Muta el dto en sitio ANTES de persistir. */
+  /**
+   * La única puerta del color de una credencial.
+   *
+   * El texto del pase de Apple es blanco EN DURO, y en una Tarjeta Informativa
+   * el fondo es la tarjeta entera: un color claro reparte credenciales en
+   * blanco sobre blanco. Va aquí y no en la pantalla porque hay tres puertas
+   * que escriben el color —el asistente, la edición y la API— y una
+   * comprobación en el navegador no cubre las otras dos.
+   */
+  private gateColorDeCredencial(tipo: string | undefined, dto: Partial<CardDto>) {
+    if (tipo !== 'INFO' || !dto.primaryColor) return;
+    const motivo = motivoParaRechazarElColor(dto.primaryColor);
+    if (motivo) throw new BadRequestException(motivo);
+  }
+
   private async gateCardWalletFeatures(tenantId: string, dto: Partial<CardDto>) {
     const touchesImage = dto.stampBgType === 'IMAGE' || dto.stampBgImageUrl != null;
     const touchesFree = dto.freeRewards !== undefined && (dto.freeRewards?.length ?? 0) > 0;
@@ -217,6 +239,7 @@ export class CardsService {
       }
     }
     await this.gateCardWalletFeatures(tid, dto);
+    this.gateColorDeCredencial(dto.type, dto);
     return this.prisma.card.create({
       data: {
         tenantId: tid,
@@ -295,6 +318,23 @@ export class CardsService {
       }
     }
     await this.gateCardWalletFeatures(existing.tenantId, dto);
+    this.gateColorDeCredencial(dto.type ?? existing.type, dto);
+
+    // NO se puede convertir una credencial en otra cosa, ni al revés.
+    //
+    // `update` hace `const data: any = { ...dto }` y el DTO acepta `type`, así
+    // que hasta ahora un PATCH podía cambiar el tipo de cualquier tarjeta. En
+    // una informativa eso deja pases con `stampsCount` acumulado y sin premio
+    // configurado; al revés, convierte un cartón a medio llenar en una
+    // credencial y el cliente pierde sus sellos sin que nadie los borre. Las
+    // alianzas ya tienen su propia lista blanca por esto mismo.
+    if (dto.type && dto.type !== existing.type) {
+      if (dto.type === 'INFO' || existing.type === 'INFO') {
+        throw new BadRequestException(
+          'Una tarjeta informativa no se puede convertir en otro tipo, ni al revés. Crea una tarjeta nueva.',
+        );
+      }
+    }
     // null en estos campos significa "borrar"; undefined = "no tocar".
     const data: any = { ...dto };
     if ('validFrom' in dto) {

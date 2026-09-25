@@ -138,6 +138,12 @@ export function WalletPassView({
     </div>
   );
 
+  // Una credencial no es «fidelización» y no siempre hay un «cajero»: un
+  // restaurante de mantel, una clínica o un club no tienen caja. Los textos
+  // de esta página los lee el CLIENTE FINAL, así que tienen que hablar de lo
+  // que él tiene en la mano.
+  const credencial = data.card.type === 'INFO';
+
   const tarjeta = (
     <WalletPassPreview
       // Tras registrarse la tarjeta va en pequeño y SIN el marco de iPhone.
@@ -229,7 +235,7 @@ export function WalletPassView({
               <>
                 <div className="text-center">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-mute font-semibold">
-                    {tt('wallet.show_at_counter')}
+                    {tt(credencial ? 'wallet.info_show' : 'wallet.show_at_counter')}
                   </div>
                   <h1 className="text-[15px] font-bold mt-0.5">
                     {data.tenant.brandName}
@@ -272,7 +278,7 @@ export function WalletPassView({
                 Ahí es donde hay que decirle que le falta un paso. */}
             <div className="text-center mt-3">
               <div className="text-[13px] leading-snug text-ink">
-                {tt('wallet.not_done_sub')}
+                {tt(credencial ? 'wallet.info_not_done_sub' : 'wallet.not_done_sub')}
               </div>
               <div
                 className="text-xl leading-none mt-1 animate-bounce"
@@ -294,7 +300,7 @@ export function WalletPassView({
           <>
             <div className="text-center mb-6">
               <div className="text-[11px] uppercase tracking-[0.2em] text-mute font-semibold">
-                {tt('wallet.show_at_counter')}
+                {tt(credencial ? 'wallet.info_show' : 'wallet.show_at_counter')}
               </div>
               <h1 className="text-xl font-bold mt-1">{data.tenant.brandName}</h1>
               <div className="text-sm text-mute">{data.card.name}</div>

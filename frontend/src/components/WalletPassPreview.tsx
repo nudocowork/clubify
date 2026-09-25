@@ -233,6 +233,8 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   // `stampsRequired` nulo dibujaría diez huecos vacíos en mitad de una
   // credencial — exactamente el «te falta algo» que se le quitó a la alianza.
   const dibujarCarton = llevaCarton({ tipo: cardType, alianza, club });
+  /** Una credencial: ni cartón, ni contador, ni premio. */
+  const credencial = cardType === 'INFO';
 
   // Wallet V3 — Premios Free por posición (1-based) + "Próximo Premio".
   const activePrizes = (freeRewards || []).filter(
@@ -265,7 +267,9 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   // si no, omitimos para evitar el look "marcado".
   const contourCol = stampContourColor || null;
 
-  const sideHeader = (() => {
+  /** Qué va arriba a la derecha. `null` = nada: esa fila queda para el
+   *  nombre del negocio, como en el pase de verdad. */
+  const sideHeader: { lbl: string; val: string } | null = (() => {
     switch (cardType) {
       case 'CASHBACK':
         return {
@@ -296,14 +300,14 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
               : 'DISPONIBLE',
         };
       case 'INFO':
-        // Lo que se lee aquí lo escribe el NEGOCIO en el premio de la
-        // tarjeta («Cliente distinguido», «Socio fundador»); «ACTIVA» es solo
-        // el respaldo. Es lo mismo que enseña el pase de verdad, y es lo que
-        // hace que la tarjeta sirva para cualquier negocio y no para uno.
-        return {
-          lbl: 'ESTADO',
-          val: textoDeLaCredencial({ revocada, textoDelNegocio: rewardText }),
-        };
+        // NADA arriba a la derecha. El pase de verdad deja esa fila SOLO para
+        // el nombre del negocio (`headerFields: []` en wallet.service.ts) y
+        // pone el estado abajo. Poniéndolo aquí además salía DOS VECES —una
+        // arriba y otra abajo etiquetada «Recompensa», en una tarjeta que no
+        // da premios— y, siendo texto libre del negocio, un «Cliente
+        // distinguido de la casa desde 2019» empujaba el nombre del negocio
+        // hasta partirlo. Con «7/10» eso nunca pasaba.
+        return null;
       case 'GIFT':
         // Gift tampoco es de progreso — mostramos label genérico para
         // que no caiga al default y muestre "SELLOS x/y".
@@ -395,14 +399,16 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
             {brandName || 'Tu marca'}
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-            {sideHeader.lbl}
+        {sideHeader && (
+          <div className="text-right shrink-0">
+            <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
+              {sideHeader.lbl}
+            </div>
+            <div className="text-sm font-bold mt-0.5 leading-tight">
+              {sideHeader.val}
+            </div>
           </div>
-          <div className="text-sm font-bold mt-0.5 leading-tight">
-            {sideHeader.val}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Strip / display central según tipo */}
@@ -618,7 +624,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       <div className="px-4 pt-1 pb-3 grid grid-cols-[1fr_auto] gap-3 items-end relative">
         <div className="min-w-0">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-            {club ? 'Te quedan' : 'Titular'}
+            {club ? 'Te quedan' : credencial ? 'Cliente' : 'Titular'}
           </div>
           {/* Mismo criterio que el nombre del negocio: el del titular tampoco
               se corta. «MARÍA FERNANDA RO…» en su propia tarjeta se lee como un
@@ -635,21 +641,29 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
               ],
             )} font-bold mt-0.5 uppercase leading-[1.15] break-words line-clamp-2`}
           >
-            {club
+            {club && !credencial
               ? `${stampsCount} ${plural(club.unidad, stampsCount)}`
               : customerName}
           </div>
         </div>
         <div className="text-right max-w-[55%]">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-            {club ? 'Cliente' : nextPrize ? 'Próximo premio' : 'Recompensa'}
+            {credencial
+              ? 'Estado'
+              : club
+                ? 'Cliente'
+                : nextPrize
+                  ? 'Próximo premio'
+                  : 'Recompensa'}
           </div>
           <div className="text-[12px] font-semibold mt-0.5 leading-snug line-clamp-2">
-            {club
-              ? customerName
-              : nextPrize
-                ? nextPrize.label
-                : rewardText || '—'}
+            {credencial
+              ? textoDeLaCredencial({ revocada, textoDelNegocio: rewardText })
+              : club
+                ? customerName
+                : nextPrize
+                  ? nextPrize.label
+                  : rewardText || '—'}
           </div>
         </div>
       </div>
