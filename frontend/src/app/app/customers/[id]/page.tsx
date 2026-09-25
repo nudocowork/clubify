@@ -1,4 +1,5 @@
 'use client';
+import { textoDeLaCredencial } from '@/lib/credencial.mjs';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -21,6 +22,10 @@ type Pass = {
     name: string;
     type: string;
     stampsRequired: number | null;
+    // En una credencial (`type: 'INFO'`) esto NO es un premio: es la
+    // distinción que se lee en el pase («Cliente distinguido»). Mismo campo,
+    // otro significado. Ver `lib/credencial.mjs`.
+    rewardText?: string | null;
     // Por dentro son tarjetas `STAMPS` —el saldo vive en el mismo contador—
     // pero no son cartones de sellos. Sin distinguirlas, esta ficha pintaba una
     // tarjeta de club con botones de «Sellar» y «Canjear»: sellar le REGALABA
@@ -530,6 +535,38 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
     }
   }
 
+  /**
+   * Retirar o devolver una credencial informativa.
+   *
+   * Se pregunta antes porque el cliente lo va a ver en su móvil en cuanto se
+   * pulse: el pase se actualiza en las dos billeteras y pasa a decir
+   * DESACTIVADA. Y se dice en voz alta lo que NO pasa, porque es la duda
+   * razonable de quien va a pulsar: no se borra a la persona.
+   */
+  async function cambiarCredencial(accion: 'revocar' | 'restaurar') {
+    const retirar = accion === 'revocar';
+    const ok = window.confirm(
+      retirar
+        ? `¿Retirar esta credencial?
+
+Dejará de valer y el cliente la verá como DESACTIVADA en su teléfono. NO se borra su ficha, ni sus pedidos, ni sus otras tarjetas. Puedes volver a activarla cuando quieras.`
+        : `¿Volver a activar esta credencial?
+
+El cliente la verá activa otra vez en su teléfono.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api(`/passes/${p.id}/${accion}`, { method: 'POST' });
+      toast(retirar ? 'Credencial retirada' : 'Credencial activada', 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo hacer el cambio', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function refreshWallet() {
     setBusy(true);
     try {
@@ -707,6 +744,40 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
               title={t('redeemCouponBtn')}
             >
               {t('redeemCouponBtn')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* TARJETA INFORMATIVA. No se sella ni se redime: lo único que se hace
+          con ella es retirarla. Y retirarla NO borra al cliente — su ficha,
+          sus pedidos y sus otras tarjetas quedan igual. */}
+      {p.card.type === 'INFO' && (
+        <div className="mt-3">
+          <div className="text-xs text-mute">
+            Credencial ·{' '}
+            <span className="text-ink font-medium">
+              {textoDeLaCredencial({
+                revocada: p.status === 'REVOKED',
+                textoDelNegocio: p.card.rewardText,
+              })}
+            </span>
+          </div>
+          {p.status === 'REVOKED' ? (
+            <button
+              onClick={() => cambiarCredencial('restaurar')}
+              disabled={busy}
+              className="btn-ghost text-xs justify-center w-full mt-2 disabled:opacity-50"
+            >
+              Volver a activarla
+            </button>
+          ) : (
+            <button
+              onClick={() => cambiarCredencial('revocar')}
+              disabled={busy}
+              className="text-xs justify-center w-full mt-2 font-semibold rounded-pill px-3 py-2 inline-flex items-center gap-1.5 border border-bad text-bad hover:bg-bad-soft disabled:opacity-50"
+            >
+              Retirar la credencial
             </button>
           )}
         </div>
