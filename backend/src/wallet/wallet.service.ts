@@ -158,13 +158,18 @@ export class WalletService implements OnModuleDestroy {
     const club = pass.card.clubPlanId
       ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
       : null;
+    // Tarjeta INFORMATIVA: no acumula nada, así que no hay nada que consultar.
+    // A diferencia de la alianza y el club, se conoce por el TIPO y no por un
+    // campo colgado — ver el comentario del enum en schema.prisma.
+    const info = pass.card.type === 'INFO';
     const passBrandHref = passBrand.websiteUrl;
     const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
     // Idioma del pase: el del cliente (persistido al enrolarse) y, si no
     // eligió ninguno, el del NEGOCIO. Localiza todos los labels del pase
     // (Apple). (PDF 854; el respaldo al negocio, 2026-09-11.)
     const L = passLabels(localeDelPase(pass));
-    const cardName = (pass.card.name || L.loyalty_card).trim() || L.loyalty_card;
+    const nombrePorDefecto = info ? L.info_card : L.loyalty_card;
+    const cardName = (pass.card.name || nombrePorDefecto).trim() || nombrePorDefecto;
     const description = cardName;
 
     // Para que Apple Wallet muestre banner "Tu pase de X cambió", el .pkpass
@@ -239,6 +244,22 @@ export class WalletService implements OnModuleDestroy {
         pluralUnidad(club.unidad, pass.stampsCount),
       );
     }
+    // En la informativa tampoco hay premio hacia el que acumular: lo único que
+    // el cliente necesita leer es si su credencial sigue en pie.
+    //
+    // El texto lo pone el NEGOCIO en `rewardText` («Cliente distinguido»,
+    // «Socio fundador»); `info_active` es solo el respaldo de quien no escribió
+    // nada. Es lo que hace que esto sirva para cualquier negocio y no para uno.
+    //
+    // Revocada gana siempre: un texto bonito puesto por el negocio no puede
+    // tapar que la credencial ya no vale.
+    if (info) {
+      rewardFieldLabel = L.info_status;
+      rewardFieldValue =
+        pass.status === 'REVOKED'
+          ? L.info_revoked
+          : pass.card.rewardText?.trim() || L.info_active;
+    }
 
     const passJson = {
       formatVersion: 1,
@@ -310,7 +331,13 @@ export class WalletService implements OnModuleDestroy {
           { key: 'reward', label: rewardFieldLabel, value: rewardFieldValue },
         ],
         auxiliaryFields: [
-          ...(alianza || pass.card.type === 'COUPON'
+          // `info` va junto a la alianza y al cupón: los tres son pases sin
+          // contador. Sin esta condición, `buildHeaderField` cae a su rama por
+          // defecto y pinta «0/10» —un cartón de diez huecos que nadie va a
+          // llenar nunca— porque `stampsRequired` es null y el respaldo es 10.
+          // Es el mismo fallo que ya tuvieron el club («7/10» contando lo
+          // contrario) y la alianza («SELLOS 0/1»).
+          ...(info || alianza || pass.card.type === 'COUPON'
             ? []
             : club
               ? [this.headerClub(pass, club, L)]

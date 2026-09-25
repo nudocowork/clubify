@@ -11,6 +11,7 @@ import { clubDelPase } from '../club/club-pase.util';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { AuditService } from '../audit/audit.service';
 import { AutomationsService } from '../automations/automations.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { normalizePassLocale } from '../wallet/pass-labels';
@@ -98,6 +99,8 @@ export class PassesService {
     private automations: AutomationsService,
     private appConfig: AppConfigService,
     private brand: WhitelabelBrandService,
+    // AuditModule es @Global(): no hay que importarlo en PassesModule.
+    private audit: AuditService,
   ) {}
 
   private guardTenant(user: AuthUser, tenantId: string) {
@@ -111,6 +114,122 @@ export class PassesService {
     if (!card) throw new NotFoundException('Card');
     this.guardTenant(user, card.tenantId);
     return this.issueInternal(cardId, customerId);
+  }
+
+  /**
+   * Revoca un pase: deja de valer sin borrar nada.
+   *
+   * `PassStatus.REVOKED` existía desde el principio y TODO el lado que lo lee
+   * ya lo respetaba —el escáner se niega a sellar, el webservice de Apple lo
+   * excluye, Google recibe `state: INACTIVE`, el refresco de geocerco lo salta,
+   * las métricas lo cuentan aparte—, pero hasta hoy ningún camino lo escribía:
+   * en producción había 0 pases revocados y 0 formas de revocar uno.
+   *
+   * QUÉ NO HACE, y es lo importante: no toca al cliente. Su ficha, su
+   * teléfono, sus pedidos y sus demás tarjetas siguen exactamente igual.
+   * Revocar una credencial es retirar una credencial, no echar a una persona.
+   *
+   * Por qué `updateMany` y no `update`:
+   *
+   *  1. El middleware de Prisma NO cubre `update`/`delete`/`upsert` singulares
+   *     (`prisma-tenant-middleware.ts`), así que un `update({ where: { id } })`
+   *     a secas se salta el aislamiento por negocio. `updateMany` sí pasa.
+   *  2. Es atómico. Leer el estado, decidir y escribir en tres pasos es el bug
+   *     más repetido de esta casa: dos clics a la vez revocan dos veces y el
+   *     segundo pisa la fecha y el autor del primero. Aquí la condición viaja
+   *     dentro del WHERE y lo que se mira es el `count`.
+   */
+  async revocar(user: AuthUser, passId: string, motivo?: string) {
+    const pass = await this.prisma.pass.findFirst({
+      where: { id: passId },
+      select: {
+        id: true,
+        tenantId: true,
+        serialNumber: true,
+        status: true,
+        customerId: true,
+        card: { select: { name: true, type: true } },
+      },
+    });
+    if (!pass) throw new NotFoundException('Pass');
+    this.guardTenant(user, pass.tenantId);
+
+    const { count } = await this.prisma.pass.updateMany({
+      where: { id: passId, tenantId: pass.tenantId, status: { not: 'REVOKED' } },
+      data: {
+        status: 'REVOKED',
+        revokedAt: new Date(),
+        revokedBy: user.id,
+        // Sin tocar esto, Apple sirve su copia cacheada y el pase seguiría
+        // enseñándose como válido en el móvil del cliente.
+        lastActivityAt: new Date(),
+      },
+    });
+    if (count === 0) {
+      throw new BadRequestException('Esta tarjeta ya estaba revocada.');
+    }
+
+    await this.audit.log({
+      actorId: user.id,
+      tenantId: pass.tenantId,
+      action: 'pase.revocado',
+      resource: `pass:${passId}`,
+      metadata: {
+        serialNumber: pass.serialNumber,
+        customerId: pass.customerId,
+        tipo: pass.card.type,
+        tarjeta: pass.card.name,
+        estadoAnterior: pass.status,
+        motivo: motivo?.trim() || null,
+        impersonadoPor: user.impersonatedBy ?? null,
+      },
+    });
+
+    return { ok: true, serialNumber: pass.serialNumber };
+  }
+
+  /**
+   * Devuelve un pase revocado a la vida.
+   *
+   * Existe porque revocar sin deshacer es una acción destructiva de un solo
+   * clic, y de esas ya nos han costado datos. Vuelve a `ACTIVE` aunque
+   * estuviera `COMPLETED`: el estado de un cartón lleno lo recalcula
+   * `reglaDeEstado` en el siguiente sello, así que no hay nada que reconstruir.
+   */
+  async restaurar(user: AuthUser, passId: string) {
+    const pass = await this.prisma.pass.findFirst({
+      where: { id: passId },
+      select: { id: true, tenantId: true, serialNumber: true, customerId: true },
+    });
+    if (!pass) throw new NotFoundException('Pass');
+    this.guardTenant(user, pass.tenantId);
+
+    const { count } = await this.prisma.pass.updateMany({
+      where: { id: passId, tenantId: pass.tenantId, status: 'REVOKED' },
+      data: {
+        status: 'ACTIVE',
+        revokedAt: null,
+        revokedBy: null,
+        lastActivityAt: new Date(),
+      },
+    });
+    if (count === 0) {
+      throw new BadRequestException('Esta tarjeta no estaba revocada.');
+    }
+
+    await this.audit.log({
+      actorId: user.id,
+      tenantId: pass.tenantId,
+      action: 'pase.restaurado',
+      resource: `pass:${passId}`,
+      metadata: {
+        serialNumber: pass.serialNumber,
+        customerId: pass.customerId,
+        impersonadoPor: user.impersonatedBy ?? null,
+      },
+    });
+
+    return { ok: true, serialNumber: pass.serialNumber };
   }
 
   /** Emite un pass sin auth check — uso interno desde otros módulos

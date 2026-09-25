@@ -32,7 +32,8 @@ export type ScanKind =
   | 'club'
   | 'convenio'
   | 'cuponera'
-  | 'reserva';
+  | 'reserva'
+  | 'info';
 
 @Injectable()
 export class ScannerService {
@@ -136,6 +137,18 @@ export class ScannerService {
     if ((pass.card as any).clubPlanId) {
       const club = await this.club.resolverParaCaja(user, pass.id);
       return { kind: 'club' as const, ...club };
+    }
+
+    // RAMA INFORMATIVA — una credencial que no acumula nada. Va ANTES de leer
+    // los sellos porque no tiene ninguno que leer, y sobre todo porque la línea
+    // de abajo manda a la pantalla de sellos TODO lo que no sea un cupón: sin
+    // este desvío, el cajero vería el botón de sellar sobre una tarjeta que no
+    // se sella. Es el mismo agujero que tuvieron el club y las alianzas.
+    //
+    // Se decide por `card.type`, no por un campo colgado: ver el comentario del
+    // enum en schema.prisma.
+    if (pass.card.type === 'INFO') {
+      return { kind: 'info' as const, pass };
     }
 
     const recent = await this.prisma.stamp.findMany({

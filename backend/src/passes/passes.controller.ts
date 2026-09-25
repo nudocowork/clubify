@@ -32,6 +32,18 @@ class IssueBody {
   @IsUUID() customerId!: string;
 }
 
+/**
+ * Por qué revocar acepta un cuerpo: el motivo queda en el registro de
+ * auditoría. Seis meses después, «¿por qué le quitaron la tarjeta a este
+ * cliente?» no se responde con una fecha sola.
+ *
+ * Opcional a propósito: exigirlo haría que alguien escribiera «.» para salir
+ * del paso, y entonces el campo mentiría en vez de estar vacío.
+ */
+class RevocarPaseDto {
+  @IsOptional() @IsString() @MaxLength(200) motivo?: string;
+}
+
 class EnrollBody {
   @IsString() @MinLength(2) @MaxLength(80) fullName!: string;
   @IsString() @MinLength(8) @MaxLength(20) phone!: string;
@@ -417,6 +429,44 @@ export class PassesController {
     }
     if (!pass.googleObjectId) return { error: 'no_google_object_id' };
     return this.wallet.getGoogleObjectRaw(pass.googleObjectId);
+  }
+
+  /**
+   * Revoca un pase: la credencial deja de valer sin borrar al cliente.
+   *
+   * Solo el DUEÑO. Los `@Roles` de este controlador incluyen `TENANT_STAFF`
+   * —el cajero— para lo de la caja, y esto no es de la caja: es retirarle a
+   * alguien su credencial. Por eso va por método y no se hereda de la clase.
+   *
+   * Tras escribir el estado se empuja a las dos billeteras, que ya saben qué
+   * hacer con un pase revocado: Google recibe `state: INACTIVE` y el iPhone
+   * re-baja el `.pkpass`, que ya no dice ACTIVA. Si el push falla no se
+   * deshace la revocación: en la base ya no vale, y el escáner —que es donde
+   * se decide de verdad— mira la base, no el móvil.
+   */
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Post(':id/revocar')
+  async revocar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: RevocarPaseDto,
+  ) {
+    const r = await this.svc.revocar(user, id, body?.motivo);
+    await this.wallet.pushPassUpdate(id, { silent: true }).catch((e) => {
+      this.logger.warn(`revocar: push falló para ${id}: ${e?.message ?? e}`);
+    });
+    return r;
+  }
+
+  /** Deshace una revocación. Existe para que revocar no sea un viaje de ida. */
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Post(':id/restaurar')
+  async restaurar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const r = await this.svc.restaurar(user, id);
+    await this.wallet.pushPassUpdate(id, { silent: true }).catch((e) => {
+      this.logger.warn(`restaurar: push falló para ${id}: ${e?.message ?? e}`);
+    });
+    return r;
   }
 
   /**

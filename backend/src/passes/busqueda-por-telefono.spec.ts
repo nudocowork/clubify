@@ -116,7 +116,10 @@ function montar(fichas: Ficha[]) {
   };
   const automations: any = { emit: async () => undefined };
   const brand: any = { resolveByWhiteLabelId: async () => ({ slug: 'clubify' }) };
-  const srv = new PassesService(prisma, automations, {} as never, brand);
+  // El registro de auditoría es @Global() en la app; acá basta un doble que no
+  // hace nada: estas pruebas son de la búsqueda por teléfono, no de auditoría.
+  const auditoria: any = { log: async () => undefined };
+  const srv = new PassesService(prisma, automations, {} as never, brand, auditoria);
   return { srv, actualizaciones, creadas, pasesCreados };
 }
 
@@ -227,7 +230,7 @@ describe('GET /passes/:id (panel)', () => {
         }),
       },
     };
-    const srv = new PassesService(prisma, {} as never, {} as never, {} as never);
+    const srv = new PassesService(prisma, {} as never, {} as never, {} as never, {} as never);
     const r: any = await srv.get({ id: 'u', role: 'TENANT_OWNER', tenantId: 't1' } as any, 'p1');
     expect(JSON.stringify(r)).not.toContain('SECRETA');
     // El panel sigue sabiendo que HAY clave.

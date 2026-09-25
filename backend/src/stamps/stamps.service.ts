@@ -125,6 +125,19 @@ export class StampsService {
       );
     }
 
+    // Y lo mismo para la Tarjeta Informativa, que NO acumula nada. Este es el
+    // primer gate de este método que mira el TIPO y no un campo colgado: los
+    // dos de arriba existen porque el club y las alianzas se disfrazaron de
+    // STAMPS. Una INFO no tiene premio ni tope, así que un sello aquí subiría
+    // un contador que el cliente no ve en ninguna parte y que no significa
+    // nada. El escáner la manda a su propia pantalla; esto cierra la puerta de
+    // atrás, la del POST directo.
+    if (pass.card.type === 'INFO') {
+      throw new ForbiddenException(
+        'Esta es una tarjeta informativa: identifica al cliente, no acumula sellos.',
+      );
+    }
+
     // Wallet V3 — gate de marca: restar sellos (-1) solo si la marca lo permite
     // ("Wallet Avanzado" → removeStamps). Aislado por el whiteLabel del tenant.
     if (dto.action === 'STAMP_REMOVE') {

@@ -88,6 +88,19 @@ type Labels = {
   club_hero: string;
   club_left: string;
   club_left_count: (n: number, unidad: string) => string;
+  // Tarjeta INFORMATIVA (CardType.INFO). No cuenta nada en ninguna dirección:
+  // ni suma como los sellos ni resta como el club. Lo único que dice es si la
+  // credencial sigue en pie, igual que la alianza.
+  //
+  // `info_status`/`info_active` son el RESPALDO: si el negocio escribe algo en
+  // `rewardText` («Cliente distinguido», «Socio fundador»), manda lo suyo. Esa
+  // es la parte que hace que la tarjeta sirva para cualquier negocio y no solo
+  // para el primero que la pidió.
+  info_card: string;
+  info_status: string;
+  info_active: string;
+  info_revoked: string;
+  info_change: string;
   // Fields
   reward: string;
   customer: string;
@@ -125,6 +138,8 @@ const DICT: Record<PassLocale, Labels> = {
     club_ended: 'FINALIZADA', club_stopped_change: 'Tu suscripción: %@',
     club_hero: 'Tu cupo del mes', club_left: 'Te quedan',
     club_left_count: (n, u) => `${n} ${u}`,
+    info_card: 'Credencial', info_status: 'ESTADO', info_active: 'ACTIVA',
+    info_revoked: 'DESACTIVADA', info_change: 'Tu credencial: %@',
     reward: 'RECOMPENSA', customer: 'CLIENTE', last_message: 'Último mensaje',
     no_messages: 'Aún no hay mensajes', card_number: 'Número de tarjeta', terms: 'Condiciones', contact: 'Contacto',
     created_by: (b) => `Creado por ${b}`, near_place: (b) => `Estás cerca de ${b}`,
@@ -147,6 +162,8 @@ const DICT: Record<PassLocale, Labels> = {
     club_ended: 'ENDED', club_stopped_change: 'Your subscription: %@',
     club_hero: 'Your monthly allowance', club_left: 'Left',
     club_left_count: (n, u) => `${n} ${u}`,
+    info_card: 'Membership card', info_status: 'STATUS', info_active: 'ACTIVE',
+    info_revoked: 'DEACTIVATED', info_change: 'Your card: %@',
     reward: 'REWARD', customer: 'MEMBER', last_message: 'Latest message',
     no_messages: 'No messages yet', card_number: 'Card number', terms: 'Terms', contact: 'Contact',
     created_by: (b) => `Made with ${b}`, near_place: (b) => `You're near ${b}`,
@@ -169,6 +186,8 @@ const DICT: Record<PassLocale, Labels> = {
     club_ended: 'FINALIZADA', club_stopped_change: 'Sua assinatura: %@',
     club_hero: 'Sua cota do mês', club_left: 'Restam',
     club_left_count: (n, u) => `${n} ${u}`,
+    info_card: 'Credencial', info_status: 'ESTADO', info_active: 'ATIVA',
+    info_revoked: 'DESATIVADA', info_change: 'Sua credencial: %@',
     reward: 'RECOMPENSA', customer: 'CLIENTE', last_message: 'Última mensagem',
     no_messages: 'Ainda sem mensagens', card_number: 'Número do cartão', terms: 'Condições', contact: 'Contato',
     created_by: (b) => `Feito com ${b}`, near_place: (b) => `Você está perto de ${b}`,
@@ -191,6 +210,8 @@ const DICT: Record<PassLocale, Labels> = {
     club_ended: 'TERMINATA', club_stopped_change: 'Il tuo abbonamento: %@',
     club_hero: 'Il tuo credito del mese', club_left: 'Restano',
     club_left_count: (n, u) => `${n} ${u}`,
+    info_card: 'Tessera', info_status: 'STATO', info_active: 'ATTIVA',
+    info_revoked: 'DISATTIVATA', info_change: 'La tua tessera: %@',
     reward: 'PREMIO', customer: 'CLIENTE', last_message: 'Ultimo messaggio',
     no_messages: 'Ancora nessun messaggio', card_number: 'Numero tessera', terms: 'Condizioni', contact: 'Contatto',
     created_by: (b) => `Creato con ${b}`, near_place: (b) => `Sei vicino a ${b}`,

@@ -132,6 +132,24 @@ export class GoogleWalletService {
         label: L.coupon,
       };
     }
+    // Tarjeta INFORMATIVA: tampoco cuenta nada. Va ANTES de la caída final
+    // porque esa caída es el cartón de sellos: sin esta rama, una credencial
+    // salía en Android con «SELLOS 0/10», que es una promesa inventada
+    // (`stampsRequired` es null y el respaldo vale 10).
+    //
+    // El texto lo escribe el NEGOCIO en `rewardText`; `info_active` es solo el
+    // respaldo. Revocada gana siempre: lo que el negocio haya escrito no puede
+    // tapar que la credencial ya no vale.
+    if (t === 'INFO') {
+      const texto = String(pass.card.rewardText ?? '').trim();
+      return {
+        balance: {
+          string:
+            pass.status === 'REVOKED' ? L.info_revoked : texto || L.info_active,
+        },
+        label: L.info_status,
+      };
+    }
     // Tarjeta de ALIANZA: no cuenta nada, dice si el beneficio está en pie.
     // Llega precalculada en `pass.alianza` porque esto es síncrono y resolverla
     // necesita base de datos; se rellena en los dos sitios que arman el objeto.
