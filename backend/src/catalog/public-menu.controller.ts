@@ -18,6 +18,12 @@ const PUBLIC_CACHE =
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
+  estaAbierto,
+  leerHorario,
+  proximaApertura,
+  resumenDelHorario,
+} from '../orders/horario-de-domicilios';
+import {
   indexarFilas,
   resolverEnSede,
   seVendeEn,
@@ -234,6 +240,20 @@ export class PublicMenuController {
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       secondaryColor: t.secondaryColor,
+      // Si el negocio acepta pedidos a domicilio AHORA mismo, y cuándo vuelve.
+      //
+      // Se resuelve en el servidor a propósito: el reloj del visitante puede
+      // estar en otra zona horaria (o mal), y el que manda es el del negocio.
+      // Sin horario configurado sale siempre abierto — el caso de todos hoy.
+      domicilios: (() => {
+        const franjas = leerHorario(t.deliveryHours);
+        const ahora = new Date();
+        return {
+          abierto: estaAbierto(franjas, ahora, t.timezone),
+          proximaApertura: proximaApertura(franjas, ahora, t.timezone),
+          horario: resumenDelHorario(franjas),
+        };
+      })(),
       // Si el dueño desactivó el botón en /app/storefront, no mandamos
       // el número al frontend → la sección que renderiza el botón hace
       // un check `if (s.whatsappPhone)` y queda oculto sin tener que

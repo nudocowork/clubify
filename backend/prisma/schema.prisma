@@ -644,6 +644,12 @@ model Tenant {
   /// Observaciones / términos que se muestran al cliente ANTES de reservar
   /// (ej. costos por tamaño de grupo, políticas). Texto libre multilínea. Null = sin nota.
   reservationTerms            String?                    @db.Text
+  /// Horario en que el negocio acepta PEDIDOS a domicilio. Lista de franjas
+  /// `[{ dias: [0..6], desde: "18:00", hasta: "01:00" }]`, en la hora local del
+  /// negocio (`timezone`). Una franja puede cruzar la medianoche y pertenece al
+  /// día en que EMPIEZA. Null o vacío = se pide a cualquier hora, que es lo que
+  /// hacen hoy todos los negocios. Reglas en `orders/horario-de-domicilios.ts`.
+  deliveryHours               Json?
   // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
   // Si está seteado, el tenant queda inaccesible (no aparece en list/
   // login) pero las relaciones (Order/Commission/ReferralUse) se

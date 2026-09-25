@@ -7,6 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { TenantStatus } from '@prisma/client';
+import { validarHorario } from '../orders/horario-de-domicilios';
 import { JwtService } from '@nestjs/jwt';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -2620,6 +2621,16 @@ export class TenantsService {
       data.dataPolicyUrl =
         typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
     }
+    if ('deliveryHours' in data) {
+      // El horario de domicilios se valida AQUÍ, no en la pantalla: un horario
+      // corrupto dejaría al negocio sin poder recibir pedidos (o peor,
+      // recibiéndolos cuando no hay nadie). Vacío se guarda como null, que es
+      // «a cualquier hora».
+      const r = validarHorario(data.deliveryHours);
+      if (!r.ok) throw new BadRequestException(r.error);
+      data.deliveryHours = r.franjas.length ? r.franjas : null;
+    }
+
     const updated = await this.prisma.tenant.update({
       where: { id: tenantId },
       data,

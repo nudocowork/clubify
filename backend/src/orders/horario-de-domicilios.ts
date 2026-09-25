@@ -97,6 +97,19 @@ export function validarHorario(
   return { ok: true, franjas };
 }
 
+/**
+ * Lee el horario tal y como está guardado en la base.
+ *
+ * Tolerante a propósito: lo que entra se valida con `validarHorario`, pero al
+ * LEER, una fila corrupta no puede dejar a un negocio sin poder recibir
+ * pedidos. Sin horario legible, se pide a cualquier hora — que es el estado de
+ * todos los negocios hoy.
+ */
+export function leerHorario(valor: unknown): Franja[] {
+  const r = validarHorario(valor);
+  return r.ok ? r.franjas : [];
+}
+
 /** ¿Está el negocio tomando pedidos en este instante? */
 export function estaAbierto(
   franjas: Franja[] | null | undefined,

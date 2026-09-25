@@ -75,6 +75,12 @@ class UpdateMyBody {
   @IsOptional() deliveryAlertsPhones?: string[] | null;
   // Array de eventos suscritos: 'created' | 'confirmed' | 'ready' | 'delivered'.
   @IsOptional() deliveryAlertsEvents?: string[] | null;
+  // Horario en que el negocio ACEPTA pedidos a domicilio:
+  // `[{ dias: [0..6], desde: "18:00", hasta: "01:00" }]`. Vacío o null = a
+  // cualquier hora. La forma se valida en `updateMine` con `validarHorario`,
+  // no aquí: el mensaje de error tiene que decir qué corregir, y un
+  // `@IsArray()` a secas solo diría «debe ser un array».
+  @IsOptional() deliveryHours?: unknown;
   // PDF 1256 F3: notificaciones de pedido al CLIENTE por SMS. Opt-in, OFF por
   // defecto (cada SMS cuesta). Eventos: 'created'|'confirmed'|'ready'|
   // 'on_the_way'|'delivered'.

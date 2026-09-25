@@ -126,6 +126,16 @@ type Storefront = {
   primaryColor: string;
   secondaryColor: string;
   whatsappPhone: string | null;
+  /**
+   * Horario de domicilios, resuelto EN EL SERVIDOR: el reloj del visitante
+   * puede estar en otra zona (o mal), y el que manda es el del negocio.
+   * Ausente o `abierto: true` = se pide a cualquier hora.
+   */
+  domicilios?: {
+    abierto: boolean;
+    proximaApertura: string | null;
+    horario: string | null;
+  } | null;
   instagramUrl: string | null;
   mapsUrl: string | null;
   currency: string;
@@ -1213,6 +1223,7 @@ function StorefrontPublicInner() {
           planName={s.planName ?? null}
           mode={mode}
           fulfillment={s.fulfillment}
+          domicilios={s.domicilios ?? null}
           acceptedPaymentMethods={s.acceptedPaymentMethods}
           onClose={() => setShowCheckout(false)}
         />
@@ -1934,6 +1945,7 @@ function CheckoutSheet({
   planName,
   mode,
   fulfillment,
+  domicilios,
   acceptedPaymentMethods,
   sedeDelQr,
   oficina,
@@ -1956,6 +1968,12 @@ function CheckoutSheet({
   planName: string | null;
   mode: StorefrontMode;
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Si el negocio acepta domicilios AHORA. Ausente = a cualquier hora. */
+  domicilios?: {
+    abierto: boolean;
+    proximaApertura: string | null;
+    horario: string | null;
+  } | null;
   /** Métodos de pago que acepta el negocio. Ausente → se ofrecen todos. */
   acceptedPaymentMethods?: string[];
   onClose: () => void;
@@ -2047,6 +2065,9 @@ function CheckoutSheet({
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** Solo estorba al domicilio: recoger y comer en mesa siguen igual. */
+  const cerradoParaDomicilios =
+    form.fulfillment === 'DELIVERY' && !!domicilios && !domicilios.abierto;
   /** ¿Esta marca pide datos de facturación al pedir? */
   const pideFacturacion = MARCAS_CON_FACTURACION.has(brandSlug ?? '');
 
@@ -2830,9 +2851,23 @@ function CheckoutSheet({
               </div>
             )}
 
+            {/*
+              Fuera del horario de domicilios no se deja enviar. Antes el
+              cliente armaba el carrito al mediodia, lo mandaba, y no habia
+              nadie al otro lado (Javier, 2026-09-25). El backend lo rechaza
+              igual: esto es para que no llegue a intentarlo.
+            */}
+            {cerradoParaDomicilios && (
+              <div className="rounded-lg bg-warn-soft border border-warn px-3 py-2.5 text-sm text-warn-ink">
+                <strong>No estamos recibiendo domicilios ahora.</strong>
+                {domicilios?.proximaApertura ? ` Vuelve ${domicilios.proximaApertura}.` : ''}
+                {domicilios?.horario ? ` Horario: ${domicilios.horario}.` : ''}
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || cerradoParaDomicilios}
               className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.98] transition shadow-md"
               style={{ background: primary }}
             >

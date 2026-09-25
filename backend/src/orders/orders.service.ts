@@ -23,6 +23,11 @@ import { AutomationsService } from '../automations/automations.service';
 import { OrdersGateway } from './orders.gateway';
 import { variantUnitPrice } from './variant-price';
 import { BrandEmailService } from '../email/brand-email.service';
+import {
+  estaAbierto,
+  leerHorario,
+  proximaApertura,
+} from './horario-de-domicilios';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
@@ -565,6 +570,31 @@ export class OrdersService {
       throw new NotFoundException('Negocio no disponible');
 
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
+
+    // HORARIO DE DOMICILIOS.
+    //
+    // El caso (Javier, 2026-09-25): una hamburguesería trabaja de 6 p. m. a
+    // 1 a. m.; un cliente entra desde Instagram al mediodía, llega al menú por
+    // el InfoLink, arma el carrito y lo manda. No hay nadie al otro lado y el
+    // pedido se queda sin responder.
+    //
+    // Se comprueba AQUÍ y no solo en la pantalla: el menú público se cachea
+    // unos minutos, así que alguien puede tener abierta una página de cuando
+    // estaba abierto, y un POST directo se salta cualquier botón escondido.
+    //
+    // Solo a DOMICILIO: en mesa el cliente ya está sentado dentro. Sin horario
+    // configurado no se toca nada — que es el caso de todos hoy.
+    if (dto.fulfillment === 'DELIVERY') {
+      const ahora = new Date();
+      const franjas = leerHorario(tenant.deliveryHours);
+      if (!estaAbierto(franjas, ahora, tenant.timezone)) {
+        const vuelve = proximaApertura(franjas, ahora, tenant.timezone);
+        throw new BadRequestException(
+          `${tenant.brandName} no está recibiendo pedidos a domicilio en este momento` +
+            (vuelve ? `. Vuelve ${vuelve}.` : '.'),
+        );
+      }
+    }
 
     // Teléfono OBLIGATORIO salvo en mesa.
     //

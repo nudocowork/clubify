@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 import { PhoneInput } from '@/components/PhoneInput';
+import { HorarioDomiciliosCard } from '@/components/HorarioDomiciliosCard';
 import { FileUploader } from '@/components/FileUploader';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import {
@@ -47,6 +48,7 @@ type TenantMe = {
   deliveryAlertsEnabled?: boolean;
   deliveryAlertsPhones?: string[] | null;
   deliveryAlertsEvents?: string[] | null;
+  deliveryHours?: unknown;
   // Línea de producto del negocio ('INFOLINK' = solo InfoLink). Decide qué
   // secciones de esta pantalla se pintan — ver @/lib/solo-infolink.
   businessType?: string | null;
@@ -919,6 +921,17 @@ export default function SettingsPage() {
 
       {/* #14 (2026-06-17): las alertas SMS de domicilio se configuran ahora
           desde super-admin (/admin/tenants/[id]), no desde la vista del dueño. */}
+
+      {/* Horarios de domicilio: cuándo se pueden hacer pedidos. Vacío = a
+          cualquier hora, que es como está hoy todo el mundo. */}
+      {verSeccion('horarioDeDomicilios') && (
+        <HorarioDomiciliosCard
+          valorInicial={tenant?.deliveryHours}
+          onSaved={(franjas) =>
+            setTenant((prev) => (prev ? { ...prev, deliveryHours: franjas } : prev))
+          }
+        />
+      )}
 
       {/* País + Moneda del menú público */}
       {/* La moneda pinta precios del MENÚ y la zona horaria manda
