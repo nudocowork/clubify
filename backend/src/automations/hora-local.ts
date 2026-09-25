@@ -63,6 +63,7 @@ function partes(ahora: Date, zona: string) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    weekday: 'short',
     hour12: false,
   });
   const p = fmt.formatToParts(ahora);
@@ -74,6 +75,31 @@ function partes(ahora: Date, zona: string) {
     // 'en-CA' con hour12:false devuelve '24' para la medianoche en algunos
     // runtimes de Node; para nosotros la medianoche es la hora 0.
     hour: Number(buscar('hour')) % 24,
+    minute: Number(buscar('minute')) || 0,
+    weekday: buscar('weekday'),
+  };
+}
+
+/** Domingo=0 … Sábado=6, igual que `Date.getDay()`. */
+const DIAS: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+};
+
+/**
+ * En qué momento de la semana está AHORA ese negocio: qué día y cuántos
+ * minutos lleva del día.
+ *
+ * Hace falta el minuto, y no solo la hora, para los horarios de domicilio: una
+ * hamburguesería que abre a las 18:30 no abre a las 18:00.
+ */
+export function momentoLocal(
+  ahora: Date,
+  zona: string,
+): { diaSemana: number; minutos: number } {
+  const p = partes(ahora, zona);
+  return {
+    diaSemana: DIAS[p.weekday] ?? 0,
+    minutos: p.hour * 60 + p.minute,
   };
 }
 
