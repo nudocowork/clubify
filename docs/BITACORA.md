@@ -8,6 +8,96 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-25 (76) — Tarjeta Informativa + una fuga de marca que ya estaba
+
+Encargo de Javier: una credencial digital que **no acumula nada**. Ni sellos,
+ni puntos, ni premio. Solo identifica al cliente como parte de la comunidad del
+negocio y sirve de audiencia para los envíos. Primer caso, un restaurante
+premium; pero no hay ni una línea que lo nombre.
+
+Cuatro commits: `bd4e9463` (backend), `b39344c8` (panel), `0228e922` (revocar
+desde la ficha del cliente) y `d0c5d594` (los arreglos que salieron de la
+revisión visual).
+
+### ⚠️ SEGUNDA MIGRACIÓN SIN APLICAR
+
+Ya van dos. Las dos ANTES de desplegar el backend, en este orden da igual:
+
+```bash
+cd backend
+railway run --service Postgres-Nq8w node scripts/apply-delivery-hours-migration.cjs
+railway run --service Postgres-Nq8w node scripts/apply-tarjeta-informativa-migration.cjs
+```
+
+La segunda añade `CardType.INFO`, `Tenant.infoCardEnabled` y
+`Pass.revokedAt`/`revokedBy`. Es un script y no una línea por **la trampa del
+enum**: en PostgreSQL un valor recién añadido NO se puede usar dentro de la
+misma transacción que lo creó. Por eso el `ALTER TYPE` va suelto.
+
+### La fuga de marca que salió de paso, y que NO es de esto
+
+**`certs/wallet-defaults/strip*.png` es un degradado verde Clubify y se metía
+SIEMPRE dentro del `.pkpass`.** Solo lo tapaba la franja generada para esa
+tarjeta, y solo se genera para alianzas, STAMPS y COUPON. Todo lo demás salía
+con la banda verde de la plataforma cruzando el pase: **los pases de RESERVA**,
+que no generan franja nunca, y POINTS/CASHBACK/MEMBERSHIP/GIFT.
+
+Invisible desde el panel —la vista previa no la enseña— y solo en iPhone:
+Android no pide imágenes salvo para STAMPS/HYBRID/VISITS, así que los dos pases
+del mismo cliente no decían lo mismo.
+
+Al **logo** ya le había pasado esto y se arregló mandando un PNG transparente.
+A la franja se le olvidó. **Si aparece un pase con una banda verde donde no
+toca, es esto.**
+
+### Lo que hay que saber de la tarjeta nueva
+
+- **Es un TIPO (`CardType.INFO`), no un `STAMPS` disfrazado.** Alianzas y Club
+  se hicieron así «para heredar el render sin código nuevo» y acabaron
+  necesitando ramas propias en seis sitios del wallet, dos en el escáner, doce
+  filtros y dos editores duplicados. Siendo un tipo, los ~12 resolutores de «la
+  tarjeta de sellos del negocio» la dejan fuera solos.
+- **`Tenant.infoCardEnabled`, apagado por defecto.** Se enciende negocio por
+  negocio desde el panel de admin. **Apagarlo no borra nada.**
+- **REVOCAR existe por primera vez.** `PassStatus.REVOKED` llevaba desde el
+  principio en el modelo y todo el lado que lo LEE ya lo respetaba, pero ningún
+  camino lo escribía: 0 pases revocados en producción. Ahora hay
+  `POST /passes/:id/revocar` y `/restaurar`, solo TENANT_OWNER.
+  **Revocar NO borra al cliente** — su ficha, sus pedidos y sus otras tarjetas
+  quedan igual.
+- **No se puede cambiar el tipo por PATCH** hacia o desde INFO: dejaba pases
+  con sellos acumulados y sin premio, o convertía un cartón a medio llenar en
+  una credencial.
+
+### La mina del frontend, para que no vuelva a plantarse
+
+**En el frontend `CardType` NO se importa de Prisma: hay CINCO uniones copiadas
+a mano** (card-templates, cards/page, cards/[id]/page, WalletPassPreview y la
+que arrastra el asistente). Añadir un valor al enum **no rompe la compilación**:
+`tsc` pasa en verde y lo que se rompe es el render, para TODOS los negocios,
+porque el listado de tarjetas es el mismo.
+
+El delator estaba a la vista: `TYPE_COLORS` se leía con `?? TYPE_COLORS.STAMPS`
+y las dos llamadas a `t(TYPE_LABEL_KEY[...])` de al lado no tenían nada.
+
+**Quien añada el siguiente tipo: pon el valor en las cinco ANTES de crear la
+primera tarjeta.** El compilador solo avisa si ya lo pusiste en alguna.
+
+### Dos cosas que vi y NO toqué
+
+- **87 fichas de cliente duplicadas** en 42 grupos, y 53 ya tienen pase — los
+  sellos de esas personas están partidos en dos. El 100 % es el mismo número
+  escrito de otra forma (con espacio o sin él, con indicativo o sin él): el
+  índice único es sobre el texto crudo. Arreglarlo exige fusionar antes de
+  crear un índice normalizado. Es anterior a este encargo.
+- **GeoPush por tarjeta no se puede.** El geocerco es del NEGOCIO y viaja
+  dentro de todos sus pases: no hay forma de acotarlo a una tarjeta ni de darle
+  texto propio. No es un campo que falte, es rehacer cómo se arma el pase.
+
+Verificado: tsc 0 errores en los dos lados, 149 tests de wallet/tarjetas/pases/
+sellos/escáner en verde (32 nuevos), 6/6 del espejo de la credencial, 9/9 del
+filtro, eslint sin errores nuevos.
+
 ## 2026-09-25 (75) — «Horarios de domicilio»: hay una migración SIN APLICAR
 
 Encargo de Javier: una hamburguesería trabaja de 6 p. m. a 1 a. m. Un cliente
