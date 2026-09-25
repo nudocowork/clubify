@@ -7,6 +7,7 @@ import { Icon } from '@/components/Icon';
 import { AcademyButton } from '@/components/AcademyButton';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
+import { coincideElTipo } from '@/lib/tipo-de-tarjeta.mjs';
 
 type CardType =
   | 'STAMPS'
@@ -171,22 +172,9 @@ export default function CardsList() {
 
   const filtered = useMemo(() => {
     return list.filter((c) => {
-      const esAlianza = Boolean(c.convenioId);
-      const esClub = Boolean(c.clubPlanId);
-      // «Todos los tipos» no enseña las alianzas: no son tarjetas que el dueño
-      // gestione desde aquí, y mezclarlas fue justo lo que sobraba. Se ven
-      // pidiendo su ficha a propósito.
-      if (filterType === 'all') {
-        if (esAlianza) return false;
-      } else if (filterType === 'alianza') {
-        if (!esAlianza) return false;
-      } else if (filterType === 'club') {
-        if (!esClub) return false;
-      } else if (c.type !== filterType || esAlianza) {
-        // Una alianza es `STAMPS` por dentro; sin excluirla saldría bajo
-        // «Sellos» con su contador congelado en 0/1.
-        return false;
-      }
+      // La regla vive en `lib/tipo-de-tarjeta.mjs`, con sus pruebas: aquí
+      // estaba suelta y se le escapaban las tarjetas de club bajo «Sellos».
+      if (!coincideElTipo(c, filterType)) return false;
       if (filterStatus === 'active' && !c.isActive) return false;
       if (filterStatus === 'paused' && c.isActive) return false;
       if (search.trim()) {
