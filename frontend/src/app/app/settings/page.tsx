@@ -927,6 +927,7 @@ export default function SettingsPage() {
       {verSeccion('horarioDeDomicilios') && (
         <HorarioDomiciliosCard
           valorInicial={tenant?.deliveryHours}
+          zona={tenant?.timezone}
           onSaved={(franjas) =>
             setTenant((prev) => (prev ? { ...prev, deliveryHours: franjas } : prev))
           }

@@ -19,7 +19,7 @@ function servicio(negocio: Record<string, unknown>) {
   return new OrdersService(
     prisma,
     nada(), nada(), nada(), nada(), nada(), nada(), nada(),
-    nada(), nada(), nada(), nada(), nada(), nada(), nada(),
+    nada(), nada(), nada(), nada(), nada(), nada(),
   );
 }
 

@@ -17,12 +17,7 @@ const PUBLIC_CACHE =
   'public, max-age=30, s-maxage=180, stale-while-revalidate=600';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
-import {
-  estaAbierto,
-  leerHorario,
-  proximaApertura,
-  resumenDelHorario,
-} from '../orders/horario-de-domicilios';
+import { leerHorario } from '../orders/horario-de-domicilios';
 import {
   indexarFilas,
   resolverEnSede,
@@ -240,20 +235,19 @@ export class PublicMenuController {
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       secondaryColor: t.secondaryColor,
-      // Si el negocio acepta pedidos a domicilio AHORA mismo, y cuándo vuelve.
+      // El HORARIO de domicilios, NO la conclusión.
       //
-      // Se resuelve en el servidor a propósito: el reloj del visitante puede
-      // estar en otra zona horaria (o mal), y el que manda es el del negocio.
-      // Sin horario configurado sale siempre abierto — el caso de todos hoy.
-      domicilios: (() => {
-        const franjas = leerHorario(t.deliveryHours);
-        const ahora = new Date();
-        return {
-          abierto: estaAbierto(franjas, ahora, t.timezone),
-          proximaApertura: proximaApertura(franjas, ahora, t.timezone),
-          horario: resumenDelHorario(franjas),
-        };
-      })(),
+      // Esta respuesta se cachea `s-maxage=180, stale-while-revalidate=600`: un
+      // «abierto: true/false» calculado aquí se queda congelado hasta diez
+      // minutos. A las 17:58 se cachea «cerrado» y a las 18:05 el cliente
+      // seguiría viendo cerrado; peor al revés, dejándole llenar el formulario
+      // a las 00:58 para que el backend se lo rechace a las 01:01.
+      //
+      // Así que se manda el horario y la zona, y el cliente saca la conclusión
+      // con su propio reloj — y la actualiza sola cada minuto. El rechazo de
+      // verdad sigue estando en `createPublic`, que no se cachea.
+      horarioDomicilios: leerHorario(t.deliveryHours),
+      timezone: t.timezone,
       // Si el dueño desactivó el botón en /app/storefront, no mandamos
       // el número al frontend → la sección que renderiza el botón hace
       // un check `if (s.whatsappPhone)` y queda oculto sin tener que

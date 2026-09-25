@@ -9,6 +9,10 @@ import {
   type StorefrontMode,
 } from '@/lib/menu/storefront-mode';
 import {
+  estaAbierto,
+  proximaApertura,
+} from '@/lib/horario-de-domicilios.mjs';
+import {
   addToCart,
   cartTotals,
   CartItem,
@@ -127,15 +131,13 @@ type Storefront = {
   secondaryColor: string;
   whatsappPhone: string | null;
   /**
-   * Horario de domicilios, resuelto EN EL SERVIDOR: el reloj del visitante
-   * puede estar en otra zona (o mal), y el que manda es el del negocio.
-   * Ausente o `abierto: true` = se pide a cualquier hora.
+   * Horario de domicilios TAL CUAL, y la zona del negocio. La conclusión la
+   * saca el cliente: esta respuesta se cachea hasta diez minutos y un
+   * «abierto/cerrado» calculado en el servidor mentiría justo en el borde.
+   * Vacío = se pide a cualquier hora.
    */
-  domicilios?: {
-    abierto: boolean;
-    proximaApertura: string | null;
-    horario: string | null;
-  } | null;
+  horarioDomicilios?: unknown;
+  timezone?: string;
   instagramUrl: string | null;
   mapsUrl: string | null;
   currency: string;
@@ -1223,7 +1225,8 @@ function StorefrontPublicInner() {
           planName={s.planName ?? null}
           mode={mode}
           fulfillment={s.fulfillment}
-          domicilios={s.domicilios ?? null}
+          horarioDomicilios={s.horarioDomicilios}
+          zonaDelNegocio={s.timezone}
           acceptedPaymentMethods={s.acceptedPaymentMethods}
           onClose={() => setShowCheckout(false)}
         />
@@ -1945,7 +1948,8 @@ function CheckoutSheet({
   planName,
   mode,
   fulfillment,
-  domicilios,
+  horarioDomicilios,
+  zonaDelNegocio,
   acceptedPaymentMethods,
   sedeDelQr,
   oficina,
@@ -1968,12 +1972,10 @@ function CheckoutSheet({
   planName: string | null;
   mode: StorefrontMode;
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
-  /** Si el negocio acepta domicilios AHORA. Ausente = a cualquier hora. */
-  domicilios?: {
-    abierto: boolean;
-    proximaApertura: string | null;
-    horario: string | null;
-  } | null;
+  /** Horario de domicilios del negocio. Vacío = a cualquier hora. */
+  horarioDomicilios?: unknown;
+  /** Zona horaria del negocio: la hora que manda es la suya, no la del visitante. */
+  zonaDelNegocio?: string;
   /** Métodos de pago que acepta el negocio. Ausente → se ofrecen todos. */
   acceptedPaymentMethods?: string[];
   onClose: () => void;
@@ -2065,9 +2067,21 @@ function CheckoutSheet({
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // El reloj avanza mientras el cliente llena el formulario. Sin esto, quien
+  // abre el menú a las 00:55 ve «abierto», termina a las 01:02 y el backend se
+  // lo rechaza. Cada 30 s basta: el borde de una franja es un minuto.
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setAhora(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const zona = zonaDelNegocio || 'America/Bogota';
+  const abiertoAhora = estaAbierto(horarioDomicilios, new Date(ahora), zona);
+  const vuelveA = abiertoAhora
+    ? null
+    : proximaApertura(horarioDomicilios, new Date(ahora), zona);
   /** Solo estorba al domicilio: recoger y comer en mesa siguen igual. */
-  const cerradoParaDomicilios =
-    form.fulfillment === 'DELIVERY' && !!domicilios && !domicilios.abierto;
+  const cerradoParaDomicilios = form.fulfillment === 'DELIVERY' && !abiertoAhora;
   /** ¿Esta marca pide datos de facturación al pedir? */
   const pideFacturacion = MARCAS_CON_FACTURACION.has(brandSlug ?? '');
 
@@ -2860,8 +2874,7 @@ function CheckoutSheet({
             {cerradoParaDomicilios && (
               <div className="rounded-lg bg-warn-soft border border-warn px-3 py-2.5 text-sm text-warn-ink">
                 <strong>No estamos recibiendo domicilios ahora.</strong>
-                {domicilios?.proximaApertura ? ` Vuelve ${domicilios.proximaApertura}.` : ''}
-                {domicilios?.horario ? ` Horario: ${domicilios.horario}.` : ''}
+                {vuelveA ? ` Vuelve ${vuelveA}.` : ''}
               </div>
             )}
 
