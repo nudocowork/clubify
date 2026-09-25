@@ -8,6 +8,86 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-25 (75) — «Horarios de domicilio»: hay una migración SIN APLICAR
+
+Encargo de Javier: una hamburguesería trabaja de 6 p. m. a 1 a. m. Un cliente
+entra desde Instagram al mediodía, pasa al InfoLink y al menú de domicilios,
+arma el carrito y lo manda. No hay nadie al otro lado.
+
+Tres commits: `38940d0d` (la regla sola, sin cablear), `7000ca7b` (el campo, el
+rechazo en el servidor y las dos pantallas) y `d2658d64` (dos arreglos sobre lo
+anterior).
+
+### ⚠️ LO QUE TIENE QUE PASAR ANTES DE DESPLEGAR EL BACKEND
+
+```bash
+cd backend
+railway run --service Postgres-Nq8w node scripts/apply-delivery-hours-migration.cjs
+```
+
+Es aditiva e idempotente (`ADD COLUMN IF NOT EXISTS "deliveryHours" JSONB`).
+Si se despliega el backend sin ella, Prisma pide una columna que no existe y
+**el menú público se cae**. Yo no la he aplicado.
+
+### Lo que hay que saber para no romperlo
+
+- **Vacío = se pide a cualquier hora.** Es como están hoy todos los negocios:
+  aplicar esto no le cambia el comportamiento a nadie.
+- **Un horario corrupto NO deja al negocio sin vender**: al LEER se cae a
+  «abierto». Al ESCRIBIR sí se valida en firme. Prefiero recibir de más que
+  dejar a alguien sin facturar por una fila mal guardada.
+- **La franja pertenece al día en que EMPIEZA.** A la 1 de la mañana del sábado
+  sigue abierta la del viernes.
+- **Solo afecta a DOMICILIO.** En mesa el cliente ya está sentado dentro.
+- El rechazo de verdad está en `createPublic`. Esconder el botón no basta: la
+  página cacheada y un POST directo se saltan cualquier pantalla.
+
+### El fallo mío que corrigió `d2658d64`, por si vuelve
+
+Metí un `abierto: true/false` calculado en el servidor **dentro de una respuesta
+que se cachea** `s-maxage=180, stale-while-revalidate=600`. Queda congelado
+hasta diez minutos: a las 17:58 se cachea «cerrado» y a las 18:05 el cliente lo
+sigue viendo cerrado; peor al revés, le dejas llenar el formulario a las 00:58 y
+el backend se lo rechaza a las 01:01. Ahora el servidor manda el HORARIO y la
+zona, y la conclusión la saca el cliente con su reloj, refrescando cada 30 s.
+**Regla general: nada calculado contra el reloj va dentro de una respuesta
+cacheada.**
+
+La regla está espejada en `frontend/src/lib/horario-de-domicilios.mjs`, como ya
+se hace con `solo-infolink.ts`. Si se toca una, se toca la otra.
+
+### La pantalla está hecha contra el error caro, no contra el error de dedo
+
+Javier: «la gente es tonta al configurar, hay que hacerlo fácil». El error caro
+no es poner mal una hora: es marcar solo el viernes y dejar de recibir pedidos
+los otros seis días sin enterarse. Contra eso no sirve validar, sirve enseñarlo:
+los días sin cubrir se dicen EN ROJO y por su nombre, cada franja se lee en
+español debajo, y hay un indicador de si AHORA MISMO estaría recibiendo, en la
+hora del negocio.
+
+Se esconde en los negocios de solo InfoLink: no tienen menú.
+
+Verificado: tsc 0 errores en los dos lados, 244 tests de pedidos y catálogo en
+verde, 9/9 del espejo (`npm run pruebas:horario-domicilios`), eslint limpio.
+
+## 2026-09-25 (74) — «Sellos» enseñaba tarjetas de club (`d820f07d`)
+
+Reporte de Javier con captura: filtrando por Sellos aparecía «Café Plan», que es
+una Tarjeta de club.
+
+**Alianzas y Club NO son valores de `CardType`.** Por dentro las dos son
+`STAMPS`; lo que las distingue es la plantilla de la que cuelgan (`convenioId` /
+`clubPlanId`). El filtro excluía la alianza —con su comentario explicándolo— y
+se olvidaba del club.
+
+La regla salió del componente a `frontend/src/lib/tipo-de-tarjeta.mjs`, que es
+donde se puede probar. «Todos los tipos» se comporta igual que antes. 8 pruebas
+(`npm run pruebas:filtro-tarjetas`), una de ellas comprueba que el criterio
+viejo SÍ dejaba pasar el club: si alguien lo revierte, se pone en rojo.
+
+Apuntarlo porque va a volver: **cualquier pantalla que agrupe tarjetas por tipo
+tiene que decidir qué hace con alianzas y club**, y el enum no se lo va a decir.
+
 ## 2026-09-24 (73) — Encargo de Contabilidad: lo que faltaba del PDF del 17-sep
 
 El documento es **`Software Clubify (5).pdf`** (17-09, el de Sara). Lo contrasté
