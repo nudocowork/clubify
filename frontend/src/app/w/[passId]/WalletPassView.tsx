@@ -161,6 +161,10 @@ export function WalletPassView({
       secondaryColor={data.card.secondaryColor}
       cardName={data.card.name}
       cardType={data.card.type}
+      // Credencial retirada. Se enseña igual, diciendo que está DESACTIVADA, en
+      // vez de dar un 404: quien abre su enlace merece saber qué pasó con su
+      // tarjeta, no toparse con una página que no existe.
+      revocada={data.status === 'REVOKED'}
       // Tarjeta de club: lo manda el backend cuando la tarjeta es de un plan.
       // Sin esto, la página que el negocio le manda al socio para instalarla
       // le enseñaba «SELLOS 7/10» — el número al revés.

@@ -33,6 +33,13 @@ import {
 // es COUPON → al redimirse, auto-genera una stamps card (ver Fase 2-4).
 const ALL_TYPES: CardType[] = ['STAMPS', 'COUPON'];
 
+// La Tarjeta Informativa va aparte porque NO es oficial para todos: se
+// enciende negocio por negocio (`Tenant.infoCardEnabled`), como las alianzas
+// y el club. Fuera de `ALL_TYPES` a propósito, para que no se cuele en el
+// filtro de plantillas de abajo — no tiene plantillas: no hay nada que
+// preconfigurar en una tarjeta que no acumula nada.
+const TIPO_INFORMATIVA: CardType = 'INFO';
+
 type Step = 1 | 2 | 3 | 4 | 5;
 
 const FROM_SCRATCH_DEFAULTS = {
@@ -119,7 +126,11 @@ export default function NewCardWizard() {
    * Arranca en `false`: mientras `/tenants/me` no conteste, no se pinta nada
    * que el negocio no tenga. Es el mismo criterio del menú lateral.
    */
-  const [modulos, setModulos] = useState({ convenios: false, club: false });
+  const [modulos, setModulos] = useState({
+    convenios: false,
+    club: false,
+    informativa: false,
+  });
 
   const [locations, setLocations] = useState<LocationLite[]>([]);
   // Cargar categoría del tenant + sedes
@@ -131,6 +142,7 @@ export default function NewCardWizard() {
         setModulos({
           convenios: me?.conveniosEnabled === true,
           club: me?.clubEnabled === true,
+          informativa: me?.infoCardEnabled === true,
         });
       })
       .catch(() => {});
@@ -617,7 +629,7 @@ function Step2Type({
   onSelect: (t: CardType) => void;
   onContinue: () => void;
   /** Módulos encendidos para ESTE negocio. Gatean las dos tarjetas nuevas. */
-  modulos: { convenios: boolean; club: boolean };
+  modulos: { convenios: boolean; club: boolean; informativa: boolean };
 }) {
   const t = useTranslations('app_cards_new');
   return (
@@ -630,7 +642,7 @@ function Step2Type({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
         {modulos.convenios && <TarjetaAlianza />}
         {modulos.club && <TarjetaClub />}
-        {ALL_TYPES.map((t) => {
+        {[...ALL_TYPES, ...(modulos.informativa ? [TIPO_INFORMATIVA] : [])].map((t) => {
           const active = selected === t;
           return (
             <button
@@ -752,13 +764,27 @@ function Step3Configure({
             onChange={(e) => set('description', e.target.value)}
           />
         </div>
+        {/* En una credencial, `rewardText` NO es un premio: es la distinción
+            que se lee en el pase («Cliente distinguido», «Socio fundador»).
+            Llamarlo «Recompensa» ahí hace que el negocio escriba un premio que
+            nunca va a entregar. El campo es el mismo; lo que cambia es lo que
+            se le pide. */}
         <div className="mt-3">
-          <label className="label">{t('reward')}</label>
+          <label className="label">
+            {form.type === 'INFO' ? 'Qué dice la credencial' : t('reward')}
+          </label>
           <input
             className="input"
             value={form.rewardText}
             onChange={(e) => set('rewardText', e.target.value)}
+            placeholder={form.type === 'INFO' ? 'Cliente distinguido' : undefined}
           />
+          {form.type === 'INFO' && (
+            <div className="text-[11px] text-mute mt-1">
+              Es el texto que el cliente ve en su tarjeta, debajo de su nombre.
+              Si lo dejas vacío dirá «Activa».
+            </div>
+          )}
         </div>
 
         {form.type === 'STAMPS' && (

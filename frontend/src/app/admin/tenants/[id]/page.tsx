@@ -1792,6 +1792,11 @@ function AcademyTogglesCard({
   // Tarjeta de Club: la suscripcion con cupo mensual. Mismo criterio que
   // alianzas: apagado por defecto, se enciende negocio por negocio.
   const [club, setClub] = useState<boolean>(tenant.clubEnabled ?? false);
+  // Tarjeta Informativa: la credencial que no acumula nada. Mismo criterio
+  // que el club y las alianzas.
+  const [informativa, setInformativa] = useState<boolean>(
+    tenant.infoCardEnabled ?? false,
+  );
   // Aviso de pedido nuevo al telefono del negocio, desde el servidor. Apagado
   // por defecto: cada aviso gasta saldo de Grow Business.
   const [avisoPedidos, setAvisoPedidos] = useState<boolean>(
@@ -1817,6 +1822,7 @@ function AcademyTogglesCard({
           conveniosEnabled: convenios,
           maxConvenios,
           clubEnabled: club,
+          infoCardEnabled: informativa,
           ownerOrderAlertsEnabled: avisoPedidos,
         }),
       });
@@ -1974,6 +1980,29 @@ function AcademyTogglesCard({
               <b>Apagarlo no borra nada</b>: impide crear planes y dar de alta a
               nadie nuevo, pero los socios que ya pagaron siguen consumiendo lo
               suyo.
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={informativa}
+            onChange={(e) => setInformativa(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Tarjeta Informativa</div>
+            <div className="text-xs text-mute leading-snug">
+              Una credencial digital sin sellos, sin puntos y sin premio: solo
+              identifica al cliente como parte de la comunidad del negocio. Se
+              guarda en la billetera del telefono como cualquier otra tarjeta,
+              asi que sirve para mandarle avisos y para que le salte el pase
+              cuando pasa cerca del local. Pensada para negocios donde acumular
+              sellos no encaja: restaurantes de mantel, clinicas, clubes.{' '}
+              <b>Apagarlo no borra nada</b>: deja de ofrecerse el tipo al crear
+              tarjetas, pero las que ya existan siguen vivas y los clientes que
+              la tengan instalada la siguen viendo.
             </div>
           </div>
         </label>

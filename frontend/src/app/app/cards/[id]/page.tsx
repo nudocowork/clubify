@@ -28,7 +28,8 @@ type CardType =
   | 'HYBRID'
   | 'COUPON'
   | 'GIFT'
-  | 'MULTI';
+  | 'MULTI'
+  | 'INFO';
 
 type Card = {
   id: string;

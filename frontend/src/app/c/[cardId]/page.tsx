@@ -79,6 +79,7 @@ const TYPE_LABEL_KEY: Record<string, MessageKey> = {
   COUPON: 'card.type_coupon',
   GIFT: 'card.type_gift',
   MULTI: 'card.type_multi',
+  INFO: 'card.type_info',
 };
 
 // Cache SWR en localStorage: la primera visita paga el fetch; visitas

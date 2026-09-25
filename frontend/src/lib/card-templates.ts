@@ -17,7 +17,10 @@ export type CardType =
   | 'MULTI'
   | 'CASHBACK'
   | 'VISITS'
-  | 'HYBRID';
+  | 'HYBRID'
+  // Credencial que no acumula nada: identifica al cliente y sirve como
+  // audiencia de envíos. Ver el comentario del enum en backend/prisma/schema.
+  | 'INFO';
 
 export type CardTemplate = {
   id: string;
@@ -513,6 +516,7 @@ export const TYPE_LABEL: Record<CardType, string> = {
   CASHBACK: 'Cashback',
   VISITS: 'Visitas',
   HYBRID: 'Híbrida',
+  INFO: 'Informativa',
 };
 
 export const TYPE_EMOJI: Record<CardType, string> = {
@@ -526,6 +530,7 @@ export const TYPE_EMOJI: Record<CardType, string> = {
   CASHBACK: '💰',
   VISITS: '🚶',
   HYBRID: '🔀',
+  INFO: '🪪',
 };
 
 export const TYPE_DESCRIPTION: Record<CardType, string> = {
@@ -539,4 +544,5 @@ export const TYPE_DESCRIPTION: Record<CardType, string> = {
   CASHBACK: 'Devuelve un % en saldo de moneda por cada compra. El cliente lo usa contra pagos futuros.',
   VISITS: 'Punch card por frecuencia. Cada scan suma una visita, sin importar el ticket.',
   HYBRID: 'Combina sellos + descuento + cashback en una sola tarjeta. Pensada para clientes premium.',
+  INFO: 'Credencial sin sellos ni puntos. Identifica al cliente como parte de tu comunidad y te deja enviarle avisos.',
 };

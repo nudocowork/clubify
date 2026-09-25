@@ -1,4 +1,5 @@
 'use client';
+import { llevaCarton, textoDeLaCredencial } from '@/lib/credencial.mjs';
 /**
  * Preview premium de tarjeta wallet — usado en:
  *   - /app/cards/new (wizard, vista en vivo de la tarjeta que se está creando)
@@ -41,7 +42,17 @@ export type WalletPassPreviewProps = {
     | 'MULTI'
     | 'CASHBACK'
     | 'VISITS'
-    | 'HYBRID';
+    | 'HYBRID'
+    // Credencial que NO acumula nada. A diferencia de `club` y `alianza`,
+    // que van como props aparte porque por dentro son `STAMPS`, esta es un
+    // tipo de verdad: se reconoce sola.
+    | 'INFO';
+  /**
+   * La credencial fue retirada. Lo que se pinta entonces NO lo decide este
+   * componente: lo decide `textoDeLaCredencial`, que es el mismo espejo que
+   * usan los dos pases. Ver `lib/credencial.mjs`.
+   */
+  revocada?: boolean;
   /**
    * Tarjeta de CLUB. Por dentro es `STAMPS` —el saldo vive en el mismo
    * contador— así que sin esto se pinta como un cartón: «SELLOS 7/10», con el
@@ -166,6 +177,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     secondaryColor,
     cardName,
     cardType,
+    revocada = false,
     club = null,
     alianza = null,
     stampsRequired = 10,
@@ -217,7 +229,10 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   // La alianza NO lleva cartón: no acumula nada. Con `stampsRequired: 1`
   // dibujaba un círculo vacío suelto pegado a la izquierda, que se lee como
   // «te falta algo» encima de un beneficio que la persona ya tiene.
-  const dibujarCarton = !alianza && (!club || club.cupo <= 20);
+  // La INFORMATIVA tampoco: no hay nada que llenar. Si cayera al cartón, con
+  // `stampsRequired` nulo dibujaría diez huecos vacíos en mitad de una
+  // credencial — exactamente el «te falta algo» que se le quitó a la alianza.
+  const dibujarCarton = llevaCarton({ tipo: cardType, alianza, club });
 
   // Wallet V3 — Premios Free por posición (1-based) + "Próximo Premio".
   const activePrizes = (freeRewards || []).filter(
@@ -279,6 +294,15 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
             discountPercent && discountPercent > 0 && !rewardText?.trim()
               ? `${discountPercent}%`
               : 'DISPONIBLE',
+        };
+      case 'INFO':
+        // Lo que se lee aquí lo escribe el NEGOCIO en el premio de la
+        // tarjeta («Cliente distinguido», «Socio fundador»); «ACTIVA» es solo
+        // el respaldo. Es lo mismo que enseña el pase de verdad, y es lo que
+        // hace que la tarjeta sirva para cualquier negocio y no para uno.
+        return {
+          lbl: 'ESTADO',
+          val: textoDeLaCredencial({ revocada, textoDelNegocio: rewardText }),
         };
       case 'GIFT':
         // Gift tampoco es de progreso — mostramos label genérico para

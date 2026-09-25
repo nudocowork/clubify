@@ -185,6 +185,14 @@ class UpdateTenantBody {
   @IsOptional() @IsBoolean() conveniosEnabled?: boolean;
   @IsOptional() @IsBoolean() clubEnabled?: boolean;
   /**
+   * TARJETA INFORMATIVA: la credencial que no acumula nada. Igual que las dos
+   * de arriba, se enciende negocio por negocio.
+   *
+   * Apagarlo NO borra nada: solo deja de ofrecerse el tipo al crear tarjetas.
+   * Las que ya existan siguen vivas y los pases instalados siguen abriendo.
+   */
+  @IsOptional() @IsBoolean() infoCardEnabled?: boolean;
+  /**
    * MENU POR SEDE: precio y disponibilidad propios de cada local, sobre un
    * solo catalogo. Se habilita negocio por negocio desde el panel de admin,
    * antes de mandarle el onboarding.

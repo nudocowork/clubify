@@ -69,6 +69,20 @@ prueba('«Todos los tipos» esconde las alianzas y mantiene el resto', () => {
   igual(coincideElTipo(CUPON, 'all'), true, 'cupón en Todos');
 });
 
+prueba('la INFORMATIVA no se contamina con sellos ni al revés', () => {
+  // `coincideElTipo` ya sabía tratar cualquier CardType; esto lo fija. La
+  // Tarjeta Informativa es un tipo de verdad, no un STAMPS disfrazado, así
+  // que filtrar por Sellos NO tiene que sacarla — que es exactamente el fallo
+  // que tuvo el club y por el que existe este archivo.
+  const INFO = { type: 'INFO', convenioId: null, clubPlanId: null };
+  igual(coincideElTipo(INFO, 'INFO'), true, 'informativa en Informativa');
+  igual(coincideElTipo(INFO, 'STAMPS'), false, 'informativa NO sale en Sellos');
+  igual(coincideElTipo(SELLOS, 'INFO'), false, 'sellos NO sale en Informativa');
+  igual(coincideElTipo(INFO, 'all'), true, 'informativa en Todos');
+  igual(coincideElTipo(INFO, 'club'), false, 'no es club');
+  igual(coincideElTipo(INFO, 'alianza'), false, 'no es alianza');
+});
+
 prueba('la comprobación sabe ponerse en rojo', () => {
   // El criterio viejo —solo excluir la alianza— dejaba pasar el club.
   const comoAntes = (c, f) => c.type === f && !c.convenioId;

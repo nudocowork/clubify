@@ -5246,6 +5246,8 @@
     "typeCashback": "Cashback",
     "typeVisits": "Visitas",
     "typeHybrid": "Híbrida",
+    "typeInfo": "Informativa",
+    "typeOther": "Tarjeta",
     "title": "Tarjetas",
     "activeCrumb": "{count, plural, one {# activa} other {# activas}}",
     "walletLogoTooltip": "Logo que aparece en el wallet de tus clientes",

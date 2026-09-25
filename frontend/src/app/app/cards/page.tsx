@@ -19,7 +19,8 @@ type CardType =
   | 'MULTI'
   | 'CASHBACK'
   | 'VISITS'
-  | 'HYBRID';
+  | 'HYBRID'
+  | 'INFO';
 
 type Card = {
   id: string;
@@ -62,6 +63,7 @@ const TYPE_LABEL_KEY: Record<CardType, string> = {
   CASHBACK: 'typeCashback',
   VISITS: 'typeVisits',
   HYBRID: 'typeHybrid',
+  INFO: 'typeInfo',
 };
 
 const TYPE_EMOJI: Record<CardType, string> = {
@@ -75,6 +77,7 @@ const TYPE_EMOJI: Record<CardType, string> = {
   CASHBACK: '💰',
   VISITS: '🚶',
   HYBRID: '🔀',
+  INFO: '🪪',
 };
 
 const TYPE_COLORS: Record<CardType, { primary: string; accent: string }> = {
@@ -88,6 +91,9 @@ const TYPE_COLORS: Record<CardType, { primary: string; accent: string }> = {
   CASHBACK: { primary: '#0F766E', accent: '#14B8A6' },
   VISITS: { primary: '#7C3AED', accent: '#A855F7' },
   HYBRID: { primary: '#1E40AF', accent: '#3B82F6' },
+  // Negro y gris: una credencial no es un cartón de colores. El negocio lo
+  // cambia desde el diseño de la tarjeta; esto es solo el arranque.
+  INFO: { primary: '#000000', accent: '#3F3F46' },
 };
 
 /**
@@ -95,6 +101,22 @@ const TYPE_COLORS: Record<CardType, { primary: string; accent: string }> = {
  * plantilla a la que pertenecen (`convenioId` / `clubPlanId`), que es lo que de
  * verdad las distingue.
  */
+/**
+ * La clave de traducción de un tipo, con respaldo.
+ *
+ * EL FALLO QUE ESTO EVITA: `CardType` acá es una unión LOCAL —no se importa de
+ * Prisma, y hay cuatro copias a mano en el frontend—, así que añadir un valor
+ * al enum de la base NO rompe la compilación: `tsc` pasa en verde. Lo que se
+ * rompía era el render, y no solo para el negocio que tuviera la tarjeta nueva:
+ * este listado es el mismo para todos.
+ *
+ * `TYPE_COLORS` ya se leía con `?? TYPE_COLORS.STAMPS`. Las dos llamadas a
+ * `t()` no tenían nada. Alguien ya había pensado en esto y lo dejó a medias.
+ */
+function etiquetaDelTipo(tipo: CardType): string {
+  return TYPE_LABEL_KEY[tipo] ?? 'typeOther';
+}
+
 type FilterType = 'all' | CardType | 'alianza' | 'club';
 type FilterStatus = 'all' | 'active' | 'paused';
 
@@ -297,7 +319,7 @@ export default function CardsList() {
                     : 'bg-bg2 text-mute hover:bg-line/50'
                 }`}
               >
-                <span>{TYPE_EMOJI[ct]}</span> {t(TYPE_LABEL_KEY[ct])}
+                <span>{TYPE_EMOJI[ct] ?? '🪪'}</span> {t(etiquetaDelTipo(ct))}
               </button>
             ))}
             {(
@@ -538,7 +560,7 @@ function CardPreview({
                   ? '🎟️ Tarjeta de club'
                   : esDeAlianza
                     ? '🤝 Tarjeta de alianza'
-                    : `${TYPE_EMOJI[card.type]} ${t(TYPE_LABEL_KEY[card.type])}`}
+                    : `${TYPE_EMOJI[card.type] ?? '🪪'} ${t(etiquetaDelTipo(card.type))}`}
               </div>
             </div>
             <div className="text-right shrink-0 mr-7">
@@ -652,9 +674,9 @@ function CardPreview({
 
           {(card.type === 'GIFT' || card.type === 'COUPON') && (
             <div className="bg-black/15 rounded-lg px-3 py-3 text-center">
-              <div className="text-2xl">{TYPE_EMOJI[card.type]}</div>
+              <div className="text-2xl">{TYPE_EMOJI[card.type] ?? '🪪'}</div>
               <div className="text-[9px] uppercase tracking-wider opacity-75 font-bold mt-1">
-                {t(TYPE_LABEL_KEY[card.type])}
+                {t(etiquetaDelTipo(card.type))}
               </div>
             </div>
           )}
