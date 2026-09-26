@@ -18,9 +18,12 @@ function servicio(tenant: Record<string, unknown> | null) {
     tenant: { findUnique: async () => tenant },
     setting: { findUnique: async () => null },
   };
+  // SEIS dependencias, no doce. Escribí doce «por si acaso» y `tsc` lo caza —
+  // pero yo no lo corrí después de crear este archivo, así que el error viajó
+  // al build de Railway y tumbó el despliegue. Compilar es el ÚLTIMO paso
+  // antes de commitear, no uno de los primeros.
   return new BillingService(
     prisma, {} as any, {} as any, {} as any, {} as any, {} as any,
-    {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
   );
 }
 
