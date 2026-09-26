@@ -1,8 +1,9 @@
 'use client';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  comoCsv,
+  ANCHOS_DE_COLUMNA,
   comoTexto,
+  filasParaExcel,
   nombreDelArchivo,
 } from '@/lib/lista-de-proximos-cobros.mjs';
 import { api } from '@/lib/api';
@@ -186,6 +187,8 @@ export default function ContabilidadPage() {
   const [diasCobros, setDiasCobros] = useState(30);
   /** Confirmación de que la lista se copió. Sin ella no se sabe si pasó algo. */
   const [copiado, setCopiado] = useState(false);
+  /** El Excel tarda un momento la primera vez: se carga la librería. */
+  const [bajando, setBajando] = useState(false);
 
   /**
    * La lista de próximos cobros, lista para pegarle a Samu.
@@ -206,17 +209,37 @@ export default function ContabilidadPage() {
     }
   }
 
-  /** El mismo recorte, en archivo. El BOM es para que Excel no rompa las tildes. */
-  function descargarProximosCobros() {
+  /**
+   * El mismo recorte, en un Excel de verdad.
+   *
+   * La librería se carga con `import()` DENTRO del click, no arriba: son ~1,8
+   * MB que no tienen por qué viajar en el paquete de todo el que abre
+   * Contabilidad y nunca exporta. Se descarga la primera vez que alguien
+   * pulsa, y el navegador la cachea.
+   */
+  async function descargarProximosCobros() {
     if (!cobros) return;
-    const blob = new Blob([`﻿${comoCsv(cobros.filas)}`], {
-      type: 'text/csv;charset=utf-8;',
-    });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = nombreDelArchivo();
-    a.click();
-    URL.revokeObjectURL(a.href);
+    setBajando(true);
+    try {
+      // `/browser` explícito: el paquete no tiene entrada raíz, solo
+      // `./node`, `./browser` y `./universal`. La de node pide `fs`.
+      const { default: writeXlsxFile } = await import('write-excel-file/browser');
+      // En el navegador devuelve `{ toBlob, toFile }`: el nombre del archivo
+      // va en `toFile`, no en las opciones de la hoja.
+      await writeXlsxFile(filasParaExcel(cobros.filas), {
+        columns: ANCHOS_DE_COLUMNA,
+        sheet: 'Próximos cobros',
+        // Con las filas fijas, al bajar por la lista la cabecera se queda a la
+        // vista: con 90 días son muchos negocios.
+        stickyRowsCount: 1,
+      }).toFile(nombreDelArchivo());
+    } catch {
+      // Si la librería no carga (red caída, bloqueo), no se deja al usuario
+      // sin nada: la lista de texto es la misma información.
+      await copiarProximosCobros();
+    } finally {
+      setBajando(false);
+    }
   }
   const [cierres, setCierres] = useState<Cierre[]>([]);
   // El período contable manda sobre TODO el módulo, no sobre una pestaña.
@@ -994,10 +1017,11 @@ export default function ContabilidadPage() {
                         {copiado ? '✓ Copiada' : 'Copiar lista'}
                       </button>
                       <button
-                        onClick={descargarProximosCobros}
-                        className="text-xs px-3 py-1.5 rounded-pill border border-line font-semibold hover:bg-bg2"
+                        onClick={() => void descargarProximosCobros()}
+                        disabled={bajando}
+                        className="text-xs px-3 py-1.5 rounded-pill border border-line font-semibold hover:bg-bg2 disabled:opacity-50"
                       >
-                        Exportar CSV
+                        {bajando ? 'Generando…' : 'Descargar Excel'}
                       </button>
                     </div>
                   )}

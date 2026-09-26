@@ -8,9 +8,10 @@
  * nadie.
  */
 import {
-  comoCsv,
+  ANCHOS_DE_COLUMNA,
   comoTexto,
   fechaLarga,
+  filasParaExcel,
   filasParaExportar,
   nombreDelArchivo,
 } from '../src/lib/lista-de-proximos-cobros.mjs';
@@ -119,21 +120,6 @@ prueba('las fechas REALES de produccion salen bien', () => {
   igual(fechaLarga('2026-10-02T12:00:00.000Z', HOY), '2 de octubre', 'Hydor');
 });
 
-prueba('el CSV y el texto nunca dicen dias distintos', () => {
-  // Si el archivo usara UTC y el mensaje la zona local, el mismo cobro saldria
-  // en dos dias distintos segun por donde lo mire quien lo recibe.
-  for (const iso of ['2026-09-27T12:00:00.000Z', '2026-09-27T00:00:00.000Z']) {
-    const fila = [{ negocio: 'X', fechaCobro: iso, plan: 'MENSUAL' }];
-    const delCsv = lineas(comoCsv(fila))[1].split(',')[1].replace(/"/g, '');
-    const diaDelCsv = Number(delCsv.slice(-2));
-    const texto = comoTexto(fila, { hoy: HOY });
-    if (!texto.includes(String(diaDelCsv) + ' de ')) {
-      throw new Error(`el CSV dice ${delCsv} y el texto otra cosa:
-${texto}`);
-    }
-  }
-});
-
 prueba('un negocio SIN fecha no se esconde', () => {
   // Que le falte la fecha es justo lo que alguien tiene que mirar. Quitarlo de
   // la lista lo deja fuera del radar de todos.
@@ -156,23 +142,44 @@ prueba('sin cobros, lo dice en vez de mandar una lista vacia', () => {
     'Sin cobros previstos en los próximos 7 días.', 'vacio');
 });
 
-prueba('el CSV lleva la fecha ORDENABLE, no la de leer', () => {
-  // Una hoja de calculo ordena bien «2026-09-27» y trata «27 de septiembre»
-  // como texto suelto. Es el unico sitio donde las dos salidas se separan.
-  const csv = comoCsv(FILAS).split('\n');
-  igual(csv[0], '"Negocio","Próxima fecha","Plan"', 'cabecera');
-  igual(csv[1], '"ATHOS RESTAURANT AND PUB","2026-09-27","MENSUAL"', 'fila');
+prueba('EL XLSX lleva la fecha como FECHA, no como texto', () => {
+  // Es el motivo de que sea xlsx y no csv: Excel la reconoce, la ordena bien y
+  // la enseña con el formato de quien la abre. Un «27 de septiembre» llega
+  // como cadena y no se puede ordenar.
+  const filas = filasParaExcel(FILAS);
+  const celda = filas[1][1];
+  igual(celda.type === Date, true, 'la celda es de tipo Date');
+  igual(celda.value instanceof Date, true, 'y trae un Date de verdad');
+  igual(celda.format, 'dd/mm/yyyy', 'formato dia/mes/ano');
 });
 
-prueba('un nombre con comillas no rompe el CSV', () => {
-  const csv = comoCsv([
-    { negocio: 'Bar "El Rincon"', fechaCobro: null, plan: 'MENSUAL' },
-  ]).split('\n');
-  igual(csv[1], '"Bar ""El Rincon""","","MENSUAL"', 'comillas dobladas');
+prueba('la cabecera va en negrita y con los tres titulos', () => {
+  const filas = filasParaExcel(FILAS);
+  igual(filas[0].map((c) => c.value), ['Negocio', 'Próxima fecha', 'Plan'], 'titulos');
+  igual(filas[0].every((c) => c.fontWeight === 'bold'), true, 'negrita');
+});
+
+prueba('el XLSX tampoco lleva monto ni metodo', () => {
+  const plano = JSON.stringify(filasParaExcel(FILAS));
+  for (const fuera of ['68', 'Hotmart', 'Stripe', '500']) {
+    if (plano.includes(fuera)) throw new Error(`se colo «${fuera}»`);
+  }
+});
+
+prueba('una fila SIN fecha no rompe el archivo', () => {
+  // Con `{ type: Date, value: null }` la libreria revienta: para la fila sin
+  // fecha se manda una celda de texto vacia.
+  const filas = filasParaExcel([{ negocio: 'X', fechaCobro: null, plan: 'MENSUAL' }]);
+  igual(filas[1][1].type === Date, false, 'no es celda de fecha');
+  igual(filas[1][1].value, '', 'va vacia');
+});
+
+prueba('hay ancho de columna: que no haya que estirarlas al abrir', () => {
+  igual(ANCHOS_DE_COLUMNA.length, filasParaExcel(FILAS)[0].length, 'un ancho por columna');
 });
 
 prueba('el archivo lleva fecha para no pisar la descarga anterior', () => {
-  igual(nombreDelArchivo(HOY), 'proximos-cobros-2026-09-26.csv', 'nombre');
+  igual(nombreDelArchivo(HOY), 'proximos-cobros-2026-09-26.xlsx', 'nombre');
 });
 
 prueba('LA PRUEBA SABE PONERSE EN ROJO: volcar la tabla entera si trae el monto', () => {

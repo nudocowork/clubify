@@ -54,7 +54,8 @@
     "react-konva": "^18.2.14",
     "react-pageflip": "^2.0.3",
     "recharts": "^3.8.1",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

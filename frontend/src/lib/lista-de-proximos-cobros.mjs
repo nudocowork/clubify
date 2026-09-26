@@ -14,8 +14,9 @@
  * Dos salidas, y las dos hacen falta:
  *
  *  · `comoTexto` — para PEGAR en WhatsApp, que es como le llega a Samu. Un
- *    CSV por WhatsApp es un archivo que hay que abrir en otra aplicación.
- *  · `comoCsv` — para quien quiera el archivo (Excel, adjuntar a un correo).
+ *    archivo por WhatsApp hay que abrirlo en otra aplicación.
+ *  · `filasParaExcel` — la forma que espera `write-excel-file`, para quien
+ *    quiera el archivo (adjuntarlo a un correo, ordenarlo, imprimirlo).
  *
  * Vive aquí y no dentro del JSX para poder probarlo:
  * `npm run pruebas:proximos-cobros`.
@@ -98,37 +99,36 @@ export function comoTexto(filas, opciones = {}) {
   return [cabecera, '', ...lineas].join('\n');
 }
 
-/** Escapa un campo de CSV: comillas dobladas y todo entrecomillado. */
-const celda = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-
 /**
- * El archivo, con la fecha en formato ISO.
+ * Las filas tal como las espera `write-excel-file`: una matriz de celdas.
  *
- * En el CSV la fecha va `AAAA-MM-DD` y no «27 de septiembre»: una hoja de
- * cálculo ordena bien lo primero y trata lo segundo como texto suelto. Es el
- * único sitio donde las dos salidas se separan a propósito.
+ * La fecha va como `Date` de verdad, no como texto. Ese es el motivo de que
+ * esto sea un XLSX y no un CSV: Excel la reconoce como fecha, la ordena bien y
+ * la enseña con el formato de quien la abre. Un CSV con «27 de septiembre»
+ * llega como cadena y no se puede ordenar.
+ *
+ * `format` es el de Excel: día/mes/año, que es como se lee aquí.
  */
-export function comoCsv(filas) {
+export function filasParaExcel(filas) {
   const items = filasParaExportar(filas);
-  const cabecera = ['Negocio', 'Próxima fecha', 'Plan'].map(celda).join(',');
-  const lineas = items.map((f) =>
-    [
-      f.negocio,
-      // `en-CA` da AAAA-MM-DD, y con la MISMA zona que el texto: si el CSV
-      // usara `toISOString()` (UTC), el archivo y el mensaje podrían decir
-      // días distintos del mismo cobro.
-      f.fecha
-        ? new Date(f.fecha).toLocaleDateString('en-CA', { timeZone: ZONA })
-        : '',
-      f.plan,
-    ]
-      .map(celda)
-      .join(','),
-  );
-  return [cabecera, ...lineas].join('\n');
+  const cabecera = ['Negocio', 'Próxima fecha', 'Plan'].map((v) => ({
+    value: v,
+    fontWeight: 'bold',
+  }));
+  const cuerpo = items.map((f) => [
+    { type: String, value: f.negocio },
+    f.fecha
+      ? { type: Date, value: new Date(f.fecha), format: 'dd/mm/yyyy' }
+      : { type: String, value: '' },
+    { type: String, value: f.plan },
+  ]);
+  return [cabecera, ...cuerpo];
 }
+
+/** Ancho de cada columna, para que no haya que estirarlas al abrir. */
+export const ANCHOS_DE_COLUMNA = [{ width: 42 }, { width: 16 }, { width: 14 }];
 
 /** Nombre del archivo: lleva la fecha para no pisar la descarga anterior. */
 export function nombreDelArchivo(hoy = new Date()) {
-  return `proximos-cobros-${hoy.toISOString().slice(0, 10)}.csv`;
+  return `proximos-cobros-${hoy.toISOString().slice(0, 10)}.xlsx`;
 }
