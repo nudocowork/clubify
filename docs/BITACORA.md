@@ -35,15 +35,30 @@ tope. Escribirles un 10 no cambiaría ni un píxel de lo que ve el cliente y
 desbloquearía el premio, pero es tocar la configuración de un negocio que no lo
 pidió.
 
-### El egreso de Pauta Publicitaria: script listo, SIN EJECUTAR
+### El egreso de Pauta Publicitaria: HECHO ✅ (lo corrió Javier, 2026-09-26)
 
-```bash
-cd backend
-railway run --service Postgres-Nq8w node scripts/mover-egreso-pauta-a-mayo.cjs
+`scripts/mover-egreso-pauta-a-mayo.cjs` movió el único egreso de la base ($113,
+Publicidad, PAGADO) del 23 de septiembre al 31 de mayo. **No hace falta volver a
+correrlo** (y si se corre, no hace nada: el WHERE exige que siga en septiembre).
+
+Verificado en la base después: período **2026-05 con 1 egreso de $113 pagado**,
+septiembre **en cero**, 1 en total. No quedó duplicado.
+
+**De paso salió un fallo que afectaba a TODOS los scripts de este tipo.** Al
+correrlo desde un portátil murió con:
+
+```
+Can't reach database server at `yyy.railway.internal:5432`
 ```
 
-Mueve el único egreso de la base ($113, Publicidad, PAGADO) del 23 de
-septiembre al 31 de mayo. Idempotente, y se para si encuentra algo en mayo.
+`railway run` inyecta la `DATABASE_URL` **interna**, y ese nombre solo resuelve
+dentro de la red de Railway. Arreglado en `abb92d00`: se prefiere
+`DATABASE_PUBLIC_URL` y se cae a la interna. Se tocaron **las tres migraciones
+pendientes** —habrían fallado igual— y `apply-email-config-migration.cjs`, que
+es el que CLAUDE.md señala como modelo, para que el próximo nazca bien.
+**Quedan 171 scripts con el patrón viejo**: si alguno da ese error, ya se sabe.
+
+Sara avisada por SMS.
 
 **La causa de raíz no es el dato, es el despliegue:** su `expenseDate` y su
 `createdAt` coinciden **al milisegundo**. Nadie tecleó esa fecha — se la puso el
