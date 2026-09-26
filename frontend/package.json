@@ -22,7 +22,8 @@
     "pruebas:enlace-de-pago": "node scripts/pruebas-enlace-de-pago.mjs",
     "pruebas:filtro-tarjetas": "node scripts/pruebas-filtro-de-tarjetas.mjs",
     "pruebas:horario-domicilios": "node scripts/pruebas-horario-domicilios.mjs",
-    "pruebas:credencial": "node scripts/pruebas-credencial.mjs"
+    "pruebas:credencial": "node scripts/pruebas-credencial.mjs",
+    "pruebas:proximos-cobros": "node scripts/pruebas-proximos-cobros.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

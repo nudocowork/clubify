@@ -1,5 +1,10 @@
 'use client';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  comoCsv,
+  comoTexto,
+  nombreDelArchivo,
+} from '@/lib/lista-de-proximos-cobros.mjs';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -179,6 +184,40 @@ export default function ContabilidadPage() {
   const [cobros, setCobros] = useState<Cobros | null>(null);
   // Ventana de los próximos cobros: días hacia adelante, no un período contable.
   const [diasCobros, setDiasCobros] = useState(30);
+  /** Confirmación de que la lista se copió. Sin ella no se sabe si pasó algo. */
+  const [copiado, setCopiado] = useState(false);
+
+  /**
+   * La lista de próximos cobros, lista para pegarle a Samu.
+   *
+   * `navigator.clipboard` no existe fuera de https y puede estar bloqueado, así
+   * que hay respaldo: si falla, se abre un prompt con el texto seleccionable.
+   * Perder el recado por un permiso del navegador no es una opción.
+   */
+  async function copiarProximosCobros() {
+    if (!cobros) return;
+    const texto = comoTexto(cobros.filas, { dias: cobros.dias });
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      window.prompt('Copia la lista con Ctrl+C:', texto);
+    }
+  }
+
+  /** El mismo recorte, en archivo. El BOM es para que Excel no rompa las tildes. */
+  function descargarProximosCobros() {
+    if (!cobros) return;
+    const blob = new Blob([`﻿${comoCsv(cobros.filas)}`], {
+      type: 'text/csv;charset=utf-8;',
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nombreDelArchivo();
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
   const [cierres, setCierres] = useState<Cierre[]>([]);
   // El período contable manda sobre TODO el módulo, no sobre una pestaña.
   // Arranca en el mes en curso y se lee de la URL al montar (no en el
@@ -938,6 +977,30 @@ export default function ContabilidadPage() {
                       <button key={d} onClick={() => setDiasCobros(d)} className={`px-3 py-1.5 rounded-pill text-xs font-semibold ${diasCobros === d ? 'bg-white shadow-sm2 text-ink' : 'text-mute'}`}>{d} días</button>
                     ))}
                   </div>
+                  {/* SACAR LA LISTA. Sara la leía de la tabla y le pasaba los
+                      negocios a Samu uno a uno. Van SOLO tres campos —quién,
+                      cuándo y qué plan—: lo demás es de Contabilidad, no del
+                      recado, y obligaría a Samu a filtrar otra vez.
+
+                      Copiar va primero porque es lo que resuelve el problema:
+                      se pega en WhatsApp y ya. El CSV es un archivo que hay
+                      que abrir en otra aplicación. */}
+                  {cobros.filas.length > 0 && (
+                    <div className="flex items-center gap-2 ml-auto">
+                      <button
+                        onClick={() => void copiarProximosCobros()}
+                        className="text-xs px-3 py-1.5 rounded-pill border border-line font-semibold hover:bg-bg2"
+                      >
+                        {copiado ? '✓ Copiada' : 'Copiar lista'}
+                      </button>
+                      <button
+                        onClick={descargarProximosCobros}
+                        className="text-xs px-3 py-1.5 rounded-pill border border-line font-semibold hover:bg-bg2"
+                      >
+                        Exportar CSV
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                   <Kpi lbl="Por cobrar" dot="#eda100" val={money(cobros.resumen.proximos.amountUsd)} sub={`${cobros.resumen.proximos.count} negocios con cobro cerca`} />
