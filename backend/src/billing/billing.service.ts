@@ -109,6 +109,19 @@ export type TrialStatus = {
   // la MISMA regla que suspende (decideDunning). Distinto de la gracia de prueba
   // de arriba. Alimenta el panel del negocio y el dashboard de cobros.
   renewal: RenewalStateResult;
+  /**
+   * El dueño CANCELÓ la renovación y todavía le quedan días pagados.
+   *
+   * Cancelar ya no desconecta en el acto —eso se arregló el 2026-09-23, caso
+   * LICORES EL AMANECER, que perdió tres días que había pagado—, pero el panel
+   * no se enteraba: `getStatus` no devolvía nada de la cancelación, así que el
+   * negocio cancelaba, seguía viendo todo normal y no tenía forma de saber
+   * hasta cuándo. Con esto se puede pintar el aviso.
+   *
+   * `canceladaHasta` es el último día con acceso. Null = no ha cancelado.
+   */
+  canceledAt: Date | null;
+  canceladaHasta: Date | null;
 };
 
 const TRIAL_DAYS = 10;
@@ -591,6 +604,7 @@ export class BillingService {
         trialEndsAt: true,
         currentPeriodEnd: true,
         suspendedAt: true,
+        canceledAt: true,
         failedPaymentCount: true,
         gracePeriodDays: true,
         // Fase 2: campos del ciclo de renovación para deriveRenewalState.
@@ -623,6 +637,8 @@ export class BillingService {
           nextChargeAt: null,
           pauseDate: null,
         },
+        canceledAt: null,
+        canceladaHasta: null,
       };
     }
 
@@ -686,6 +702,14 @@ export class BillingService {
       derived === 'PAST_DUE' ||
       inGracePeriod;
 
+    // CANCELADA CON DÍAS POR DELANTE. Solo se informa mientras QUEDE acceso: una
+    // vez vencido el período, el negocio ya está suspendido y el aviso correcto
+    // es el de la suspensión, no «te queda hasta…» hablando del pasado.
+    const canceladaHasta =
+      t.canceledAt && isActiveAccess
+        ? (t.currentPeriodEnd ?? t.trialEndsAt ?? null)
+        : null;
+
     return {
       status: derived,
       trialEndsAt: t.trialEndsAt,
@@ -694,6 +718,8 @@ export class BillingService {
       isActiveAccess,
       gracePeriodDays: grace,
       inGracePeriod,
+      canceledAt: t.canceledAt ?? null,
+      canceladaHasta,
       graceDaysLeft,
       // Prueba paga = está en TRIAL Y ya ancló tarjeta (tiene suscripción). El
       // cobro llega solo al día 7; no hay que pedirle "completar el pago".

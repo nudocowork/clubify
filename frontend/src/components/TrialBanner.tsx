@@ -14,6 +14,17 @@ type Status = {
   gracePeriodDays?: number;
   inGracePeriod?: boolean;
   graceDaysLeft?: number | null;
+  /**
+   * Canceló la renovación y AÚN LE QUEDAN días pagados. Es el último día con
+   * acceso; null = no ha cancelado, o ya se le acabó.
+   *
+   * Cancelar dejó de desconectar en el acto el 2026-09-23 (LICORES EL AMANECER
+   * perdió tres días que había pagado), pero el panel no se enteraba: el
+   * negocio cancelaba, seguía viéndolo todo normal y no tenía forma de saber
+   * hasta cuándo. Eso es peor que el fallo anterior, porque parece que la
+   * cancelación no se guardó y la gente vuelve a darle.
+   */
+  canceladaHasta?: string | null;
 };
 
 export function TrialBanner() {
@@ -36,6 +47,40 @@ export function TrialBanner() {
   }, []);
 
   if (!s || hidden) return null;
+
+  // CANCELADA CON DÍAS POR DELANTE. Va antes del corte de abajo porque el
+  // estado sigue siendo ACTIVE —que es justo el sentido del arreglo— y si no,
+  // este aviso no se pintaría nunca. No se puede ocultar con la ✕: mientras
+  // corre el tiempo que ya pagó, es la información más importante de su panel.
+  if (s.canceladaHasta) {
+    const hasta = new Date(s.canceladaHasta);
+    const fecha = Number.isNaN(hasta.getTime())
+      ? null
+      : hasta.toLocaleDateString('es-CO', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        });
+    return (
+      <div className="bg-amber-50 border-amber-200 text-amber-900 border-b px-4 py-2.5 flex items-center gap-3 text-sm">
+        <div className="flex-1">
+          <b>Cancelaste la renovación.</b>{' '}
+          {fecha
+            ? `Tu cuenta sigue activa hasta el ${fecha}; después se pausa.`
+            : 'Tu cuenta sigue activa hasta el final del período que ya pagaste.'}
+        </div>
+        {!sinCompras && (
+          <Link
+            href="/app/billing"
+            className="font-semibold underline whitespace-nowrap hover:no-underline"
+          >
+            Reactivar →
+          </Link>
+        )}
+      </div>
+    );
+  }
+
   if (
     s.status !== 'TRIAL' &&
     s.status !== 'PAST_DUE' &&
