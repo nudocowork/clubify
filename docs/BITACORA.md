@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-26 (78) — Un cartón que nadie puede completar (54 clientes) + el egreso
+
+### El fallo que más duele: `stampsRequired` vacío
+
+`stampsRequired` es nullable, y cuando falta **cada lector se inventa una
+respuesta distinta**: el pase dice `?? 10`, el tope al sellar
+`?? Number.MAX_SAFE_INTEGER`, el canje `?? 10`, y `reglaDeEstado` devuelve
+`null` — o sea, **el pase no llega a COMPLETED nunca**.
+
+**En producción, hoy:** «Descomunal - Cocina y SportBar» reparte desde el 23 de
+julio una tarjeta por «Desgranado de Pollo + Gaseosa». **59 pases, 54
+instalados en teléfonos, 64 sellos puestos.** Sus clientes ven «8/10» — y ese
+10 no lo eligió el negocio, es un respaldo del código. **Nadie puede reclamar
+el pollo.** Dos personas van por 8. Su dueño no tiene forma de enterarse: en su
+panel la tarjeta se ve normal.
+
+Arreglado en `c60844a9`: el panel rechaza guardar un cartón sin tope, el
+Onboarding —por donde entraron las dos— lo rellena con 10 y lo deja en el log,
+y la pantalla de Tarjetas avisa sobre las que ya existen.
+
+**El 10 NO se quita**: es lo que esos 54 clientes llevan meses viendo.
+
+**PENDIENTE DE DECISIÓN:** las dos tarjetas que ya están en la base siguen sin
+tope. Escribirles un 10 no cambiaría ni un píxel de lo que ve el cliente y
+desbloquearía el premio, pero es tocar la configuración de un negocio que no lo
+pidió.
+
+### El egreso de Pauta Publicitaria: script listo, SIN EJECUTAR
+
+```bash
+cd backend
+railway run --service Postgres-Nq8w node scripts/mover-egreso-pauta-a-mayo.cjs
+```
+
+Mueve el único egreso de la base ($113, Publicidad, PAGADO) del 23 de
+septiembre al 31 de mayo. Idempotente, y se para si encuentra algo en mayo.
+
+**La causa de raíz no es el dato, es el despliegue:** su `expenseDate` y su
+`createdAt` coinciden **al milisegundo**. Nadie tecleó esa fecha — se la puso el
+sistema, porque **el frontend que sirve producción no tiene el campo de fecha**.
+El backend ya lo pide desde `fd4f09f` y la pantalla desplegada es anterior.
+**Mientras el frontend no se despliegue, el siguiente egreso volverá a nacer
+con la fecha del día.**
+
 ## 2026-09-26 (77) — Lab: eliminar deja rastro · y el recorrido de la credencial
 
 Dos bloques: el Lab (`bc56a93e`) y el repaso del camino del cliente con la
