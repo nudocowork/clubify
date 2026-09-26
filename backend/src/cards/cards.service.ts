@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { motivoParaRechazarElColor } from './color-de-la-credencial';
+import { motivoParaRechazarElTope } from './tope-del-carton';
 import { sanearPremiosIntermedios } from './premios-intermedios';
 import { CardType } from '@prisma/client';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
@@ -148,6 +149,26 @@ export class CardsService {
     if (motivo) throw new BadRequestException(motivo);
   }
 
+  /**
+   * Un cartón SIN tope es una tarjeta que nadie puede completar.
+   *
+   * En producción hay dos así, una con 54 pases instalados: sus clientes ven
+   * «8/10» —un 10 que el negocio no eligió, sino un respaldo del código— y el
+   * pase no llega a COMPLETED nunca, así que el premio no se puede reclamar.
+   * Ver `tope-del-carton.ts`.
+   *
+   * Aquí se RECHAZA en vez de rellenar: hay alguien delante que puede poner el
+   * número, y el momento de decírselo es este.
+   */
+  private gateTopeDelCarton(tipo: string | undefined, dto: Partial<CardDto>) {
+    const tope =
+      tipo === 'VISITS'
+        ? (dto as any).visitsRequired
+        : (dto as any).stampsRequired;
+    const motivo = motivoParaRechazarElTope(tipo, tope);
+    if (motivo) throw new BadRequestException(motivo);
+  }
+
   private async gateCardWalletFeatures(tenantId: string, dto: Partial<CardDto>) {
     const touchesImage = dto.stampBgType === 'IMAGE' || dto.stampBgImageUrl != null;
     const touchesFree = dto.freeRewards !== undefined && (dto.freeRewards?.length ?? 0) > 0;
@@ -240,6 +261,7 @@ export class CardsService {
     }
     await this.gateCardWalletFeatures(tid, dto);
     this.gateColorDeCredencial(dto.type, dto);
+    this.gateTopeDelCarton(dto.type, dto);
     return this.prisma.card.create({
       data: {
         tenantId: tid,
@@ -319,6 +341,7 @@ export class CardsService {
     }
     await this.gateCardWalletFeatures(existing.tenantId, dto);
     this.gateColorDeCredencial(dto.type ?? existing.type, dto);
+    this.gateTopeDelCarton(dto.type ?? existing.type, dto);
 
     // NO se puede convertir una credencial en otra cosa, ni al revés.
     //

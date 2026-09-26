@@ -1,4 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  TOPE_POR_DEFECTO,
+  conTopeNormalizado,
+} from '../cards/tope-del-carton';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { sanearPremiosIntermedios } from '../cards/premios-intermedios';
@@ -560,8 +564,24 @@ export class OnboardingSyncService {
         'Para crear la tarjeta de sellos se requiere `name`.',
       );
     }
+    // POR AQUÍ ENTRARON LAS DOS TARJETAS ROTAS de producción: si el
+    // Onboarding no manda `stampsRequired` —el contrato lo permite—, el cartón
+    // nace sin tope y sus clientes ven un «/10» que nadie eligió sobre una
+    // tarjeta que no se puede completar nunca. Ver `cards/tope-del-carton.ts`.
+    //
+    // Aquí se RELLENA en vez de rechazar: del otro lado no hay nadie mirando,
+    // y tumbar un alta que por lo demás está bien es peor. Queda en el log.
+    const { datos, rellenado } = conTopeNormalizado('STAMPS', { ...data, name });
+    if (rellenado) {
+      // `console.warn` y no un Logger de Nest: es lo que ya usa este archivo.
+      console.warn(
+        `Tarjeta de sellos de ${tenantId} sin \`${rellenado}\`: se guarda con ${TOPE_POR_DEFECTO}, que es lo que el pase ya enseña.`,
+      );
+    }
     const created = await this.prisma.card.create({
-      data: { tenantId, type: 'STAMPS', ...data, name },
+      // `as any` por el spread: `datos` es un Record y Prisma no puede ver que
+      // `name` va dentro. Se comprueba justo arriba con el 400 de `!name`.
+      data: { tenantId, type: 'STAMPS', ...datos } as any,
     });
     return { ok: true, card_id: created.id, created: true };
   }

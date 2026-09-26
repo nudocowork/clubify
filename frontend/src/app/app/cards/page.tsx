@@ -7,7 +7,7 @@ import { Icon } from '@/components/Icon';
 import { AcademyButton } from '@/components/AcademyButton';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
-import { coincideElTipo } from '@/lib/tipo-de-tarjeta.mjs';
+import { cartonSinTope, coincideElTipo } from '@/lib/tipo-de-tarjeta.mjs';
 
 type CardType =
   | 'STAMPS'
@@ -687,6 +687,22 @@ function CardPreview({
           <div className="font-semibold text-sm leading-snug line-clamp-2">
             {card.name}
           </div>
+          {/* CARTÓN SIN TOPE. El dueño no tiene forma de enterarse: en esta
+              pantalla la tarjeta se ve normal, pero en el teléfono de sus
+              clientes dice «/10» —un número que él no eligió— y el cartón no se
+              puede completar nunca, así que el premio no se entrega jamás.
+              En producción hay una así con 54 pases instalados. */}
+          {cartonSinTope(card) && (
+            <div className="mt-1.5 rounded-lg border border-warn bg-warn-soft px-2 py-1.5">
+              <div className="text-[11px] font-semibold text-warn-ink leading-snug">
+                Falta cuántos sellos lleva
+              </div>
+              <div className="text-[11px] text-mute leading-snug mt-0.5">
+                Tus clientes la ven como si fueran 10 y no la pueden completar
+                nunca. Ábrela y pon el número.
+              </div>
+            </div>
+          )}
           <div className="text-xs text-mute mt-1 line-clamp-2">
             {card.rewardText || '—'}
           </div>

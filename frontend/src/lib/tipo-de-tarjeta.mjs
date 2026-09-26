@@ -32,3 +32,35 @@ export function coincideElTipo(tarjeta, filtro) {
   // saldrían con el contador congelado y sin poder gestionarse.
   return tarjeta?.type === filtro && !esAlianza && !esClub;
 }
+
+/**
+ * ¿Este cartón está roto por no tener tope configurado?
+ *
+ * EL CASO REAL (producción, 2026-09-26): «Descomunal - Cocina y SportBar»
+ * reparte una tarjeta por «Desgranado de Pollo + Gaseosa» desde julio, con 59
+ * pases y 54 instalados en teléfonos. `stampsRequired` está vacío, así que:
+ *
+ *  · el pase dice «8/10» — y ese 10 es un respaldo del código, no un número
+ *    que el negocio eligiera;
+ *  · el pase NO puede llegar nunca a «completa», porque la regla de estado se
+ *    rinde sin tope. Nadie puede reclamar el pollo.
+ *
+ * Su dueño no tiene forma de enterarse: en su panel la tarjeta se ve normal.
+ * Por eso el aviso.
+ *
+ * El club y la alianza quedan fuera aunque por dentro sean `STAMPS`: el club
+ * usa el contador como cupo del mes y la alianza nace con tope 1 a propósito.
+ * Avisar de ellas sería ruido, y el ruido se ignora.
+ *
+ * @param {{type?: string, stampsRequired?: number|null, visitsRequired?: number|null, convenioId?: string|null, clubPlanId?: string|null}} tarjeta
+ * @returns {boolean}
+ */
+export function cartonSinTope(tarjeta) {
+  if (!tarjeta) return false;
+  if (tarjeta.convenioId || tarjeta.clubPlanId) return false;
+  // `== null` a propósito: un tope de 0 es un valor, no un hueco. Con
+  // `!tarjeta.stampsRequired` una tarjeta de 0 saldría avisada sin estarlo.
+  if (tarjeta.type === 'STAMPS') return tarjeta.stampsRequired == null;
+  if (tarjeta.type === 'VISITS') return tarjeta.visitsRequired == null;
+  return false;
+}

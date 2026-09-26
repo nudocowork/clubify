@@ -7,7 +7,7 @@
  * es una Tarjeta de club. Alianzas y Club no son tipos de `CardType` —las dos
  * son `STAMPS` por dentro— y el filtro excluía la alianza pero no el club.
  */
-import { coincideElTipo } from '../src/lib/tipo-de-tarjeta.mjs';
+import { cartonSinTope, coincideElTipo } from '../src/lib/tipo-de-tarjeta.mjs';
 
 let fallos = 0;
 let casos = 0;
@@ -88,6 +88,19 @@ prueba('la comprobación sabe ponerse en rojo', () => {
   const comoAntes = (c, f) => c.type === f && !c.convenioId;
   igual(comoAntes(CLUB, 'STAMPS'), true, 'el criterio viejo sí lo dejaba pasar');
   igual(coincideElTipo(CLUB, 'STAMPS'), false, 'el nuevo no');
+});
+
+prueba('EL CARTON SIN TOPE: el caso de Descomunal', () => {
+  // 54 clientes con un pase que dice «/10» sobre un numero que nadie eligio, y
+  // que no se puede completar nunca.
+  igual(cartonSinTope({ type: 'STAMPS', stampsRequired: null }), true, 'sin tope');
+  igual(cartonSinTope({ type: 'STAMPS', stampsRequired: 10 }), false, 'con tope');
+  igual(cartonSinTope({ type: 'VISITS', visitsRequired: null }), true, 'visitas sin tope');
+  igual(cartonSinTope(CUPON), false, 'un cupon no lleva tope');
+  igual(cartonSinTope({ type: 'INFO', stampsRequired: null }), false, 'una credencial no cuenta nada');
+  igual(cartonSinTope({ type: 'STAMPS', stampsRequired: null, clubPlanId: 'p1' }), false, 'club');
+  igual(cartonSinTope({ type: 'STAMPS', stampsRequired: null, convenioId: 'c1' }), false, 'alianza');
+  igual(cartonSinTope({ type: 'STAMPS', stampsRequired: 0 }), false, 'tope 0');
 });
 
 console.log(`\n${casos - fallos}/${casos} en verde`);
