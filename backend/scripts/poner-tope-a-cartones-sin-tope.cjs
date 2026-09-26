@@ -76,7 +76,8 @@ const sinTope = () =>
   }
 
   const cambiadas = await p.$executeRawUnsafe(
-    `UPDATE "Card" SET "stampsRequired" = $1, "updatedAt" = NOW()
+    // `Card` NO tiene `updatedAt` — comprobado en el esquema, no supuesto.
+    `UPDATE "Card" SET "stampsRequired" = $1
      WHERE type='STAMPS' AND "stampsRequired" IS NULL
        AND "convenioId" IS NULL AND "clubPlanId" IS NULL`,
     TOPE,
