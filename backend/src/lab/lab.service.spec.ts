@@ -74,6 +74,10 @@ function cumple(fila: any, where: any): boolean {
     if (campo === 'OR') return cond.some((w: any) => cumple(fila, w));
     if (cond && typeof cond === 'object') {
       if (Array.isArray(cond.in)) return cond.in.includes(fila[campo]);
+      // `not` hay que entenderlo de verdad: cayendo al `true` de abajo, un
+      // `where: { removedAt: { not: null } }` casaba con TODO y la prueba de
+      // «no estaba retirada» pasaba sin mirar nada.
+      if ('not' in cond) return (fila[campo] ?? null) !== cond.not;
       if (typeof cond.contains === 'string') {
         return String(fila[campo] ?? '').toLowerCase().includes(cond.contains.toLowerCase());
       }
@@ -97,6 +101,11 @@ function montar(opciones: { extra?: any[] } = {}) {
     votesCount: 0,
     commentsCount: 0,
     createdAt: new Date('2026-09-01'),
+    // Explícito: `{ removedAt: null }` es «no retirada», y `undefined` no
+    // casa con `null`. Sin esta línea, todo lo de retirar pasaría en falso.
+    removedAt: null,
+    removedById: null,
+    removedReason: null,
     author: { id: 'autor', fullName: 'Autor', role: 'X', email: 'autor@test' },
     lastStatusChangedBy: null,
   };
@@ -115,6 +124,12 @@ function montar(opciones: { extra?: any[] } = {}) {
     },
     user: {
       findUnique: vi.fn(async ({ where }: any) => USUARIOS[where.id] ?? null),
+      // Lo usa `metrics` para poner nombre a quien más propone.
+      findMany: vi.fn(async ({ where }: any) =>
+        (where?.id?.in ?? [])
+          .filter((id: string) => USUARIOS[id])
+          .map((id: string) => ({ id, fullName: USUARIOS[id].fullName, role: 'X' })),
+      ),
     },
     tenant: {
       findUnique: vi.fn(async ({ where }: any) => NEGOCIOS[where.id] ?? null),
@@ -123,7 +138,9 @@ function montar(opciones: { extra?: any[] } = {}) {
       findMany: vi.fn(async ({ where }: any) => propuestas.filter((p) => cumple(p, where))),
       count: vi.fn(async ({ where }: any) => propuestas.filter((p) => cumple(p, where)).length),
       findUnique: vi.fn(async ({ where }: any) => propuestas.find((p) => p.id === where.id) ?? null),
-      groupBy: vi.fn(async () =>
+      // Tipado con su argumento a propósito: así `mock.calls[0][0]` es el
+      // objeto de la consulta y se puede mirar el `where` sin castear.
+      groupBy: vi.fn(async (_args: any) =>
         [...new Set(propuestas.map((p) => p.whiteLabelId))].map((whiteLabelId) => ({
           whiteLabelId,
           _count: { _all: 1 },
@@ -134,7 +151,20 @@ function montar(opciones: { extra?: any[] } = {}) {
         ...propuestas.find((p) => p.id === where.id),
         ...data,
       })),
-      delete: vi.fn(async () => null),
+      // Retirar y restaurar van por `updateMany` (atómico y con la condición
+      // dentro del WHERE). El doble MUTA la fila para que el segundo intento
+      // vea el estado del primero: si devolviera siempre count=1, la prueba de
+      // «retirar dos veces» pasaría sin probar nada.
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const filas = propuestas.filter((p) => cumple(p, where));
+        for (const f of filas) Object.assign(f, data);
+        return { count: filas.length };
+      }),
+      delete: vi.fn(async ({ where }: any) => {
+        const i = propuestas.findIndex((p) => p.id === where.id);
+        if (i >= 0) propuestas.splice(i, 1);
+        return null;
+      }),
     },
     labVote: {
       findUnique: vi.fn(async () => null),
@@ -353,7 +383,8 @@ describe('el administrador general de Sellea', () => {
     await expect(svc.listAdmin(sesion.humberto)).rejects.toBeInstanceOf(ForbiddenException);
     await expect(svc.setStatus('p-clubify', 'REJECTED', sesion.humberto, 'no')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(svc.mergeProposals('p-sellea', 'p-sellea-pendiente', sesion.humberto)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(svc.deleteProposal('p-clubify', sesion.humberto)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.removeProposal('p-clubify', sesion.humberto)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.restoreProposal('p-clubify', sesion.humberto)).rejects.toBeInstanceOf(ForbiddenException);
     await expect(svc.metrics(sesion.humberto)).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.labProposal.findMany).not.toHaveBeenCalled();
     expect(prisma.labProposal.update).not.toHaveBeenCalled();
@@ -662,5 +693,124 @@ describe('lo que aún no pasó revisión', () => {
     });
     const r = await svc.listPublic(sesion.duenoClubify, 'CLIENTS');
     expect(r.items.map((p) => p.id)).toContain('p-mia');
+  });
+});
+
+describe('retirar del panel (la plataforma) y borrar (el autor)', () => {
+  it('RETIRAR NO BORRA: la fila se queda y guarda quién, cuándo y por qué', async () => {
+    const { svc, prisma } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify, '  Duplicada  ');
+    expect(prisma.labProposal.delete).not.toHaveBeenCalled();
+    const [{ data, where }] = prisma.labProposal.updateMany.mock.calls[0];
+    expect(data.removedById).toBe('u-equipo');
+    expect(data.removedAt).toBeInstanceOf(Date);
+    // Se recorta: un motivo con espacios sueltos se lee mal en la lápida.
+    expect(data.removedReason).toBe('Duplicada');
+    // La condición viaja DENTRO del where: retirar dos veces desde dos
+    // pestañas pisaría la fecha y el autor del primero.
+    expect(where.removedAt).toBeNull();
+  });
+
+  it('un motivo vacío queda en null, no en cadena vacía', async () => {
+    const { svc, prisma } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify, '   ');
+    expect(prisma.labProposal.updateMany.mock.calls[0][0].data.removedReason).toBeNull();
+  });
+
+  it('retirar dos veces avisa en vez de mentir', async () => {
+    const { svc } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify);
+    await expect(
+      svc.removeProposal('p-sellea', sesion.equipoClubify),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('una retirada se sigue VIENDO, pero no se vota ni se comenta', async () => {
+    const { svc } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify);
+    // Humberto la ve —queda su lápida con el motivo— y sabe qué pasó.
+    const r = await svc.listPublic(sesion.humberto, 'CLIENTS');
+    const suya = r.items.find((p: any) => p.id === 'p-sellea');
+    expect(suya).toBeTruthy();
+    expect((suya as any).removedAt).toBeInstanceOf(Date);
+    // Pero es una lápida, no un hilo abierto.
+    await expect(svc.vote('p-sellea', sesion.humberto, 'LIKE')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.comment('p-sellea', sesion.humberto, 'Hola')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('una retirada no cambia de estado ni se fusiona', async () => {
+    const { svc } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify);
+    await expect(
+      svc.setStatus('p-sellea', 'APPROVED', sesion.equipoClubify),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.mergeProposals('p-sellea', 'p-sellea-pendiente', sesion.equipoClubify),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('se puede deshacer: restaurar la devuelve al panel', async () => {
+    const { svc, prisma } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify, 'Duplicada');
+    await svc.restoreProposal('p-sellea', sesion.equipoClubify);
+    const [{ data }] = prisma.labProposal.updateMany.mock.calls[1];
+    expect(data).toEqual({ removedAt: null, removedById: null, removedReason: null });
+    // Y ya vuelve a admitir votos.
+    await expect(svc.vote('p-sellea', sesion.humberto, 'LIKE')).resolves.toBeDefined();
+  });
+
+  it('restaurar algo que no estaba retirado avisa', async () => {
+    const { svc } = montar();
+    await expect(
+      svc.restoreProposal('p-sellea', sesion.equipoClubify),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('EL AUTOR BORRA LO SUYO DE VERDAD, y se lleva votos y comentarios', async () => {
+    const { svc, prisma } = montar();
+    await svc.deleteOwnProposal('p-sellea', sesion.humberto);
+    expect(prisma.labProposal.delete).toHaveBeenCalledWith({ where: { id: 'p-sellea' } });
+    // Y desaparece de su lista: no queda lápida, porque no hay nada que
+    // explicarle a quien la borró.
+    const r = await svc.listPublic(sesion.humberto, 'CLIENTS');
+    expect(r.items.map((p: any) => p.id)).not.toContain('p-sellea');
+  });
+
+  it('nadie borra una propuesta AJENA, y recibe 404 y no 403', async () => {
+    const { svc, prisma } = montar();
+    // De otro autor de su misma marca.
+    await expect(
+      svc.deleteOwnProposal('p-sellea', { ...sesion.humberto, id: 'u-otro' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    // Y de otra marca: 404 para no confirmar que el id es bueno.
+    await expect(
+      svc.deleteOwnProposal('p-clubify', sesion.humberto),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.labProposal.delete).not.toHaveBeenCalled();
+  });
+
+  it('una sesión SUPLANTADA no borra a nombre del administrador real', async () => {
+    const { svc, prisma } = montar();
+    await expect(
+      svc.deleteOwnProposal('p-sellea', sesion.javierEnSellea),
+    ).rejects.toThrow(LAB_SUPLANTACION_SOLO_LECTURA);
+    expect(prisma.labProposal.delete).not.toHaveBeenCalled();
+  });
+
+  it('las RETIRADAS no cuentan en las métricas', async () => {
+    const { svc, prisma } = montar();
+    await svc.metrics(sesion.equipoClubify);
+    for (const [args] of prisma.labProposal.groupBy.mock.calls) {
+      expect(args.where).toEqual({ removedAt: null });
+    }
+  });
+
+  it('LA PRUEBA SABE PONERSE EN ROJO: sin el filtro, la retirada seguiría viva', async () => {
+    // El criterio equivocado sería `update` a secas: sin `removedAt: null` en
+    // el where, retirar dos veces pisa la fecha del primero en silencio.
+    const { svc, prisma } = montar();
+    await svc.removeProposal('p-sellea', sesion.equipoClubify);
+    const where = prisma.labProposal.updateMany.mock.calls[0][0].where;
+    expect(Object.keys(where).sort()).toEqual(['id', 'removedAt']);
   });
 });

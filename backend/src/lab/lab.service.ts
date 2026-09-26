@@ -524,10 +524,18 @@ export class LabService {
         status: true,
         authorId: true,
         whiteLabelId: true,
+        removedAt: true,
       },
     });
     if (!proposal || !puedeVerPropuesta(visor, proposal.whiteLabelId)) {
       throw new NotFoundException(NO_ENCONTRADA);
+    }
+    // Una propuesta retirada se sigue VIENDO —queda su línea gris con el
+    // motivo— pero no se vota ni se comenta: es una lápida, no un hilo abierto.
+    if (proposal.removedAt) {
+      throw new ForbiddenException(
+        'Esta propuesta la retiró Clubify del panel: ya no se puede votar ni comentar.',
+      );
     }
     // Antes que el chequeo de marca, para que la sesión suplantada reciba su
     // motivo y no el de «otra marca».
@@ -710,6 +718,13 @@ export class LabService {
       },
     });
     if (!proposal) throw new NotFoundException(NO_ENCONTRADA);
+    // Moverla de estado después de retirarla dejaría a la marca viendo la lápida
+    // y a nosotros creyendo que la estamos trabajando.
+    if (proposal.removedAt) {
+      throw new BadRequestException(
+        'Esta propuesta está retirada del panel. Devuélvela antes de cambiarle el estado.',
+      );
+    }
 
     if (proposal.status !== status) {
       const allowed = ALLOWED_STATUS_TRANSITIONS[proposal.status] ?? [];
@@ -750,6 +765,14 @@ export class LabService {
     ]);
     if (!src) throw new NotFoundException('Propuesta origen no encontrada.');
     if (!dst) throw new NotFoundException('Propuesta destino no encontrada.');
+    // Fusionar una retirada resucitaría sus votos y comentarios dentro de otra
+    // propuesta, y la marca vería aparecer en un hilo vivo lo que se escribió
+    // en uno que ya le dijimos que quitamos.
+    if (src.removedAt || dst.removedAt) {
+      throw new BadRequestException(
+        'No se puede fusionar una propuesta retirada del panel.',
+      );
+    }
     // Fusionar mueve comentarios y votos. Entre marcas distintas, lo escrito
     // en el Lab de una aparecería en el de la otra.
     if (!mismaMarca(src.whiteLabelId, dst.whiteLabelId, visor.clubifyId)) {
@@ -802,16 +825,93 @@ export class LabService {
     return { ok: true, srcId, dstId };
   }
 
-  async deleteProposal(id: string, user: AuthUser) {
+  /**
+   * La plataforma RETIRA una propuesta del panel. No la borra.
+   *
+   * Antes esto era un `delete` y la fila desaparecía, así que en el Lab de
+   * Sellea la propuesta se esfumaba sin explicación: Humberto no sabía si se
+   * había enviado mal, si se había perdido o si alguien la había quitado, y la
+   * volvía a mandar. Ahora en su sitio queda «Clubify la eliminó del panel»,
+   * con el motivo si se escribió uno.
+   *
+   * `updateMany` con `removedAt: null` en el WHERE, no `update`: retirar dos
+   * veces desde dos pestañas pisaría la fecha y el autor del primero, y el
+   * `count` es lo que dice si de verdad cambió algo.
+   */
+  async removeProposal(id: string, user: AuthUser, motivo?: string | null) {
     exigirModeracion(await this.visorDe(user));
     const existing = await this.prisma.labProposal.findUnique({
       where: { id },
-      select: { id: true, title: true },
+      select: { id: true, title: true, removedAt: true },
     });
     if (!existing) throw new NotFoundException(NO_ENCONTRADA);
+    if (existing.removedAt) {
+      throw new BadRequestException('Esta propuesta ya estaba retirada.');
+    }
+    const { count } = await this.prisma.labProposal.updateMany({
+      where: { id, removedAt: null },
+      data: {
+        removedAt: new Date(),
+        removedById: user.id,
+        removedReason: motivo?.trim() || null,
+      },
+    });
+    if (!count) {
+      throw new BadRequestException('Esta propuesta ya estaba retirada.');
+    }
+    this.logger.log(
+      `LabProposal "${existing.title}" (${id}) retirada del panel por ${user.id}`,
+    );
+    return { ok: true };
+  }
+
+  /** Deshace una retirada. Retirar sin deshacer sería un viaje de ida. */
+  async restoreProposal(id: string, user: AuthUser) {
+    exigirModeracion(await this.visorDe(user));
+    const { count } = await this.prisma.labProposal.updateMany({
+      where: { id, removedAt: { not: null } },
+      data: { removedAt: null, removedById: null, removedReason: null },
+    });
+    if (!count) {
+      throw new BadRequestException('Esta propuesta no estaba retirada.');
+    }
+    return { ok: true };
+  }
+
+  /**
+   * El AUTOR borra una propuesta suya, y esta sí se borra de verdad.
+   *
+   * Es la otra mitad de lo de arriba, y son distintas a propósito: cuando la
+   * plataforma retira algo hay que explicárselo a la marca, y cuando el autor
+   * borra lo suyo no hay a quién explicarle nada — él lo hizo. Sirve para
+   * limpiar las pruebas, que era el caso concreto.
+   *
+   * Se lleva sus votos y sus comentarios por la cascada del esquema. Eso
+   * incluye una propuesta que la plataforma ya estuviera trabajando: Javier lo
+   * decidió así sabiéndolo (2026-09-25), y por eso el aviso del panel se lo
+   * dice en la cara antes de borrar.
+   */
+  async deleteOwnProposal(id: string, user: AuthUser) {
+    const visor = await this.visorDe(user);
+    // Una sesión suplantada no borra a nombre del administrador real: el mismo
+    // motivo por el que no vota ni comenta.
+    exigirParticipacion(visor);
+    const existing = await this.prisma.labProposal.findUnique({
+      where: { id },
+      select: { id: true, title: true, authorId: true, whiteLabelId: true },
+    });
+    // Una propuesta que no es suya NO EXISTE para él: 404 y no 403, para no
+    // confirmar que el id es bueno. Igual que el resto del módulo.
+    if (
+      !existing ||
+      !puedeVerPropuesta(visor, existing.whiteLabelId) ||
+      existing.authorId !== user.id
+    ) {
+      throw new NotFoundException(NO_ENCONTRADA);
+    }
     await this.prisma.labProposal.delete({ where: { id } });
     this.logger.log(
-      `LabProposal "${existing.title}" (${id}) eliminada por ${user.id}`,
+      `LabProposal "${existing.title}" (${id}) borrada por su autor ${user.id}`,
     );
     return { ok: true };
   }
@@ -819,24 +919,31 @@ export class LabService {
   async metrics(user: AuthUser) {
     const visor = await this.visorDe(user);
     exigirModeracion(visor);
+    // Las RETIRADAS no cuentan en ninguna cifra. Están fuera del panel: si
+    // siguieran sumando, el reparto por estado y el top de quién más propone
+    // contarían trabajo que dijimos que no existe.
+    const vivas = { removedAt: null };
     const [byStatus, byCategory, topContributors, topVoted] =
       await Promise.all([
         this.prisma.labProposal.groupBy({
           by: ['status'],
+          where: vivas,
           _count: { _all: true },
         }),
         this.prisma.labProposal.groupBy({
           by: ['category'],
+          where: vivas,
           _count: { _all: true },
         }),
         this.prisma.labProposal.groupBy({
           by: ['authorId'],
+          where: vivas,
           _count: { _all: true },
           orderBy: { _count: { authorId: 'desc' } },
           take: 10,
         }),
         this.prisma.labProposal.findMany({
-          where: { status: { in: PUBLIC_STATUSES } },
+          where: { status: { in: PUBLIC_STATUSES }, ...vivas },
           orderBy: { votesScore: 'desc' },
           take: 10,
           include: {

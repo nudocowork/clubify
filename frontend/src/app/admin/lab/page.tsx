@@ -10,6 +10,7 @@ import {
   CATEGORY_META,
   NARANJA_MARCA,
   STATUS_META,
+  estaRetirada,
   formatRelative,
   type EtiquetaMarca,
   type LabCategory,
@@ -221,18 +222,48 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
     }
   }
 
-  async function deleteProposal(id: string) {
-    if (!confirm(t('confirmDelete')))
-      return;
+  /**
+   * RETIRA la propuesta del panel. Ya no la borra.
+   *
+   * Antes esto era un borrado de verdad, así que en el Lab de la marca la
+   * propuesta desaparecía sin explicación: Humberto no sabía si se había
+   * enviado mal, si se había perdido o si alguien la había quitado, y la volvía
+   * a mandar. Ahora en su sitio queda su línea en gris con «Clubify la eliminó
+   * del panel» y el motivo, si se escribe uno.
+   *
+   * El motivo se pide APARTE del «¿seguro?» y se dice que la marca lo va a
+   * leer: sin eso alguien escribe una nota interna pensando que es para casa.
+   */
+  async function retirar(p: Proposal) {
+    if (!confirm(t('confirmRetirar', { title: p.title }))) return;
+    const reason = window.prompt(t('motivoRetirar'), '') ?? '';
     try {
-      await api(`/admin/lab/proposals/${id}`, { method: 'DELETE' });
-      toast(t('toastDeleted'), 'success');
-      if (tab === 'all') loadAll();
-      if (tab === 'pending') loadPending();
-      void loadTicketsMarcas();
+      await api(`/admin/lab/proposals/${p.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: reason.trim() || undefined }),
+      });
+      toast(t('toastRetirada'), 'success');
+      recargar();
     } catch (e: any) {
       toast(e?.message ?? t('error'), 'error');
     }
+  }
+
+  /** Deshace la retirada: retirar no puede ser un viaje de ida. */
+  async function devolver(p: Proposal) {
+    try {
+      await api(`/admin/lab/proposals/${p.id}/restaurar`, { method: 'POST' });
+      toast(t('toastDevuelta'), 'success');
+      recargar();
+    } catch (e: any) {
+      toast(e?.message ?? t('error'), 'error');
+    }
+  }
+
+  function recargar() {
+    if (tab === 'all') loadAll();
+    if (tab === 'pending') loadPending();
+    void loadTicketsMarcas();
   }
 
   return (
@@ -319,7 +350,8 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
           onReject={(p) => setStatusModal(p)}
           onMerge={(p) => setMergeModal(p)}
           onChange={(p) => setStatusModal(p)}
-          onDelete={(p) => deleteProposal(p.id)}
+          onDelete={(p) => void retirar(p)}
+          onRestore={(p) => void devolver(p)}
         />
       )}
 
@@ -336,7 +368,8 @@ function ModeracionLab({ plataforma }: { plataforma: string | null }) {
           setFilterBrand={setFilterBrand}
           onChangeStatus={(p) => setStatusModal(p)}
           onMerge={(p) => setMergeModal(p)}
-          onDelete={(p) => deleteProposal(p.id)}
+          onDelete={(p) => void retirar(p)}
+          onRestore={(p) => void devolver(p)}
         />
       )}
 
@@ -397,6 +430,11 @@ function ProposalRow({
           <div className="flex flex-wrap gap-1.5 items-center mb-1.5">
             <MarcaEtiqueta marca={proposal.brand} />
             <span className={`badge ${meta.badge}`}>{meta.label}</span>
+            {/* Se ve de un vistazo qué está fuera del panel: sin esto, una
+                retirada se lee igual que una viva y se vuelve a trabajar. */}
+            {estaRetirada(proposal) && (
+              <span className="badge badge-bad">{t('retirada')}</span>
+            )}
             <span className="badge badge-mute">
               {cat.emoji} {cat.label}
             </span>
@@ -452,6 +490,7 @@ function PendingTab({
   onMerge,
   onChange,
   onDelete,
+  onRestore,
 }: {
   items: Proposal[] | null;
   onApprove: (p: Proposal) => void;
@@ -460,6 +499,7 @@ function PendingTab({
   onMerge: (p: Proposal) => void;
   onChange: (p: Proposal) => void;
   onDelete: (p: Proposal) => void;
+  onRestore: (p: Proposal) => void;
 }) {
   const t = useTranslations('admin_lab');
   if (items === null) return <p className="text-mute">{t('loading')}</p>;
@@ -501,12 +541,18 @@ function PendingTab({
               <button className="btn-ghost text-xs" onClick={() => onChange(p)}>
                 {t('actionOther')}
               </button>
-              <button
-                className="btn-ghost text-xs text-bad"
-                onClick={() => onDelete(p)}
-              >
-                {t('actionDelete')}
-              </button>
+              {estaRetirada(p) ? (
+                <button className="btn-ghost text-xs" onClick={() => onRestore(p)}>
+                  {t('devolver')}
+                </button>
+              ) : (
+                <button
+                  className="btn-ghost text-xs text-bad"
+                  onClick={() => onDelete(p)}
+                >
+                  {t('actionDelete')}
+                </button>
+              )}
             </>
           }
         />
@@ -606,6 +652,7 @@ function AllTab({
   onChangeStatus,
   onMerge,
   onDelete,
+  onRestore,
 }: {
   items: Proposal[] | null;
   /** Marcas blancas con propuestas (sin Clubify). Sin ninguna, no hay filtro. */
@@ -621,6 +668,7 @@ function AllTab({
   onChangeStatus: (p: Proposal) => void;
   onMerge: (p: Proposal) => void;
   onDelete: (p: Proposal) => void;
+  onRestore: (p: Proposal) => void;
 }) {
   const t = useTranslations('admin_lab');
   return (
@@ -687,12 +735,21 @@ function AllTab({
                 <button className="btn-ghost text-xs" onClick={() => onMerge(p)}>
                   {t('actionMerge')}
                 </button>
-                <button
-                  className="btn-ghost text-xs text-bad"
-                  onClick={() => onDelete(p)}
-                >
-                  {t('actionDelete')}
-                </button>
+                {estaRetirada(p) ? (
+                  <button
+                    className="btn-ghost text-xs"
+                    onClick={() => onRestore(p)}
+                  >
+                    {t('devolver')}
+                  </button>
+                ) : (
+                  <button
+                    className="btn-ghost text-xs text-bad"
+                    onClick={() => onDelete(p)}
+                  >
+                    {t('actionDelete')}
+                  </button>
+                )}
               </>
             }
           />

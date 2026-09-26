@@ -76,6 +76,21 @@ export const LAB_SOLO_ADMIN_DE_MARCA =
 export const LAB_SIN_ACCESO = 'No tienes acceso al Lab.';
 export const LAB_MODERACION_SOLO_PLATAFORMA =
   'La moderación del Lab es solo para el equipo de la plataforma.';
+/**
+ * Lo que queda en el sitio de una propuesta que la plataforma retiró.
+ *
+ * SÍ, DICE «CLUBIFY» A MANO, y es correcto aquí — que es justo lo contrario de
+ * la regla del resto del producto. El motivo: el Lab de una marca blanca lo usa
+ * SOLO su administrador general (`MARCA_ADMIN`), que es nuestro cliente directo
+ * y sabe perfectamente sobre qué está montado. Sus negocios y sus afiliados no
+ * entran aquí, y esa barrera la fija una prueba en `lab-access.spec.ts`. La
+ * regla de no nombrar a Clubify protege al CLIENTE FINAL de una marca, y el
+ * cliente final no ve el Lab.
+ *
+ * Quien retira es siempre la plataforma, no una marca: no hay marca que
+ * resolver, así que tampoco hay nada que se pueda inventar por defecto.
+ */
+export const LAB_RETIRADA_POR_LA_PLATAFORMA = 'Clubify la eliminó del panel.';
 export const LAB_SUPLANTACION_SOLO_LECTURA =
   'Entraste a esta marca desde el panel maestro: puedes ver su Lab, pero no proponer, votar ni comentar en nombre de su administrador.';
 // No nombra a nadie a propósito: lo lee un negocio de Clubify, y el motivo de

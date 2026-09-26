@@ -57,6 +57,13 @@ export type Proposal = {
   votesCount: number;
   commentsCount: number;
   rejectionReason: string | null;
+  /**
+   * Retirada del panel por la plataforma. No es un borrado: la propuesta sigue
+   * en la lista, en gris, para que quien la escribió sepa qué pasó con ella —
+   * antes desaparecía sin explicación y la volvía a mandar.
+   */
+  removedAt?: string | null;
+  removedReason?: string | null;
   lastStatusChangedAt: string | null;
   /** A qué estados se puede pasar DESDE el actual. Lo manda el backend: el
    *  panel ofrecía los 7 y elegir uno no permitido devolvía un 400 sin
@@ -81,6 +88,20 @@ export type ProposalDetail = Proposal & {
   /** false = propuesta de otra marca: se ve, pero no se vota ni se comenta. */
   canParticipate?: boolean;
 };
+
+/**
+ * Lo que se lee en el sitio de una propuesta retirada.
+ *
+ * Nombra a Clubify a propósito, que es lo contrario de la regla del resto del
+ * producto: el Lab de una marca blanca lo usa SOLO su administrador general,
+ * que es nuestro cliente directo. Sus negocios y sus afiliados no entran acá.
+ * El mismo texto está en `backend/src/lab/lab-access.ts`, con el porqué largo.
+ */
+export const RETIRADA_DEL_PANEL = 'Clubify la eliminó del panel.';
+
+export function estaRetirada(p: { removedAt?: string | null }): boolean {
+  return Boolean(p.removedAt);
+}
 
 export const STATUS_META: Record<
   LabStatus,

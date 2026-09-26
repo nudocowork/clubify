@@ -5592,7 +5592,13 @@
     "filterAllBrands": "Todas las marcas",
     "filterPlatform": "Plataforma",
     "targetProposal": "Propuesta destino",
-    "selectPlaceholder": "— Selecciona —"
+    "selectPlaceholder": "— Selecciona —",
+    "confirmRetirar": "¿Retirar «{title}» del panel?\n\nEn el Lab de la marca quedará su línea en gris con «Clubify la eliminó del panel». No se borra nada y puedes devolverla cuando quieras.",
+    "motivoRetirar": "Motivo (opcional). Se lo enseñamos a la marca:",
+    "toastRetirada": "Retirada del panel",
+    "toastDevuelta": "Devuelta al panel",
+    "retirada": "Retirada del panel",
+    "devolver": "Devolver al panel"
   },
   "admin_reports_vendors": {
     "pageTitle": "Reportes",

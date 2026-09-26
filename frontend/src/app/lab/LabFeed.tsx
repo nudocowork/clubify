@@ -11,11 +11,13 @@
  */
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getUser } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
   CATEGORY_META,
+  RETIRADA_DEL_PANEL,
   STATUS_META,
+  estaRetirada,
   PRIORITY_META,
   colorDeMarca,
   formatRelative,
@@ -64,6 +66,8 @@ export function LabFeed({
   detalleHref?: (id: string) => string;
 }) {
   const lab = useLabContexto();
+  // Para saber qué propuestas son SUYAS y ofrecerle borrarlas.
+  const miId: string | null = getUser()?.id ?? null;
   const contexto = lab.estado === 'listo' ? lab.contexto : null;
   const [category, setCategory] = useState<LabCategory>('CLIENTS');
   const [sortBy, setSortBy] = useState<SortBy>('top');
@@ -100,6 +104,41 @@ export function LabFeed({
       await load();
     } catch (e: any) {
       toast(e?.message ?? 'No se pudo cambiar el estado', 'error');
+    }
+  }
+
+  /**
+   * Borrar una propuesta PROPIA. Esta se borra de verdad, con sus votos y sus
+   * comentarios, y es otra cosa que «retirar del panel»: cuando la plataforma
+   * quita algo hay que explicárselo a la marca, y cuando uno borra lo suyo no
+   * hay a quién explicarle nada.
+   *
+   * El aviso dice lo que se pierde ANTES de pulsar, y si la propuesta ya se
+   * estaba trabajando lo dice con su nombre: borrarla se lleva también el
+   * seguimiento que lleva Clubify, y eso no se ve venir.
+   */
+  async function borrar(p: Proposal) {
+    const enMarcha = ['APPROVED', 'IN_DEVELOPMENT', 'IN_TESTING'].includes(
+      p.status,
+    );
+    const ok = window.confirm(
+      `¿Borrar «${p.title}»?
+
+` +
+        (enMarcha
+          ? `Está en «${STATUS_META[p.status].label}»: si la borras, Clubify también pierde su seguimiento.
+
+`
+          : '') +
+        'Se borra para siempre, con sus votos y sus comentarios. No se puede deshacer.',
+    );
+    if (!ok) return;
+    try {
+      await api(`/lab/proposals/${p.id}`, { method: 'DELETE' });
+      toast('Propuesta borrada', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo borrar', 'error');
     }
   }
 
@@ -232,6 +271,15 @@ export function LabFeed({
             proposal={p}
             href={detalleHref(p.id)}
             onMover={(prop, estado) => void mover(prop, estado)}
+            // Solo lo suyo, solo si no está ya retirada, y nunca desde una
+            // sesión suplantada: borraría a nombre de otro.
+            onBorrar={
+              p.author.id === miId &&
+              !estaRetirada(p) &&
+              !lab.contexto.soloLectura
+                ? (prop) => void borrar(prop)
+                : undefined
+            }
           />
         ))}
       </div>
@@ -272,17 +320,24 @@ function ProposalCard({
   proposal,
   href,
   onMover,
+  onBorrar,
 }: {
   proposal: Proposal;
   href: string;
   onMover?: (p: Proposal, estado: LabStatus) => void;
+  /** Solo se pasa cuando la propuesta es SUYA y se puede borrar. */
+  onBorrar?: (p: Proposal) => void;
 }) {
   const meta = STATUS_META[proposal.status];
   const cat = CATEGORY_META[proposal.category];
-  const adelante = pasosAdelante(proposal);
+  const retirada = estaRetirada(proposal);
+  // Una retirada no se mueve de estado: está fuera del panel.
+  const adelante = retirada ? [] : pasosAdelante(proposal);
   return (
     <div
-      className={`card block transition ${proposal.brand ? NARANJA_MARCA.fila : ''}`}
+      className={`card block transition ${proposal.brand ? NARANJA_MARCA.fila : ''} ${
+        retirada ? 'opacity-60' : ''
+      }`}
     >
     <Link
       href={href}
@@ -313,12 +368,26 @@ function ProposalCard({
               ● {PRIORITY_META[proposal.priority].label}
             </span>
           </div>
-          <h3 className="text-base font-semibold text-ink mb-1 line-clamp-2">
+          <h3
+            className={`text-base font-semibold text-ink mb-1 line-clamp-2 ${
+              retirada ? 'line-through' : ''
+            }`}
+          >
             {proposal.title}
           </h3>
-          <p className="text-sm text-mute line-clamp-2 mb-2">
-            {proposal.description}
-          </p>
+          {/* LA LÁPIDA. Antes la propuesta desaparecía sin más y quien la
+              escribió no sabía si se había enviado mal, si se había perdido o
+              si alguien la había quitado — y la volvía a mandar. */}
+          {retirada ? (
+            <p className="text-sm text-mute mb-2">
+              <span className="font-semibold">{RETIRADA_DEL_PANEL}</span>
+              {proposal.removedReason ? ` ${proposal.removedReason}` : ''}
+            </p>
+          ) : (
+            <p className="text-sm text-mute line-clamp-2 mb-2">
+              {proposal.description}
+            </p>
+          )}
           <div className="text-xs text-mute2 flex gap-3 flex-wrap">
             <span>Por {proposal.author.fullName}</span>
             <span>{formatRelative(proposal.createdAt)}</span>
@@ -329,17 +398,26 @@ function ProposalCard({
         </div>
       </div>
     </Link>
-      {onMover && adelante.length > 0 && (
-        <div className="px-4 pb-3 flex gap-2 flex-wrap">
-          {adelante.map((e) => (
+      {((onMover && adelante.length > 0) || onBorrar) && (
+        <div className="px-4 pb-3 flex gap-2 flex-wrap items-center">
+          {onMover &&
+            adelante.map((e) => (
+              <button
+                key={e}
+                className="btn-primary text-xs"
+                onClick={() => onMover(proposal, e)}
+              >
+                → {STATUS_META[e].label}
+              </button>
+            ))}
+          {onBorrar && (
             <button
-              key={e}
-              className="btn-primary text-xs"
-              onClick={() => onMover(proposal, e)}
+              className="text-xs font-semibold text-bad hover:underline ml-auto"
+              onClick={() => onBorrar(proposal)}
             >
-              → {STATUS_META[e].label}
+              Borrar
             </button>
-          ))}
+          )}
         </div>
       )}
     </div>

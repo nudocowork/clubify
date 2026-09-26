@@ -5592,7 +5592,13 @@
     "filterAllBrands": "Todas as marcas",
     "filterPlatform": "Plataforma",
     "targetProposal": "Proposta de destino",
-    "selectPlaceholder": "— Selecione —"
+    "selectPlaceholder": "— Selecione —",
+    "confirmRetirar": "Retirar «{title}» do painel?\n\nNo Lab da marca ficará a sua linha em cinza com «Clubify a eliminou do painel». Nada é apagado e pode devolvê-la quando quiser.",
+    "motivoRetirar": "Motivo (opcional). Mostramos-lho à marca:",
+    "toastRetirada": "Retirada do painel",
+    "toastDevuelta": "Devolvida ao painel",
+    "retirada": "Retirada do painel",
+    "devolver": "Devolver ao painel"
   },
   "admin_reports_vendors": {
     "pageTitle": "Relatórios",

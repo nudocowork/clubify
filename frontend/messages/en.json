@@ -5592,7 +5592,13 @@
     "filterAllBrands": "All brands",
     "filterPlatform": "Platform",
     "targetProposal": "Target proposal",
-    "selectPlaceholder": "— Select —"
+    "selectPlaceholder": "— Select —",
+    "confirmRetirar": "Remove “{title}” from the panel?\n\nThe brand's Lab will keep a greyed-out line reading “Clubify removed it from the panel”. Nothing is deleted and you can restore it any time.",
+    "motivoRetirar": "Reason (optional). We show it to the brand:",
+    "toastRetirada": "Removed from the panel",
+    "toastDevuelta": "Restored to the panel",
+    "retirada": "Removed from the panel",
+    "devolver": "Restore to the panel"
   },
   "admin_reports_vendors": {
     "pageTitle": "Reports",

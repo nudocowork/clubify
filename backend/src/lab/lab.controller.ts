@@ -165,6 +165,23 @@ export class LabController {
     return this.svc.subirAdjunto(user, file);
   }
 
+  /**
+   * El AUTOR borra una propuesta suya, y esta se borra DE VERDAD, con sus votos
+   * y sus comentarios.
+   *
+   * Es lo contrario de `DELETE /admin/lab/proposals/:id`, que solo la retira
+   * del panel y deja rastro: cuando la plataforma quita algo hay que
+   * explicárselo a la marca, y cuando el autor borra lo suyo no hay a quién
+   * explicarle nada. El caso que lo pidió era limpiar las de prueba.
+   *
+   * Va en la ruta pública y no en la de admin a propósito: quien la llama es el
+   * autor, no quien modera.
+   */
+  @Delete('proposals/:id')
+  deleteOwn(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteOwnProposal(id, user);
+  }
+
   @Post('proposals/:id/vote')
   vote(
     @CurrentUser() user: AuthUser,

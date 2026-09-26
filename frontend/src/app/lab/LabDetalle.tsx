@@ -16,7 +16,9 @@ import {
   CATEGORY_META,
   NARANJA_MARCA,
   PRIORITY_META,
+  RETIRADA_DEL_PANEL,
   STATUS_META,
+  estaRetirada,
   VOTE_META,
   formatRelative,
   type LabVoteKind,
@@ -93,7 +95,10 @@ export function LabDetalle({
 
   const meta = STATUS_META[data.status];
   const cat = CATEGORY_META[data.category];
-  const participa = data.canParticipate !== false;
+  const retirada = estaRetirada(data);
+  // Una retirada es una lápida, no un hilo abierto: el backend rechaza el
+  // voto y el comentario, así que la pantalla no debe ofrecerlos.
+  const participa = data.canParticipate !== false && !retirada;
 
   return (
     <div>
@@ -145,6 +150,12 @@ export function LabDetalle({
               </div>
             )}
             <AdjuntoLab url={data.attachmentUrl} kind={data.attachmentKind} />
+            {retirada && (
+              <div className="mt-4 p-3 bg-bad-soft text-bad-ink rounded-lg text-sm">
+                <b>{RETIRADA_DEL_PANEL}</b>
+                {data.removedReason ? ` ${data.removedReason}` : ''}
+              </div>
+            )}
             {data.rejectionReason && data.status === 'REJECTED' && (
               <div className="mt-4 p-3 bg-bad-soft text-bad-ink rounded-lg text-sm">
                 <b>Motivo de rechazo:</b> {data.rejectionReason}

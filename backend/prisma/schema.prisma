@@ -5760,6 +5760,24 @@ model LabProposal {
   votesScore            Int         @default(0)
   votesCount            Int         @default(0)
   commentsCount         Int         @default(0)
+  /// RETIRADA DEL PANEL POR LA PLATAFORMA. No es un borrado: la fila se queda.
+  ///
+  /// Cuando Clubify quitaba una propuesta de una marca, la fila se BORRABA, así
+  /// que en el Lab de Sellea simplemente desaparecía. Humberto no sabía si se
+  /// había enviado mal, si se había perdido o si alguien la había quitado — y
+  /// volvía a proponerla. Javier lo pidió así (2026-09-25): que en su sitio
+  /// quede «Clubify la eliminó del panel».
+  ///
+  /// El borrado de VERDAD sigue existiendo, pero solo para el AUTOR y solo
+  /// sobre lo suyo: él sabe que la borró, no hay a quién explicarle nada.
+  removedAt             DateTime?
+  /// Quién la retiró. `String` suelto y no una relación a `User` a propósito:
+  /// es un dato de registro, y una relación más sobre `User` obliga a tocar ese
+  /// modelo por algo que solo se pinta como texto.
+  removedById           String?
+  /// Motivo opcional, y se le enseña a la marca. Opcional porque exigirlo hace
+  /// que alguien escriba «.» para salir del paso.
+  removedReason         String?   @db.Text
   /// Snapshot del último admin que cambió status (para mostrar quién lo movió).
   lastStatusChangedById String?
   lastStatusChangedBy   User?       @relation("LabProposalLastStatusChanger", fields: [lastStatusChangedById], references: [id], onDelete: SetNull)

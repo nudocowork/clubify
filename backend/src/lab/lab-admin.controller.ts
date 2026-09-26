@@ -58,6 +58,16 @@ class ListAdminQuery {
   page?: number;
 }
 
+/**
+ * Retirar del panel acepta un motivo, y ese motivo SE LE ENSEÑA A LA MARCA: es
+ * la diferencia entre «desapareció» y «nos dijeron por qué». Opcional, porque
+ * exigirlo haría que alguien escriba «.» para salir del paso y entonces el
+ * campo miente en vez de estar vacío.
+ */
+class RetirarDto {
+  @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+
 class SetStatusDto {
   @IsEnum([
     'PENDING',
@@ -117,9 +127,27 @@ export class LabAdminController {
     return this.svc.mergeProposals(src, dst, user);
   }
 
+  /**
+   * RETIRA la propuesta del panel. No la borra: en el Lab de la marca queda su
+   * línea con «Clubify la eliminó del panel» y el motivo.
+   *
+   * Sigue siendo `DELETE` porque es lo que el panel ya llama y porque para
+   * quien lo pulsa la acción es «eliminar». Lo que cambia es que ahora deja
+   * rastro para quien la escribió.
+   */
   @Delete('proposals/:id')
-  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.deleteProposal(id, user);
+  remove(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: RetirarDto,
+  ) {
+    return this.svc.removeProposal(id, user, body?.reason);
+  }
+
+  /** Deshace la retirada. Retirar sin deshacer sería un viaje de ida. */
+  @Post('proposals/:id/restaurar')
+  restore(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.restoreProposal(id, user);
   }
 
   @Get('metrics')
