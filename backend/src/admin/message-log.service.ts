@@ -123,6 +123,37 @@ export class MessageLogService {
     }
 
     const q = f.q?.trim();
+    // BUSCAR POR NEGOCIO. Antes la búsqueda solo miraba el texto del mensaje y
+    // su destinatario, así que escribir el nombre de un negocio devolvía «lo
+    // que CASUALMENTE lo menciona», no «lo suyo». Y eso miente de una forma
+    // muy concreta:
+    //
+    //   Javier buscó «oasis» y vio 5 correos y ningún SMS, y dio por hecho que
+    //   los SMS no salían. Sí salieron —tres, los mismos días—, pero el texto
+    //   de un SMS de cobro dice «tu suscripción de Clubify» y nunca nombra al
+    //   negocio, mientras que el del correo sí. El canal que menos se nombra a
+    //   sí mismo era el que parecía roto.
+    //
+    // `MessageLog.tenantId` es un String suelto, sin relación en Prisma, así
+    // que no se puede filtrar por el negocio dentro del mismo `where`: hay que
+    // resolver los ids antes. El tope evita que una letra suelta traiga los
+    // 136 negocios a memoria.
+    const idsDelNegocio = q
+      ? (
+          await this.prisma.tenant.findMany({
+            where: {
+              OR: [
+                { brandName: { contains: q, mode: 'insensitive' } },
+                { name: { contains: q, mode: 'insensitive' } },
+                { slug: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            select: { id: true },
+            take: 200,
+          })
+        ).map((x) => x.id)
+      : [];
+
     const qWhere = q
       ? {
           OR: [
@@ -132,6 +163,9 @@ export class MessageLogService {
             { preview: { contains: q, mode: 'insensitive' as const } },
             { error: { contains: q, mode: 'insensitive' as const } },
             { templateId: { contains: q, mode: 'insensitive' as const } },
+            ...(idsDelNegocio.length
+              ? [{ tenantId: { in: idsDelNegocio } }]
+              : []),
           ],
         }
       : null;
