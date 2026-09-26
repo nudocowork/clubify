@@ -8,6 +8,74 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-26 (77) — Lab: eliminar deja rastro · y el recorrido de la credencial
+
+Dos bloques: el Lab (`bc56a93e`) y el repaso del camino del cliente con la
+Tarjeta Informativa (`51715f4a`).
+
+### ⚠️ VAN TRES MIGRACIONES SIN APLICAR
+
+Las tres antes de desplegar el backend, el orden da igual:
+
+```bash
+cd backend
+railway run --service Postgres-Nq8w node scripts/apply-delivery-hours-migration.cjs
+railway run --service Postgres-Nq8w node scripts/apply-tarjeta-informativa-migration.cjs
+railway run --service Postgres-Nq8w node scripts/apply-lab-removed-migration.cjs
+```
+
+### El Lab: retirar ≠ borrar
+
+El botón de eliminar ya existía y hacía un `delete`. En el Lab de Sellea la
+propuesta desaparecía sin explicación, así que Humberto la volvía a mandar.
+
+**Ahora son dos caminos distintos, y conviene no confundirlos:**
+
+- `DELETE /admin/lab/proposals/:id` **RETIRA** (la plataforma). No borra nada:
+  en la lista de la marca queda su línea en gris con «Clubify la eliminó del
+  panel» y el motivo. Se puede deshacer con `POST .../restaurar`.
+- `DELETE /lab/proposals/:id` **BORRA** (el autor, solo lo suyo). Esta sí se
+  lleva la fila, sus votos y sus comentarios.
+
+Una retirada deja de admitir votos, comentarios, cambios de estado y fusiones, y
+no cuenta en las métricas.
+
+**El texto dice «Clubify» a mano y es correcto**, que es lo contrario de la regla
+del resto del producto: el Lab de una marca blanca lo usa SOLO su administrador
+general, que es nuestro cliente directo. Sus negocios y afiliados no entran, y
+eso lo fija una prueba. Está explicado en `lab-access.ts`.
+
+### El recorrido de la credencial: tres cosas estaban rotas
+
+Degodoy **existe en producción** (`degodoy-sas`, restaurante de Bucaramanga,
+3 clientes, 1 sede con geocerco de 300 m, marca Clubify).
+
+1. **El cajero no podía leerla.** El backend mandaba `kind: 'info'` y el escáner
+   no conocía ese valor: caía en «esta versión del escáner no sabe mostrar este
+   tipo de tarjeta», con el cliente delante. Ya tiene su pantalla.
+2. **«🎁 Cliente distinguido»** en la página de alta: `rewardText` se pintaba
+   con un regalo, y en una credencial ese campo es la distinción, no un premio.
+3. **«empieza a acumular»** en el formulario de una tarjeta que no acumula nada.
+
+Hay 13 pruebas que leen el `pass.json` REAL (sin certificados de Apple,
+`generateApplePass` lo devuelve en claro). Es la única forma de comprobar lo que
+se le instala al cliente: la vista previa del panel es otra pantalla y ya nos ha
+mentido una vez.
+
+### Tres cosas que vi de paso y NO toqué
+
+- **~40 negocios tienen `businessCategorySlug` que no existe en el código**
+  (`restaurante` 19, `cafeteria` 9, `joyeria`, `telefonia-y-accesorios`,
+  `heladeria`…). `getCategoryBySlug` los cae todos al respaldo `restaurant`, así
+  que una joyería ve «Menú» y «Pedidos» en su panel. Degodoy es uno de ellos —
+  por suerte ese respaldo sí incluye Tarjetas, y su recorrido funciona.
+- **La tarjeta de sellos que Degodoy ya tiene lleva `stampsRequired: null`.**
+  Si alguien se diera de alta hoy, su pase diría «0/10»: diez sellos que nadie
+  configuró. Tiene 0 pases, así que nadie lo ha visto.
+- El geocerco de su sede **no tiene texto de cercanía propio**, y el respaldo
+  nombra al negocio («Estás cerca de Degodoy»), no a la plataforma. Bien. Queda
+  fijado con una prueba.
+
 ## 2026-09-25 (76) — Tarjeta Informativa + una fuga de marca que ya estaba
 
 Encargo de Javier: una credencial digital que **no acumula nada**. Ni sellos,
