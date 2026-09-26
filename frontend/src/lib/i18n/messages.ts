@@ -147,6 +147,12 @@ export const messages = {
 
     // Card join (/c/[cardId])
     'card.join_title': 'Únete al programa',
+    // La credencial NO acumula nada: «empieza a acumular» sería mentira, y
+    // «únete al programa» convierte una credencial de un restaurante de
+    // mantel en una tarjeta de sellos.
+    'card.info_join_title': 'Recibe tu credencial',
+    'card.info_join_sub': 'Completa tus datos y la guardas en tu teléfono.',
+    'card.info_submit': 'Quiero mi credencial',
     'card.join_sub': 'Completa tus datos y empieza a acumular',
     'card.full_name': 'Nombre completo',
     'card.phone': 'Teléfono / WhatsApp',
@@ -387,6 +393,9 @@ export const messages = {
 
     // Card join
     'card.join_title': 'Join the rewards program',
+    'card.info_join_title': 'Get your card',
+    'card.info_join_sub': 'Fill in your details and keep it on your phone.',
+    'card.info_submit': 'Get my card',
     'card.join_sub': 'Complete your details and start earning',
     'card.full_name': 'Full name',
     'card.phone': 'Phone / WhatsApp',
@@ -626,6 +635,9 @@ export const messages = {
 
     // Card join
     'card.join_title': 'Entre no programa',
+    'card.info_join_title': 'Receba a sua credencial',
+    'card.info_join_sub': 'Preencha os seus dados e guarde-a no telemóvel.',
+    'card.info_submit': 'Quero a minha credencial',
     'card.join_sub': 'Preencha seus dados e comece a acumular',
     'card.full_name': 'Nome completo',
     'card.phone': 'Telefone / WhatsApp',
@@ -865,6 +877,9 @@ export const messages = {
 
     // Card join
     'card.join_title': 'Iscriviti al programma',
+    'card.info_join_title': 'Ricevi la tua tessera',
+    'card.info_join_sub': 'Compila i tuoi dati e conservala sul telefono.',
+    'card.info_submit': 'Voglio la mia tessera',
     'card.join_sub': 'Compila i tuoi dati e inizia ad accumulare',
     'card.full_name': 'Nome completo',
     'card.phone': 'Telefono / WhatsApp',

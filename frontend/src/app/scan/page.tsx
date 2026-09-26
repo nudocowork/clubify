@@ -1,4 +1,5 @@
 'use client';
+import { textoDeLaCredencial } from '@/lib/credencial.mjs';
 import { useEffect, useRef, useState } from 'react';
 import { api, getUser, setSession, clearSession } from '@/lib/api';
 import {
@@ -35,7 +36,11 @@ type ScanKind =
   | 'club'
   | 'convenio'
   | 'cuponera'
-  | 'reserva';
+  | 'reserva'
+  // Tarjeta Informativa: una credencial que no acumula nada. Sin esta rama
+  // caía en la red de seguridad de abajo y el cajero leía «esta versión del
+  // escáner no sabe mostrar este tipo de tarjeta» — que suena a escáner roto.
+  | 'info';
 
 // `unidad` viene en SINGULAR del plan del club («café», «clase», «lavada»).
 // Pluralización mínima vocal→+s / consonante→+es: alcanza para las unidades
@@ -950,7 +955,10 @@ export default function ScanPage() {
     !esReservaSinTarjeta &&
     kind !== 'club' &&
     kind !== 'convenio' &&
-    kind !== 'cuponera';
+    kind !== 'cuponera' &&
+    kind !== 'info';
+  /** Credencial: se identifica a la persona y no se sella nada. */
+  const esCredencial = !!data && kind === 'info' && !!data.pass;
 
   return (
     <div className="min-h-screen bg-bg">
@@ -1950,6 +1958,57 @@ export default function ScanPage() {
             {typeof data?.message === 'string' && data.message && (
               <div className="text-sm text-mute mt-3 leading-relaxed">{data.message}</div>
             )}
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* CREDENCIAL (Tarjeta Informativa).
+            No se sella ni se canjea: lo único que hace el cajero es comprobar
+            que la persona es quien dice. Así que la pantalla es el NOMBRE en
+            grande y nada más — sin botones que aquí no significan nada.
+
+            Si está retirada, se dice en rojo y arriba: un cajero que ve la
+            tarjeta bonita da por bueno el trato, y esa es justo la decisión
+            que esta pantalla tiene que ayudar a tomar. */}
+        {esCredencial && data?.pass && (
+          <div className="card card-pad mt-3 text-center">
+            {data.pass.status === 'REVOKED' ? (
+              <>
+                <div className="text-3xl mb-2">🚫</div>
+                <div className="font-semibold text-bad">
+                  Credencial desactivada
+                </div>
+                <div className="text-sm text-mute mt-1">
+                  Esta credencial ya no está vigente.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-3xl mb-2">🪪</div>
+                <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+                  {data.pass.card?.name || 'Credencial'}
+                </div>
+              </>
+            )}
+            <div className="text-xl font-bold mt-2 leading-tight break-words">
+              {data.pass.customer?.fullName || '—'}
+            </div>
+            {data.pass.status !== 'REVOKED' && (
+              <div className="text-sm text-mute mt-1">
+                {textoDeLaCredencial({
+                  revocada: false,
+                  textoDelNegocio: data.pass.card?.rewardText,
+                })}
+              </div>
+            )}
+            <div className="text-[11px] text-mute2 font-mono mt-3">
+              {data.pass.serialNumber}
+            </div>
             <button
               className="btn-link mt-4 w-full justify-center text-sm"
               onClick={scanAnother}

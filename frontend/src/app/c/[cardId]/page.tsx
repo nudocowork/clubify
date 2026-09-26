@@ -190,7 +190,12 @@ const BrandHeader = memo(function BrandHeader({
         )}
         {ready && card!.rewardText && (
           <div className="mt-4 sm:mt-5 inline-flex max-w-full items-center bg-white/15 backdrop-blur rounded-pill px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium animate-in fade-in duration-300">
-            <span className="mr-1.5 flex-none">🎁</span>
+            {/* En una credencial, `rewardText` NO es un premio: es la
+                distinción («Cliente distinguido»). Con el regalo se leía como
+                un obsequio que el negocio no va a entregar. */}
+            <span className="mr-1.5 flex-none">
+              {card!.type === 'INFO' ? '🪪' : '🎁'}
+            </span>
             <span className="break-words">{card!.rewardText}</span>
           </div>
         )}
@@ -256,6 +261,7 @@ const FormFields = memo(function FormFields({
   dataPolicyEnabled,
   dataPolicyHref,
   requireContactFields,
+  esCredencial,
   onFirstInput,
   onSubmit,
 }: {
@@ -268,6 +274,12 @@ const FormFields = memo(function FormFields({
   // Sellea exige correo + cumpleaños obligatorios (decisión del dueño,
   // 2026-08-30). Solo Sellea — en las demás marcas siguen siendo opcionales.
   requireContactFields: boolean;
+  /**
+   * Es una Tarjeta Informativa. Cambia los TEXTOS, no el formulario: los datos
+   * que se piden son los mismos, pero «únete al programa» y «empieza a
+   * acumular» no describen una credencial — y lo segundo es directamente falso.
+   */
+  esCredencial: boolean;
   onFirstInput: () => void;
   onSubmit: (data: SubmitPayload) => Promise<void>;
 }) {
@@ -352,9 +364,11 @@ const FormFields = memo(function FormFields({
   return (
     <form onSubmit={submit} className="card shadow-xl p-4 sm:p-6">
       <h2 className="text-base sm:text-lg font-bold">
-        {tt('card.join_title')}
+        {tt(esCredencial ? 'card.info_join_title' : 'card.join_title')}
       </h2>
-      <p className="text-xs text-mute mt-1">{tt('card.join_sub')}</p>
+      <p className="text-xs text-mute mt-1">
+        {tt(esCredencial ? 'card.info_join_sub' : 'card.join_sub')}
+      </p>
 
       <div className="mt-4 sm:mt-5 space-y-3">
         <div>
@@ -523,7 +537,7 @@ const FormFields = memo(function FormFields({
             ? tt('card.submitting')
             : !ready
             ? tt('card.verifying')
-            : tt('card.submit') + ' →'}
+            : tt(esCredencial ? 'card.info_submit' : 'card.submit') + ' →'}
         </button>
       </div>
     </form>
@@ -806,6 +820,7 @@ export default function EnrollPage() {
           dataPolicyEnabled={!!card && card.dataPolicyEnabled !== false}
           dataPolicyHref={card?.tenant?.dataPolicyUrl || '/legal/tratamiento-datos'}
           requireContactFields={requireContactFields}
+          esCredencial={card?.type === 'INFO'}
           onFirstInput={onFirstInput}
           onSubmit={onSubmitForm}
         />
