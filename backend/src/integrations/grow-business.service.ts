@@ -463,12 +463,39 @@ export class GrowBusinessService {
       // único sitio por el que pasan todos los envíos, evita tener que revisar
       // los veinte llamadores uno a uno y que a alguno se le olvide.
       this.logger.log(`SMS no enviado a ${toPhone}: sin texto (plantilla apagada o vacía)`);
+      // SE REGISTRA. Antes esta salida —y la de «no molestar», debajo— eran las
+      // DOS ÚNICAS que no dejaban fila, así que el mensaje desaparecía sin
+      // rastro y «Mensajes enviados» contestaba que no había salido nada. Esa
+      // pantalla existe justo para responder «¿esto salió?»: cuando calla, se
+      // lee como un diagnóstico y no como un hueco. Las demás salidas de este
+      // método ya registraban.
+      await this.registrarEnvio({
+        channel: 'SMS',
+        ok: false,
+        locationId: creds.locationId || '',
+        toPhone,
+        body: '',
+        error: 'plantilla apagada o sin texto',
+        ctx,
+      });
       return { ok: false as const, message: 'mensaje vacío: plantilla apagada o sin texto' };
     }
     if (await this.estaBloqueado(toPhone)) {
       this.logger.log(
         `SMS no enviado: ${toPhone} esta en la lista de no molestar`,
       );
+      // Se registra por lo mismo que arriba: es una decisión nuestra, no un
+      // fallo del proveedor, y quien mire la pantalla tiene que poder ver que
+      // el mensaje se cortó AQUÍ y por qué.
+      await this.registrarEnvio({
+        channel: 'SMS',
+        ok: false,
+        locationId: creds.locationId || '',
+        toPhone,
+        body,
+        error: 'numero en la lista de no molestar',
+        ctx,
+      });
       return { ok: false as const, message: 'numero en la lista de no molestar' };
     }
     if (ctx?.destinatarioSinVerificar) {
