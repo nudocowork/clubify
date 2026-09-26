@@ -8,6 +8,60 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-26 (80) — Sacar la lista de próximos cobros · y el aviso al cancelar
+
+Todo desplegado. Backend `15faefa`, frontend build `EESBcYWVbpb4NOtt7vOMl`,
+prueba de humo en verde.
+
+### La lista de próximos cobros (`966fc6b4`)
+
+Sara leía la tabla y le pasaba los negocios a Samu **uno a uno**. Ahora hay
+«Copiar lista» y «Exportar CSV» en la pestaña, con **solo tres campos**:
+nombre, próxima fecha y plan. Lo demás es de Contabilidad, no del recado.
+
+Copiar va primero a propósito: es lo que resuelve el problema (se pega en
+WhatsApp). Lleva respaldo por si el navegador bloquea el portapapeles.
+
+**El fallo que cazó una prueba:** una fecha a medianoche UTC se pinta «26 de
+septiembre» en Colombia — toda la lista un día antes. La zona va explícita
+(`America/Bogota`) y la prueba compara contra **el mismo formateador que usa la
+tabla**, no contra un día escrito a mano: lo que no puede pasar es que la lista
+diga una cosa y la pantalla otra.
+
+Dato útil: en producción las fechas de cobro se guardan a las **12:00 UTC**
+—mediodía, la convención de Contabilidad— justo para que el día no se mueva.
+
+### Al cancelar, el panel ya dice hasta cuándo (`67e4b478`)
+
+`/billing/status` devuelve `canceledAt` y `canceladaHasta`, y el banner del
+panel lo pinta con la fecha. Antes el negocio cancelaba, seguía viéndolo todo
+normal y no sabía hasta cuándo — parecía que la cancelación no se había
+guardado.
+
+### ⚠ El despliegue del backend FALLÓ la primera vez, y fue por un .spec.ts
+
+`new BillingService(...)` con doce argumentos cuando toma seis. El build de
+Railway lo cazó y producción se quedó con la imagen anterior — hizo lo
+correcto.
+
+**Por qué se escapó:** creé el archivo de pruebas y NO volví a compilar. Corrí
+vitest (que no chequea tipos) y eslint, pero el último `tsc` era de antes de
+que el archivo existiera. No fue el caché ni un tsconfig distinto: hay uno solo
+y detecta el error perfectamente.
+
+**La regla: `tsc` es el ÚLTIMO paso antes de commitear.** Y en el backend, como
+lo corre Railway:
+
+```bash
+rm -f tsconfig.tsbuildinfo && npx tsc --noEmit -p tsconfig.json
+```
+
+### Y una falsa alarma, por si la ves
+
+La prueba de humo tras desplegar el frontend tardó 54 s en el menú de
+domicilios (antes 11 s). Es **arranque en frío**: medido dos veces después, por
+debajo del segundo. No es una regresión.
+
 ## 2026-09-26 (79) — DESPLEGADO. Las 3 migraciones aplicadas y los 2 cartones cerrados
 
 **Ya no hay nada pendiente de desplegar de estos tres días.** Las 23 cosas que
