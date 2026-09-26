@@ -13,14 +13,34 @@
 Todo desplegado. Backend `15faefa`, frontend build `EESBcYWVbpb4NOtt7vOMl`,
 prueba de humo en verde.
 
-### La lista de próximos cobros (`966fc6b4`)
+### La lista de próximos cobros (`966fc6b4`, en Excel desde `f246fe77`)
 
 Sara leía la tabla y le pasaba los negocios a Samu **uno a uno**. Ahora hay
-«Copiar lista» y «Exportar CSV» en la pestaña, con **solo tres campos**:
+«Copiar lista» y «Descargar Excel» en la pestaña, con **solo tres campos**:
 nombre, próxima fecha y plan. Lo demás es de Contabilidad, no del recado.
 
 Copiar va primero a propósito: es lo que resuelve el problema (se pega en
 WhatsApp). Lleva respaldo por si el navegador bloquea el portapapeles.
+
+**El Excel trajo una dependencia nueva**, `write-excel-file` (1,8 MB). Se
+descartaron `exceljs` (22 MB) y `xlsx`/SheetJS (7,5 MB, **congelado en 2022 en
+npm y con avisos de seguridad**; la versión mantenida vive fuera de npm). Se
+carga con `import()` DENTRO del click, así que no viaja en el paquete de quien
+abre Contabilidad y nunca exporta.
+
+Dos cosas de esa librería que costaron dos intentos y conviene no redescubrir:
+**no tiene entrada raíz** —hay que importar `write-excel-file/browser`, porque
+la de node pide `fs`— y el nombre del archivo va en `.toFile(nombre)`, no en
+las opciones de la hoja.
+
+La fecha va como **`Date` de verdad**, no como texto: es la razón de peso para
+que sea xlsx. Para la fila sin fecha se manda una celda de texto vacía — con
+`{ type: Date, value: null }` la librería revienta.
+
+**Se comprobó que el archivo ABRE**, no se supuso: se generó uno con tildes y
+comillas y se inspeccionó por dentro (firma ZIP, las ocho piezas del OOXML,
+integridad y contenido). Un `.xlsx` corrupto no avisa: se descubre delante de
+quien lo recibe.
 
 **El fallo que cazó una prueba:** una fecha a medianoche UTC se pinta «26 de
 septiembre» en Colombia — toda la lista un día antes. La zona va explícita
