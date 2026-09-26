@@ -52,14 +52,29 @@ describe('seVeEnConfiguracion', () => {
     }
   });
 
-  it('esconde las seis secciones de otros módulos al negocio de solo InfoLink', () => {
-    expect(seVeEnConfiguracion('politicaDeDatos', 'INFOLINK')).toBe(false);
-    expect(seVeEnConfiguracion('telefonoDeReservas', 'INFOLINK')).toBe(false);
-    expect(seVeEnConfiguracion('alertasDePago', 'INFOLINK')).toBe(false);
-    expect(seVeEnConfiguracion('paisYMoneda', 'INFOLINK')).toBe(false);
-    expect(seVeEnConfiguracion('sellosPorDia', 'INFOLINK')).toBe(false);
-    expect(seVeEnConfiguracion('nombreDeSeccionPrincipal', 'INFOLINK')).toBe(false);
-    expect(SECCIONES_CONFIG_OCULTAS_SOLO_INFOLINK).toHaveLength(6);
+  it('esconde al negocio de solo InfoLink lo que no es suyo', () => {
+    // Cada sección oculta, UNA POR UNA. La lista se comprueba entera y no con
+    // un número: la versión anterior decía `toHaveLength(6)` y se quedó vieja
+    // sin que nadie se enterara —entraron `telefonosDePedidos` y
+    // `horarioDeDomicilios` después—, así que la suite llevaba días en rojo y
+    // se veía verde en cuanto corrías solo tu carpeta.
+    //
+    // Nombrarlas obliga a quien añada una a pasar por aquí y decidir si un
+    // negocio de solo InfoLink tiene que verla. Un número solo obliga a
+    // sumar uno.
+    for (const seccion of SECCIONES_CONFIG_OCULTAS_SOLO_INFOLINK) {
+      expect(seVeEnConfiguracion(seccion, 'INFOLINK')).toBe(false);
+    }
+    expect([...SECCIONES_CONFIG_OCULTAS_SOLO_INFOLINK].sort()).toEqual([
+      'alertasDePago',
+      'horarioDeDomicilios',
+      'nombreDeSeccionPrincipal',
+      'paisYMoneda',
+      'politicaDeDatos',
+      'sellosPorDia',
+      'telefonoDeReservas',
+      'telefonosDePedidos',
+    ]);
   });
 
   it('le deja al InfoLink lo que sí usa: cuenta, marca, idioma y sesión', () => {
