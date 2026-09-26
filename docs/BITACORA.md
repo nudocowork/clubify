@@ -8,6 +8,64 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-26 (79) — DESPLEGADO. Las 3 migraciones aplicadas y los 2 cartones cerrados
+
+**Ya no hay nada pendiente de desplegar de estos tres días.** Las 23 cosas que
+se habían acumulado están en producción.
+
+### Lo que se aplicó, en este orden
+
+1. **Las tres migraciones**, todas verificadas en cero después:
+   `Tenant.deliveryHours` · `CardType.'INFO'` + `Tenant.infoCardEnabled` +
+   `Pass.revokedAt`/`revokedBy` · `LabProposal.removedAt`/`removedById`/
+   `removedReason`.
+2. **Backend** — `07bd07d`, y un segundo despliegue con `67e4b478`.
+3. **Frontend** — build `6RCYcK7Pw_G4-PeBwE3i9`. Prueba de humo en verde
+   (menú de domicilios, menú de mesa, login del escáner) y los tres dominios
+   de marca respondiendo.
+
+### Los dos cartones sin tope: CERRADOS
+
+`scripts/poner-tope-a-cartones-sin-tope.cjs`, ejecutado. Descomunal (59 pases)
+y Degodoy (0) pasan a tope 10. **Cuadre sin cambios**: 145 tarjetas de sellos,
+8805 pases, 11951 sellos.
+
+A los dos clientes que van por 8 no les cambia nada de lo que ya veían: siguen
+necesitando dos. Lo que cambia es que **ahora el cartón se puede completar y el
+premio se puede entregar** — hasta hoy era imposible por mucho que llegaran a
+diez.
+
+### Dos tropiezos míos, por si se repiten
+
+- **`Card` no tiene `updatedAt`.** El script murió al escribir. Lo había
+  copiado del patrón de otras tablas sin comprobarlo. Falló ANTES de tocar
+  ninguna fila.
+- **Nunca pasar `desplegar.cjs` por `tail`.** `tail` retiene toda la salida
+  hasta el final: el despliegue del frontend pareció colgado una hora cuando
+  estaba compilando tranquilamente.
+
+### Y la suite llevaba días en ROJO sin que nadie lo viera
+
+Un test contaba «6 secciones ocultas al negocio de solo InfoLink» y ya eran 8:
+entraron `telefonosDePedidos` (otra máquina) y `horarioDeDomicilios` (esta).
+**Corriendo solo tu carpeta salía verde.** Ahora se comprueba la lista por
+nombre, para que quien añada una tenga que decidir si ese negocio debe verla.
+3091/3091 en verde.
+
+### ⚠ LO ÚNICO QUE SIGUE BLOQUEADO: cancelar en Hotmart
+
+Al cancelar, la cuenta ya sigue activa hasta el fin del período **y el panel lo
+avisa** con la fecha. Lo que NO se hace es cancelar la suscripción en Hotmart,
+y **no es que falte código: falta credencial**.
+
+En Railway solo están `HOTMART_HOTTOK` (validar webhooks entrantes),
+`HOTMART_PRODUCT_ID`, `HOTMART_OFFER_CODE_PRO` y `HOTMART_BID_ELITE`. Hotmart
+exige Client ID + Secret con OAuth2 `client_credentials`, y en el código **no
+hay ningún cliente de su API**: solo recibimos webhooks, nunca les hablamos.
+
+**Pesa: 101 de 103 negocios activos pagan por Hotmart.** Si un cliente cancela
+en el panel, se le sigue cobrando allí.
+
 ## 2026-09-26 (78) — Un cartón que nadie puede completar (54 clientes) + el egreso
 
 ### El fallo que más duele: `stampsRequired` vacío
