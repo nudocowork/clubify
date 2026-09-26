@@ -11,7 +11,16 @@
  * Uso:  railway run node scripts/apply-email-config-migration.cjs
  */
 const { PrismaClient } = require('@prisma/client');
-const p = new PrismaClient();
+// `railway run` inyecta la `DATABASE_URL` INTERNA (`…railway.internal:5432`),
+// que SOLO resuelve dentro de la red de Railway: desde un portátil el script
+// muere con «Can't reach database server at yyy.railway.internal». Se prefiere
+// la PÚBLICA y se cae a la interna, así el mismo script sirve desde fuera y
+// desde dentro. (Javier, 2026-09-26.)
+const p = new PrismaClient({
+  datasources: {
+    db: { url: process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL },
+  },
+});
 
 (async () => {
   const antes = await p.$queryRawUnsafe(`
