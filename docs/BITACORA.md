@@ -8,6 +8,37 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-27 (81) — El aviso de pedido lleva el pedido ENTERO y el teléfono
+
+Desplegado, backend `5f24420`.
+
+«y otros 1» no se puede cocinar. El aviso al negocio listaba dos artículos y
+resumía el resto, así que quien prepara el pedido tenía que abrir el panel
+justo para lo que el mensaje existía. Y el teléfono del cliente no salía
+**aunque la consulta ya lo traía**: solo faltaba usarlo.
+
+Ahora van todos, **uno por línea** —leer en vertical es mirar; leer una frase
+con comas es contar— y el teléfono pegado al nombre, en su propia línea para
+que el móvil lo detecte y se pueda llamar de un toque.
+
+### Lo que cuesta, medido antes de decidirlo
+
+El mensaje anterior estaba en **160 caracteres justos**, al filo del segmento:
+
+| artículos | antes | ahora |
+|---|---|---|
+| 1 | 1 segmento | 1 segmento |
+| 2 o más | 1 segmento | **2 segmentos** |
+
+En producción: 337 pedidos en 30 días, media de **1,9 artículos**, máximo 8. O
+sea, la mitad de los avisos pasan a dos segmentos (~170 más al mes).
+
+**Ojo:** la captura del reporte era de **WhatsApp**, no de SMS — ahí la
+longitud no cuesta. El cálculo aplica a quien lo reciba como SMS de verdad.
+
+El tope del nombre de producto sube de 34 a 60: con una línea propia, un nombre
+real cabe entero. El recorte se queda para el desmedido.
+
 ## 2026-09-26 (80) — Sacar la lista de próximos cobros · y el aviso al cancelar
 
 Todo desplegado. Backend `15faefa`, frontend build `EESBcYWVbpb4NOtt7vOMl`,
