@@ -8,6 +8,54 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-27 (82) — Categorías que llegan en español, y dos cifras mías corregidas
+
+Backend `dbcd83e`.
+
+### Una joyería ya no ve la pestaña «Pedidos»
+
+**37 negocios activos tienen un `businessCategorySlug` que no existe** en
+`business-categories.ts`, casi siempre porque llega en español: `restaurante`
+(19), `cafeteria` (8), `heladeria`, `joyeria`, `retail`,
+`telefonia-y-accesorios`… `getCategoryBySlug` los caía todos al respaldo
+`restaurant`, en silencio.
+
+**CORRIJO LA CIFRA QUE DI AYER.** Escribí «~40 negocios ven mal su panel» y era
+falso: `restaurante` cae en `restaurant` y `cafeteria` en un `coffee_shop` de
+módulos IDÉNTICOS, así que **30 de los 37 no perdían nada**. Los que de verdad
+tenían el panel de un restaurante son **6**.
+
+Se arregla con un mapa de equivalencias **en código, no en la base**: los slugs
+los manda el **Onboarding**, que es otro repositorio, así que corregir las 37
+filas de hoy no impide que mañana entre la 38.
+
+**Regla para añadir una equivalencia:** solo se mapea cuando NO se le quita al
+negocio un módulo que esté usando. `peluqueria-barberia` NO está en la lista
+por eso — su equivalente (`hair_salon`) no tiene `menu` y el negocio que la usa
+tiene un producto cargado. **Queda pendiente de decisión de Javier.**
+
+Verificado antes de escribirlo: los 7 afectados tienen **cero pedidos**.
+
+**Candado nuevo, y hacía falta:** `business-categories.ts` está duplicado a
+propósito en backend y frontend. Si una copia gana una equivalencia y la otra
+no, el panel y el backend discrepan sobre los módulos de un negocio y no se ve
+hasta que un dueño reclama. Una prueba los compara, y **está comprobado que
+sabe ponerse en rojo**.
+
+### La otra cifra corregida: HM Fragancias
+
+Dije que «no se va a enterar» de su cobro del 21 de octubre. Es más suave: **sí
+recibe los cuatro correos** (D-7, D-3, mañana, el día). Lo único que le falta
+es el SMS, porque no hay teléfono en ninguno de los cuatro sitios donde el
+código lo busca.
+
+Y el «cero mensajes» que vi tampoco era un fallo: alta del 21-jul con plan
+**trimestral**, así que el 21-oct es su **primera renovación** y los avisos
+empiezan el 14. El correo funciona: 21-24 envíos de cada plantilla en 30 días.
+
+Son **tres** sin teléfono, no dos: se sumó Yummy Sushi (alta de ayer, anual,
+cobra en 364 días) y Cuponera Card, que es interna.
+
 ## 2026-09-27 (81) — El aviso de pedido lleva el pedido ENTERO y el teléfono
 
 Desplegado, backend `5f24420`.
