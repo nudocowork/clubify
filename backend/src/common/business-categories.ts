@@ -69,8 +69,62 @@ export function isValidCategorySlug(slug: string): boolean {
   return BUSINESS_CATEGORIES.some((c) => c.slug === slug);
 }
 
+/**
+ * Categorías que llegan con OTRO nombre y a qué categoría real equivalen.
+ *
+ * EL PROBLEMA (medido en producción el 2026-09-27): **37 negocios activos
+ * tienen un `businessCategorySlug` que no existe en esta lista**, casi siempre
+ * porque llega en español o con otra forma: `restaurante` (19), `cafeteria`
+ * (8), `heladeria`, `joyeria`, `peluqueria-barberia`… `getCategoryBySlug` los
+ * cae todos al respaldo `restaurant`, y en silencio.
+ *
+ * Para 30 de ellos da igual —`restaurante` cae en `restaurant` y `cafeteria`
+ * en un `coffee_shop` con módulos idénticos—, pero el resto acaba con el panel
+ * de un restaurante: **una joyería con la pestaña «Pedidos» y su catálogo
+ * llamado «Menú»**.
+ *
+ * SE ARREGLA AQUÍ Y NO EN LA BASE a propósito. Los slugs los manda el
+ * Onboarding, que es otro repositorio: corregir las 37 filas de hoy no impide
+ * que mañana entre la 38. Un mapa de equivalencias arregla las que hay y las
+ * que vengan, y no toca el dato de nadie.
+ *
+ * REGLA PARA AÑADIR UNA: solo se mapea cuando NO se le quita al negocio un
+ * módulo que esté usando. `peluqueria-barberia` es el ejemplo de lo contrario y
+ * por eso NO está en esta lista: su equivalente (`hair_salon`) no tiene `menu`,
+ * y el negocio que la usa tiene un producto cargado. Antes de mapearla hay que
+ * decidir qué pasa con ese producto — y eso no lo decide un mapa.
+ *
+ * Verificado antes de escribirla: los negocios afectados tienen CERO pedidos,
+ * así que ninguno pierde nada al dejar de ver la pestaña.
+ */
+export const EQUIVALENCIAS_DE_CATEGORIA: Readonly<Record<string, string>> = {
+  // Mismo rubro, escrito en español. Sin cambio de módulos.
+  restaurante: 'restaurant',
+  'brunch-restaurant': 'restaurant',
+  'bebidas-y-alimentos': 'restaurant',
+  cafeteria: 'coffee_shop',
+  'cafe-de-especialidad': 'coffee_shop',
+  heladeria: 'ice_cream',
+  // Estos SÍ cambian lo que ve el negocio, y para bien: dejan de tener el
+  // panel de un restaurante.
+  joyeria: 'boutique', // catálogo, no menú; y sin «Pedidos»
+  retail: 'mini_market', // ropa y golosinas: catálogo con pedidos
+  'telefonia-y-accesorios': 'mini_market',
+  // Mensajería: `other` lo deja con todo, que es lo prudente mientras nadie
+  // haya decidido qué es exactamente un courier en este producto.
+  'envios-mensajeria-enconiendas': 'other',
+};
+
+/** El slug real de una categoría, resolviendo equivalencias. */
+export function slugDeCategoria(slug: string | null | undefined): string | null {
+  if (!slug) return null;
+  const limpio = slug.trim().toLowerCase();
+  return EQUIVALENCIAS_DE_CATEGORIA[limpio] ?? limpio;
+}
+
 export function getCategoryBySlug(slug: string | null | undefined): BusinessCategory {
-  const found = BUSINESS_CATEGORIES.find((c) => c.slug === slug);
+  const real = slugDeCategoria(slug);
+  const found = BUSINESS_CATEGORIES.find((c) => c.slug === real);
   if (found) return found;
   return BUSINESS_CATEGORIES.find((c) => c.slug === DEFAULT_CATEGORY_SLUG)!;
 }
