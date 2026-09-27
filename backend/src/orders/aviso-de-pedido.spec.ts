@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { OwnerOrderAlertService } from './owner-order-alert.service';
 import {
-  lineaDeProductos,
+  listaDeProductos,
+  telefonoDelCliente,
   origenDelPedido,
   sinPictogramas,
 } from './aviso-de-pedido';
@@ -165,10 +166,21 @@ describe('el aviso interno de pedido nuevo', () => {
   });
 });
 
-describe('la línea de productos', () => {
-  it('lista los artículos con su cantidad', () => {
-    expect(lineaDeProductos([MOCCA, CAPUCHINO])).toBe(
-      '1x Mocca frio (Deslactosada), 2x Capuchino',
+/** Salto de línea, para no repetir el escape en cada caso. */
+const SALTO = String.fromCharCode(10);
+
+describe('la lista de productos', () => {
+  it('EL ENCARGO: van TODOS, uno por línea', () => {
+    // Antes se listaban dos y el resto era «y otros N» — que es justo lo que
+    // le faltaba a quien prepara el pedido: «y otros 1» no se puede cocinar.
+    const r = listaDeProductos([MOCCA, CAPUCHINO, MOCCA, CAPUCHINO, MOCCA]);
+    expect(r.split(SALTO)).toHaveLength(5);
+    expect(r).not.toContain('y otros');
+  });
+
+  it('cada artículo con su cantidad, en su renglón', () => {
+    expect(listaDeProductos([MOCCA, CAPUCHINO])).toBe(
+      ['1x Mocca frio (Deslactosada)', '2x Capuchino'].join(SALTO),
     );
   });
 
@@ -176,44 +188,66 @@ describe('la línea de productos', () => {
     // «Torre de pan» son 12 caracteres justos: el corte cae en el espacio
     // siguiente y antes se quedaba en «Torre de».
     expect(
-      lineaDeProductos([{ qty: 1, name: 'Torre de pan artesanal' }], {
+      listaDeProductos([{ qty: 1, name: 'Torre de pan artesanal' }], {
         topeNombre: 12,
       }),
     ).toBe('1x Torre de pan');
   });
 
-  it('un pedido largo se resume en vez de dispararse', () => {
-    const r = lineaDeProductos([MOCCA, CAPUCHINO, MOCCA, CAPUCHINO, MOCCA]);
-    expect(r).toContain('y otros 3');
-    expect(r.length).toBeLessThan(80);
-  });
-
-  it('no mete emojis: un solo pictograma parte el SMS a la mitad', () => {
-    // Las promociones se guardan con un 🎁 delante del nombre.
-    const r = lineaDeProductos([{ qty: 1, name: '🎁 2x1 en cafés' }]);
-    expect(r).toBe('1x 2x1 en cafés');
-    expect(/\p{Extended_Pictographic}/u.test(r)).toBe(false);
-  });
-
-  it('un nombre larguísimo se recorta sin dejar media palabra', () => {
-    const r = lineaDeProductos([
-      { qty: 1, name: 'Frappuccino de caramelo con crema y trocitos de galleta' },
+  it('con una línea para él solo, un nombre real cabe ENTERO', () => {
+    // Con el tope viejo (34) este se recortaba. Ahora no: el recorte está para
+    // un nombre desmedido, no para uno normal.
+    const r = listaDeProductos([
+      { qty: 1, name: 'Frappuccino de caramelo con crema' },
     ]);
-    expect(r.length).toBeLessThanOrEqual(40);
+    expect(r).toBe('1x Frappuccino de caramelo con crema');
+  });
+
+  it('pero un nombre desmedido SÍ se recorta, sin media palabra', () => {
+    const largo = 'Frappuccino de caramelo con crema y trocitos de galleta artesanal de la casa';
+    const r = listaDeProductos([{ qty: 1, name: largo }]);
+    expect(r.length).toBeLessThan(largo.length);
     expect(r.endsWith(' ')).toBe(false);
     expect(r).toContain('Frappuccino de caramelo');
   });
 
-  it('sin artículos legibles no hay línea', () => {
-    expect(lineaDeProductos(undefined)).toBe('');
-    expect(lineaDeProductos([])).toBe('');
-    expect(lineaDeProductos([{ qty: 1 }])).toBe('');
-    expect(lineaDeProductos('no es una lista')).toBe('');
+  it('no mete emojis: un solo pictograma parte el SMS a la mitad', () => {
+    // Las promociones se guardan con un 🎁 delante del nombre.
+    const r = listaDeProductos([{ qty: 1, name: '🎁 2x1 en cafés' }]);
+    expect(r).toBe('1x 2x1 en cafés');
+    expect(/\p{Extended_Pictographic}/u.test(r)).toBe(false);
   });
 
-  it('una cantidad rara no rompe la línea', () => {
-    expect(lineaDeProductos([{ name: 'Capuchino' }])).toBe('1x Capuchino');
-    expect(lineaDeProductos([{ qty: 'dos', name: 'Capuchino' }])).toBe('1x Capuchino');
+  it('sin artículos legibles no hay lista', () => {
+    expect(listaDeProductos(undefined)).toBe('');
+    expect(listaDeProductos([])).toBe('');
+    expect(listaDeProductos([{ qty: 1 }])).toBe('');
+    expect(listaDeProductos('no es una lista')).toBe('');
+  });
+
+  it('una cantidad rara no rompe la lista', () => {
+    expect(listaDeProductos([{ name: 'Capuchino' }])).toBe('1x Capuchino');
+    expect(listaDeProductos([{ qty: 'dos', name: 'Capuchino' }])).toBe('1x Capuchino');
+  });
+});
+
+describe('el teléfono del cliente', () => {
+  it('EL ENCARGO: sale, para poder llamar sin abrir el panel', () => {
+    expect(telefonoDelCliente('+573001234567')).toBe('+573001234567');
+  });
+
+  it('se limpia de parentesis y guiones: ocupan y estorban al detectarlo', () => {
+    expect(telefonoDelCliente('(300) 123-4567')).toBe('3001234567');
+    expect(telefonoDelCliente('+57 300 123 4567')).toBe('+573001234567');
+  });
+
+  it('un campo mal rellenado NO se enseña', () => {
+    // Enseñar «123» solo hace perder el tiempo a quien intente llamar.
+    expect(telefonoDelCliente('123')).toBe('');
+    expect(telefonoDelCliente('sin telefono')).toBe('');
+    expect(telefonoDelCliente('')).toBe('');
+    expect(telefonoDelCliente(null)).toBe('');
+    expect(telefonoDelCliente(undefined)).toBe('');
   });
 });
 
@@ -263,7 +297,7 @@ describe('lo que el negocio paga por el aviso', () => {
   });
 
   it('la ñ, la é y la ü se respetan: esas SÍ están en GSM-7', () => {
-    expect(lineaDeProductos([{ qty: 1, name: 'Piña café über' }])).toBe(
+    expect(listaDeProductos([{ qty: 1, name: 'Piña café über' }])).toBe(
       '1x Piña café über',
     );
     // La ñ se queda porque está en GSM-7; la ó no está y se va. Las dos cosas
@@ -274,7 +308,7 @@ describe('lo que el negocio paga por el aviso', () => {
   });
 
   it('las tildes que rompen el SMS se quitan, en producto, oficina y sede', () => {
-    expect(lineaDeProductos([{ qty: 1, name: 'Mocca frío' }])).toBe(
+    expect(listaDeProductos([{ qty: 1, name: 'Mocca frío' }])).toBe(
       '1x Mocca frio',
     );
     expect(origenDelPedido({ oficina: { nombre: 'Salón Príncipe' } })).toBe(

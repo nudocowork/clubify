@@ -15,8 +15,16 @@
  * DOS CUIDADOS QUE NO SON CAPRICHO, y por eso van escritos:
  *
  * 1. LA LONGITUD. Esto sale por SMS y cada segmento lo paga el negocio, en
- *    cada pedido. Por eso se listan pocos productos y el resto se resume en
- *    «y otros N» en vez de volcar el pedido entero.
+ *    cada pedido. Durante un tiempo se listaban solo dos productos y el resto
+ *    se resumía en «y otros N» — y eso era justo lo que le faltaba a quien
+ *    prepara el pedido: «y otros 1» no se puede cocinar (Javier, 2026-09-26).
+ *
+ *    Ahora van TODOS, uno por línea. Medido antes de decidirlo: en 30 días,
+ *    337 pedidos con una media de **1,9 artículos** y un máximo de 8. El
+ *    resumen solo aparecía en el 20 % de los pedidos, así que listarlo entero
+ *    cuesta unas pocas líneas en uno de cada cinco, y el salto de línea es
+ *    GSM-7: un carácter. Lo que sí se mantiene es el recorte de un nombre
+ *    desmedido, para que un producto mal escrito no dispare el mensaje.
  * 2. LOS CARACTERES, y aquí hay un detalle que se cuenta mal. No es que «una
  *    tilde» rompa el SMS: **é, ñ y ü SÍ están en GSM-7; á, í, ó y ú no**. Y
  *    los nombres de producto las llevan casi siempre, así que «1x Mocca frío»
@@ -89,41 +97,63 @@ function corto(nombre: string, tope: number): string {
 }
 
 /**
- * «1x Mocca frío (Deslactosada), 2x Capuchino y otros 3».
+ * El pedido entero, un artículo por línea:
+ *
+ *     1x Mocca frio (Deslactosada)
+ *     2x Capuchino
+ *     1x Torta Matilda
+ *
+ * UNO POR LÍNEA Y NO SEPARADOS POR COMAS. Quien lo lee está preparando el
+ * pedido: leer una lista en vertical es mirar, y leer una frase con comas es
+ * contar. El salto de línea es GSM-7 y cuesta un carácter, igual que la coma
+ * y el espacio que sustituye — así que la versión legible es también la más
+ * barata.
  *
  * La variante ya viene dentro del nombre del artículo (`orders.service` guarda
  * `p.name + sufijo`), así que no hay que recomponer nada.
  *
- * Devuelve '' si el pedido no trae artículos legibles — un aviso sin la línea
- * de productos es el de siempre, que es mejor que uno con «undefined».
+ * Devuelve '' si el pedido no trae artículos legibles — un aviso sin la lista
+ * es el de siempre, que es mejor que uno con «undefined».
  */
-export function lineaDeProductos(
+export function listaDeProductos(
   items: unknown,
-  opciones: { tope?: number; topeNombre?: number } = {},
+  opciones: { topeNombre?: number } = {},
 ): string {
-  const tope = opciones.tope ?? 2;
-  const topeNombre = opciones.topeNombre ?? 34;
+  // 60 y no 34: con una línea para él solo, un nombre real cabe entero. El
+  // tope está para que un producto cargado de texto —pasa— no dispare el
+  // mensaje, no para recortar lo normal.
+  const topeNombre = opciones.topeNombre ?? 60;
   const lista = Array.isArray(items) ? items : [];
-  const piezas: string[] = [];
-  let resumidos = 0;
+  const lineas: string[] = [];
 
   for (const it of lista as ItemDelAviso[]) {
     const nombre = paraSms(typeof it?.name === 'string' ? it.name : '');
     if (!nombre) continue; // un artículo sin nombre no se puede nombrar
-    if (piezas.length >= tope) {
-      resumidos++;
-      continue;
-    }
     const n = Number(it?.qty);
     const cantidad = Number.isFinite(n) && n > 0 ? Math.round(n) : 1;
-    piezas.push(`${cantidad}x ${corto(nombre, topeNombre)}`);
+    lineas.push(`${cantidad}x ${corto(nombre, topeNombre)}`);
   }
 
-  if (!piezas.length) return '';
-  // «y otros N» y no «y N más»: «más» lleva tilde, y una tilde en el texto
-  // fijo convierte TODO el SMS a 16 bits — justo en los pedidos largos, que
-  // son los que ya iban a ser caros. Ver la cabecera de este archivo.
-  return resumidos ? `${piezas.join(', ')} y otros ${resumidos}` : piezas.join(', ');
+  return lineas.join('\n');
+}
+
+/**
+ * El teléfono del cliente, en su propia línea.
+ *
+ * En su propia línea a propósito: el móvil lo detecta y se puede llamar de un
+ * toque. Metido dentro de otra frase deja de ser tocable, y el sentido de
+ * ponerlo en el aviso es justamente poder llamar sin abrir el panel.
+ *
+ * Se limpia de todo lo que no sea dígito o «+»: un número guardado como
+ * «(300) 123-4567» ocupa de más y no siempre se detecta.
+ */
+export function telefonoDelCliente(phone: unknown): string {
+  const crudo = typeof phone === 'string' ? phone.trim() : '';
+  if (!crudo) return '';
+  const limpio = crudo.replace(/[^\d+]/g, '');
+  // Menos de 7 dígitos no es un teléfono: es un campo mal rellenado, y
+  // enseñarlo solo hace perder el tiempo a quien intente llamar.
+  return limpio.replace(/\D/g, '').length >= 7 ? limpio : '';
 }
 
 /**

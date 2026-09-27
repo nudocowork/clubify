@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandAppUrl } from '../email/brand-email-creds.util';
-import { lineaDeProductos, origenDelPedido, paraSms } from './aviso-de-pedido';
+import {
+  listaDeProductos,
+  origenDelPedido,
+  paraSms,
+  telefonoDelCliente,
+} from './aviso-de-pedido';
 import { oficinaDelPedido } from './pedido-en-oficina';
 import { primerTelefono } from './primer-telefono';
 import {
@@ -276,7 +281,9 @@ export class OwnerOrderAlertService {
       items?: unknown;
       deliveryAddress?: unknown;
       location?: { name: string | null } | null;
-      customer: { fullName: string } | null;
+      // El teléfono ya venía en la consulta (`customer: { fullName, phone }`);
+      // lo único que faltaba era usarlo.
+      customer: { fullName: string; phone?: string | null } | null;
     },
     tenant: {
       currencySymbol: string | null;
@@ -315,7 +322,8 @@ export class OwnerOrderAlertService {
     // llevarlo, lo segundo qué preparar.
     const oficina = oficinaDelPedido(order.deliveryAddress);
     const origen = origenDelPedido({ oficina, sede: order.location });
-    const productos = lineaDeProductos(order.items);
+    const productos = listaDeProductos(order.items);
+    const telefono = telefonoDelCliente(order.customer?.phone);
     // EN UN PEDIDO DE OFICINA NO SE DICE «Domicilio».
     //
     // Se entrega andando, dentro del coworking: la palabra no aporta y encima
@@ -341,9 +349,16 @@ export class OwnerOrderAlertService {
     // - Oficina: Marketing.») y había que buscar cada dato dentro de la frase.
     // Los saltos de línea son GSM-7, así que cuestan un carácter cada uno y no
     // cambian la codificación: es la mejora más barata que se podía hacer aquí.
-    const cuerpo = [cliente, `${simbolo}${total}`, productos]
+    // EL TELÉFONO VA PEGADO AL NOMBRE, y la lista de productos separada.
+    //
+    // Pegado al nombre porque ahí se lee «de quién es»: suelto al final habría
+    // que adivinar si es del cliente o del negocio. Y los productos en su
+    // propio bloque porque son lo que hay que preparar — quien cocina mira ahí
+    // y no tiene que saltarse el importe.
+    const quien = [cliente, telefono, `${simbolo}${total}`]
       .filter(Boolean)
       .join('\n');
+    const cuerpo = [quien, productos].filter(Boolean).join('\n\n');
     return [cabecera, cuerpo, `Ver en tu panel:\n${url}`]
       .filter(Boolean)
       .join('\n\n');
