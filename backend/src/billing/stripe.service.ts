@@ -18,6 +18,8 @@ import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.
 import { HotmartService } from './hotmart.service';
 import { IncomeRecordService } from '../finance/income-record.service';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
+import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
+import { desconectaAlCancelar } from './cancelacion';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
 
@@ -592,10 +594,55 @@ export class StripeService {
     if (await this.downgradeInfolinkPro(tenant.id)) {
       return { ok: true, action: 'infolink_downgraded_to_free' };
     }
+    /**
+     * CANCELAR NO ES RENUNCIAR A LO PAGADO.
+     *
+     * Esto suspendía EN EL ACTO, sin mirar hasta cuándo estaba pagado. La regla
+     * correcta existe desde el 2026-09-10 —decisión de Javier: quien pagó hasta
+     * el 25 y avisa el 10 sigue hasta el 25— y vive en `cancelacion.ts`
+     * justamente porque la cancelación entra por varias puertas y todas tienen
+     * que decidir igual. El botón del panel la aplicaba y Hotmart también;
+     * **Stripe se quedó fuera**, y Sellea cobra por Stripe.
+     *
+     * LO QUE COSTÓ (2026-09-28): la cuenta SELLEA había pagado USD 80 el 26 de
+     * agosto, con el período corriendo hasta el 26 de OCTUBRE. Llegó la
+     * cancelación de Stripe el 26 de septiembre y se le cortó el servicio ahí
+     * mismo, un mes antes de tiempo, sin que nadie lo hubiera decidido.
+     *
+     * Lo que sí se hace siempre es marcar `canceledAt`: es lo que le dice al
+     * cron de cobro que este negocio NO va a renovar. Sin eso seguiría
+     * tratándolo como si fuera a pagar el mes que viene.
+     */
+    const ahora = new Date();
+    const desconectarYa = desconectaAlCancelar(tenant, ahora);
     await this.prisma.tenant.update({
       where: { id: tenant.id },
-      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+      data: {
+        canceledAt: ahora,
+        ...(desconectarYa
+          ? { status: 'SUSPENDED' as const, suspendedAt: ahora }
+          : {}),
+      },
     });
+    invalidateTenantStatusCache(tenant.id);
+
+    if (!desconectarYa) {
+      // Ni se libera el crédito de la marca ni se manda el aviso de pausa: el
+      // negocio SIGUE ACTIVO y usando el producto que pagó. Las dos cosas van
+      // cuando de verdad se desconecte, al terminar el período.
+      await this.billing.auditLifecycle('subscription.cancel_scheduled', tenant.id, {
+        gateway: 'STRIPE',
+        reason: 'cancelled',
+        accessUntil: tenant.currentPeriodEnd?.toISOString() ?? null,
+      });
+      this.logger.log(
+        `Stripe canceló la suscripción de ${tenant.brandName}, pero tiene ` +
+          `pagado hasta ${tenant.currentPeriodEnd?.toISOString() ?? '—'}: ` +
+          'sigue activo hasta esa fecha.',
+      );
+      return { ok: true, action: 'cancel_scheduled' };
+    }
+
     // PDF 1256 §2/§8: liberar crédito a la marca + auditar.
     await this.billing.releaseBrandCreditOnSuspend(tenant.id, 'stripe_cancelled').catch(() => null);
     await this.billing.auditLifecycle('subscription.suspended', tenant.id, { gateway: 'STRIPE', reason: 'cancelled' });
@@ -1542,6 +1589,10 @@ export class StripeService {
       stripeSubscriptionId: true,
       currentPeriodEnd: true,
       firstFailedAt: true,
+      // Lo pide `desconectaAlCancelar`: quien canceló tras un cobro fallido no
+      // tiene días pagados que respetar. Faltaba, y por eso este webhook no
+      // podía aplicar la regla que sí aplican el panel y Hotmart.
+      failedPaymentCount: true,
       // Los tres de abajo son para COBRARLE EL CRÉDITO A LA MARCA al activar
       // (ver `activate`): sin ellos no se sabe de quién es el negocio ni cuánto
       // cuesta su ciclo.
