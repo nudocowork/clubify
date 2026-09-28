@@ -8,6 +8,110 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-28 (84) — El logo de la credencial, grande y centrado
+
+Backend `56f65c9f` + `58e25de2`. **Toca backend Y frontend.**
+
+### Lo que se pidió
+
+Javier, mirando una credencial de Degodoy en su iPhone: quitar el nombre del
+negocio de la cabecera, y que el logo **se vea centrado**, no en la esquina
+superior izquierda, «ajustado al estilo de la tarjeta».
+
+### EL LOGO CENTRADO NO ES UN CAMPO, ES UNA IMAGEN
+
+Esto es lo que hay que saber antes de tocar nada aquí: **Apple ancla
+`logo.png` a la esquina superior izquierda y lo limita a 160×50 puntos**. No
+hay ninguna propiedad de `pass.json` que lo centre. Lo único que ocupa el
+ancho completo del pase es la **franja** (`strip.png`), así que un logo
+centrado en Apple Wallet **es** una franja con el logo dibujado en medio.
+
+La tarjeta de ALIANZA ya lo hacía. La credencial no caía en ninguna de las
+tres ramas que generan franja y se quedaba plana, con el hueco negro en medio
+que se veía en la foto. Ahora tiene la suya (`generateCredentialStrip`).
+
+Dos decisiones de dibujo, con su motivo en el código:
+
+- **El fondo de la franja es PLANO y del color de la tarjeta**, no un
+  degradado como el de la alianza. Apple pinta el resto del pase con un color
+  sólido; un degradado dejaría una **costura** justo donde acaba la imagen.
+- **El logo va limpio, sin disco detrás.** En la alianza el disco blanco es
+  obligatorio porque el logo es de otra empresa; aquí es del propio negocio.
+
+### La medida que me engañó, y cómo se descubrió
+
+Un logo oscuro sobre fondo oscuro desaparece, y **el fondo de una credencial
+es oscuro por diseño** (`motivoParaRechazarElColor` no deja guardar un color
+que no contraste con el texto blanco). Así que hay que medir si el logo se ve
+y, si no, ponerle una plancha.
+
+La primera versión medía la **luminancia media** del logo. El de Degodoy es un
+JPG con el fondo NEGRO y «DEGODOY COCINA» en letras blancas finas: la media
+daba casi negro sobre una tarjeta negra, pedía plancha, y **la credencial
+salía con un marco blanco alrededor de un recuadro negro**.
+
+**Se descubrió RENDERIZANDO la franja real de Degodoy y mirándola**, no
+leyendo el código ni corriendo las pruebas — que estaban todas en verde.
+
+Un logo no se lee por su color promedio: se lee por **los trazos que**
+**destacan**. Ahora se cuenta qué fracción de sus píxeles visibles contrasta
+con el fondo, y con un **3 %** basta.
+
+### Tres cosas que este cambio destapó
+
+1. **`hexToRgb` cortaba el hex en parejas a pelo**: `#fff` daba
+   `rgb(255,NaN,NaN)` como color de fondo del pase. Ahora pasa por `aRgb`, el
+   mismo que lee la franja — dos formas de leer el color dejarían costura.
+2. **Un logo blanco SÓLIDO lo borra entero `prepareLogoForWallet`** (quita el
+   blanco pegado al borde). La cabecera se protegía probando el siguiente
+   candidato; la franja no tenía lista, así que ahora comprueba que quede algo
+   visible antes de dibujar.
+3. **La vista previa del panel no miraba `card.logoUrl`**, que en el pase real
+   manda desde 2026-06-16: enseñaba el logo del NEGOCIO y el teléfono
+   instalaba el de la TARJETA. Con un cartón era un sello de 28 px; en una
+   credencial el logo es lo único que se ve.
+
+### Cuidado si tocas esto
+
+- **Un negocio SIN logo conserva el nombre escrito.** Si no, se queda con la
+  cabecera del todo vacía y la credencial no dice de quién es. Por eso la
+  lista de candidatos de logo se resuelve **antes** de armar el `pass.json`;
+  si la mueves de sitio, rompes esto.
+- **El nombre se quita SOLO en la credencial.** En un cartón el `logoText` es
+  lo único que identifica al negocio arriba.
+- **Queda un recuadro tenue** si el JPG del logo trae ruido de compresión en
+  su fondo: el recorte se detiene ahí. Se ve en el de Degodoy. La solución no
+  es subir el umbral, es el **formato**: el campo «logo de wallet» del panel
+  existe para subir un PNG con transparencia.
+
+### LOS PASES YA INSTALADOS NO SE ACTUALIZAN SOLOS
+
+Esto no es un cambio de datos, es de código: **no dispara ningún push**. El
+push a Apple solo se encola cuando se EDITA un campo visual de la tarjeta
+(`CardsService.VISUAL_FIELDS` → `enqueuePassPushForCard`).
+
+Después de desplegar, quien ya tenga la credencial la seguirá viendo igual
+hasta que alguien toque la tarjeta en el panel, o hasta que el cliente tire
+para refrescar el pase. **Hoy es 1 pase en toda la producción**, así que no
+hace falta ningún barrido.
+
+### Arqueo antes de tocar (solo lectura, 2026-09-28)
+
+En producción hay **UNA sola credencial**: Degodoy, 1 pase, fondo `#000000`,
+marca Clubify. Logo: no tiene el de la tarjeta ni el de wallet, **sí el del
+negocio** (un `.jpg`), así que llevará franja. Las tres marcas tienen logo,
+que es el último respaldo de la cascada.
+
+### Verificado
+
+`tsc` en frío limpio en backend y frontend, **3.140 pruebas en 221 ficheros**
+en verde, `eslint` sin errores. Y la franja de Degodoy **generada y mirada**.
+
+Las pruebas de `franja-de-la-credencial.spec.ts` **decodifican el PNG** y
+miran dónde caen los píxeles: comprobar que devuelve tres buffers habría
+pasado en verde con el logo en una esquina.
+
+---
 ## 2026-09-27 (83) — Los mensajes de un negocio ya dicen de quién son
 
 Backend `fc31ab88`.
