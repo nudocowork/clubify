@@ -7234,6 +7234,10 @@ model AllyBusiness {
   photos      Json             @default("[]")
   address     String           @default("")
   city        String           @default("")
+  /// Zona de la ciudad (Norte, Centro…) y barrio. Texto libre: cada cuponera
+  /// parte su ciudad a su manera. Migración: scripts/apply-ally-zone-migration.cjs
+  zone         String          @default("")
+  neighborhood String          @default("")
   latitude    Decimal?         @db.Decimal(10, 7)
   longitude   Decimal?         @db.Decimal(10, 7)
   /// Horarios (JSON libre, ej. { mon: "8-18", ... } o texto).

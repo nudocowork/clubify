@@ -112,6 +112,8 @@ export type AllyProfileDto = {
   photos?: string[];
   address?: string;
   city?: string;
+  zone?: string;
+  neighborhood?: string;
   latitude?: number | null;
   longitude?: number | null;
   hours?: Record<string, any>;
@@ -704,7 +706,29 @@ export class CuponeraService {
       welcomeText: campaign.welcomeText,
       requireBenefitApproval: !!cfg.requireBenefitApproval,
       allyPushPerWeek: Number.isFinite(Number(cfg.allyPushPerWeek)) ? Number(cfg.allyPushPerWeek) : 1,
+      slug: campaign.slug,
+      officialPageHtml: typeof cfg.officialPageHtml === 'string' ? cfg.officialPageHtml : '',
+      directoryPageHtml: typeof cfg.directoryPageHtml === 'string' ? cfg.directoryPageHtml : '',
     };
+  }
+
+  /**
+   * Página oficial de la cuponera (HTML propio). Solo si está publicada: una
+   * en borrador no debe tener cara pública.
+   *
+   * El HTML se devuelve tal cual y el frontend lo pinta en un iframe con
+   * `sandbox` SIN `allow-same-origin`: corre en un origen opaco, así que sus
+   * scripts no pueden leer la sesión ni llamar a la API como el visitante.
+   * Sanearlo acá rompería justo lo que se pide (sus propios scripts y estilos).
+   */
+  async getOfficialPage(slug: string, tipo: 'principal' | 'directorio' = 'principal') {
+    const campaign = await this.prisma.benefitCampaign.findUnique({ where: { slug } });
+    const cfg = ((campaign?.config as any) || {}) as Record<string, unknown>;
+    const html = tipo === 'directorio' ? cfg.directoryPageHtml : cfg.officialPageHtml;
+    if (!campaign || campaign.status !== 'ACTIVE' || typeof html !== 'string' || !html.trim()) {
+      throw new NotFoundException('Página no encontrada');
+    }
+    return { name: campaign.name, html };
   }
 
   async panelUpdateSettings(
@@ -714,6 +738,8 @@ export class CuponeraService {
       welcomeText?: string;
       requireBenefitApproval?: boolean;
       allyPushPerWeek?: number;
+      officialPageHtml?: string;
+      directoryPageHtml?: string;
     },
     campaignId?: string,
   ) {
@@ -727,6 +753,12 @@ export class CuponeraService {
     }
     if (dto.requireBenefitApproval !== undefined) {
       cfg.requireBenefitApproval = !!dto.requireBenefitApproval;
+    }
+    if (dto.officialPageHtml !== undefined) {
+      cfg.officialPageHtml = dto.officialPageHtml.trim() ? dto.officialPageHtml : '';
+    }
+    if (dto.directoryPageHtml !== undefined) {
+      cfg.directoryPageHtml = dto.directoryPageHtml.trim() ? dto.directoryPageHtml : '';
     }
     if (dto.allyPushPerWeek !== undefined) {
       // 0 apaga los avisos del aliado; el tope evita que una cuponera se
@@ -940,6 +972,9 @@ export class CuponeraService {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new BadRequestException('Ya existe un usuario con ese email');
 
+    if (dto.password && dto.password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
     // Si no mandan clave se genera una y se devuelve UNA sola vez: queda
     // hasheada, no hay forma de recuperarla después.
     const tempPassword = dto.password || nanoid(10);
@@ -989,6 +1024,24 @@ export class CuponeraService {
       orderBy: { name: 'asc' },
       take: 500,
     });
+  }
+
+  /**
+   * Clave nueva para un administrador de cuponera que olvidó la suya. La
+   * condición lleva campaignId Y rol: con el id solo, esta ruta cambiaría la
+   * clave de cualquier usuario de la plataforma. `passwordChangedAt` corta la
+   * renovación de las sesiones abiertas con la clave vieja.
+   */
+  async setCampaignAdminPassword(campaignId: string, userId: string, password: string) {
+    if (!password || password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const res = await this.prisma.user.updateMany({
+      where: { id: userId, campaignId, role: 'CUPONERA_ADMIN' },
+      data: { passwordHash: await argon2.hash(password), passwordChangedAt: new Date() },
+    });
+    if (res.count === 0) throw new NotFoundException('Administrador no encontrado en esta cuponera');
+    return { ok: true };
   }
 
   /** Administradores de una cuponera (§3). Nunca devuelve el hash. */
@@ -1872,6 +1925,8 @@ export class CuponeraService {
     categoryId?: string | null;
     whatsapp?: string;
     city?: string;
+    zone?: string;
+    neighborhood?: string;
     description?: string;
     /**
      * ALIADO TIPO A (spec §16): el Tenant de la marca blanca que ES este
@@ -1953,6 +2008,8 @@ export class CuponeraService {
         tenantId,
         whatsapp: dto.whatsapp || null,
         city: dto.city || '',
+        zone: dto.zone?.trim() || '',
+        neighborhood: dto.neighborhood?.trim() || '',
         description: dto.description || '',
         logoUrl: dto.logoUrl || null,
         coverUrl: dto.coverUrl || null,
@@ -2090,6 +2147,8 @@ export class CuponeraService {
       photos: this.normalizePhotos(dto.photos) as any,
       address: dto.address ?? undefined,
       city: dto.city ?? undefined,
+      zone: dto.zone !== undefined ? dto.zone.trim() : undefined,
+      neighborhood: dto.neighborhood !== undefined ? dto.neighborhood.trim() : undefined,
       latitude: dto.latitude ?? undefined,
       longitude: dto.longitude ?? undefined,
       hours: this.normalizeHours(dto.hours) as any,

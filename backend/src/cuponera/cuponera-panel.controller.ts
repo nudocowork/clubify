@@ -49,6 +49,8 @@ class PanelAllyBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) categoryId?: string | null;
   @IsOptional() @IsString() @MaxLength(30) whatsapp?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(80) zone?: string;
+  @IsOptional() @IsString() @MaxLength(80) neighborhood?: string;
   @IsOptional() @IsString() @MaxLength(400) description?: string;
   /** TIPO A (§16): el negocio ya es cliente de la marca y usará SU escáner. */
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) tenantId?: string | null;
@@ -66,6 +68,8 @@ class PanelAllyPatchBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) categoryId?: string | null;
   @IsOptional() @IsString() @MaxLength(30) whatsapp?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(80) zone?: string;
+  @IsOptional() @IsString() @MaxLength(80) neighborhood?: string;
   @IsOptional() @IsString() @MaxLength(200) address?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) logoUrl?: string | null;
 }
@@ -133,6 +137,13 @@ class PanelPlanPatchBody {
  *  decisión de Fidelity (§1-2), no de la cuponera sobre sí misma. */
 class PanelSettingsBody {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
+  /** Página oficial en HTML. Vacío la quita. El tope evita guardar imágenes
+   *  en base64 dentro de la config (ya pasó con QrPoster: 77% de la base). */
+  @IsOptional() @IsString() @MaxLength(300_000, { message: 'La página no puede pasar de 300 KB. Subí las imágenes aparte y enlazalas.' })
+  officialPageHtml?: string;
+  /** Página de directorio (los aliados), también en HTML. Mismo tope. */
+  @IsOptional() @IsString() @MaxLength(300_000, { message: 'La página no puede pasar de 300 KB. Subí las imágenes aparte y enlazalas.' })
+  directoryPageHtml?: string;
   @IsOptional() @IsString() @MaxLength(400) welcomeText?: string;
   @IsOptional() @IsBoolean() requireBenefitApproval?: boolean;
   @IsOptional() @IsInt() @Min(0) allyPushPerWeek?: number;

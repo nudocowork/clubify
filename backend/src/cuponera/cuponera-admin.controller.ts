@@ -216,6 +216,10 @@ class CampaignAdminBody {
   @IsOptional() @IsString() @MaxLength(200) password?: string;
 }
 
+class CampaignAdminPasswordBody {
+  @IsString() @MaxLength(200) password!: string;
+}
+
 /** Alta de cuponera (spec §2). La marca blanca es obligatoria. */
 class CampaignCreateBody {
   @IsString() @MaxLength(120) name!: string;
@@ -292,6 +296,15 @@ export class CuponeraAdminController {
   @Post('campaigns/:id/admins')
   createCampaignAdmin(@Param('id') id: string, @Body() body: CampaignAdminBody) {
     return this.svc.createCampaignAdmin(id, body);
+  }
+  /** Clave nueva para el administrador que olvidó la suya. */
+  @Patch('campaigns/:id/admins/:userId/password')
+  setCampaignAdminPassword(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() body: CampaignAdminPasswordBody,
+  ) {
+    return this.svc.setCampaignAdminPassword(id, userId, body.password);
   }
 
   @Get('metrics')

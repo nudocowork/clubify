@@ -79,6 +79,14 @@ export class CuponeraPublicController {
   }
 
   /** Directorio público de negocios aliados aprobados (opcional por categoría). */
+  /** Páginas en HTML de UNA cuponera, por slug: la principal y la de
+   *  directorio (`?tipo=directorio`). Solo si está publicada. */
+  @Public()
+  @Get('page/:slug')
+  officialPage(@Param('slug') slug: string, @Query('tipo') tipo?: string) {
+    return this.svc.getOfficialPage(slug, tipo === 'directorio' ? 'directorio' : 'principal');
+  }
+
   @Public()
   @Get('allies')
   allies(@Query('category') category?: string) {

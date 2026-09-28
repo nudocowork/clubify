@@ -22,6 +22,8 @@ export class AllyProfileBody {
   @IsOptional() @IsArray() photos?: string[];
   @IsOptional() @IsString() @MaxLength(240) address?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(80) zone?: string;
+  @IsOptional() @IsString() @MaxLength(80) neighborhood?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber() latitude?: number | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber() longitude?: number | null;
   @IsOptional() hours?: Record<string, any>;

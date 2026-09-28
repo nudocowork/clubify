@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-28 (86) — Cuponeras: páginas en HTML, zona/barrio del aliado, claves de administradores
+
+**Estado: commiteado. SIN desplegar. ⚠️ TRAE MIGRACIÓN:**
+`railway run node scripts/apply-ally-zone-migration.cjs` (desde `backend/`) **ANTES** de
+desplegar el backend: agrega `AllyBusiness.zone` y `AllyBusiness.neighborhood`
+(TEXT NOT NULL DEFAULT '', aditiva, idempotente). Sin ella, Prisma pide esas columnas en
+cada consulta de aliados y **se cae toda la cuponera**.
+
+- **Configuración → «Página principal (HTML)» y «Página de directorio (HTML)»**, guardadas en
+  `BenefitCampaign.config.officialPageHtml` / `directoryPageHtml` (tope 300 KB). Públicas en
+  `/cuponera/p/<slug>` y `/cuponera/p/<slug>/directorio`, solo con la cuponera ACTIVA
+  (`GET /cuponera/public/page/:slug?tipo=directorio`). Se pintan en un iframe `sandbox` SIN
+  `allow-same-origin`: sus scripts corren en origen opaco y no ven la sesión del visitante.
+  No se sanea el HTML a propósito (es lo que pidieron: su propio código).
+- **Alta de aliado: zona, ciudad y barrio.** La zona sugiere las que ya usan otros aliados
+  (datalist). El aliado también los edita en su Ficha.
+- **Administradores de cuponera**: contraseña elegida al crearlos (mín. 8) y botón «Cambiar
+  contraseña» por administrador (`PATCH /cuponera/admin/campaigns/:id/admins/:userId/password`,
+  condición por campaignId + rol).
+
 ## 2026-09-28 (85) — Cuponeras: los 8 ajustes de la lista + el GeoPush de cada aliado ya llega
 
 **Estado: commiteado y empujado. SIN desplegar.** Sin migración (no se tocó el esquema).

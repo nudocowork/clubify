@@ -56,7 +56,9 @@ export default function CuponerasPage() {
   // Administradores por cuponera
   const [adminsOf, setAdminsOf] = useState<string | null>(null);
   const [admins, setAdmins] = useState<AdminRow[]>([]);
-  const [adminForm, setAdminForm] = useState({ email: '', fullName: '' });
+  const [adminForm, setAdminForm] = useState({ email: '', fullName: '', password: '', password2: '' });
+  // Cambio de clave de un administrador (el que la olvidó): uno a la vez.
+  const [claveDe, setClaveDe] = useState<{ id: string; a: string; b: string } | null>(null);
   // La clave temporal se muestra UNA vez: después queda hasheada y no se recupera.
   const [tempPassword, setTempPassword] = useState<string | null>(null);
 
@@ -117,7 +119,8 @@ export default function CuponerasPage() {
   }
 
   async function openAdmins(c: Cuponera) {
-    setAdminsOf(c.id); setTempPassword(null); setAdminForm({ email: '', fullName: '' });
+    setAdminsOf(c.id); setTempPassword(null); setClaveDe(null);
+    setAdminForm({ email: '', fullName: '', password: '', password2: '' });
     try { setAdmins(((await api(`/cuponera/admin/campaigns/${c.id}/admins`)) as AdminRow[]) ?? []); }
     catch { setAdmins([]); }
   }
@@ -125,15 +128,34 @@ export default function CuponerasPage() {
   async function createAdmin(c: Cuponera) {
     if (!adminForm.email.includes('@')) return say('Email inválido');
     if (!adminForm.fullName.trim()) return say('Falta el nombre');
+    if (adminForm.password && adminForm.password.length < 8) return say('La contraseña debe tener al menos 8 caracteres');
+    if (adminForm.password && adminForm.password !== adminForm.password2) return say('Las dos contraseñas no coinciden');
     try {
       const r: any = await api(`/cuponera/admin/campaigns/${c.id}/admins`, {
-        method: 'POST', body: JSON.stringify(adminForm),
+        method: 'POST',
+        body: JSON.stringify({
+          email: adminForm.email, fullName: adminForm.fullName,
+          ...(adminForm.password ? { password: adminForm.password } : {}),
+        }),
       });
+      await openAdmins(c);
+      // openAdmins limpia la clave temporal: se pone después.
       setTempPassword(r?.tempPassword ?? null);
-      setAdminForm({ email: '', fullName: '' });
-      openAdmins(c);
-      say('Administrador creado');
+      say(adminForm.password ? 'Administrador creado con la contraseña que elegiste' : 'Administrador creado');
     } catch (e: any) { say(e?.message || 'No se pudo crear el administrador'); }
+  }
+
+  async function cambiarClaveAdmin(c: Cuponera) {
+    if (!claveDe) return;
+    if (claveDe.a.length < 8) return say('La contraseña debe tener al menos 8 caracteres');
+    if (claveDe.a !== claveDe.b) return say('Las dos contraseñas no coinciden');
+    try {
+      await api(`/cuponera/admin/campaigns/${c.id}/admins/${claveDe.id}/password`, {
+        method: 'PATCH', body: JSON.stringify({ password: claveDe.a }),
+      });
+      setClaveDe(null);
+      say('Contraseña cambiada. Las sesiones abiertas con la anterior se cierran.');
+    } catch (e: any) { say(e?.message || 'No se pudo cambiar la contraseña'); }
   }
 
   return (
@@ -294,11 +316,28 @@ export default function CuponerasPage() {
                 {admins.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
                     {admins.map((a) => (
-                      <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
-                        <span>{a.fullName} · <span style={{ color: '#6b7280' }}>{a.email}</span></span>
-                        <span style={{ color: a.isActive ? '#166534' : '#b91c1c', fontSize: 11.5, fontWeight: 700 }}>
-                          {a.isActive ? 'Activo' : 'Inactivo'}
-                        </span>
+                      <div key={a.id} style={{ padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+                          <span>{a.fullName} · <span style={{ color: '#6b7280' }}>{a.email}</span></span>
+                          <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <span style={{ color: a.isActive ? '#166534' : '#b91c1c', fontSize: 11.5, fontWeight: 700 }}>
+                              {a.isActive ? 'Activo' : 'Inactivo'}
+                            </span>
+                            <button style={{ ...btn('#eef2f7', '#111827'), padding: '5px 10px', fontSize: 12 }}
+                              onClick={() => setClaveDe(claveDe?.id === a.id ? null : { id: a.id, a: '', b: '' })}>
+                              Cambiar contraseña
+                            </button>
+                          </span>
+                        </div>
+                        {claveDe?.id === a.id && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 8, marginTop: 8 }}>
+                            <input type="password" autoComplete="new-password" style={inputStyle} placeholder="Contraseña nueva"
+                              value={claveDe.a} onChange={(e) => setClaveDe({ ...claveDe, a: e.target.value })} />
+                            <input type="password" autoComplete="new-password" style={inputStyle} placeholder="Repetirla"
+                              value={claveDe.b} onChange={(e) => setClaveDe({ ...claveDe, b: e.target.value })} />
+                            <button style={btn()} onClick={() => cambiarClaveAdmin(c)}>Guardar contraseña</button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -319,7 +358,14 @@ export default function CuponerasPage() {
                     onChange={(e) => setAdminForm({ ...adminForm, fullName: e.target.value })} />
                   <input style={inputStyle} placeholder="correo@ejemplo.com" value={adminForm.email}
                     onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })} />
+                  <input type="password" autoComplete="new-password" style={inputStyle} placeholder="Contraseña (mín. 8)"
+                    value={adminForm.password} onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })} />
+                  <input type="password" autoComplete="new-password" style={inputStyle} placeholder="Repetir contraseña"
+                    value={adminForm.password2} onChange={(e) => setAdminForm({ ...adminForm, password2: e.target.value })} />
                   <button style={btn()} onClick={() => createAdmin(c)}>Crear administrador</button>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 6 }}>
+                  Si dejás la contraseña vacía se genera una y se muestra una sola vez.
                 </div>
               </div>
             )}

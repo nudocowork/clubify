@@ -26,6 +26,7 @@ type Overview = {
 };
 type Ally = {
   id: string; name: string; slug: string; city: string;
+  zone?: string; neighborhood?: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
   category: { id: string; name: string } | null;
   _count: { benefits: number; redemptions: number; locations: number };
@@ -62,7 +63,74 @@ type Plan = {
 type Settings = {
   name: string; status: string; welcomeText: string;
   requireBenefitApproval: boolean; allyPushPerWeek: number;
+  slug?: string; officialPageHtml?: string; directoryPageHtml?: string;
 };
+
+type PaginaCampo = 'officialPageHtml' | 'directoryPageHtml';
+const PAGINAS: Record<PaginaCampo, { titulo: string; ruta: string; desc: string }> = {
+  officialPageHtml: { titulo: 'Página principal (HTML)', ruta: '', desc: 'La portada de la cuponera' },
+  directoryPageHtml: { titulo: 'Página de directorio (HTML)', ruta: '/directorio', desc: 'El directorio de negocios aliados' },
+};
+
+/**
+ * Página oficial de la cuponera en HTML. La vista previa usa el mismo iframe
+ * aislado que la página pública: lo que se ve acá es lo que ve la gente, y sus
+ * scripts no alcanzan la sesión de quien la está editando.
+ */
+function PaginaOficialHtml({
+  cfg, busy, guardar, campo,
+}: { cfg: Settings; busy: boolean; guardar: (p: Partial<Settings>) => Promise<void>; campo: PaginaCampo }) {
+  const meta = PAGINAS[campo];
+  const guardado = cfg[campo] ?? '';
+  const [html, setHtml] = useState(guardado);
+  const [ver, setVer] = useState(false);
+  const cambiado = html !== guardado;
+  const url = cfg.slug && typeof window !== 'undefined' ? `${window.location.origin}/cuponera/p/${cfg.slug}${meta.ruta}` : '';
+  const kb = Math.round(new Blob([html]).size / 1024);
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>{meta.titulo}</div>
+      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+        {meta.desc}, en código HTML. Se publica en{' '}
+        {url ? <a href={url} target="_blank" rel="noreferrer" style={{ color: PC, fontWeight: 700 }}>{url}</a> : 'su enlace'}
+        {cfg.status !== 'ACTIVE' && <> — <b>se verá cuando la cuponera esté publicada</b></>}.
+      </div>
+      <textarea
+        style={{ ...inp, minHeight: 260, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre' }}
+        spellCheck={false}
+        value={html}
+        onChange={(e) => setHtml(e.target.value)}
+        placeholder={'<!doctype html>\n<html>\n  <head><title>Mi cuponera</title></head>\n  <body>…</body>\n</html>'}
+      />
+      <div style={{ fontSize: 11.5, color: kb > 300 ? '#b91c1c' : '#64748b', marginTop: 5 }}>
+        {kb} KB de 300. Las imágenes van enlazadas (https://…), no pegadas dentro del código.
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button style={btn()} disabled={busy || !cambiado || kb > 300} onClick={() => guardar({ [campo]: html })}>
+          {busy ? 'Guardando…' : 'Guardar página'}
+        </button>
+        <button style={btn('#eef2f7', '#111827')} onClick={() => setVer((v) => !v)} disabled={!html.trim()}>
+          {ver ? 'Ocultar vista previa' : 'Vista previa'}
+        </button>
+        {guardado && (
+          <button style={btn('#fee2e2', '#991b1b')} disabled={busy}
+            onClick={() => { if (confirm(`¿Quitar la ${meta.titulo.replace(' (HTML)', '').toLowerCase()}? El enlace dejará de mostrarla.`)) { setHtml(''); void guardar({ [campo]: '' }); } }}>
+            Quitar página
+          </button>
+        )}
+      </div>
+      {ver && html.trim() && (
+        <iframe
+          title="Vista previa"
+          srcDoc={html}
+          sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+          style={{ width: '100%', height: 520, border: '1px solid #e2e8f0', borderRadius: 10, marginTop: 12, background: '#fff' }}
+        />
+      )}
+    </div>
+  );
+}
 type TenantOpt = { id: string; name: string; brandName: string | null };
 type PanelBenefit = {
   id: string; title: string; type: string; status: string;
@@ -158,13 +226,15 @@ function BuscadorNegocio({
  * crearlo sin eso deja el trabajo a medias y a alguien volviendo después.
  */
 function FormAliado({
-  cats, tenants, onCreado, onCancelar,
+  cats, tenants, zonas, onCreado, onCancelar,
 }: {
   cats: Category[]; tenants: TenantOpt[];
+  /** Zonas que ya usan otros aliados, para sugerirlas. */
+  zonas: string[];
   onCreado: (r: any) => void; onCancelar: () => void;
 }) {
   const vacio = {
-    name: '', email: '', ownerFullName: '', categoryId: '', city: '', whatsapp: '',
+    name: '', email: '', ownerFullName: '', categoryId: '', city: '', zone: '', neighborhood: '', whatsapp: '',
     description: '', tenantId: '', password: '', password2: '', coverUrl: '', logoUrl: '',
     benTitle: '', benType: 'PERCENT_OFF', benPercent: 10, benAmount: 0, benTerms: '',
   };
@@ -187,7 +257,8 @@ function FormAliado({
     try {
       const body: any = {
         name: f.name.trim(), email: f.email.trim(), ownerFullName: f.ownerFullName.trim(),
-        categoryId: f.categoryId || null, city: f.city, whatsapp: f.whatsapp,
+        categoryId: f.categoryId || null, city: f.city.trim(), zone: f.zone.trim(), neighborhood: f.neighborhood.trim(),
+        whatsapp: f.whatsapp,
         description: f.description, tenantId: f.tenantId || null,
         ...(f.password ? { password: f.password } : {}),
         coverUrl: f.coverUrl, logoUrl: f.logoUrl || null,
@@ -228,7 +299,16 @@ function FormAliado({
           </select>
         </Campo>
         <Campo label="Ciudad">
-          <input style={inp} value={f.city} onChange={(e) => set('city', e.target.value)} />
+          <input style={inp} value={f.city} onChange={(e) => set('city', e.target.value)} placeholder="Bucaramanga" />
+        </Campo>
+        <Campo label="Zona">
+          <input style={inp} list="zonas-cuponera" value={f.zone} onChange={(e) => set('zone', e.target.value)} placeholder="Norte, Centro…" />
+          <datalist id="zonas-cuponera">
+            {zonas.map((z) => <option key={z} value={z} />)}
+          </datalist>
+        </Campo>
+        <Campo label="Barrio">
+          <input style={inp} value={f.neighborhood} onChange={(e) => set('neighborhood', e.target.value)} placeholder="Cabecera" />
         </Campo>
         <Campo label="WhatsApp">
           {/* Con selector de país: escrito a mano salían números sin prefijo
@@ -450,6 +530,8 @@ function TabConfig({
     try {
       setCfg(await api<Settings>(`/cuponera/panel/settings${qs}`, { method: 'PATCH', body: JSON.stringify(patch) }));
       flash('Ajustes guardados');
+    } catch (e: any) {
+      flash(e?.message || 'No se pudieron guardar los ajustes');
     } finally { setBusy(false); }
   }
 
@@ -694,6 +776,9 @@ function TabConfig({
           </div>
         </div>
       )}
+
+      {cfg && <PaginaOficialHtml cfg={cfg} busy={busy} guardar={guardarCfg} campo="officialPageHtml" />}
+      {cfg && <PaginaOficialHtml cfg={cfg} busy={busy} guardar={guardarCfg} campo="directoryPageHtml" />}
 
       <BloqueCobro qs={qs} flash={flash} />
     </>
@@ -1450,6 +1535,7 @@ export default function CuponeraAdminPage() {
             <FormAliado
               cats={cats}
               tenants={tenants}
+              zonas={Array.from(new Set(allies.map((x) => (x.zone || '').trim()).filter(Boolean))).sort()}
               onCancelar={() => setNuevoAliado(false)}
               onCreado={async (r) => {
                 setNuevoAliado(false);
@@ -1480,7 +1566,7 @@ export default function CuponeraAdminPage() {
                       <div>
                         <b style={{ fontSize: 14 }}>{a.name}</b>
                         <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
-                          {a.city || '—'}{a.category ? ` · ${a.category.name}` : ''}
+                          {[a.neighborhood, a.zone, a.city].filter(Boolean).join(' · ') || '—'}{a.category ? ` · ${a.category.name}` : ''}
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>

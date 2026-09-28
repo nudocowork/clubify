@@ -19,6 +19,8 @@ type Ally = {
   coverUrl: string | null;
   address: string;
   city: string;
+  zone?: string;
+  neighborhood?: string;
   whatsapp: string | null;
   instagram: string | null;
   website: string | null;
@@ -111,7 +113,8 @@ function Card({ children }: { children: React.ReactNode }) {
 function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void }) {
   const [f, setF] = useState({
     name: ally.name || '', description: ally.description || '', logoUrl: ally.logoUrl || '', coverUrl: ally.coverUrl || '',
-    address: ally.address || '', city: ally.city || '', whatsapp: ally.whatsapp || '', instagram: ally.instagram || '', website: ally.website || '',
+    address: ally.address || '', city: ally.city || '', zone: ally.zone || '', neighborhood: ally.neighborhood || '',
+    whatsapp: ally.whatsapp || '', instagram: ally.instagram || '', website: ally.website || '',
   });
   const [fotos, setFotos] = useState<string[]>(Array.isArray(ally.photos) ? ally.photos : []);
   const [horas, setHoras] = useState<Record<string, string>>(
@@ -151,6 +154,8 @@ function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void })
         </div>
         <div><label style={lbl}>Dirección</label><input style={inp} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} /></div>
         <div><label style={lbl}>Ciudad</label><input style={inp} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
+        <div><label style={lbl}>Zona</label><input style={inp} value={f.zone} onChange={(e) => setF({ ...f, zone: e.target.value })} placeholder="Norte, Centro…" /></div>
+        <div><label style={lbl}>Barrio</label><input style={inp} value={f.neighborhood} onChange={(e) => setF({ ...f, neighborhood: e.target.value })} /></div>
         <div>
           <label style={lbl}>WhatsApp</label>
           {/* PhoneInput trae el selector de país con bandera y prefijo: escribir
