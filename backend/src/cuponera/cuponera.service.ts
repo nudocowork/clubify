@@ -564,10 +564,16 @@ export class CuponeraService {
       throw new NotFoundException('Este aliado no tiene cuenta de acceso');
     }
     const passwordHash = await argon2.hash(password);
-    await this.prisma.user.updateMany({
+    const res = await this.prisma.user.updateMany({
       where: { id: { in: cuentas.map((c) => c.id) } },
       data: { passwordHash, passwordChangedAt: new Date() },
     });
+    // El middleware de tenant puede recortar el updateMany (p. ej. un admin de
+    // marca que entra «como» la cuponera): sin mirar el count diríamos
+    // «contraseña cambiada» sin haber cambiado nada.
+    if (res.count === 0) {
+      throw new ForbiddenException('No se pudo cambiar la contraseña de este aliado con tu cuenta');
+    }
     return { ok: true, loginEmails: cuentas.map((c) => c.email) };
   }
 
@@ -2165,10 +2171,12 @@ export class CuponeraService {
       dto.categoryId === undefined
         ? undefined
         : await this.assertCategory(campaign.id, dto.categoryId);
-    return this.prisma.allyBusiness.update({
+    const ally = await this.prisma.allyBusiness.update({
       where: { id },
       data: { ...this.allyUpdatableData(dto), ...(categoryId !== undefined ? { categoryId } : {}) },
     });
+    if (dto.name !== undefined) await this.syncAllyGeofences(id);
+    return ally;
   }
 
   // --- Portal del negocio aliado ---
@@ -2430,7 +2438,18 @@ export class CuponeraService {
    */
   static readonly PREFIJO_GEOFENCE_ALIADO = 'aliado:';
 
+  /** Sincroniza y refresca los pases si el punto cambió. */
   private async syncAllyGeofence(allyLocationId: string) {
+    const tenantId = await this.syncAllyGeofenceSinRefresco(allyLocationId);
+    if (tenantId) this.locations.queueWalletRefresh(tenantId);
+  }
+
+  /**
+   * Devuelve el tenant cuyos pases hay que refrescar, o null si el geofence no
+   * cambió. El refresco va aparte porque encola un push POR PASE: aprobar un
+   * aliado con 3 sedes en una cuponera de 500 tarjetas eran 1.500 pushes.
+   */
+  private async syncAllyGeofenceSinRefresco(allyLocationId: string): Promise<string | null> {
     const sede = await this.prisma.allyLocation.findUnique({
       where: { id: allyLocationId },
       include: {
@@ -2439,7 +2458,7 @@ export class CuponeraService {
         },
       },
     });
-    if (!sede) return;
+    if (!sede) return null;
     const tenantId = sede.ally.campaign.tenantId;
     const externalId = `${CuponeraService.PREFIJO_GEOFENCE_ALIADO}${sede.id}`;
 
@@ -2454,8 +2473,7 @@ export class CuponeraService {
       sede.longitude !== null;
 
     if (!debeAvisar) {
-      await this.dropGeofence(tenantId, sede.id);
-      return;
+      return (await this.dropGeofenceSinRefresco(tenantId, sede.id)) ? tenantId : null;
     }
 
     const data = {
@@ -2470,31 +2488,55 @@ export class CuponeraService {
         sede.geopushMessage.trim() || `Estás cerca de ${sede.ally.name}`,
       isActive: true,
     };
+    const previo = await this.prisma.location.findUnique({
+      where: { tenantId_externalId: { tenantId, externalId } },
+    });
     await this.prisma.location.upsert({
       where: { tenantId_externalId: { tenantId, externalId } },
       create: { tenantId, externalId, ...data },
       update: data,
     });
-    this.locations.queueWalletRefresh(tenantId);
+    // Solo lo que va dentro del pase justifica refrescar: el nombre y la
+    // dirección del punto no los ve el celular.
+    const cambioElPase =
+      !previo ||
+      !previo.isActive ||
+      Number(previo.latitude) !== Number(data.latitude) ||
+      Number(previo.longitude) !== Number(data.longitude) ||
+      previo.radiusMeters !== data.radiusMeters ||
+      (previo.walletRelevantText ?? '') !== data.walletRelevantText;
+    return cambioElPase ? tenantId : null;
   }
 
   private async dropGeofence(tenantId: string, allyLocationId: string) {
+    if (await this.dropGeofenceSinRefresco(tenantId, allyLocationId)) {
+      this.locations.queueWalletRefresh(tenantId);
+    }
+  }
+
+  private async dropGeofenceSinRefresco(tenantId: string, allyLocationId: string) {
     const res = await this.prisma.location.deleteMany({
       where: {
         tenantId,
         externalId: `${CuponeraService.PREFIJO_GEOFENCE_ALIADO}${allyLocationId}`,
       },
     });
-    if (res.count > 0) this.locations.queueWalletRefresh(tenantId);
+    return res.count > 0;
   }
 
-  /** Aprobar o suspender cambia si sus sedes deben avisar. */
+  /** Aprobar o suspender cambia si sus sedes deben avisar. Un solo refresco
+   *  de pases al final, no uno por sede. */
   private async syncAllyGeofences(allyId: string) {
     const sedes = await this.prisma.allyLocation.findMany({
       where: { allyBusinessId: allyId },
       select: { id: true },
     });
-    for (const s of sedes) await this.syncAllyGeofence(s.id);
+    const aRefrescar = new Set<string>();
+    for (const s of sedes) {
+      const t = await this.syncAllyGeofenceSinRefresco(s.id);
+      if (t) aRefrescar.add(t);
+    }
+    for (const t of aRefrescar) this.locations.queueWalletRefresh(t);
   }
 
   /** Campos editables de una sede. Solo escribe lo que vino en el body. */

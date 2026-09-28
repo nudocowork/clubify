@@ -562,7 +562,7 @@ function TabConfig({
         method: 'PATCH',
         body: JSON.stringify({
           name: planEdit.name.trim(),
-          priceCents: Math.max(0, Number(planEdit.priceCents) || 0),
+          priceCents: Math.round(Math.max(0, Number(planEdit.priceCents) || 0)),
           interval: planEdit.interval,
           description: planEdit.description,
         }),
@@ -1598,15 +1598,13 @@ export default function CuponeraAdminPage() {
                     )}
                     {abierto?.id === a.id && abierto.que === 'sedes' && (
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #cbd5e1' }}>
-                        {a.status !== 'APPROVED' && (
-                          <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
-                            Mientras el aliado no esté aprobado, sus sedes no avisan a nadie aunque tengan el GeoPush encendido.
-                          </div>
-                        )}
                         <SedesAliado
                           base={`/cuponera/panel/allies/${a.id}/locations`}
                           qs={qs}
-                          flash={(m) => { flash(m); void recargar(); }}
+                          flash={flash}
+                          sinAviso={a.status !== 'APPROVED'
+                            ? 'Mientras el aliado no esté aprobado, sus sedes no avisan a nadie aunque tengan el GeoPush encendido.'
+                            : null}
                           intro={<>Locales de <b>{a.name}</b>. Cada uno avisa por su cuenta a quien pase cerca con la tarjeta.</>}
                         />
                       </div>

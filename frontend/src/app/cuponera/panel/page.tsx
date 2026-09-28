@@ -96,7 +96,15 @@ export default function AllyPanel() {
           <CambiarClave flash={flash} />
         </>
       )}
-      {tab === 'Sedes' && <SedesAliado base="/cuponera/ally/locations" flash={flash} />}
+      {tab === 'Sedes' && (
+        <SedesAliado
+          base="/cuponera/ally/locations"
+          flash={flash}
+          sinAviso={ally.status !== 'APPROVED'
+            ? 'Mientras la cuponera no apruebe tu negocio, tus sedes no avisan a nadie aunque tengan el GeoPush encendido.'
+            : null}
+        />
+      )}
       {tab === 'Promociones' && <PromosTab flash={flash} />}
       {tab === 'Canjear' && <CanjearTab flash={flash} />}
       {tab === 'Avisos' && <AvisosTab flash={flash} />}

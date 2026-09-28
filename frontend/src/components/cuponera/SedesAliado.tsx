@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import type { MapPickResult } from '@/components/MapPicker';
@@ -60,9 +60,13 @@ const aForm = (s: Sede): Form => ({
  * sedes quedaran sin coordenadas y el aviso no se pudiera encender.
  */
 export function SedesAliado({
-  base, qs = '', flash, intro,
+  base, qs = '', flash, intro, sinAviso,
 }: {
   base: string; qs?: string; flash: (m: string) => void; intro?: React.ReactNode;
+  /** Motivo por el que ninguna sede avisa aunque tenga el GeoPush encendido
+   *  (p. ej. el aliado aún no está aprobado). Sin esto la pantalla decía
+   *  «Activo» sin que le llegara a nadie. */
+  sinAviso?: string | null;
 }) {
   const [rows, setRows] = useState<Sede[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,13 +79,21 @@ export function SedesAliado({
   // reiniciaba con cada clic.
   const [centro, setCentro] = useState<{ initialLat: number; initialLng: number; initialZoom: number } | null>(null);
 
+  // «Cargando» solo la primera vez: en las recargas desmontaba el formulario
+  // abierto y el mapa de Google con lo que se estaba escribiendo.
   const cargar = async () => {
-    setLoading(true);
     try { setRows(((await api(`${base}${qs}`)) as Sede[]) ?? []); }
     catch { setRows([]); }
     finally { setLoading(false); }
   };
-  useEffect(() => { cargar(); }, [base, qs]);
+  useEffect(() => { setLoading(true); cargar(); }, [base, qs]);
+
+  // Referencia estable: MapPicker re-centra y hace zoom cada vez que `picked`
+  // cambia, y un objeto nuevo por render lo hacía saltar con cada tecla.
+  const picked = useMemo(
+    () => (f.lat !== null && f.lng !== null ? { name: 'Sede', address: '', lat: f.lat, lng: f.lng } : null),
+    [f.lat, f.lng],
+  );
 
   const abrir = (s: Sede | null) => {
     setEditando(s ? s.id : 'nueva');
@@ -107,7 +119,7 @@ export function SedesAliado({
       const body = JSON.stringify({
         name: f.name.trim(), address: f.address.trim(), city: f.city.trim(),
         latitude: f.lat, longitude: f.lng,
-        radiusMeters: Math.min(5000, Math.max(50, Number(f.radiusMeters) || 300)),
+        radiusMeters: Math.round(Math.min(5000, Math.max(50, Number(f.radiusMeters) || 300))),
         geopushMessage: f.geopushMessage.trim(),
         geopushActive: f.geopushActive && !sinCoords,
       });
@@ -162,9 +174,7 @@ export function SedesAliado({
         <MapPicker
           height={320}
           {...(centro ?? {})}
-          picked={f.lat !== null && f.lng !== null
-            ? { name: f.name || 'Sede', address: f.address, lat: f.lat, lng: f.lng }
-            : null}
+          picked={picked}
           onPick={onPick}
         />
       </div>
@@ -214,6 +224,12 @@ export function SedesAliado({
         </div>
         {editando === null && <button style={btn()} onClick={() => abrir(null)}>+ Agregar sede</button>}
       </div>
+
+      {sinAviso && (
+        <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+          {sinAviso}
+        </div>
+      )}
 
       {editando === 'nueva' && formulario}
 

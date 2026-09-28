@@ -16,6 +16,16 @@ desplegar el backend: agrega `AllyBusiness.zone` y `AllyBusiness.neighborhood`
 (TEXT NOT NULL DEFAULT '', aditiva, idempotente). Sin ella, Prisma pide esas columnas en
 cada consulta de aliados y **se cae toda la cuponera**.
 
+Correr también (idempotente) `scripts/apply-location-external-id-migration.cjs`: el GeoPush de
+aliados hace `upsert` por `@@unique([tenantId, externalId])` y sin ese índice en producción
+guardar una sede con aviso da 500. No consta en la bitácora que se haya corrido.
+
+Revisión con Fable aplicada: count en el cambio de clave del aliado, refresco de pases una
+sola vez y solo si cambia el geofence, metadata de /cuponera/p/<slug> sin «Clubify», mapa
+estable al escribir, aviso de «sin aprobar» en el portal. **Decisión pendiente de producto:**
+el HTML público admite formularios (riesgo de phishing en nuestro dominio) y con más de 10
+puntos Apple descarta al azar.
+
 - **Configuración → «Página principal (HTML)» y «Página de directorio (HTML)»**, guardadas en
   `BenefitCampaign.config.officialPageHtml` / `directoryPageHtml` (tope 300 KB). Públicas en
   `/cuponera/p/<slug>` y `/cuponera/p/<slug>/directorio`, solo con la cuponera ACTIVA
