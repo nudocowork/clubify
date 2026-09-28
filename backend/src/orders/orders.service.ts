@@ -509,7 +509,12 @@ export class OrdersService {
       const results = await Promise.all(
         phones.map(async (phone) => {
           const r = await this.growBusiness
-            .sendSmsWithCreds(creds!, phone, body)
+            .sendSmsWithCreds(creds!, phone, body, {
+              tenantId,
+              whiteLabelId: tenant.whiteLabelId,
+              templateId: 'op_delivery_alert',
+              feature: 'orders',
+            })
             .catch((e) => ({ ok: false as const, message: e?.message }));
           return { phone, ok: r.ok, message: !r.ok ? (r as any).message : null };
         }),

@@ -159,7 +159,12 @@ export class CustomerOrderSmsService {
       if (!body.trim()) return;
 
       const r = await this.growBusiness
-        .sendSmsWithCreds(creds, phone, body)
+        .sendSmsWithCreds(creds, phone, body, {
+          tenantId,
+          whiteLabelId: tenant.whiteLabelId,
+          templateId: `op_customer_order_${eventKey}`,
+          feature: 'orders',
+        })
         .catch((e) => ({ ok: false as const, message: e?.message }));
 
       await this.prisma.event.create({

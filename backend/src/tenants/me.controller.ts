@@ -271,7 +271,10 @@ export class TenantMeController {
     const results = await Promise.all(
       phones.map(async (p) => {
         const r = await this.growBusiness
-          .sendSmsWithCreds(creds!, p, smsBody)
+          .sendSmsWithCreds(creds!, p, smsBody, {
+            tenantId: user.tenantId!,
+            feature: 'prueba',
+          })
           .catch((e) => ({ ok: false as const, message: e?.message }));
         return {
           phone: p,
@@ -322,6 +325,7 @@ export class TenantMeController {
       target.creds,
       target.phone,
       body,
+      { tenantId: user.tenantId, feature: 'prueba' },
     );
     return {
       ok: result.ok,
@@ -432,7 +436,10 @@ export class TenantMeController {
     const results = await Promise.all(
       phones.map(async (p) => {
         const r = await this.growBusiness
-          .sendSmsWithCreds(creds!, p, smsBody)
+          .sendSmsWithCreds(creds!, p, smsBody, {
+            tenantId: user.tenantId!,
+            feature: 'prueba',
+          })
           .catch((e) => ({ ok: false as const, message: e?.message }));
         return {
           phone: p,

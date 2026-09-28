@@ -283,7 +283,10 @@ export class TenantsService {
     const results = await Promise.all(
       phones.map(async (p) => {
         const r = await this.growBusiness
-          .sendSmsWithCreds(creds!, p, body)
+          .sendSmsWithCreds(creds!, p, body, {
+            tenantId,
+            feature: 'prueba',
+          })
           .catch((e) => ({ ok: false as const, message: e?.message }));
         return {
           phone: p,

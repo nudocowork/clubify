@@ -679,7 +679,12 @@ export class CrossService implements PaymentProvider {
     const target = await this.billing.resolveBillingTarget(tenantId);
     if (!target) return;
     const r = await this.growBusiness
-      .sendSmsWithCreds(target.creds, target.phone, message)
+      .sendSmsWithCreds(target.creds, target.phone, message, {
+        // Sin esto la fila de «Mensajes enviados» nace sin negocio y sin
+        // marca, y una fila sin marca se lee como de Clubify.
+        tenantId,
+        feature: 'billing',
+      })
       .catch((e) => ({ ok: false as const, message: e?.message }));
     if (r.ok) this.logger.log(`SMS Cross enviado a ${brandName} (${target.phone})`);
     else this.logger.warn(`SMS Cross falló para ${brandName}: ${r.message ?? 'unknown'}`);

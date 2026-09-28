@@ -964,7 +964,12 @@ export class ReservationsService {
       return;
     }
     try {
-      const res = await this.growBusiness.sendSmsWithCreds(creds, dest, body);
+      // Con `tenantId`: sin él el aviso de reserva queda sin negocio ni marca
+      // en «Mensajes enviados». El por qué, en `reviews.service.ts`.
+      const res = await this.growBusiness.sendSmsWithCreds(creds, dest, body, {
+        tenantId: reservation.tenantId,
+        feature: 'reservations',
+      });
       if (res.ok) {
         await this.prisma.reservation.update({
           where: { id: reservation.id },
@@ -1107,7 +1112,10 @@ export class ReservationsService {
       `Esta es una notificación de prueba del sistema de reservas.\n` +
       `Si la recibes, el número receptor está bien configurado. ✅`;
     const res = await this.growBusiness
-      .sendSmsWithCreds(creds, dest, body)
+      .sendSmsWithCreds(creds, dest, body, {
+        tenantId: user.tenantId ?? undefined,
+        feature: 'prueba',
+      })
       .catch((e) => ({ ok: false as const, message: (e as Error).message }));
     return {
       ok: res.ok,

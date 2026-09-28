@@ -356,10 +356,17 @@ export class ReviewsService {
       feedbackUrl,
     });
 
+    // SIN CONTEXTO LA FILA NACE HUÉRFANA. `registrarEnvio` deduce la marca a
+    // partir del negocio, pero solo si le llega el `tenantId`; sin él la fila
+    // queda sin marca, y una fila sin marca la lectura la atribuye a Clubify
+    // por la regla «null = legacy». Medido en producción el 2026-09-27: 15
+    // avisos de reseña de Jamarea, un negocio de Sellea, se estaban pintando
+    // en el panel de Clubify.
     const result = await this.growBusiness.sendSmsWithCreds(
       creds,
       toPhone,
       body,
+      { tenantId, feature: 'reviews' },
     );
 
     await this.prisma.event.create({
