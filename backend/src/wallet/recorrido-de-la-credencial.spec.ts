@@ -180,9 +180,30 @@ describe('el pase que se instala el cliente de Degodoy', () => {
 
   it('lleva el nombre del negocio, NO el de la plataforma', async () => {
     const p = await pasoDeApple();
-    expect(p.logoText).toBe('Degodoy');
     expect(p.organizationName).toBe('Degodoy');
     expect(p.description).toBe('Credencial Degodoy');
+  });
+
+  it('LA CABECERA NO LLEVA EL NOMBRE ESCRITO (2026-09-28)', async () => {
+    // El logo del negocio va grande y centrado en la franja, así que el nombre
+    // al lado del logo pequeño era la misma marca dos veces y descuadrada:
+    // «DEGODOY» en la esquina y «Degodoy» al lado. Pedido de Javier mirando
+    // una credencial de Degodoy en su iPhone.
+    const p = await pasoDeApple();
+    expect(p.logoText).toBeUndefined();
+    // `organizationName` SÍ se queda: no se pinta en el pase, lo usa iOS para
+    // agrupar y en el diálogo de añadir a Wallet. Quitarlo dejaría el pase sin
+    // dueño en la lista de Wallet.
+    expect(p.organizationName).toBe('Degodoy');
+  });
+
+  it('una tarjeta de SELLOS sigue llevando su nombre arriba', async () => {
+    // El cambio es SOLO de la credencial. En un cartón el logoText es lo único
+    // que identifica al negocio en la cabecera, y quitarlo ahí sería otro bug.
+    const p = await pasoDeApple({
+      card: { ...CREDENCIAL, type: 'STAMPS', stampsRequired: 10 },
+    });
+    expect(p.logoText).toBe('Degodoy');
   });
 
   it('el reverso trae el número de tarjeta y el «Creado por»', async () => {

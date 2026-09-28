@@ -157,6 +157,12 @@ export function WalletPassView({
       bare={welcome}
       brandName={data.tenant.brandName}
       brandLogoUrl={
+        // El logo de la TARJETA primero, como en el pase que se instala. La
+        // excepción es la alianza: ahí `card.logoUrl` guarda el logo del
+        // ALIADO, que ya ocupa el centro de la franja, y usarlo también arriba
+        // enseñaba dos veces al aliado y ninguna al negocio (Altieri,
+        // 2026-09-14). Misma regla que en `wallet.service`.
+        (data.alianza ? null : data.card.logoUrl) ??
         data.tenant.walletLogoUrl ??
         data.tenant.logoUrl ??
         data.brand?.logoUrl ??

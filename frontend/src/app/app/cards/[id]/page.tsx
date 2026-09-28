@@ -89,6 +89,12 @@ type Card = {
    * es justo el que NO debe repartirse.
    */
   convenioId?: string | null;
+  /**
+   * El logo propio de ESTA tarjeta. Gana sobre el del negocio en el pase que se
+   * instala (`wallet.service`, nivel 1), así que la vista previa tiene que
+   * mirarlo o enseña un logo distinto del que acaba en el teléfono.
+   */
+  logoUrl?: string | null;
   _count?: { passes: number };
 };
 
@@ -414,7 +420,18 @@ export default function CardDetail() {
                 card.name.split('—')[0].trim() ||
                 t('yourBrand')
               }
-              brandLogoUrl={tenant?.walletLogoUrl ?? tenant?.logoUrl ?? null}
+              // EL LOGO DE LA TARJETA VA PRIMERO, igual que en el pase real:
+              // el backend lo pone de nivel 1 desde 2026-06-16 (bug Valmont —
+              // cambiar el logo de la tarjeta no se reflejaba). Aquí faltaba,
+              // así que la vista previa enseñaba el logo del NEGOCIO y el
+              // teléfono instalaba el de la TARJETA.
+              //
+              // Con un cartón se notaba poco: es un sello de 28 px en la
+              // esquina. En una credencial el logo pasa a ser lo único que se
+              // ve en el centro, y la discrepancia salta a la vista.
+              brandLogoUrl={
+                card.logoUrl ?? tenant?.walletLogoUrl ?? tenant?.logoUrl ?? null
+              }
               primaryColor={card.primaryColor}
               secondaryColor={card.secondaryColor}
               cardName={card.name}

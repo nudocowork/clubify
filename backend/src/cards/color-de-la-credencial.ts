@@ -26,7 +26,7 @@ const TEXTO_DEL_PASE = { r: 255, g: 255, b: 255 };
 /** Contraste mínimo legible (WCAG AA para texto normal). */
 export const CONTRASTE_MINIMO = 4.5;
 
-function aRgb(hex: string): { r: number; g: number; b: number } | null {
+export function aRgb(hex: string): { r: number; g: number; b: number } | null {
   const limpio = String(hex ?? '').trim().replace(/^#/, '');
   const completo =
     limpio.length === 3
@@ -40,7 +40,7 @@ function aRgb(hex: string): { r: number; g: number; b: number } | null {
   };
 }
 
-function luminancia({ r, g, b }: { r: number; g: number; b: number }): number {
+export function luminancia({ r, g, b }: { r: number; g: number; b: number }): number {
   const canal = (v: number) => {
     const s = v / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
@@ -48,14 +48,20 @@ function luminancia({ r, g, b }: { r: number; g: number; b: number }): number {
   return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
 }
 
+/**
+ * El cociente de contraste de WCAG entre dos luminancias. 1 = ninguno, 21 =
+ * el máximo (negro puro contra blanco puro).
+ */
+export function contraste(a: number, b: number): number {
+  const [claro, oscuro] = a > b ? [a, b] : [b, a];
+  return (claro + 0.05) / (oscuro + 0.05);
+}
+
 /** El contraste entre el fondo dado y el blanco del pase. 1 = ninguno. */
 export function contrasteConElTexto(hex: string): number | null {
   const fondo = aRgb(hex);
   if (!fondo) return null;
-  const a = luminancia(TEXTO_DEL_PASE);
-  const b = luminancia(fondo);
-  const [claro, oscuro] = a > b ? [a, b] : [b, a];
-  return (claro + 0.05) / (oscuro + 0.05);
+  return contraste(luminancia(TEXTO_DEL_PASE), luminancia(fondo));
 }
 
 /**

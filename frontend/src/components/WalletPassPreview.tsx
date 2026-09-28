@@ -363,7 +363,15 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         boxShadow: passShadow,
       }}
     >
-      {/* Header: brand + side metric */}
+      {/* Header: brand + side metric.
+
+          LA CREDENCIAL NO LLEVA CABECERA. Su logo va grande y centrado más
+          abajo, así que pintarlo también aquí —diminuto, con el nombre escrito
+          al lado— era la misma marca dos veces. En el pase instalado no existe:
+          `wallet.service` le quita el `logoText` y le manda los `logo*.png`
+          transparentes. Esta vista tiene que enseñar lo que el cliente va a
+          ver, que es para lo que la mira el negocio antes de repartirla. */}
+      {!credencial && (
       <div className="flex items-start justify-between gap-2.5 px-4 pt-3.5 pb-2 relative">
         <div className="flex items-center gap-2 min-w-0">
           <div
@@ -410,6 +418,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
           </div>
         )}
       </div>
+      )}
 
       {/* Strip / display central según tipo */}
       <div className="px-4 pb-3 relative">
@@ -604,6 +613,56 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
             <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold mt-1">
               Descuento permanente
             </div>
+          </div>
+        )}
+
+        {/* LA CREDENCIAL: el logo del negocio, grande y centrado.
+
+            En el pase real esto es una IMAGEN —la franja— porque Apple ancla
+            `logo.png` arriba a la izquierda y no hay forma de centrarlo con un
+            campo. Aquí se compone con CSS, pero la geometría es la misma que
+            usa `generateCredentialStrip`: la franja mide 320×123 puntos y el
+            logo ocupa como mucho el 62 % del ancho y el 58 % del alto.
+
+            Sin fondo propio: el de la franja es el color de la tarjeta, el
+            mismo que el del pase, para que no se vea dónde empieza la imagen.
+            Por eso aquí NO va el `bg-black/20` que llevan los demás tipos.
+
+            Sin logo no se pinta el hueco. El backend tampoco genera franja en
+            ese caso, y una caja vacía se lee como una imagen que no cargó. */}
+        {credencial && brandLogoUrl && (
+          <div
+            className="flex items-center justify-center"
+            style={{ aspectRatio: '320 / 123' }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={brandLogoUrl}
+              alt=""
+              className="object-contain"
+              style={{
+                maxWidth: '62%',
+                maxHeight: '58%',
+                // El chip que el negocio haya elegido para su logo. Sin chip no
+                // se pinta nada: el backend solo mete una plancha cuando MIDE
+                // que el logo no contrastaría con el fondo, y eso no se puede
+                // medir aquí sin leer los píxeles de una imagen remota.
+                ...(logoBgColor
+                  ? {
+                      background: logoBgColor,
+                      padding: '4%',
+                      // Mismos radios que `generateCredentialStrip`: redondo,
+                      // a escuadra, o el 22 % por defecto.
+                      borderRadius:
+                        logoShape === 'CIRCLE'
+                          ? '9999px'
+                          : logoShape === 'SQUARE'
+                            ? 0
+                            : '11%',
+                    }
+                  : null),
+              }}
+            />
           </div>
         )}
 

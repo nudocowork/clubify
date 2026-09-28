@@ -12,6 +12,14 @@ import { GoogleWalletService } from './google-wallet.service';
 import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
 import { removeBorderConnectedWhite } from './logo-chroma';
 import { imagenesSinFranjaAjena } from './franja-por-defecto';
+import {
+  ALTO_FRANJA,
+  ANCHO_FRANJA,
+  cajaDelLogo,
+  luminanciaDeLoVisible,
+  planchaParaElLogo,
+} from './logo-de-la-credencial';
+import { aRgb } from '../cards/color-de-la-credencial';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
@@ -269,7 +277,17 @@ export class WalletService implements OnModuleDestroy {
       organizationName: brandName,
       serialNumber: pass.serialNumber,
       description,
-      logoText: brandName,
+      // LA CREDENCIAL NO LLEVA EL NOMBRE ESCRITO EN LA CABECERA.
+      //
+      // En el resto de tarjetas ese texto es lo único que identifica al
+      // negocio arriba. Aquí no: el logo va grande y centrado en la franja,
+      // así que el nombre al lado del logo pequeño era la misma marca dos
+      // veces y encima descuadrada — «DEGODOY» en la esquina y «Degodoy»
+      // al lado. Pedido de Javier el 2026-09-28 mirando una de Degodoy.
+      //
+      // `organizationName` NO se toca: no se pinta en el pase, lo usa iOS
+      // para agrupar y en el diálogo de añadir a Wallet.
+      ...(info ? {} : { logoText: brandName }),
       foregroundColor: 'rgb(255,255,255)',
       backgroundColor: this.hexToRgb(pass.card.primaryColor),
       labelColor: 'rgb(245,241,232)',
@@ -530,6 +548,36 @@ export class WalletService implements OnModuleDestroy {
       this.logger.log(`[LOGO] usando ${usedLogoUrl} para pass=${pass.id}`);
     } else {
       this.logger.log(`[LOGO] sin logo válido para pass=${pass.id} — pase sin logo`);
+    }
+
+    // LA FRANJA DE LA CREDENCIAL, aquí abajo y no arriba con las demás: es la
+    // única que necesita el logo YA RESUELTO. `usedLogoUrl` es el candidato
+    // que de verdad produjo una imagen visible —la lista prueba el de la
+    // tarjeta, el del negocio y el de la marca, en ese orden— y usar el
+    // primero de la lista habría dibujado en el centro un logo que la
+    // cabecera ya había descartado por venir vacío.
+    //
+    // Sin logo no hay franja: una banda de color plano sin nada dentro no
+    // dice nada y se ve como un error de carga. El pase queda liso, que es
+    // como estaba.
+    if (info && usedLogoUrl) {
+      dynamicStrips = await this.generateCredentialStrip({
+        primary: pass.card.primaryColor,
+        logoUrl: usedLogoUrl,
+        logoBgColor: logoChip ?? null,
+        logoShape: logoForma ?? null,
+      });
+      // Y ENTONCES SE QUITA EL DE LA ESQUINA. Si se deja, el mismo logo sale
+      // dos veces: diminuto arriba a la izquierda y grande en el centro. El
+      // bucle de candidatos de arriba tiene que correr igual —es quien nos
+      // dice CUÁL logo sirve—, así que lo que se sustituye es el resultado.
+      //
+      // Van los PNG transparentes, no `{}`: sin `logo*.png` propios, el
+      // merge de más abajo deja pasar los de `wallet-defaults`, que son de
+      // Clubify. Es la misma trampa que la franja verde.
+      if (Object.keys(dynamicStrips).length > 0) {
+        tenantLogos = await this.generateTenantLogos(null);
+      }
     }
 
     // icon.png usa pushLogoUrl con prioridad sobre walletLogoUrl/logoUrl.
@@ -1149,6 +1197,157 @@ export class WalletService implements OnModuleDestroy {
       sharp(png1).resize(W * 3, H * 3).png().toBuffer(),
     ]);
     return { 'strip.png': png1, 'strip@2x.png': png2, 'strip@3x.png': png3 };
+  }
+
+  /**
+   * La franja de una CREDENCIAL: el logo del negocio, grande y centrado.
+   *
+   * Es la única forma de centrar un logo en Apple Wallet. `logo.png` va anclado
+   * arriba a la izquierda y limitado a 160×50 puntos; lo único que ocupa el
+   * ancho completo del pase es la franja. Por eso esto es una imagen y no un
+   * campo.
+   *
+   * DOS DECISIONES DE DIBUJO, con motivo:
+   *
+   * 1. EL FONDO ES PLANO Y DEL COLOR DE LA TARJETA, no un degradado como el de
+   *    la alianza. Apple pinta el resto del pase con `backgroundColor`, que es
+   *    un color sólido; un degradado aquí dejaría una costura visible justo
+   *    donde acaba la imagen. Con el mismo color plano no se ve dónde empieza
+   *    la franja y el logo parece flotar en la tarjeta, que es lo que se pidió:
+   *    «ajustado al estilo de la tarjeta».
+   *
+   * 2. EL LOGO VA LIMPIO, SIN DISCO DETRÁS —al revés que la alianza—. Allí el
+   *    logo es de OTRA empresa y casi siempre viene negro sobre transparente,
+   *    así que el disco blanco es obligatorio. Aquí el logo es del propio
+   *    negocio, sobre el color que ese mismo negocio eligió, y meterle una
+   *    plancha por defecto le rompe el diseño.
+   *
+   *    Pero un logo oscuro sobre un fondo oscuro desaparece, y el fondo de una
+   *    credencial es oscuro POR DISEÑO: `motivoParaRechazarElColor` no deja
+   *    guardar un color que no contraste con el texto blanco del pase. Así que
+   *    se mide —`planchaParaElLogo`— y la plancha solo se pinta cuando de
+   *    verdad hace falta. Medir y no adivinar: este fallo tampoco se vería en
+   *    la vista previa del panel, porque allí se pinta sobre el mismo color.
+   */
+  private async generateCredentialStrip(opts: {
+    primary: string;
+    logoUrl: string;
+    logoBgColor?: string | null;
+    logoShape?: string | null;
+  }): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const W = ANCHO_FRANJA;
+    const H = ALTO_FRANJA;
+    // EL MISMO COLOR QUE `backgroundColor`, leído de la misma forma. Si el hex
+    // no se entiende no se dibuja franja: Apple caería a su respaldo y una
+    // franja de otro color se vería como una banda cruzando el pase, que es
+    // peor que no tener ninguna.
+    const fondo = aRgb(opts.primary);
+    if (!fondo) return {};
+
+    try {
+      const r = await fetch(opts.logoUrl);
+      if (!r.ok) return {};
+      // Mismo tratamiento que el logo de la cabecera: si el PNG trae fondo
+      // blanco sólido, se le quita el blanco PEGADO AL BORDE. Sin esto, un logo
+      // con fondo blanco pinta un ladrillo blanco en medio del pase.
+      const limpio = await this.prepareLogoForWallet(
+        Buffer.from(await r.arrayBuffer()),
+      );
+
+      const caja = cajaDelLogo(W, H);
+      const logo = await sharp(limpio)
+        .resize(caja.ancho, caja.alto, {
+          fit: 'inside',
+          withoutEnlargement: false,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toBuffer();
+      const meta = await sharp(logo).metadata();
+      const lw = meta.width ?? caja.ancho;
+      const lh = meta.height ?? caja.alto;
+
+      // De qué color es lo que SE VE del logo. Con los píxeles en crudo, para
+      // poder saltarse los transparentes: contarlos falsea la media.
+      const crudo = await sharp(logo).ensureAlpha().raw().toBuffer();
+      const luminanciaDelLogo = luminanciaDeLoVisible(crudo);
+
+      // SIN NADA VISIBLE NO SE DIBUJA NADA. `prepareLogoForWallet` borra el
+      // blanco pegado al borde, y un logo que sea blanco SÓLIDO —sin
+      // transparencia propia— se va entero por ese camino. La cabecera del pase
+      // ya se protege de esto probando el siguiente candidato de la lista; aquí
+      // no hay lista, y una franja del color del fondo con nada dentro se ve
+      // como una imagen que no cargó. Mejor el pase liso, que es como estaba.
+      if (luminanciaDelLogo == null) return {};
+
+      const plancha = planchaParaElLogo({
+        fondo,
+        logoBgColor: opts.logoBgColor,
+        luminanciaDelLogo,
+      });
+
+      const cx = Math.round(W / 2);
+      const cy = Math.round(H / 2);
+      const capas: Array<{ input: Buffer; left: number; top: number }> = [];
+
+      if (plancha) {
+        // La plancha respeta la forma que el negocio eligió para su logo en el
+        // editor, la misma que ya usa la cabecera del pase: si eligió
+        // «circular», aquí no le sale un rectángulo.
+        const forma = (opts.logoShape ?? '').toUpperCase();
+        const aire = Math.round(Math.max(lw, lh) * 0.12);
+        const lado = Math.max(lw, lh) + aire * 2;
+        const pw = forma === 'CIRCLE' ? lado : lw + aire * 2;
+        const ph = forma === 'CIRCLE' ? lado : lh + aire * 2;
+        const radio =
+          forma === 'CIRCLE'
+            ? Math.round(Math.min(pw, ph) / 2)
+            : forma === 'SQUARE'
+              ? 0
+              : Math.round(Math.min(pw, ph) * 0.22);
+        capas.push({
+          input: Buffer.from(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}">` +
+              `<rect width="${pw}" height="${ph}" rx="${radio}" ry="${radio}" fill="${plancha}"/>` +
+              `</svg>`,
+          ),
+          left: Math.round(cx - pw / 2),
+          top: Math.round(cy - ph / 2),
+        });
+      }
+
+      capas.push({
+        input: logo,
+        left: Math.round(cx - lw / 2),
+        top: Math.round(cy - lh / 2),
+      });
+
+      const png1 = await sharp({
+        create: {
+          width: W,
+          height: H,
+          channels: 4,
+          background: { ...fondo, alpha: 1 },
+        },
+      })
+        .composite(capas)
+        .png()
+        .toBuffer();
+
+      const [png2, png3] = await Promise.all([
+        sharp(png1).resize(W * 2, H * 2).png().toBuffer(),
+        sharp(png1).resize(W * 3, H * 3).png().toBuffer(),
+      ]);
+      return { 'strip.png': png1, 'strip@2x.png': png2, 'strip@3x.png': png3 };
+    } catch (e) {
+      // Sin franja el pase queda liso del color del negocio, que es como estaba
+      // antes de esto. Lo que NO puede pasar es que un logo caído deje pasar la
+      // franja verde de Clubify — de eso se encarga `imagenesSinFranjaAjena`,
+      // que mira si generamos alguna.
+      this.logger.warn(`generateCredentialStrip error: ${(e as Error).message}`);
+      return {};
+    }
   }
 
   private async generateStampsStrip(opts: {
@@ -2228,10 +2427,14 @@ export class WalletService implements OnModuleDestroy {
   }
 
   private hexToRgb(hex: string): string {
-    const m = hex.replace('#', '').match(/.{2}/g);
-    if (!m) return 'rgb(15,61,46)';
-    const [r, g, b] = m.map((x) => parseInt(x, 16));
-    return `rgb(${r},${g},${b})`;
+    // Pasa por `aRgb`, que normaliza el atajo de tres dígitos. Antes se cortaba
+    // el hex en parejas a pelo: `#fff` daba UNA pareja, y de ahí salía
+    // `rgb(255,NaN,NaN)` como color de fondo del pase. Importa más desde que la
+    // credencial pinta su franja del mismo color: dos formas distintas de leer
+    // el color dejarían una costura visible donde acaba la imagen.
+    const c = aRgb(hex);
+    if (!c) return 'rgb(15,61,46)';
+    return `rgb(${c.r},${c.g},${c.b})`;
   }
 
   // ============================================================
