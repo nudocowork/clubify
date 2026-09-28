@@ -79,6 +79,112 @@ La recuperación de contraseña por correo de un ALLY_BUSINESS / CUPONERA_ADMIN 
 **Clubify** (el usuario no tiene `tenantId` ni `whiteLabelId`). Se consultó el 2026-09-28 y
 **es aceptable que salga de Clubify**: no hay que resolverle la marca de la cuponera.
 
+## 2026-09-28 (85) — URGENTE: por qué se apagó la cuenta SELLEA
+
+Backend `eafafb24` + `87fe44cf`. **Sin desplegar.** La cuenta YA está
+reactivada en producción.
+
+### Qué pasó
+
+La cuenta **SELLEA** (`prueba-selleala`) apareció suspendida. El rastro:
+
+```
+último cobro ........ 26-ago   USD 80, por Stripe
+período pagado hasta  26-OCT
+SUSPENDIDA .......... 26-SEP 23:16
+motivo .............. subscription.suspended {"reason":"cancelled","gateway":"STRIPE"}
+```
+
+Llegó una **cancelación desde Stripe** y `onSubscriptionCancelled` la
+suspendió en el acto, **un mes antes** de que terminara lo pagado.
+
+### Lo que más duele: la regla ya existía
+
+`desconectaAlCancelar` está en `billing/cancelacion.ts` desde el 2026-09-10 —
+decisión de Javier: quien pagó hasta el 25 y avisa el 10 sigue hasta el 25— y
+vive **en su propio archivo justamente porque la cancelación entra por varias
+puertas y todas tienen que decidir igual**. Eso lo dice su comentario.
+
+El botón del panel la aplica. Hotmart la aplica. **Stripe no.** Y Sellea cobra
+por Stripe. El comentario de `billing.service` llegó a decir que «las dos
+puertas deciden ahora con el mismo criterio»: eran **tres**.
+
+Y faltaba un detalle que lo hacía imposible aunque se importara: el `select`
+de `findTenant` de Stripe **no traía `failedPaymentCount`**, que es lo que
+distingue «canceló teniendo saldo» de «canceló debiendo».
+
+### La segunda mitad, que es la de fondo
+
+Javier: «**es del crédito gratuito, esta siempre debería estar encendida**».
+
+Esa cuenta vive del **crédito de la marca** (`wl-…`) y **no tiene precio de
+suscripción**: no le paga nada a Stripe. Arrastraba una suscripción de antes.
+Con solo el primer arreglo se habría apagado igual, el 26 de octubre.
+
+`laPasarelaMandaSobreElNegocio` lo corta de raíz, con DOS condiciones que van
+juntas:
+
+1. El origen del cobro, por el prefijo de `hotmartSubscriberCode` —el mismo
+   criterio que ya usa el reporte de comisiones—: `wl-`, `comp-`, `trial-`,
+   `campaign-`/`sim-` y el código vacío no facturan por pasarela.
+2. **Y que no tenga precio.** Sin este matiz la protección se comería a los 31
+   negocios de alta con crédito de marca, algunos de los cuales sí pagan.
+
+### El alcance, medido antes de tocar nada
+
+```
+Cuentas SIN cobro por pasarela pero CON una suscripción atada:  4
+  SUSPENDED  SELLEA          (crédito de marca)  ← la del caso
+  SUSPENDED  demo demo
+  ACTIVE     Beauty By Mir   (crédito de marca)  ← iba camino de lo mismo
+  ACTIVE     Smart Solutions                     ← idem
+```
+
+Las 81 de **Hotmart tienen CERO** suscripciones de Stripe, así que esto solo
+podía pasar en Sellea.
+
+### Lo que ya se hizo en producción
+
+`backend/scripts/reactivar-sellea.cjs` — **ya corrido**. SELLEA está `ACTIVE`
+con su período intacto hasta el 26 de octubre. Toca UNA fila y DOS campos,
+con `updateMany` condicionado al estado leído (si alguien la cambia entre
+medias, no se le pisa), sin inventar fechas de cobro, y deja el motivo en
+`AuditLog`. Idempotente.
+
+### Cuidado si tocas esto
+
+- **El candado es `cancelar-sin-perder-lo-pagado.spec.ts`**: recorre las tres
+  puertas y falla si alguna cancela sin consultar la regla, o si suspende a
+  secas dentro de la cancelación. Comprobado que sabe ponerse en rojo: el
+  `stripe.service.ts` anterior tiene **cero** menciones a
+  `desconectaAlCancelar`.
+- **Si añades una pasarela nueva, añádela a `PUERTAS` en ese spec.**
+- **El patrón que se repite aquí no es la regla, es el `select`.** Dos veces
+  en el mismo fichero: la lógica estaba, pero los campos que necesita no se
+  traían de la base. Antes de dar por buena una regla, mira que su `select`
+  tenga lo que lee.
+
+### Queda suelto
+
+- **SELLEA sigue con una suscripción de Stripe atada que no le corresponde.**
+  El código ya la ignora, pero lo limpio es desatársela.
+- **Por qué Stripe canceló** esa suscripción no se puede saber desde aquí: la
+  Secret Key de Sellea sigue siendo inválida (es un Destination ID `ed_…`),
+  así que toda consulta a Stripe falla.
+
+### Ojo con el push de hoy
+
+Al empujar salieron **4 commits de cuponera de la otra máquina** que estaban
+en el árbol local sin empujar (el `.git` se sincroniza por OneDrive). Pasaron
+la verificación completa junto con los míos —`tsc` en frío y 3.175 pruebas—,
+pero conviene saber que entraron en `main` desde aquí.
+
+### Verificado
+
+`tsc` en frío limpio, **3.175 pruebas en 223 ficheros** en verde, `eslint` sin
+errores.
+
+---
 ## 2026-09-28 (84) — El logo de la credencial, grande y centrado
 
 Backend `56f65c9f` + `58e25de2`. **Toca backend Y frontend.**
