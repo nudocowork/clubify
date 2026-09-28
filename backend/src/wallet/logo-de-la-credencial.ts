@@ -56,34 +56,56 @@ export function cajaDelLogo(
 }
 
 /**
- * La luminancia media de lo que SE VE del logo: los píxeles opacos.
+ * QUÉ PARTE DEL LOGO SE DISTINGUE DEL FONDO, entre 0 y 1.
  *
- * Los transparentes hay que saltarlos o mienten: un logo negro sobre un PNG
- * transparente tiene, contando todo, la luminancia del negro «diluida» por un
- * 80 % de píxeles vacíos que en RGB suelen venir en (0,0,0). Eso lo haría
- * parecer aún más oscuro de lo que es, y en otros codificadores —que rellenan
- * el transparente de blanco— lo haría parecer claro. Mismo logo, dos
+ * NO es la luminancia media, y la diferencia importa. La primera versión de
+ * esto promediaba el color del logo, y con el logo real de Degodoy —un JPG con
+ * el fondo NEGRO y las letras blancas finas— la media daba casi negro sobre una
+ * tarjeta negra: «no se ve», y le metía una plancha blanca. Al renderizarlo, la
+ * credencial salía con un marco blanco alrededor de un recuadro negro. El logo
+ * se veía perfectamente; lo que estaba mal era la medida.
+ *
+ * Un logo no se lee por su color promedio: se lee por los trazos que destacan.
+ * Así que se cuenta qué fracción de sus píxeles visibles contrasta de verdad
+ * con el fondo. Unas letras finas sobre su propio fondo son un porcentaje
+ * pequeño de la imagen y aun así se leen.
+ *
+ * Los píxeles transparentes se saltan, o mienten: los huecos de un PNG suelen
+ * venir en (0,0,0) y contarlos haría parecer oscuro un logo claro — y en otros
+ * codificadores, que los rellenan de blanco, pasaría al revés. Mismo logo, dos
  * respuestas.
  *
- * `null` si no hay ni un píxel visible: un logo totalmente transparente no
- * tiene color que comparar, y ahí no se decide nada.
+ * `null` si no hay ni un píxel visible: un logo del todo transparente no tiene
+ * nada que comparar, y ahí no se decide, se descarta.
  */
-export function luminanciaDeLoVisible(
+export function contenidoQueContrasta(
   rgba: Uint8Array | Buffer,
+  fondo: { r: number; g: number; b: number },
   opciones: { alphaMinimo?: number } = {},
 ): number | null {
   // 128 = medio opaco. Por debajo el píxel aporta tan poco color al resultado
-  // final que contarlo como si fuera sólido desvía la media.
+  // final que contarlo como si fuera sólido desvía la cuenta.
   const alphaMinimo = opciones.alphaMinimo ?? 128;
-  let suma = 0;
-  let cuenta = 0;
+  const lFondo = luminancia(fondo);
+  let visibles = 0;
+  let destacan = 0;
   for (let i = 0; i + 3 < rgba.length; i += 4) {
     if (rgba[i + 3] < alphaMinimo) continue;
-    suma += luminancia({ r: rgba[i], g: rgba[i + 1], b: rgba[i + 2] });
-    cuenta++;
+    visibles++;
+    const l = luminancia({ r: rgba[i], g: rgba[i + 1], b: rgba[i + 2] });
+    if (contraste(l, lFondo) >= CONTRASTE_MINIMO_DEL_LOGO) destacan++;
   }
-  return cuenta === 0 ? null : suma / cuenta;
+  return visibles === 0 ? null : destacan / visibles;
 }
+
+/**
+ * Cuánto del logo tiene que destacar para darlo por legible.
+ *
+ * El 3 % parece poco y no lo es: un logotipo de letras finas sobre su propio
+ * fondo ocupa por ahí. Lo que esto descarta es el caso de verdad —un logo
+ * ENTERO del color del fondo, que es invisible— no uno con poco trazo.
+ */
+export const MINIMO_QUE_DESTACA = 0.03;
 
 /**
  * ¿Hace falta una plancha clara detrás del logo?
@@ -99,24 +121,25 @@ export function luminanciaDeLoVisible(
  *
  * 1. El negocio eligió un fondo para su logo (`logoBgColor`) → manda él. Es una
  *    decisión suya y ya se respeta en la cabecera del pase.
- * 2. No sabemos de qué color es el logo → no se inventa nada. Poner una plancha
- *    blanca «por si acaso» le mete un rectángulo a quien no lo necesita.
- * 3. Se sabe → plancha solo si el logo no se distinguiría del fondo.
+ * 2. No sabemos qué parte del logo destaca → no se inventa nada. Poner una
+ *    plancha blanca «por si acaso» le mete un rectángulo a quien no lo
+ *    necesita, y eso fue exactamente lo que pasó en la primera versión.
+ * 3. Se sabe → plancha solo si NADA del logo se distinguiría del fondo.
  */
 export function planchaParaElLogo(args: {
   /** El fondo REAL de la franja, ya parseado: el mismo del pase. */
   fondo: { r: number; g: number; b: number };
   logoBgColor?: string | null;
-  luminanciaDelLogo?: number | null;
+  /** Lo que devuelve `contenidoQueContrasta`, entre 0 y 1. */
+  queDestaca?: number | null;
 }): string | null {
   const elegido = (args.logoBgColor ?? '').trim();
   if (elegido && aRgb(elegido)) return elegido;
 
-  if (args.luminanciaDelLogo == null) return null;
+  if (args.queDestaca == null) return null;
+  if (args.queDestaca >= MINIMO_QUE_DESTACA) return null;
 
   const fondo = args.fondo;
-  const ratio = contraste(args.luminanciaDelLogo, luminancia(fondo));
-  if (ratio >= CONTRASTE_MINIMO_DEL_LOGO) return null;
 
   // Blanco si el fondo es oscuro, negro si es claro. Lo segundo casi no pasa
   // —el gate del color lo impide— pero una credencial creada antes de que ese

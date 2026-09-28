@@ -189,12 +189,24 @@ describe('el pase que se instala el cliente de Degodoy', () => {
     // al lado del logo pequeño era la misma marca dos veces y descuadrada:
     // «DEGODOY» en la esquina y «Degodoy» al lado. Pedido de Javier mirando
     // una credencial de Degodoy en su iPhone.
-    const p = await pasoDeApple();
+    const p = await pasoDeApple({
+      tenant: { ...NEGOCIO, logoUrl: 'https://cdn/degodoy.png' },
+    });
     expect(p.logoText).toBeUndefined();
     // `organizationName` SÍ se queda: no se pinta en el pase, lo usa iOS para
     // agrupar y en el diálogo de añadir a Wallet. Quitarlo dejaría el pase sin
     // dueño en la lista de Wallet.
     expect(p.organizationName).toBe('Degodoy');
+  });
+
+  it('UN NEGOCIO SIN LOGO CONSERVA SU NOMBRE ESCRITO', async () => {
+    // Si no, se queda con la cabecera del todo vacía —ni logo, ni nombre— y
+    // la credencial no dice de quién es. Peor que como estaba.
+    //
+    // Es el caso de Degodoy hoy mismo: en producción no tiene ningún logo
+    // cargado, ni en la tarjeta, ni en el negocio, ni en su marca.
+    const p = await pasoDeApple();
+    expect(p.logoText).toBe('Degodoy');
   });
 
   it('una tarjeta de SELLOS sigue llevando su nombre arriba', async () => {

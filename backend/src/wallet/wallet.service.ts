@@ -16,7 +16,7 @@ import {
   ALTO_FRANJA,
   ANCHO_FRANJA,
   cajaDelLogo,
-  luminanciaDeLoVisible,
+  contenidoQueContrasta,
   planchaParaElLogo,
 } from './logo-de-la-credencial';
 import { aRgb } from '../cards/color-de-la-credencial';
@@ -270,6 +270,45 @@ export class WalletService implements OnModuleDestroy {
           : pass.card.rewardText?.trim() || L.info_active;
     }
 
+    // Resolución del logo del pase:
+    // #22 (2026-06-16): el logo de LA TARJETA (card.logoUrl) tiene PRIORIDAD.
+    //   Antes el pase solo miraba el logo del tenant → cambiar el logo de la
+    //   tarjeta no se reflejaba (bug Valmont). card.logoUrl ya está en
+    //   VISUAL_FIELDS (dispara wallet.push al cambiar), así que la intención
+    //   siempre fue que se viera en el pase.
+    // 1. card.logoUrl (logo propio de la tarjeta).
+    // 2. walletLogoUrl (logo dedicado para wallet del tenant).
+    // 3. logoUrl (logo general de la marca) como fallback.
+    // String vacío se trata como ausente (?? no cae con '').
+    // Si un candidato produce un logo "vacío" (todo blanco tras chroma-key),
+    // automáticamente probamos el siguiente.
+    //
+    // ESTO SE CALCULA AQUÍ ARRIBA, y no junto a las imágenes como estaba, por
+    // una razón concreta: la credencial se queda sin el nombre escrito en la
+    // cabecera SOLO si de verdad va a llevar su logo centrado. Un negocio sin
+    // ningún logo se quedaría con la cabecera completamente vacía —ni logo, ni
+    // nombre— y eso es peor que como estaba.
+    const normalize = (u: any): string | null =>
+      typeof u === 'string' && u.trim() ? u.trim() : null;
+    const candidates = [
+      // Nivel 1: logo propio del negocio (tarjeta > wallet > general).
+      //
+      // EN UNA ALIANZA, EL DE ARRIBA ES EL DEL NEGOCIO (2026-09-14, Altieri).
+      // `card.logoUrl` de una tarjeta de alianza guarda el logo del ALIADO, y
+      // ese ya ocupa el centro de la franja. Usándolo también arriba, la
+      // tarjeta enseñaba dos veces al aliado y ni una vez a quien la emite —
+      // que es el negocio donde la persona va a usar el beneficio. Arriba va
+      // siempre la casa; el aliado, en el centro.
+      alianza ? null : normalize((pass.card as any).logoUrl),
+      normalize((pass.tenant as any).walletLogoUrl),
+      normalize(pass.tenant.logoUrl),
+      // Nivel 2: logo de la MARCA BLANCA propietaria (Sellea→Sellea). passBrand
+      // viene de WhitelabelBrandService.resolveTenant → NUNCA cae a Clubify para
+      // otra marca. Así un negocio sin logo hereda el logo de su marca, no Clubify.
+      normalize(passBrand.logoUrl),
+      normalize(passBrand.iconUrl),
+    ].filter((u): u is string => u !== null);
+
     const passJson = {
       formatVersion: 1,
       passTypeIdentifier: process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty',
@@ -287,7 +326,12 @@ export class WalletService implements OnModuleDestroy {
       //
       // `organizationName` NO se toca: no se pinta en el pase, lo usa iOS
       // para agrupar y en el diálogo de añadir a Wallet.
-      ...(info ? {} : { logoText: brandName }),
+      //
+      // Y SOLO SI HAY LOGO. Un negocio que no ha subido ninguno —ni en la
+      // tarjeta, ni en el negocio, ni en su marca— se quedaría con la cabecera
+      // del todo vacía y sin nada que diga de quién es la credencial. Ahí el
+      // nombre escrito es lo único que hay, y se queda.
+      ...(info && candidates.length > 0 ? {} : { logoText: brandName }),
       foregroundColor: 'rgb(255,255,255)',
       backgroundColor: this.hexToRgb(pass.card.primaryColor),
       labelColor: 'rgb(245,241,232)',
@@ -488,38 +532,9 @@ export class WalletService implements OnModuleDestroy {
     // como ausente — el frontend puede mandar '' al borrar y ?? solo cae
     // con null/undefined, lo que dejaba el logo transparente aunque
     // logoUrl existiera.
-    // Resolución del logo del pase:
-    // #22 (2026-06-16): el logo de LA TARJETA (card.logoUrl) tiene PRIORIDAD.
-    //   Antes el pase solo miraba el logo del tenant → cambiar el logo de la
-    //   tarjeta no se reflejaba (bug Valmont). card.logoUrl ya está en
-    //   VISUAL_FIELDS (dispara wallet.push al cambiar), así que la intención
-    //   siempre fue que se viera en el pase.
-    // 1. card.logoUrl (logo propio de la tarjeta).
-    // 2. walletLogoUrl (logo dedicado para wallet del tenant).
-    // 3. logoUrl (logo general de la marca) como fallback.
-    // String vacío se trata como ausente (?? no cae con '').
-    // Si un candidato produce un logo "vacío" (todo blanco tras chroma-key),
-    // automáticamente probamos el siguiente.
-    const normalize = (u: any): string | null =>
-      typeof u === 'string' && u.trim() ? u.trim() : null;
-    const candidates = [
-      // Nivel 1: logo propio del negocio (tarjeta > wallet > general).
-      //
-      // EN UNA ALIANZA, EL DE ARRIBA ES EL DEL NEGOCIO (2026-09-14, Altieri).
-      // `card.logoUrl` de una tarjeta de alianza guarda el logo del ALIADO, y
-      // ese ya ocupa el centro de la franja. Usándolo también arriba, la
-      // tarjeta enseñaba dos veces al aliado y ni una vez a quien la emite —
-      // que es el negocio donde la persona va a usar el beneficio. Arriba va
-      // siempre la casa; el aliado, en el centro.
-      alianza ? null : normalize((pass.card as any).logoUrl),
-      normalize((pass.tenant as any).walletLogoUrl),
-      normalize(pass.tenant.logoUrl),
-      // Nivel 2: logo de la MARCA BLANCA propietaria (Sellea→Sellea). passBrand
-      // viene de WhitelabelBrandService.resolveTenant → NUNCA cae a Clubify para
-      // otra marca. Así un negocio sin logo hereda el logo de su marca, no Clubify.
-      normalize(passBrand.logoUrl),
-      normalize(passBrand.iconUrl),
-    ].filter((u): u is string => u !== null);
+    // `candidates` se calcula más arriba, antes de `passJson`: la credencial
+    // necesita saber YA si va a tener logo para decidir si se queda sin nombre
+    // escrito en la cabecera.
 
     let tenantLogos: Record<string, Buffer> = {};
     let usedLogoUrl: string | null = null;
@@ -1255,8 +1270,42 @@ export class WalletService implements OnModuleDestroy {
         Buffer.from(await r.arrayBuffer()),
       );
 
+      // FUERA EL MARGEN MUERTO QUE TRAE EL ARCHIVO.
+      //
+      // Casi todos los logos vienen con aire alrededor: un PNG con su marca en
+      // medio de un lienzo transparente, o —como el de Degodoy— un JPG cuadrado
+      // con el fondo liso y el logotipo pequeño en el centro. Al escalar la
+      // imagen entera se escala ese aire, y el logo acababa ocupando un cuarto
+      // del sitio que tiene. Renderizado y mirado: «DEGODOY COCINA» salía
+      // diminuto en mitad de la franja.
+      //
+      // `trim` recorta el borde uniforme, sea transparente o de color sólido.
+      // Si el logo no tiene margen no hace nada, y si el recorte saliera
+      // degenerado —una imagen de un solo color, o casi— se usa la original: es
+      // preferible un logo pequeño a uno roto.
+      // El umbral va por encima del 10 que trae sharp porque los logos llegan
+      // en JPG y su «negro» no es #000000: la compresión lo deja alrededor de
+      // #0A0A0A y con el valor de fábrica se recortaba menos margen. `trim`
+      // solo avanza desde los bordes hacia dentro, nunca por el centro, así que
+      // subirlo no puede comerse el logotipo.
+      //
+      // LO QUE ESTO NO ARREGLA, y conviene saberlo antes de subirlo más: si el
+      // JPG trae un fondo con ruido de compresión —no uniforme— el recorte se
+      // detiene, y queda un recuadro tenue del color del archivo sobre el color
+      // limpio de la tarjeta. Se ve en el logo real de Degodoy. La solución no
+      // es un umbral mayor sino el formato: el campo «logo de wallet» del panel
+      // existe justamente para subir un PNG con transparencia.
+      const recortado = await sharp(limpio)
+        .trim({ threshold: 24 })
+        .png()
+        .toBuffer()
+        .catch(() => limpio);
+      const m = await sharp(recortado).metadata();
+      const fuente =
+        (m.width ?? 0) >= 8 && (m.height ?? 0) >= 8 ? recortado : limpio;
+
       const caja = cajaDelLogo(W, H);
-      const logo = await sharp(limpio)
+      const logo = await sharp(fuente)
         .resize(caja.ancho, caja.alto, {
           fit: 'inside',
           withoutEnlargement: false,
@@ -1268,10 +1317,10 @@ export class WalletService implements OnModuleDestroy {
       const lw = meta.width ?? caja.ancho;
       const lh = meta.height ?? caja.alto;
 
-      // De qué color es lo que SE VE del logo. Con los píxeles en crudo, para
-      // poder saltarse los transparentes: contarlos falsea la media.
+      // Qué parte del logo se distingue del fondo. Con los píxeles en crudo,
+      // para poder saltarse los transparentes: contarlos falsea la cuenta.
       const crudo = await sharp(logo).ensureAlpha().raw().toBuffer();
-      const luminanciaDelLogo = luminanciaDeLoVisible(crudo);
+      const queDestaca = contenidoQueContrasta(crudo, fondo);
 
       // SIN NADA VISIBLE NO SE DIBUJA NADA. `prepareLogoForWallet` borra el
       // blanco pegado al borde, y un logo que sea blanco SÓLIDO —sin
@@ -1279,12 +1328,12 @@ export class WalletService implements OnModuleDestroy {
       // ya se protege de esto probando el siguiente candidato de la lista; aquí
       // no hay lista, y una franja del color del fondo con nada dentro se ve
       // como una imagen que no cargó. Mejor el pase liso, que es como estaba.
-      if (luminanciaDelLogo == null) return {};
+      if (queDestaca == null) return {};
 
       const plancha = planchaParaElLogo({
         fondo,
         logoBgColor: opts.logoBgColor,
-        luminanciaDelLogo,
+        queDestaca,
       });
 
       const cx = Math.round(W / 2);

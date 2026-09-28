@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   ALTO_FRANJA,
   ANCHO_FRANJA,
-  CONTRASTE_MINIMO_DEL_LOGO,
+  MINIMO_QUE_DESTACA,
   cajaDelLogo,
-  luminanciaDeLoVisible,
+  contenidoQueContrasta,
   planchaParaElLogo,
 } from './logo-de-la-credencial';
-import { aRgb, luminancia } from '../cards/color-de-la-credencial';
+import { aRgb } from '../cards/color-de-la-credencial';
 
 /**
  * El logo centrado de una credencial, y lo único que puede salir mal en
@@ -37,26 +37,58 @@ function logoLiso(hex: string, opciones: { alpha?: number; pixeles?: number } = 
 }
 
 const NEGRO_DE_DEGODOY = aRgb('#000000')!;
-const AZUL_OSCURO = aRgb('#1B2A4A')!;
+
+/**
+ * El logo REAL de Degodoy, en pequeño: un cuadro con el fondo NEGRO y el
+ * logotipo en letras blancas finas. Es el caso que tumbó la primera versión de
+ * esto, así que va aquí como dato y no como nota al pie.
+ */
+function logoDeDegodoy(porcentajeDeLetra = 0.1) {
+  const total = 200;
+  const letras = Math.round(total * porcentajeDeLetra);
+  const b = new Uint8Array(total * 4);
+  for (let i = 0; i < total; i++) {
+    const claro = i < letras;
+    b[i * 4] = b[i * 4 + 1] = b[i * 4 + 2] = claro ? 255 : 8;
+    b[i * 4 + 3] = 255;
+  }
+  return b;
+}
 
 describe('¿hace falta plancha detrás del logo?', () => {
-  it('EL CASO QUE LO OBLIGA: logo negro sobre credencial negra', () => {
-    // Sin esto, Degodoy repartiría credenciales con el centro en blanco.
+  it('EL CASO QUE LO OBLIGA: logo negro entero sobre credencial negra', () => {
+    // Sin esto, el centro de la credencial sale vacío y nadie lo ve: en la
+    // vista previa del panel se pinta sobre el mismo color.
     const plancha = planchaParaElLogo({
       fondo: NEGRO_DE_DEGODOY,
-      luminanciaDelLogo: luminanciaDeLoVisible(logoLiso('#111111')),
+      queDestaca: contenidoQueContrasta(logoLiso('#111111'), NEGRO_DE_DEGODOY),
     });
     expect(plancha).toBe('#FFFFFF');
   });
 
-  it('un logo BLANCO sobre fondo oscuro va limpio, sin plancha', () => {
-    // Es el caso bueno y el más común en una credencial: el negocio eligió el
-    // fondo oscuro justamente porque su marca es clara. Meterle un rectángulo
-    // blanco detrás le rompería el diseño.
+  it('EL CASO QUE ROMPIÓ LA PRIMERA VERSIÓN: Degodoy, letras claras sobre su propio fondo negro', () => {
+    // Su logo es un JPG con fondo negro y «DEGODOY COCINA» en letras finas. Con
+    // la LUMINANCIA MEDIA daba «casi negro» sobre una tarjeta negra, pedía
+    // plancha, y la credencial salía con un marco blanco alrededor de un
+    // recuadro negro. Se vio al renderizarla de verdad, no leyendo el código.
+    //
+    // Un logo no se lee por su color promedio: se lee por los trazos que
+    // destacan. Este tiene ~10 % de letra clara y se lee perfectamente.
     expect(
       planchaParaElLogo({
         fondo: NEGRO_DE_DEGODOY,
-        luminanciaDelLogo: luminanciaDeLoVisible(logoLiso('#FFFFFF')),
+        queDestaca: contenidoQueContrasta(logoDeDegodoy(), NEGRO_DE_DEGODOY),
+      }),
+    ).toBeNull();
+  });
+
+  it('un logo BLANCO sobre fondo oscuro va limpio, sin plancha', () => {
+    // El caso bueno y el más común: el negocio eligió el fondo oscuro
+    // justamente porque su marca es clara.
+    expect(
+      planchaParaElLogo({
+        fondo: NEGRO_DE_DEGODOY,
+        queDestaca: contenidoQueContrasta(logoLiso('#FFFFFF'), NEGRO_DE_DEGODOY),
       }),
     ).toBeNull();
   });
@@ -67,7 +99,7 @@ describe('¿hace falta plancha detrás del logo?', () => {
       planchaParaElLogo({
         fondo: NEGRO_DE_DEGODOY,
         logoBgColor: '#FF6B35',
-        luminanciaDelLogo: luminanciaDeLoVisible(logoLiso('#FFFFFF')),
+        queDestaca: contenidoQueContrasta(logoLiso('#FFFFFF'), NEGRO_DE_DEGODOY),
       }),
     ).toBe('#FF6B35');
   });
@@ -79,16 +111,14 @@ describe('¿hace falta plancha detrás del logo?', () => {
       planchaParaElLogo({
         fondo: NEGRO_DE_DEGODOY,
         logoBgColor: 'Restaurante La Estación',
-        luminanciaDelLogo: luminanciaDeLoVisible(logoLiso('#FFFFFF')),
+        queDestaca: contenidoQueContrasta(logoLiso('#FFFFFF'), NEGRO_DE_DEGODOY),
       }),
     ).toBeNull();
   });
 
-  it('si NO se sabe de qué color es el logo, no se inventa nada', () => {
-    // Un logo enteramente transparente no tiene color que comparar. Poner una
-    // plancha «por si acaso» le mete un rectángulo a quien no lo necesita.
+  it('si NO se sabe qué parte del logo destaca, no se inventa nada', () => {
     expect(
-      planchaParaElLogo({ fondo: NEGRO_DE_DEGODOY, luminanciaDelLogo: null }),
+      planchaParaElLogo({ fondo: NEGRO_DE_DEGODOY, queDestaca: null }),
     ).toBeNull();
   });
 
@@ -96,60 +126,57 @@ describe('¿hace falta plancha detrás del logo?', () => {
     // El gate del color impide guardar hoy una credencial clara, pero las
     // creadas antes de que existiera siguen ahí. Una plancha blanca sobre
     // fondo blanco no arreglaría nada.
+    const claro = aRgb('#F5F5F5')!;
     expect(
       planchaParaElLogo({
-        fondo: aRgb('#F5F5F5')!,
-        luminanciaDelLogo: luminanciaDeLoVisible(logoLiso('#FFFFFF')),
+        fondo: claro,
+        queDestaca: contenidoQueContrasta(logoLiso('#FAFAFA'), claro),
       }),
     ).toBe('#111111');
   });
 
-  it('EL UMBRAL ES EL DE UN GRÁFICO (3:1), NO EL DE UN TEXTO (4.5:1)', () => {
-    // Si alguien lo sube a 4.5 «por rigor», casi cualquier logo pediría
-    // plancha y se acaba el «ajustado al estilo de la tarjeta». Este caso cae
-    // justo entre los dos umbrales y tiene que pasar SIN plancha.
-    const gris = luminanciaDeLoVisible(logoLiso('#8A8A8A'))!;
-    const ratio =
-      (Math.max(gris, luminancia(AZUL_OSCURO)) + 0.05) /
-      (Math.min(gris, luminancia(AZUL_OSCURO)) + 0.05);
-    expect(ratio).toBeGreaterThan(CONTRASTE_MINIMO_DEL_LOGO);
-    expect(ratio).toBeLessThan(4.5);
+  it('EL UMBRAL ES BAJO A PROPÓSITO: un logotipo fino es poco porcentaje', () => {
+    // Si alguien lo sube «por rigor», los logos de letra fina —que son
+    // legibles— empiezan a llevar plancha y se acaba el «ajustado al estilo de
+    // la tarjeta». Con un 4 % de trazo claro todavía se lee.
+    expect(MINIMO_QUE_DESTACA).toBeLessThanOrEqual(0.05);
     expect(
-      planchaParaElLogo({ fondo: AZUL_OSCURO, luminanciaDelLogo: gris }),
+      planchaParaElLogo({
+        fondo: NEGRO_DE_DEGODOY,
+        queDestaca: contenidoQueContrasta(logoDeDegodoy(0.04), NEGRO_DE_DEGODOY),
+      }),
     ).toBeNull();
   });
 });
 
-describe('de qué color es lo que SE VE del logo', () => {
+describe('qué parte del logo se distingue del fondo', () => {
   it('los píxeles TRANSPARENTES no cuentan', () => {
-    // Un logo blanco sobre un PNG transparente: los huecos suelen venir en
-    // (0,0,0) y, contándolos, el logo parecería oscuro y se le pondría una
-    // plancha blanca que no hace falta. Con otros codificadores —que rellenan
-    // el transparente de blanco— pasaría al revés. Mismo logo, dos respuestas.
-    const blanco = luminanciaDeLoVisible(logoLiso('#FFFFFF'))!;
+    // Los huecos de un PNG suelen venir en (0,0,0) y contarlos haría parecer
+    // oscuro un logo claro; con otros codificadores, que los rellenan de
+    // blanco, pasaría al revés. Mismo logo, dos respuestas.
     const conHuecos = new Uint8Array(32 * 4); // (0,0,0,0) = transparente
-    const visible = logoLiso('#FFFFFF', { pixeles: 4 });
-    conHuecos.set(visible, 0);
-    expect(luminanciaDeLoVisible(conHuecos)).toBeCloseTo(blanco, 6);
+    conHuecos.set(logoLiso('#FFFFFF', { pixeles: 4 }), 0);
+    expect(contenidoQueContrasta(conHuecos, NEGRO_DE_DEGODOY)).toBe(1);
   });
 
   it('un píxel a MEDIA opacidad no cuenta como sólido', () => {
-    expect(luminanciaDeLoVisible(logoLiso('#FFFFFF', { alpha: 40 }))).toBeNull();
+    expect(
+      contenidoQueContrasta(logoLiso('#FFFFFF', { alpha: 40 }), NEGRO_DE_DEGODOY),
+    ).toBeNull();
   });
 
   it('un logo del todo transparente devuelve null, no 0', () => {
-    // 0 es la luminancia del NEGRO, y devolverlo haría que un logo invisible
-    // pidiera plancha como si fuera negro.
-    expect(luminanciaDeLoVisible(new Uint8Array(64))).toBeNull();
+    // 0 significa «no destaca nada» y pediría plancha. `null` significa «no hay
+    // logo», y entonces no se dibuja franja siquiera.
+    expect(contenidoQueContrasta(new Uint8Array(64), NEGRO_DE_DEGODOY)).toBeNull();
   });
 
-  it('LA PRUEBA SABE PONERSE EN ROJO: distingue negro de blanco', () => {
+  it('LA PRUEBA SABE PONERSE EN ROJO: distingue lo que se ve de lo que no', () => {
     // Si la lectura de píxeles se rompiera y devolviera siempre lo mismo, todo
     // lo de arriba seguiría en verde sin mirar nada.
-    const negro = luminanciaDeLoVisible(logoLiso('#000000'))!;
-    const blanco = luminanciaDeLoVisible(logoLiso('#FFFFFF'))!;
-    expect(negro).toBeCloseTo(0, 6);
-    expect(blanco).toBeCloseTo(1, 6);
+    expect(contenidoQueContrasta(logoLiso('#FFFFFF'), NEGRO_DE_DEGODOY)).toBe(1);
+    expect(contenidoQueContrasta(logoLiso('#050505'), NEGRO_DE_DEGODOY)).toBe(0);
+    expect(contenidoQueContrasta(logoDeDegodoy(0.25), NEGRO_DE_DEGODOY)).toBeCloseTo(0.25, 2);
   });
 });
 
