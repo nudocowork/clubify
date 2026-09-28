@@ -350,6 +350,11 @@ export class CuponeraService {
       if (!wl) throw new BadRequestException('La marca blanca no existe');
     }
 
+    // Renombrar desde la lista de cuponeras manda el nombre solo: un vacío
+    // dejaría la cuponera sin título en el panel, la cartelera y la tarjeta.
+    if (dto.name !== undefined && !dto.name.trim()) {
+      throw new BadRequestException('La cuponera necesita un nombre');
+    }
     const cfg = (campaign.config ?? {}) as Record<string, unknown>;
     const keys = [
       'country', 'city', 'currency', 'domain',
@@ -523,10 +528,73 @@ export class CuponeraService {
       dto.categoryId === undefined
         ? undefined
         : await this.assertCategory(campaign.id, dto.categoryId);
-    return this.prisma.allyBusiness.update({
+    const ally = await this.prisma.allyBusiness.update({
       where: { id },
       data: { ...this.allyUpdatableData(dto), ...(categoryId !== undefined ? { categoryId } : {}) },
     });
+    if (dto.name !== undefined) await this.syncAllyGeofences(id);
+    return ally;
+  }
+
+  /**
+   * El administrador le pone una contraseña nueva al aliado. Es el camino
+   * cuando el negocio la olvidó: la recuperación por correo sale hoy con la
+   * marca de la plataforma y no con la de la cuponera, y por SMS no llega
+   * porque la cuenta del aliado no guarda teléfono.
+   *
+   * `passwordChangedAt` no es adorno: la rotación del refresh token lo compara
+   * con la fecha del token, así que las sesiones abiertas con la clave vieja
+   * dejan de renovarse.
+   */
+  async panelSetAllyPassword(
+    user: AuthUser, allyId: string, password: string, campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, allyId);
+    if (!password || password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const cuentas = await this.prisma.user.findMany({
+      where: { allyBusinessId: allyId, role: 'ALLY_BUSINESS' },
+      select: { id: true, email: true },
+    });
+    if (cuentas.length === 0) {
+      throw new NotFoundException('Este aliado no tiene cuenta de acceso');
+    }
+    const passwordHash = await argon2.hash(password);
+    await this.prisma.user.updateMany({
+      where: { id: { in: cuentas.map((c) => c.id) } },
+      data: { passwordHash, passwordChangedAt: new Date() },
+    });
+    return { ok: true, loginEmails: cuentas.map((c) => c.email) };
+  }
+
+  /** Correo con el que entra cada aliado: el panel lo muestra para poder
+   *  decírselo al negocio que no se acuerda con cuál se registró. */
+  async panelAllyLogins(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const allies = await this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id },
+      select: { id: true, admins: { where: { role: 'ALLY_BUSINESS' }, select: { email: true } } },
+    });
+    return Object.fromEntries(allies.map((a) => [a.id, a.admins.map((u) => u.email)]));
+  }
+
+  /** El aliado cambia su propia contraseña desde su portal. */
+  async allyChangePassword(user: AuthUser, current: string, next: string) {
+    if (!next || next.length < 8) {
+      throw new BadRequestException('La contraseña nueva debe tener al menos 8 caracteres');
+    }
+    const u = await this.prisma.user.findUnique({ where: { id: user.id } });
+    if (!u || u.role !== 'ALLY_BUSINESS') throw new ForbiddenException();
+    if (!(await argon2.verify(u.passwordHash, current ?? ''))) {
+      throw new BadRequestException('La contraseña actual no es correcta');
+    }
+    await this.prisma.user.update({
+      where: { id: u.id },
+      data: { passwordHash: await argon2.hash(next), passwordChangedAt: new Date() },
+    });
+    return { ok: true };
   }
 
   /** Alta manual de beneficiario (el que paga por fuera, o el invitado). */
@@ -641,11 +709,22 @@ export class CuponeraService {
 
   async panelUpdateSettings(
     user: AuthUser,
-    dto: { welcomeText?: string; requireBenefitApproval?: boolean; allyPushPerWeek?: number },
+    dto: {
+      name?: string;
+      welcomeText?: string;
+      requireBenefitApproval?: boolean;
+      allyPushPerWeek?: number;
+    },
     campaignId?: string,
   ) {
     const campaign = await this.resolveAdminCampaign(user, campaignId);
     const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    // El nombre sí lo puede cambiar la cuponera; el slug no se toca porque
+    // cuelga de URLs y QR ya impresos.
+    const name = dto.name?.trim();
+    if (dto.name !== undefined && !name) {
+      throw new BadRequestException('La cuponera necesita un nombre');
+    }
     if (dto.requireBenefitApproval !== undefined) {
       cfg.requireBenefitApproval = !!dto.requireBenefitApproval;
     }
@@ -657,6 +736,7 @@ export class CuponeraService {
     await this.prisma.benefitCampaign.update({
       where: { id: campaign.id },
       data: {
+        ...(name ? { name } : {}),
         welcomeText: dto.welcomeText ?? undefined,
         config: cfg as any,
       },
@@ -1857,6 +1937,9 @@ export class CuponeraService {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new BadRequestException('Ya existe un usuario con ese email');
 
+    if (dto.password && dto.password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
     const slug = await this.uniqueAllySlug(this.slugify(dto.name));
     const tempPassword = dto.password || nanoid(10);
     const passwordHash = await argon2.hash(tempPassword);
@@ -1947,7 +2030,9 @@ export class CuponeraService {
   async setAllyStatus(id: string, status: AllyStatus, campaignId?: string) {
     const campaign = await this.campaignOrLiving(campaignId);
     await this.assertAlly(campaign.id, id);
-    return this.prisma.allyBusiness.update({ where: { id }, data: { status } });
+    const ally = await this.prisma.allyBusiness.update({ where: { id }, data: { status } });
+    await this.syncAllyGeofences(id);
+    return ally;
   }
 
   /** Edición de la ficha por el admin (desde Master Admin) o por el propio
@@ -2041,10 +2126,13 @@ export class CuponeraService {
 
   async updateAllyProfile(user: AuthUser, dto: AllyProfileDto) {
     if (!user.allyBusinessId) throw new ForbiddenException('Sesión sin negocio aliado');
-    return this.prisma.allyBusiness.update({
+    const ally = await this.prisma.allyBusiness.update({
       where: { id: user.allyBusinessId },
       data: this.allyUpdatableData(dto),
     });
+    // El nombre del negocio va en el texto del aviso de cada sede.
+    if (dto.name !== undefined) await this.syncAllyGeofences(ally.id);
+    return ally;
   }
 
   // --- Push del aliado (spec §22) ---
@@ -2175,38 +2263,179 @@ export class CuponeraService {
 
   async listAllyLocations(user: AuthUser) {
     const ally = await this.getAllyForPortal(user);
-    return this.prisma.allyLocation.findMany({
-      where: { allyBusinessId: ally.id },
-      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
-    });
+    return this.locationsOf(ally.id);
   }
 
   async createAllyLocation(user: AuthUser, dto: AllyLocationDto) {
     const ally = await this.getAllyForPortal(user);
-    const name = (dto.name ?? '').trim();
-    if (!name) throw new BadRequestException('La sede necesita un nombre');
-    return this.prisma.allyLocation.create({
-      data: { allyBusinessId: ally.id, ...this.locationData(dto), name },
-    });
+    return this.createLocationFor(ally.id, dto);
   }
 
   async updateAllyLocation(user: AuthUser, id: string, dto: AllyLocationDto) {
     const ally = await this.getAllyForPortal(user);
-    const res = await this.prisma.allyLocation.updateMany({
-      where: { id, allyBusinessId: ally.id },
-      data: this.locationData(dto),
-    });
-    if (res.count === 0) throw new NotFoundException('Sede no encontrada');
-    return this.prisma.allyLocation.findUnique({ where: { id } });
+    return this.updateLocationFor(ally.id, id, dto);
   }
 
   async deleteAllyLocation(user: AuthUser, id: string) {
     const ally = await this.getAllyForPortal(user);
-    const res = await this.prisma.allyLocation.deleteMany({
-      where: { id, allyBusinessId: ally.id },
+    return this.deleteLocationFor(ally.id, id);
+  }
+
+  // Las mismas sedes, manejadas desde el panel de la cuponera. El GeoPush es de
+  // CADA aliado, y quien lo da de alta suele ser el administrador: sin esto
+  // tenía que pedirle al negocio que entrara a su portal a cargar el mapa.
+  async panelAllyLocations(user: AuthUser, allyId: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, allyId);
+    return this.locationsOf(allyId);
+  }
+
+  async panelCreateAllyLocation(
+    user: AuthUser, allyId: string, dto: AllyLocationDto, campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, allyId);
+    return this.createLocationFor(allyId, dto);
+  }
+
+  async panelUpdateAllyLocation(
+    user: AuthUser, allyId: string, id: string, dto: AllyLocationDto, campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, allyId);
+    return this.updateLocationFor(allyId, id, dto);
+  }
+
+  async panelDeleteAllyLocation(
+    user: AuthUser, allyId: string, id: string, campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, allyId);
+    return this.deleteLocationFor(allyId, id);
+  }
+
+  private locationsOf(allyId: string) {
+    return this.prisma.allyLocation.findMany({
+      where: { allyBusinessId: allyId },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  private async createLocationFor(allyId: string, dto: AllyLocationDto) {
+    const name = (dto.name ?? '').trim();
+    if (!name) throw new BadRequestException('La sede necesita un nombre');
+    const sede = await this.prisma.allyLocation.create({
+      data: { allyBusinessId: allyId, ...this.locationData(dto), name },
+    });
+    await this.syncAllyGeofence(sede.id);
+    return sede;
+  }
+
+  private async updateLocationFor(allyId: string, id: string, dto: AllyLocationDto) {
+    const res = await this.prisma.allyLocation.updateMany({
+      where: { id, allyBusinessId: allyId },
+      data: this.locationData(dto),
     });
     if (res.count === 0) throw new NotFoundException('Sede no encontrada');
+    await this.syncAllyGeofence(id);
+    return this.prisma.allyLocation.findUnique({ where: { id } });
+  }
+
+  private async deleteLocationFor(allyId: string, id: string) {
+    const sede = await this.prisma.allyLocation.findFirst({
+      where: { id, allyBusinessId: allyId },
+      select: { id: true, ally: { select: { campaign: { select: { tenantId: true } } } } },
+    });
+    if (!sede) throw new NotFoundException('Sede no encontrada');
+    // Primero el punto de la tarjeta: borrada la sede ya no quedaría con qué
+    // encontrarlo, y la gente seguiría recibiendo el aviso de un local que no existe.
+    await this.dropGeofence(sede.ally.campaign.tenantId, id);
+    await this.prisma.allyLocation.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /**
+   * GeoPush REAL de la sede de un aliado.
+   *
+   * El interruptor «Aviso al pasar cerca» de la sede solo se guardaba en
+   * `AllyLocation`, y la tarjeta no lo lee: Apple y Google arman el geofence con
+   * las `Location` del negocio que HOSPEDA la cuponera (`campaign.tenantId`).
+   * Resultado: el aliado lo encendía, la pantalla decía «Activo» y no le llegaba
+   * a nadie.
+   *
+   * Ahora cada sede con el aviso encendido tiene su `Location` espejo en el
+   * negocio anfitrión, enlazada por `externalId = 'aliado:<id de la sede>'`
+   * (hay `@@unique([tenantId, externalId])`, así que el upsert no duplica). Se
+   * crea o se borra según el estado de la sede y del aliado, y los pases ya
+   * instalados se refrescan para que el celular reciba el geofence nuevo.
+   */
+  static readonly PREFIJO_GEOFENCE_ALIADO = 'aliado:';
+
+  private async syncAllyGeofence(allyLocationId: string) {
+    const sede = await this.prisma.allyLocation.findUnique({
+      where: { id: allyLocationId },
+      include: {
+        ally: {
+          select: { name: true, status: true, campaign: { select: { tenantId: true } } },
+        },
+      },
+    });
+    if (!sede) return;
+    const tenantId = sede.ally.campaign.tenantId;
+    const externalId = `${CuponeraService.PREFIJO_GEOFENCE_ALIADO}${sede.id}`;
+
+    // Solo avisa un aliado APROBADO: uno pendiente o suspendido no está en la
+    // cartelera, y un aviso que lleva a un negocio que no te atiende es peor
+    // que ninguno.
+    const debeAvisar =
+      sede.geopushActive &&
+      sede.isActive &&
+      sede.ally.status === 'APPROVED' &&
+      sede.latitude !== null &&
+      sede.longitude !== null;
+
+    if (!debeAvisar) {
+      await this.dropGeofence(tenantId, sede.id);
+      return;
+    }
+
+    const data = {
+      name: `${sede.ally.name} · ${sede.name}`.slice(0, 120),
+      address: [sede.address, sede.city].filter(Boolean).join(', '),
+      latitude: sede.latitude!,
+      longitude: sede.longitude!,
+      radiusMeters: sede.radiusMeters,
+      // Sin mensaje propio, el texto por defecto de la tarjeta diría «Estás
+      // cerca de <la cuponera>», que no le dice a nadie a qué negocio entrar.
+      walletRelevantText:
+        sede.geopushMessage.trim() || `Estás cerca de ${sede.ally.name}`,
+      isActive: true,
+    };
+    await this.prisma.location.upsert({
+      where: { tenantId_externalId: { tenantId, externalId } },
+      create: { tenantId, externalId, ...data },
+      update: data,
+    });
+    this.locations.queueWalletRefresh(tenantId);
+  }
+
+  private async dropGeofence(tenantId: string, allyLocationId: string) {
+    const res = await this.prisma.location.deleteMany({
+      where: {
+        tenantId,
+        externalId: `${CuponeraService.PREFIJO_GEOFENCE_ALIADO}${allyLocationId}`,
+      },
+    });
+    if (res.count > 0) this.locations.queueWalletRefresh(tenantId);
+  }
+
+  /** Aprobar o suspender cambia si sus sedes deben avisar. */
+  private async syncAllyGeofences(allyId: string) {
+    const sedes = await this.prisma.allyLocation.findMany({
+      where: { allyBusinessId: allyId },
+      select: { id: true },
+    });
+    for (const s of sedes) await this.syncAllyGeofence(s.id);
   }
 
   /** Campos editables de una sede. Solo escribe lo que vino en el body. */
@@ -3140,6 +3369,14 @@ export class CuponeraService {
       where: { id, tenantId: campaignTenantId },
     });
     if (!loc) throw new NotFoundException('Punto de geopush no encontrado');
+    // El punto de una sede de aliado se maneja desde esa sede. Tocarlo acá lo
+    // desincronizaría: la sede seguiría diciendo «Activo» sin punto detrás, o
+    // el próximo guardado de la sede lo resucitaría.
+    if (loc.externalId?.startsWith(CuponeraService.PREFIJO_GEOFENCE_ALIADO)) {
+      throw new BadRequestException(
+        'Este punto es de la sede de un aliado: cambialo desde Aliados → Sedes y GeoPush.',
+      );
+    }
     return loc;
   }
 

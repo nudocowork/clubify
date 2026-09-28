@@ -5,6 +5,7 @@ import { api, getUser, clearSession } from '@/lib/api';
 import { PhoneInput } from '@/components/PhoneInput';
 import { ImageUploader } from '@/components/ImageUploader';
 import { QrScanner } from '@/components/QrScanner';
+import { SedesAliado } from '@/components/cuponera/SedesAliado';
 
 const PC = '#0a90bd';
 
@@ -87,8 +88,13 @@ export default function AllyPanel() {
         ))}
       </div>
 
-      {tab === 'Ficha' && <FichaTab ally={ally} onSaved={(a) => { setAlly(a); flash('Ficha guardada'); }} />}
-      {tab === 'Sedes' && <SedesTab flash={flash} />}
+      {tab === 'Ficha' && (
+        <>
+          <FichaTab ally={ally} onSaved={(a) => { setAlly(a); flash('Ficha guardada'); }} />
+          <CambiarClave flash={flash} />
+        </>
+      )}
+      {tab === 'Sedes' && <SedesAliado base="/cuponera/ally/locations" flash={flash} />}
       {tab === 'Promociones' && <PromosTab flash={flash} />}
       {tab === 'Canjear' && <CanjearTab flash={flash} />}
       {tab === 'Avisos' && <AvisosTab flash={flash} />}
@@ -506,203 +512,43 @@ function HistorialTab() {
   );
 }
 
-// ── SEDES (spec §5 y §9) ──────────────────────────────────────────────────────
-// Un aliado puede tener varias, cada una con su geofence. El aviso de que el
-// geopush necesita coordenadas está en la UI porque el backend lo rechaza: sin
-// lat/lng el geofence no dispara nunca y quedaría "activo" mintiendo.
-type Sede = {
-  id: string;
-  name: string;
-  address: string;
-  city: string;
-  latitude: string | number | null;
-  longitude: string | number | null;
-  radiusMeters: number;
-  geopushMessage: string;
-  geopushActive: boolean;
-  isActive: boolean;
-};
-
-const SEDE_VACIA = {
-  name: '', address: '', city: '',
-  latitude: '' as string | number, longitude: '' as string | number,
-  radiusMeters: 300, geopushMessage: '', geopushActive: false,
-};
-
-function SedesTab({ flash }: { flash: (m: string) => void }) {
-  const [rows, setRows] = useState<Sede[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [nueva, setNueva] = useState({ ...SEDE_VACIA });
-  const [abierta, setAbierta] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-
-  const cargar = async () => {
-    setLoading(true);
-    try { setRows(((await api('/cuponera/ally/locations')) as Sede[]) ?? []); }
-    catch { setRows([]); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { cargar(); }, []);
-
-  const num = (v: string | number) =>
-    v === '' || v === null ? null : Number(v);
-
-  async function crear() {
-    if (!nueva.name.trim()) return flash('La sede necesita un nombre');
-    setGuardando(true);
+// ── CONTRASEÑA ────────────────────────────────────────────────────────────────
+// El aliado no tenía cómo cambiar la clave que le dio la cuponera al darlo de
+// alta: quedaba usando para siempre la que alguien le dictó por WhatsApp.
+function CambiarClave({ flash }: { flash: (m: string) => void }) {
+  const [f, setF] = useState({ actual: '', nueva: '', repetir: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function guardar() {
+    setErr(null);
+    if (f.nueva.length < 8) return setErr('La contraseña nueva debe tener al menos 8 caracteres.');
+    if (f.nueva !== f.repetir) return setErr('Las dos contraseñas nuevas no coinciden.');
+    setBusy(true);
     try {
-      await api('/cuponera/ally/locations', {
+      await api('/cuponera/ally/password', {
         method: 'POST',
-        body: JSON.stringify({
-          ...nueva,
-          latitude: num(nueva.latitude),
-          longitude: num(nueva.longitude),
-        }),
+        body: JSON.stringify({ currentPassword: f.actual, newPassword: f.nueva }),
       });
-      flash('Sede creada');
-      setNueva({ ...SEDE_VACIA });
-      setAbierta(false);
-      cargar();
-    } catch (e: any) { flash(e?.message || 'No se pudo crear'); }
-    finally { setGuardando(false); }
+      setF({ actual: '', nueva: '', repetir: '' });
+      flash('Contraseña cambiada');
+    } catch (e: any) { setErr(e?.message || 'No se pudo cambiar la contraseña'); }
+    finally { setBusy(false); }
   }
-
-  async function guardar(s: Sede, cambios: Partial<Sede>) {
-    try {
-      await api(`/cuponera/ally/locations/${s.id}`, {
-        method: 'PATCH', body: JSON.stringify(cambios),
-      });
-      cargar();
-    } catch (e: any) { flash(e?.message || 'No se pudo guardar'); }
-  }
-
-  async function borrar(s: Sede) {
-    if (!confirm(`¿Eliminar la sede "${s.name}"? Los canjes ya hechos conservan su historial.`)) return;
-    try { await api(`/cuponera/ally/locations/${s.id}`, { method: 'DELETE' }); flash('Sede eliminada'); cargar(); }
-    catch (e: any) { flash(e?.message || 'No se pudo eliminar'); }
-  }
-
-  if (loading) return <div style={{ color: '#64748b', fontSize: 14 }}>Cargando sedes…</div>;
-
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 13, color: '#64748b' }}>
-          Tus locales. Cada uno puede avisar a quien pase cerca con su tarjeta.
+    <div style={{ marginTop: 18 }}>
+      <Card>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: '0 0 4px' }}>Cambiar contraseña</h3>
+        <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14 }}>
+          Si no recordás la actual, pedile a la cuponera que te asigne una nueva.
         </div>
-        <button style={btn()} onClick={() => setAbierta((v) => !v)}>
-          {abierta ? 'Cancelar' : '+ Agregar sede'}
-        </button>
-      </div>
-
-      {abierta && (
-        <div style={{ background: '#fff', borderRadius: 14, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,.06)', marginBottom: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12 }}>
-            <div>
-              <label style={lbl}>Nombre de la sede</label>
-              <input style={inp} placeholder="Cabecera" value={nueva.name}
-                onChange={(e) => setNueva({ ...nueva, name: e.target.value })} />
-            </div>
-            <div>
-              <label style={lbl}>Dirección</label>
-              <input style={inp} placeholder="Calle 42 #30-15" value={nueva.address}
-                onChange={(e) => setNueva({ ...nueva, address: e.target.value })} />
-            </div>
-            <div>
-              <label style={lbl}>Ciudad</label>
-              <input style={inp} value={nueva.city}
-                onChange={(e) => setNueva({ ...nueva, city: e.target.value })} />
-            </div>
-            <div>
-              <label style={lbl}>Latitud</label>
-              <input style={inp} placeholder="7.1193" value={nueva.latitude}
-                onChange={(e) => setNueva({ ...nueva, latitude: e.target.value })} />
-            </div>
-            <div>
-              <label style={lbl}>Longitud</label>
-              <input style={inp} placeholder="-73.1227" value={nueva.longitude}
-                onChange={(e) => setNueva({ ...nueva, longitude: e.target.value })} />
-            </div>
-            <div>
-              <label style={lbl}>Radio (metros)</label>
-              <input style={inp} type="number" value={nueva.radiusMeters}
-                onChange={(e) => setNueva({ ...nueva, radiusMeters: Number(e.target.value) })} />
-            </div>
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <label style={lbl}>Mensaje del aviso</label>
-            <input style={inp} placeholder="Estás cerca: 15% OFF con tu tarjeta" value={nueva.geopushMessage}
-              onChange={(e) => setNueva({ ...nueva, geopushMessage: e.target.value })} />
-          </div>
-          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>
-            Las coordenadas las sacás de Google Maps: clic derecho sobre el local → el primer número es la latitud.
-            Sin ellas la sede sirve para la ficha, pero no puede avisar a nadie.
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <button style={btn()} disabled={guardando} onClick={crear}>
-              {guardando ? 'Creando…' : 'Crear sede'}
-            </button>
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+          <div><label style={lbl}>Contraseña actual</label><input type="password" autoComplete="current-password" style={inp} value={f.actual} onChange={(e) => setF({ ...f, actual: e.target.value })} /></div>
+          <div><label style={lbl}>Contraseña nueva</label><input type="password" autoComplete="new-password" style={inp} value={f.nueva} onChange={(e) => setF({ ...f, nueva: e.target.value })} /></div>
+          <div><label style={lbl}>Repetir la nueva</label><input type="password" autoComplete="new-password" style={inp} value={f.repetir} onChange={(e) => setF({ ...f, repetir: e.target.value })} /></div>
         </div>
-      )}
-
-      {rows.length === 0 && !abierta && (
-        <div style={{ background: '#fff', borderRadius: 14, padding: 20, textAlign: 'center', color: '#64748b', fontSize: 13.5 }}>
-          Todavía no cargaste ninguna sede.
-        </div>
-      )}
-
-      {rows.map((s) => {
-        const sinCoords = s.latitude === null || s.longitude === null;
-        return (
-          <div key={s.id} style={{ background: '#fff', borderRadius: 14, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,.06)', marginBottom: 12, opacity: s.isActive ? 1 : 0.6 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-              <div>
-                <b style={{ fontSize: 15 }}>{s.name}</b>
-                <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>
-                  {[s.address, s.city].filter(Boolean).join(' · ') || 'Sin dirección'}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <button style={{ ...btn('#eef2f7', '#111827'), padding: '7px 12px' }}
-                  onClick={() => guardar(s, { isActive: !s.isActive })}>
-                  {s.isActive ? 'Desactivar' : 'Activar'}
-                </button>
-                <button style={{ ...btn('#fee2e2', '#991b1b'), padding: '7px 12px' }} onClick={() => borrar(s)}>
-                  Eliminar
-                </button>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 12, borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 13 }}>
-                  <b>Aviso al pasar cerca</b>
-                  <span style={{ color: '#64748b', marginLeft: 6 }}>· radio {s.radiusMeters} m</span>
-                </div>
-                <button
-                  style={{ ...btn(s.geopushActive ? '#16a34a' : '#eef2f7', s.geopushActive ? '#fff' : '#111827'), padding: '6px 12px' }}
-                  disabled={sinCoords}
-                  onClick={() => guardar(s, { geopushActive: !s.geopushActive })}
-                >
-                  {s.geopushActive ? 'Activo' : 'Apagado'}
-                </button>
-              </div>
-              {sinCoords && (
-                <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 10px', marginTop: 8 }}>
-                  Esta sede no tiene latitud y longitud, así que el aviso no puede activarse: un geofence sin
-                  coordenadas no se dispara nunca.
-                </div>
-              )}
-              {s.geopushMessage && !sinCoords && (
-                <div style={{ fontSize: 12.5, color: '#334155', marginTop: 6, fontStyle: 'italic' }}>
-                  “{s.geopushMessage}”
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
+        {err && <div style={{ marginTop: 12, color: '#b91c1c', fontSize: 13 }}>{err}</div>}
+        <button onClick={guardar} disabled={busy} style={{ ...btn(), marginTop: 16 }}>{busy ? 'Guardando…' : 'Cambiar contraseña'}</button>
+      </Card>
     </div>
   );
 }

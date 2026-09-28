@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { CuponeraService } from './cuponera.service';
@@ -21,6 +21,11 @@ class StampActionBody {
 class AllyPushBody {
   @IsString() @MaxLength(60) title!: string;
   @IsString() @MaxLength(180) body!: string;
+}
+class ChangePasswordBody {
+  @IsString() @MaxLength(120) currentPassword!: string;
+  @IsString() @MinLength(8, { message: 'La contraseña nueva debe tener al menos 8 caracteres' })
+  @MaxLength(80) newPassword!: string;
 }
 class BenefitStatusBody {
   @IsIn(['DRAFT', 'ACTIVE', 'PAUSED']) status!: 'DRAFT' | 'ACTIVE' | 'PAUSED';
@@ -45,6 +50,13 @@ export class AllyPortalController {
   @Patch('profile')
   updateProfile(@CurrentUser() user: AuthUser, @Body() body: AllyProfileBody) {
     return this.svc.updateAllyProfile(user, body);
+  }
+
+  // Propio del portal y no /users/me/password: aquel no admite ALLY_BUSINESS,
+  // y abrirle la puerta pasaría por guards pensados para cuentas con negocio.
+  @Post('password')
+  changePassword(@CurrentUser() user: AuthUser, @Body() body: ChangePasswordBody) {
+    return this.svc.allyChangePassword(user, body.currentPassword, body.newPassword);
   }
 
   @Get('metrics')

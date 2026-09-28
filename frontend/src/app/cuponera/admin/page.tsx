@@ -1,7 +1,17 @@
 'use client';
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, getUser, clearSession } from '@/lib/api';
+import { PhoneInput } from '@/components/PhoneInput';
+import { ImageUploader } from '@/components/ImageUploader';
+import { SedesAliado } from '@/components/cuponera/SedesAliado';
+import type { MapPickResult } from '@/components/MapPicker';
+
+const MapPicker = dynamic(
+  () => import('@/components/MapPicker').then((m) => m.MapPicker),
+  { ssr: false, loading: () => <div style={{ height: 320, borderRadius: 10, background: '#f1f5f9' }} /> },
+);
 
 const PC = '#0a90bd';
 
@@ -89,6 +99,60 @@ function Stat({ n, label, hint }: { n: number; label: string; hint?: string }) {
 }
 
 /**
+ * Elegir el negocio de la marca que ya es cliente. Era un desplegable con
+ * cientos de nombres en orden alfabético: encontrar uno obligaba a recorrerlo
+ * entero. Filtra por nombre y por nombre de marca, sin tildes ni mayúsculas.
+ */
+function BuscadorNegocio({
+  tenants, value, onChange,
+}: { tenants: TenantOpt[]; value: string; onChange: (id: string) => void }) {
+  const [q, setQ] = useState('');
+  const elegido = tenants.find((t) => t.id === value) ?? null;
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const nq = norm(q.trim());
+  const lista = nq
+    ? tenants.filter((t) => norm(`${t.name} ${t.brandName ?? ''}`).includes(nq)).slice(0, 30)
+    : [];
+
+  if (elegido) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', border: '1px solid #bae6fd', background: '#f0f9ff', borderRadius: 9 }}>
+        <span style={{ flex: 1, fontSize: 13.5 }}>
+          <b>{elegido.name}</b>
+          {elegido.brandName && elegido.brandName !== elegido.name ? <span style={{ color: '#64748b' }}> · {elegido.brandName}</span> : null}
+        </span>
+        <button type="button" onClick={() => { onChange(''); setQ(''); }} style={{ ...btn('#fff', '#0f172a'), padding: '5px 10px', fontSize: 12, border: '1px solid #cbd5e1' }}>
+          Quitar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <input style={inp} value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder={`Buscá entre ${tenants.length} negocios por nombre…`} />
+      {nq && (
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 9, marginTop: 6, maxHeight: 240, overflowY: 'auto', background: '#fff' }}>
+          {lista.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12.5, color: '#94a3b8' }}>Ningún negocio coincide con «{q.trim()}».</div>
+          ) : lista.map((t) => (
+            <button key={t.id} type="button" onClick={() => onChange(t.id)}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'none', cursor: 'pointer', fontSize: 13.5 }}>
+              {t.name}
+              {t.brandName && t.brandName !== t.name ? <span style={{ color: '#64748b' }}> · {t.brandName}</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 5 }}>
+        Vacío = es un negocio externo y usará el portal web.
+      </div>
+    </div>
+  );
+}
+
+/**
  * Alta de aliado. Incluye el PRIMER BENEFICIO en el mismo formulario a
  * propósito: un aliado sin beneficio no aparece en la cartelera, así que
  * crearlo sin eso deja el trabajo a medias y a alguien volviendo después.
@@ -101,7 +165,7 @@ function FormAliado({
 }) {
   const vacio = {
     name: '', email: '', ownerFullName: '', categoryId: '', city: '', whatsapp: '',
-    description: '', tenantId: '',
+    description: '', tenantId: '', password: '', password2: '', coverUrl: '', logoUrl: '',
     benTitle: '', benType: 'PERCENT_OFF', benPercent: 10, benAmount: 0, benTerms: '',
   };
   const [f, setF] = useState(vacio);
@@ -114,12 +178,19 @@ function FormAliado({
     if (!f.name.trim()) return setErr('Falta el nombre del negocio.');
     if (!f.email.trim()) return setErr('Falta el email: con ese correo entra el aliado a su portal.');
     if (!f.ownerFullName.trim()) return setErr('Falta el nombre de la persona de contacto.');
+    // Sin foto la ficha sale en la cartelera como un recuadro vacío, y es lo
+    // primero que mira quien decide si ir o no.
+    if (!f.coverUrl) return setErr('Adjuntá una foto del negocio.');
+    if (f.password && f.password.length < 8) return setErr('La contraseña debe tener al menos 8 caracteres.');
+    if (f.password && f.password !== f.password2) return setErr('Las dos contraseñas no coinciden.');
     setBusy(true);
     try {
       const body: any = {
         name: f.name.trim(), email: f.email.trim(), ownerFullName: f.ownerFullName.trim(),
         categoryId: f.categoryId || null, city: f.city, whatsapp: f.whatsapp,
         description: f.description, tenantId: f.tenantId || null,
+        ...(f.password ? { password: f.password } : {}),
+        coverUrl: f.coverUrl, logoUrl: f.logoUrl || null,
       };
       if (f.benTitle.trim()) {
         body.benefit = {
@@ -160,22 +231,42 @@ function FormAliado({
           <input style={inp} value={f.city} onChange={(e) => set('city', e.target.value)} />
         </Campo>
         <Campo label="WhatsApp">
-          <input style={inp} value={f.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} placeholder="+57 300 000 0000" />
+          {/* Con selector de país: escrito a mano salían números sin prefijo
+              o con el +57 duplicado, que después no se pueden llamar. */}
+          <PhoneInput value={f.whatsapp} onChange={(v) => set('whatsapp', v)} />
         </Campo>
         <div style={{ gridColumn: '1 / -1' }}>
           <Campo label="Descripción">
             <input style={inp} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder="Café de origen en el centro" />
           </Campo>
         </div>
+        <Campo label="Foto del negocio *">
+          <ImageUploader value={f.coverUrl || null} onChange={(url) => set('coverUrl', url || '')}
+            folder="covers" crop={false} minDimensionWarn={false} />
+          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>La que se ve grande en la cartelera. Horizontal.</div>
+        </Campo>
+        <Campo label="Logo">
+          <ImageUploader value={f.logoUrl || null} onChange={(url) => set('logoUrl', url || '')}
+            folder="logos" crop={false} minDimensionWarn={false} />
+          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>Opcional. Cuadrado y con fondo claro.</div>
+        </Campo>
+        <Campo label="Contraseña de acceso">
+          <input type="password" autoComplete="new-password" style={inp} value={f.password}
+            onChange={(e) => set('password', e.target.value)} placeholder="Mínimo 8 caracteres" />
+        </Campo>
+        <Campo label="Repetir contraseña">
+          <input type="password" autoComplete="new-password" style={inp} value={f.password2}
+            onChange={(e) => set('password2', e.target.value)} />
+        </Campo>
+        <div style={{ gridColumn: '1 / -1', fontSize: 11.5, color: '#64748b', marginTop: -4 }}>
+          Si la dejás vacía se genera una y se muestra una sola vez al crear el aliado.
+        </div>
       </div>
 
       {tenants.length > 0 && (
         <div style={{ marginTop: 14 }}>
           <Campo label="¿Ya es cliente de la plataforma?">
-            <select style={inp} value={f.tenantId} onChange={(e) => set('tenantId', e.target.value)}>
-              <option value="">No — es un negocio externo (usará el portal web)</option>
-              {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <BuscadorNegocio tenants={tenants} value={f.tenantId} onChange={(id) => set('tenantId', id)} />
           </Campo>
           <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 5 }}>
             Si lo vinculás, el negocio canjea con <b>su escáner de siempre</b>, sin cuenta aparte.
@@ -228,6 +319,49 @@ function FormAliado({
   );
 }
 
+/**
+ * Clave nueva para un aliado. Es el camino cuando el negocio olvidó la suya:
+ * la recuperación por correo todavía no sale con la marca de la cuponera.
+ */
+function ClaveAliado({
+  ally, qs, flash, onListo,
+}: { ally: Ally; qs: string; flash: (m: string) => void; onListo: () => void }) {
+  const [f, setF] = useState({ a: '', b: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function guardar() {
+    setErr(null);
+    if (f.a.length < 8) return setErr('Mínimo 8 caracteres.');
+    if (f.a !== f.b) return setErr('Las dos contraseñas no coinciden.');
+    setBusy(true);
+    try {
+      const r = await api<{ loginEmails: string[] }>(`/cuponera/panel/allies/${ally.id}/password${qs}`, {
+        method: 'PATCH', body: JSON.stringify({ password: f.a }),
+      });
+      flash(`Contraseña de ${ally.name} cambiada. Entra con ${r?.loginEmails?.join(' o ') || 'su correo'} y la clave nueva.`);
+      onListo();
+    } catch (e: any) { setErr(e?.message || 'No se pudo cambiar la contraseña.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginTop: 10 }}>
+      <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Nueva contraseña para {ally.name}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 10 }}>
+        <input type="password" autoComplete="new-password" style={inp} placeholder="Contraseña nueva" value={f.a} onChange={(e) => setF({ ...f, a: e.target.value })} />
+        <input type="password" autoComplete="new-password" style={inp} placeholder="Repetirla" value={f.b} onChange={(e) => setF({ ...f, b: e.target.value })} />
+      </div>
+      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+        La anterior deja de servir y las sesiones abiertas se cierran. Pasásela al negocio por un canal privado.
+      </div>
+      {err && <div style={{ color: '#b91c1c', fontSize: 12.5, marginTop: 6 }}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button onClick={guardar} disabled={busy} style={{ ...btn(), padding: '7px 13px' }}>{busy ? 'Guardando…' : 'Guardar contraseña'}</button>
+        <button onClick={onListo} style={{ ...btn('#eef2f7', '#111827'), padding: '7px 13px' }}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 /** Alta manual de beneficiario: el que pagó por fuera, o el invitado. */
 function FormMiembro({
   plans, onCreado, onCancelar,
@@ -251,16 +385,16 @@ function FormMiembro({
       }));
       setF(vacio);
     } catch (e: any) {
-      setErr(e?.message || 'No se pudo dar de alta.');
+      setErr(e?.message || 'No se pudo agregar el beneficiario.');
     } finally { setBusy(false); }
   }
 
   return (
     <div style={{ ...card, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>Dar de alta un beneficiario</div>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>Agregar un beneficiario</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
         <Campo label="Nombre *"><input style={inp} value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} /></Campo>
-        <Campo label="Teléfono"><input style={inp} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="+57 300 000 0000" /></Campo>
+        <Campo label="Teléfono"><PhoneInput value={f.phone} onChange={(v) => setF({ ...f, phone: v })} /></Campo>
         <Campo label="Email"><input style={inp} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Campo>
         <Campo label="Plan">
           <select style={inp} value={f.planId} onChange={(e) => setF({ ...f, planId: e.target.value })}>
@@ -274,7 +408,7 @@ function FormMiembro({
       </div>
       {err && <div style={{ marginTop: 12, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 9, padding: '9px 12px', fontSize: 12.5 }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button onClick={crear} disabled={busy} style={btn()}>{busy ? 'Dando de alta…' : 'Dar de alta'}</button>
+        <button onClick={crear} disabled={busy} style={btn()}>{busy ? 'Agregando…' : 'Agregar beneficiario'}</button>
         <button onClick={onCancelar} style={btn('#eef2f7', '#111827')}>Cancelar</button>
       </div>
     </div>
@@ -299,6 +433,13 @@ function TabConfig({
   const [nuevaCat, setNuevaCat] = useState({ name: '', icon: '' });
   const [nuevoPlan, setNuevoPlan] = useState({ name: '', priceCents: 0, interval: 'MONTHLY' as const });
   const [busy, setBusy] = useState(false);
+  // Edición en línea: una categoría o un plan a la vez.
+  const [catEdit, setCatEdit] = useState<{ id: string; name: string; icon: string } | null>(null);
+  const [planEdit, setPlanEdit] = useState<{
+    id: string; name: string; priceCents: number; interval: 'MONTHLY' | 'ANNUAL'; description: string;
+  } | null>(null);
+  const [nombre, setNombre] = useState('');
+  useEffect(() => { if (cfg) setNombre(cfg.name); }, [cfg?.name]);
 
   useEffect(() => {
     api<Settings>(`/cuponera/panel/settings${qs}`).then(setCfg).catch(() => setCfg(null));
@@ -318,6 +459,43 @@ function TabConfig({
     setNuevaCat({ name: '', icon: '' });
     await onCambio();
     flash('Categoría creada');
+  }
+
+  async function guardarCat() {
+    if (!catEdit || !catEdit.name.trim()) return flash('La categoría necesita un nombre');
+    try {
+      await api(`/cuponera/panel/categories/${catEdit.id}${qs}`, {
+        method: 'PATCH', body: JSON.stringify({ name: catEdit.name.trim(), icon: catEdit.icon }),
+      });
+      setCatEdit(null);
+      await onCambio();
+      flash('Categoría actualizada');
+    } catch (e: any) { flash(e?.message || 'No se pudo guardar la categoría'); }
+  }
+
+  async function guardarPlan() {
+    if (!planEdit || !planEdit.name.trim()) return flash('El plan necesita un nombre');
+    try {
+      await api(`/cuponera/panel/plans/${planEdit.id}${qs}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: planEdit.name.trim(),
+          priceCents: Math.max(0, Number(planEdit.priceCents) || 0),
+          interval: planEdit.interval,
+          description: planEdit.description,
+        }),
+      });
+      setPlanEdit(null);
+      await onCambio();
+      flash('Plan actualizado. El precio nuevo rige para las compras que vienen.');
+    } catch (e: any) { flash(e?.message || 'No se pudo guardar el plan'); }
+  }
+
+  async function guardarNombre() {
+    if (!cfg || !nombre.trim() || nombre.trim() === cfg.name) return;
+    await guardarCfg({ name: nombre.trim() });
+    // El nombre sale en la cabecera del panel, que vive en el padre.
+    await onCambio();
   }
 
   async function borrarCat(c: Category) {
@@ -359,10 +537,23 @@ function TabConfig({
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
           Agrupan a los aliados en la cartelera. Sin categorías, el desplegable del alta de aliado queda vacío.
         </div>
-        {cats.map((c) => (
+        {cats.map((c) => catEdit?.id === c.id ? (
+          <div key={c.id} style={{ display: 'flex', gap: 8, padding: '8px 0', borderBottom: '1px solid #f3f4f6', flexWrap: 'wrap' }}>
+            <input style={{ ...inp, width: 70 }} maxLength={2} value={catEdit.icon}
+              onChange={(e) => setCatEdit({ ...catEdit, icon: e.target.value })} />
+            <input style={{ ...inp, flex: 1, minWidth: 160 }} value={catEdit.name} autoFocus
+              onChange={(e) => setCatEdit({ ...catEdit, name: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') void guardarCat(); }} />
+            <button onClick={guardarCat} style={{ ...btn(), padding: '5px 11px', fontSize: 12 }}>Guardar</button>
+            <button onClick={() => setCatEdit(null)} style={{ ...btn('#eef2f7', '#111827'), padding: '5px 11px', fontSize: 12 }}>Cancelar</button>
+          </div>
+        ) : (
           <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
             <span style={{ fontSize: 13.5 }}>{c.icon ? `${c.icon} ` : ''}{c.name}</span>
-            <button onClick={() => borrarCat(c)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+            <div style={{ display: 'flex', gap: 7 }}>
+              <button onClick={() => setCatEdit({ id: c.id, name: c.name, icon: c.icon || '' })} style={{ ...btn('#eef2f7', '#111827'), padding: '5px 11px', fontSize: 12 }}>Editar</button>
+              <button onClick={() => borrarCat(c)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+            </div>
           </div>
         ))}
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -379,7 +570,39 @@ function TabConfig({
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
           Un plan de precio <b>0</b> es una cuponera gratuita: la persona se registra y entra.
         </div>
-        {plans.map((p) => (
+        {plans.map((p) => planEdit?.id === p.id ? (
+          <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8 }}>
+              <Campo label="Nombre">
+                <input style={inp} value={planEdit.name} onChange={(e) => setPlanEdit({ ...planEdit, name: e.target.value })} />
+              </Campo>
+              <Campo label={`Precio (${p.currency})`}>
+                <input type="number" min={0} style={inp} value={planEdit.priceCents}
+                  onChange={(e) => setPlanEdit({ ...planEdit, priceCents: Number(e.target.value) })} />
+              </Campo>
+              <Campo label="Cobro">
+                <select style={inp} value={planEdit.interval}
+                  onChange={(e) => setPlanEdit({ ...planEdit, interval: e.target.value as 'MONTHLY' | 'ANNUAL' })}>
+                  <option value="MONTHLY">Mensual</option>
+                  <option value="ANNUAL">Anual</option>
+                </select>
+              </Campo>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <Campo label="Descripción">
+                  <input style={inp} maxLength={280} value={planEdit.description}
+                    onChange={(e) => setPlanEdit({ ...planEdit, description: e.target.value })} />
+                </Campo>
+              </div>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#92400e', marginTop: 6 }}>
+              Si cobrás por Hotmart o Stripe, cambiá el precio también allá: esto no modifica el producto de la pasarela.
+            </div>
+            <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+              <button onClick={guardarPlan} style={{ ...btn(), padding: '6px 12px', fontSize: 12 }}>Guardar</button>
+              <button onClick={() => setPlanEdit(null)} style={{ ...btn('#eef2f7', '#111827'), padding: '6px 12px', fontSize: 12 }}>Cancelar</button>
+            </div>
+          </div>
+        ) : (
           <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
             <div>
               <b style={{ fontSize: 13.5 }}>{p.name}</b>
@@ -390,6 +613,15 @@ function TabConfig({
               </span>
             </div>
             <div style={{ display: 'flex', gap: 7 }}>
+              <button
+                onClick={() => setPlanEdit({
+                  id: p.id, name: p.name, priceCents: p.priceCents,
+                  interval: p.interval === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY', description: p.description || '',
+                })}
+                style={{ ...btn('#eef2f7', '#111827'), padding: '5px 11px', fontSize: 12 }}
+              >
+                Editar
+              </button>
               <button onClick={() => togglePlan(p)} style={{ ...btn('#eef2f7', '#111827'), padding: '5px 11px', fontSize: 12 }}>
                 {p.isActive === false ? 'Activar' : 'Desactivar'}
               </button>
@@ -414,6 +646,21 @@ function TabConfig({
       {cfg && (
         <div style={card}>
           <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>Ajustes</div>
+
+          <div style={{ marginBottom: 14 }}>
+            <Campo label="Nombre de la cuponera">
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input style={inp} maxLength={120} value={nombre} onChange={(e) => setNombre(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void guardarNombre(); }} />
+                {nombre.trim() && nombre.trim() !== cfg.name && (
+                  <button onClick={guardarNombre} disabled={busy} style={btn()}>Guardar</button>
+                )}
+              </div>
+            </Campo>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 5 }}>
+              Es el nombre que se ve en el panel y en la cartelera. El enlace de la cuponera no cambia.
+            </div>
+          </div>
 
           <Campo label="Texto de bienvenida">
             <input style={inp} defaultValue={cfg.welcomeText}
@@ -453,7 +700,13 @@ function TabConfig({
   );
 }
 
-type Geopunto = { id: string; name: string; latitude: number | string | null; longitude: number | string | null; radiusMeters: number | null; address: string | null };
+type Geopunto = {
+  id: string; name: string; latitude: number | string | null; longitude: number | string | null;
+  radiusMeters: number | null; address: string | null;
+  /** 'aliado:<sede>' = el punto lo maneja la sede de ese aliado, no esta pantalla. */
+  externalId?: string | null; walletRelevantText?: string | null;
+};
+const esDeAliado = (g: Geopunto) => !!g.externalId?.startsWith('aliado:');
 type Sellos = { id: string; name: string; stampsRequired: number; rewardText: string; maxPerDay: number; status: string; category: { name: string } | null; _count?: { cards: number } };
 
 /**
@@ -471,7 +724,8 @@ function TabComunidad({
   const [alcance, setAlcance] = useState<number | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [puntos, setPuntos] = useState<Geopunto[]>([]);
-  const [nuevoPunto, setNuevoPunto] = useState({ name: '', latitude: '', longitude: '', radiusMeters: 300, address: '' });
+  const [nuevoPunto, setNuevoPunto] = useState({ name: '', radiusMeters: 300, walletRelevantText: '' });
+  const [lugar, setLugar] = useState<MapPickResult | null>(null);
   const [progs, setProgs] = useState<Sellos[]>([]);
   const [nuevoProg, setNuevoProg] = useState({ name: '', stampsRequired: 5, rewardText: '', maxPerDay: 1, categoryId: '' });
 
@@ -521,16 +775,24 @@ function TabComunidad({
   }
 
   async function crearPunto() {
-    const lat = Number(nuevoPunto.latitude), lng = Number(nuevoPunto.longitude);
-    if (!nuevoPunto.name.trim()) { flash('Poné un nombre al punto.'); return; }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { flash('Las coordenadas tienen que ser números.'); return; }
-    await api(`/cuponera/panel/geopush${qs}`, {
-      method: 'POST',
-      body: JSON.stringify({ ...nuevoPunto, latitude: lat, longitude: lng, radiusMeters: Number(nuevoPunto.radiusMeters) || 300 }),
-    });
-    setNuevoPunto({ name: '', latitude: '', longitude: '', radiusMeters: 300, address: '' });
-    await cargar();
-    flash('Punto creado');
+    if (!lugar) { flash('Marcá el lugar en el mapa.'); return; }
+    const name = nuevoPunto.name.trim() || lugar.name;
+    try {
+      await api(`/cuponera/panel/geopush${qs}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: name.slice(0, 80),
+          address: lugar.address.slice(0, 200),
+          latitude: lugar.lat, longitude: lugar.lng,
+          radiusMeters: Number(nuevoPunto.radiusMeters) || 300,
+          ...(nuevoPunto.walletRelevantText.trim() ? { walletRelevantText: nuevoPunto.walletRelevantText.trim() } : {}),
+        }),
+      });
+      setNuevoPunto({ name: '', radiusMeters: 300, walletRelevantText: '' });
+      setLugar(null);
+      await cargar();
+      flash('Punto creado');
+    } catch (e: any) { flash(e?.message || 'No se pudo crear el punto.'); }
   }
 
   async function borrarPunto(g: Geopunto) {
@@ -600,31 +862,46 @@ function TabComunidad({
       </div>
 
       <div style={card}>
-        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Geopush</div>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>GeoPush</div>
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-          El aviso aparece solo al pasar cerca del punto. Ideal para la zona donde están los aliados.
+          El aviso aparece al pasar cerca del punto. Cada aliado tiene el suyo en <b>Aliados → Sedes y GeoPush</b>;
+          acá podés sumar puntos de la cuponera, como una zona comercial.
         </div>
+        {puntos.length > 10 && (
+          <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+            Hay {puntos.length} puntos y Apple Wallet usa como máximo 10 por tarjeta: en iPhone algunos no van a avisar.
+          </div>
+        )}
         {puntos.map((g) => (
           <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
             <div>
               <b style={{ fontSize: 13.5 }}>{g.name}</b>
+              {esDeAliado(g) && (
+                <span style={{ marginLeft: 8, background: '#e0f2fe', color: '#075985', padding: '1px 8px', borderRadius: 999, fontSize: 10.5, fontWeight: 700 }}>Sede de aliado</span>
+              )}
               <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>
-                {Number(g.latitude ?? 0).toFixed(5)}, {Number(g.longitude ?? 0).toFixed(5)} · radio {g.radiusMeters ?? 300} m
-                {g.address ? ` · ${g.address}` : ''}
+                {g.address || `${Number(g.latitude ?? 0).toFixed(5)}, ${Number(g.longitude ?? 0).toFixed(5)}`} · radio {g.radiusMeters ?? 300} m
               </div>
+              {g.walletRelevantText && (
+                <div style={{ fontSize: 11.5, color: '#334155', marginTop: 2, fontStyle: 'italic' }}>“{g.walletRelevantText}”</div>
+              )}
             </div>
-            <button onClick={() => borrarPunto(g)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+            {esDeAliado(g)
+              ? <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Se cambia desde su aliado</span>
+              : <button onClick={() => borrarPunto(g)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>}
           </div>
         ))}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginTop: 12 }}>
-          <Campo label="Nombre"><input style={inp} value={nuevoPunto.name} onChange={(e) => setNuevoPunto({ ...nuevoPunto, name: e.target.value })} placeholder="Zona Rosa" /></Campo>
-          <Campo label="Latitud"><input style={inp} value={nuevoPunto.latitude} onChange={(e) => setNuevoPunto({ ...nuevoPunto, latitude: e.target.value })} placeholder="4.6534" /></Campo>
-          <Campo label="Longitud"><input style={inp} value={nuevoPunto.longitude} onChange={(e) => setNuevoPunto({ ...nuevoPunto, longitude: e.target.value })} placeholder="-74.0836" /></Campo>
-          <Campo label="Radio (m)"><input type="number" style={inp} value={nuevoPunto.radiusMeters} onChange={(e) => setNuevoPunto({ ...nuevoPunto, radiusMeters: Number(e.target.value) })} /></Campo>
-          <div style={{ display: 'flex', alignItems: 'end' }}><button onClick={crearPunto} style={btn()}>Agregar</button></div>
+        <div style={{ marginTop: 14 }}>
+          <label style={lbl}>Nuevo punto</label>
+          <MapPicker height={300} picked={lugar} onPick={setLugar} />
         </div>
-        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>
-          Las coordenadas salen de Google Maps: clic derecho sobre el lugar → el primer número es la latitud.
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginTop: 12 }}>
+          <Campo label="Nombre"><input style={inp} value={nuevoPunto.name} onChange={(e) => setNuevoPunto({ ...nuevoPunto, name: e.target.value })} placeholder={lugar?.name || 'Zona Rosa'} /></Campo>
+          <Campo label="Radio (m)"><input type="number" style={inp} value={nuevoPunto.radiusMeters} onChange={(e) => setNuevoPunto({ ...nuevoPunto, radiusMeters: Number(e.target.value) })} /></Campo>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Campo label="Mensaje del aviso"><input style={inp} maxLength={120} value={nuevoPunto.walletRelevantText} onChange={(e) => setNuevoPunto({ ...nuevoPunto, walletRelevantText: e.target.value })} placeholder="Estás en la zona de los aliados: mirá tus beneficios" /></Campo>
+          </div>
+          <div><button onClick={crearPunto} disabled={!lugar} style={{ ...btn(), opacity: lugar ? 1 : 0.5 }}>Agregar punto</button></div>
         </div>
       </div>
 
@@ -752,13 +1029,16 @@ function TabTarjeta({ qs, flash }: { qs: string; flash: (m: string) => void }) {
               <input type="color" style={{ ...inp, height: 40, padding: 4 }} value={f.secondaryColor}
                 onChange={(e) => set('secondaryColor', e.target.value)} />
             </Campo>
-            <Campo label="Logo (URL)">
-              <input style={inp} placeholder="https://…/logo.png" value={f.logoUrl}
-                onChange={(e) => set('logoUrl', e.target.value)} />
+            {/* Solo adjuntar: pedir una URL obligaba a subir la imagen a otro
+                sitio primero, y un enlace que después se cae deja la tarjeta
+                sin logo en el celular de todos. */}
+            <Campo label="Logo">
+              <ImageUploader value={f.logoUrl || null} onChange={(url) => set('logoUrl', url || '')}
+                folder="logos" crop={false} minDimensionWarn={false} />
             </Campo>
-            <Campo label="Imagen principal (URL)">
-              <input style={inp} placeholder="https://…/hero.png" value={f.heroImageUrl}
-                onChange={(e) => set('heroImageUrl', e.target.value)} />
+            <Campo label="Imagen principal">
+              <ImageUploader value={f.heroImageUrl || null} onChange={(url) => set('heroImageUrl', url || '')}
+                folder="covers" crop={false} minDimensionWarn={false} />
             </Campo>
           </div>
           <div style={{ marginTop: 14 }}>
@@ -881,7 +1161,7 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
       <div style={{ fontWeight: 800, fontSize: 15 }}>Cobro</div>
       <div style={{ fontSize: 12.5, color: '#64748b', margin: '2px 0 14px' }}>
         Sin esto, los planes pagos no se pueden vender: el pago llegaría y el
-        sistema no sabría a quién dar de alta.
+        sistema no sabría a quién agregar como beneficiario.
       </div>
 
       {gw && (
@@ -999,27 +1279,37 @@ export default function CuponeraAdminPage() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [nuevoAliado, setNuevoAliado] = useState(false);
   const [nuevoMiembro, setNuevoMiembro] = useState(false);
+  // Un aliado abierto a la vez, en sus sedes o en el cambio de contraseña.
+  const [abierto, setAbierto] = useState<{ id: string; que: 'sedes' | 'clave' } | null>(null);
+  const [logins, setLogins] = useState<Record<string, string[]>>({});
+  const toggleAbierto = (id: string, que: 'sedes' | 'clave') =>
+    setAbierto((a) => (a?.id === id && a.que === que ? null : { id, que }));
 
   const flash = (m: string) => { setAviso(m); setTimeout(() => setAviso(null), 6000); };
 
   const recargarConfig = async () => {
-    const [ct, pl] = await Promise.all([
+    const [ct, pl, o] = await Promise.all([
       api(`/cuponera/panel/categories${qs}`).catch(() => null),
       api(`/cuponera/panel/plans${qs}`).catch(() => null),
+      // La cabecera muestra el nombre de la cuponera, que se edita en Ajustes.
+      api(`/cuponera/panel/overview${qs}`).catch(() => null),
     ]);
     setCats((ct as Category[]) ?? []);
     setPlans((pl as Plan[]) ?? []);
+    if (o) setOv(o as Overview);
   };
 
   // Recarga puntual: tras crear o aprobar algo hay que refrescar solo lo que
   // cambió, no la pantalla entera.
   const recargar = async () => {
-    const [o, a, m, b] = await Promise.all([
+    const [o, a, m, b, lg] = await Promise.all([
       api(`/cuponera/panel/overview${qs}`).catch(() => null),
       api(`/cuponera/panel/allies${qs}`).catch(() => null),
       api(`/cuponera/panel/members${qs}`).catch(() => null),
       api(`/cuponera/panel/benefits${qs}`).catch(() => null),
+      api(`/cuponera/panel/ally-logins${qs}`).catch(() => null),
     ]);
+    setLogins((lg as Record<string, string[]>) ?? {});
     if (o) setOv(o as Overview);
     setAllies((a as Ally[]) ?? []);
     setMembers((m as Member[]) ?? []);
@@ -1046,6 +1336,9 @@ export default function CuponeraAdminPage() {
           api(`/cuponera/panel/benefits${qs}`).catch(() => null),
           api(`/cuponera/panel/tenant-options${qs}`).catch(() => null),
         ]);
+        api(`/cuponera/panel/ally-logins${qs}`)
+          .then((lg) => setLogins((lg as Record<string, string[]>) ?? {}))
+          .catch(() => null);
         setOv(o as Overview);
         // api() devuelve null en respuesta vacía.
         setAllies(((a as Ally[]) ?? []));
@@ -1166,7 +1459,7 @@ export default function CuponeraAdminPage() {
                 flash(
                   r?.tempPassword
                     ? `Aliado creado. Entra en /cuponera/panel con ${r.loginEmail} y la contraseña ${r.tempPassword} — anotala, no se vuelve a mostrar.\nQueda PENDIENTE: aprobalo abajo para que salga en la cartelera.`
-                    : 'Aliado creado. Queda PENDIENTE: aprobalo abajo para que salga en la cartelera.',
+                    : `Aliado creado. Entra en /cuponera/panel con ${r?.loginEmail ?? 'su correo'} y la contraseña que elegiste.\nQueda PENDIENTE: aprobalo abajo para que salga en la cartelera.`,
                 );
               }}
             />
@@ -1201,12 +1494,37 @@ export default function CuponeraAdminPage() {
                         {a.status === 'PENDING' && (
                           <button onClick={() => cambiar('REJECTED')} style={{ ...btn('#fee2e2', '#991b1b'), padding: '6px 12px', fontSize: 12 }}>Rechazar</button>
                         )}
+                        <button onClick={() => toggleAbierto(a.id, 'sedes')} style={{ ...btn(abierto?.id === a.id && abierto.que === 'sedes' ? PC : '#e0f2fe', abierto?.id === a.id && abierto.que === 'sedes' ? '#fff' : '#075985'), padding: '6px 12px', fontSize: 12 }}>
+                          Sedes y GeoPush
+                        </button>
+                        <button onClick={() => toggleAbierto(a.id, 'clave')} style={{ ...btn('#eef2f7', '#111827'), padding: '6px 12px', fontSize: 12 }}>
+                          Cambiar contraseña
+                        </button>
                       </div>
                     </div>
                     <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 3 }}>
                       {a._count.benefits} beneficios · {a._count.locations} sedes · {a._count.redemptions} canjes
+                      {logins[a.id]?.length ? ` · entra con ${logins[a.id].join(', ')}` : ''}
                       {a._count.benefits === 0 && <span style={{ color: '#b45309' }}> · sin beneficios, no aparece en la cartelera</span>}
                     </div>
+                    {abierto?.id === a.id && abierto.que === 'clave' && (
+                      <ClaveAliado ally={a} qs={qs} flash={flash} onListo={() => setAbierto(null)} />
+                    )}
+                    {abierto?.id === a.id && abierto.que === 'sedes' && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #cbd5e1' }}>
+                        {a.status !== 'APPROVED' && (
+                          <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
+                            Mientras el aliado no esté aprobado, sus sedes no avisan a nadie aunque tengan el GeoPush encendido.
+                          </div>
+                        )}
+                        <SedesAliado
+                          base={`/cuponera/panel/allies/${a.id}/locations`}
+                          qs={qs}
+                          flash={(m) => { flash(m); void recargar(); }}
+                          intro={<>Locales de <b>{a.name}</b>. Cada uno avisa por su cuenta a quien pase cerca con la tarjeta.</>}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1217,7 +1535,7 @@ export default function CuponeraAdminPage() {
       {tab === 'Beneficiarios' && (
         <>
           {!nuevoMiembro && (
-            <button onClick={() => setNuevoMiembro(true)} style={{ ...btn(), marginBottom: 14 }}>+ Dar de alta</button>
+            <button onClick={() => setNuevoMiembro(true)} style={{ ...btn(), marginBottom: 14 }}>+ Agregar un beneficiario</button>
           )}
           {nuevoMiembro && (
             <FormMiembro
@@ -1226,7 +1544,7 @@ export default function CuponeraAdminPage() {
               onCreado={async () => {
                 setNuevoMiembro(false);
                 await recargar();
-                flash('Beneficiario dado de alta y tarjeta emitida.');
+                flash('Beneficiario agregado y tarjeta emitida.');
               }}
             />
           )}

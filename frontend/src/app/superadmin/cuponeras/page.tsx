@@ -60,7 +60,22 @@ export default function CuponerasPage() {
   // La clave temporal se muestra UNA vez: después queda hasheada y no se recupera.
   const [tempPassword, setTempPassword] = useState<string | null>(null);
 
+  // Renombrar: una cuponera a la vez. El slug no cambia (cuelga de URLs y QR).
+  const [renombrando, setRenombrando] = useState<{ id: string; name: string } | null>(null);
+
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(null), 3200); };
+
+  async function renombrar() {
+    if (!renombrando || !renombrando.name.trim()) return say('El nombre no puede quedar vacío');
+    try {
+      await api(`/cuponera/admin/campaigns/${renombrando.id}`, {
+        method: 'PATCH', body: JSON.stringify({ name: renombrando.name.trim() }),
+      });
+      say('Nombre actualizado');
+      setRenombrando(null);
+      load();
+    } catch (e: any) { say(e?.message || 'No se pudo cambiar el nombre'); }
+  }
 
   async function load() {
     setLoading(true); setErr(null);
@@ -209,6 +224,16 @@ export default function CuponerasPage() {
         const s = STATUS_LABEL[c.status];
         return (
           <Section key={c.id} title={c.name} desc={`/${c.slug}`}>
+            {renombrando?.id === c.id && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <input style={{ ...inputStyle, flex: 1, minWidth: 200 }} maxLength={120} autoFocus
+                  value={renombrando.name}
+                  onChange={(e) => setRenombrando({ ...renombrando, name: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void renombrar(); if (e.key === 'Escape') setRenombrando(null); }} />
+                <button style={btn()} onClick={renombrar}>Guardar nombre</button>
+                <button style={btn('#eef2f7', '#111827')} onClick={() => setRenombrando(null)}>Cancelar</button>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
               <span style={{ background: s.bg, color: s.c, padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700 }}>
                 {s.t}
@@ -247,6 +272,9 @@ export default function CuponerasPage() {
               </a>
               <button style={btn('#eef2f7', '#111827')} onClick={() => openAdmins(c)}>
                 Administradores
+              </button>
+              <button style={btn('#eef2f7', '#111827')} onClick={() => setRenombrando({ id: c.id, name: c.name })}>
+                Cambiar nombre
               </button>
             </div>
 

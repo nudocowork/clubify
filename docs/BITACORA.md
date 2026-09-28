@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-28 (85) — Cuponeras: los 8 ajustes de la lista + el GeoPush de cada aliado ya llega
+
+**Estado: commiteado y empujado. SIN desplegar.** Sin migración (no se tocó el esquema).
+
+Lo pedido, dónde quedó:
+
+1. **Renombrar la cuponera**: botón «Cambiar nombre» en `/superadmin/cuponeras` y
+   campo en Configuración → Ajustes del panel. El slug no cambia.
+2. **Teléfono con selector de país** al crear aliado y al agregar beneficiario (`PhoneInput`).
+3. **«Ya es cliente de la plataforma»**: buscador por nombre (sin tildes) en vez del desplegable.
+4. **Contraseña**: se elige al crear el aliado (mín. 8; vacía = se genera como antes).
+   «Olvidé mi contraseña» = botón «Cambiar contraseña» en cada aliado
+   (`PATCH /cuponera/panel/allies/:id/password`) + el aliado la cambia en su portal
+   (`POST /cuponera/ally/password`). La lista muestra con qué correo entra cada aliado.
+5. **GeoPush por aliado con Google Maps**: «Sedes y GeoPush» en cada aliado del panel, y la
+   pestaña Sedes del portal del aliado, usan el mismo componente
+   (`components/cuponera/SedesAliado.tsx`) con el `MapPicker` de Clubify.
+6. **Tarjeta**: logo e imagen principal solo adjuntables.
+7. **Categorías**: botón Editar. 8. **Planes**: botón Editar (nombre, precio, cobro, descripción).
+9. Pedidos a mitad de camino: «Dar de alta» → «Agregar un beneficiario»; el alta del
+   aliado exige **foto del negocio** (`coverUrl`) y ofrece logo.
+
+### ⚠️ El GeoPush de los aliados NO funcionaba nunca
+
+El interruptor «Aviso al pasar cerca» de una sede se guardaba en `AllyLocation.geopushActive`
+y **nadie lo leía**: la wallet arma el geofence con las `Location` del tenant anfitrión de la
+cuponera. Ahora cada sede con aviso (y aliado APROBADO, sede activa, con coordenadas) tiene una
+`Location` espejo con `externalId = 'aliado:<id sede>'` (upsert por `@@unique([tenantId, externalId])`),
+y se refrescan los pases. Esos puntos no se pueden borrar desde Comunidad → GeoPush.
+`LocationsService.queueWalletRefresh` pasó a público para esto.
+
+**Límite a tener en cuenta:** Apple usa máx. 10 puntos por tarjeta; con más aliados-sede, en
+iPhone algunos no avisan (la pantalla lo advierte). Las sedes ya creadas con el aviso encendido
+**no se sincronizan solas** hasta que alguien las guarde o se re-apruebe el aliado.
+
+### Pendiente (no tocado a propósito)
+
+La recuperación de contraseña por correo de un ALLY_BUSINESS / CUPONERA_ADMIN sale con marca
+**Clubify** (el usuario no tiene `tenantId` ni `whiteLabelId`; habría que resolver la marca por
+`allyBusiness.campaign.whiteLabelId`). No lo toqué porque `auth.service.ts` tenía cambios sin
+commitear de la otra máquina (reset por SMS).
+
 ## 2026-09-28 (84) — El logo de la credencial, grande y centrado
 
 Backend `56f65c9f` + `58e25de2`. **Toca backend Y frontend.**

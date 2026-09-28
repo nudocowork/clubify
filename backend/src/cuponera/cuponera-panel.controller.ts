@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString,
-  MaxLength, Min, ValidateIf, ValidateNested,
+  MaxLength, Min, MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -10,6 +10,7 @@ import { CuponeraService } from './cuponera.service';
 import { MercadoPagoService } from './mercadopago.service';
 import { CardDto } from '../cards/cards.service';
 import { CardType } from '@prisma/client';
+import { AllyLocationBody } from './cuponera.dto';
 
 /**
  * PANEL DE LA CUPONERA (spec §4). Lo usa el administrador de UNA cuponera
@@ -42,7 +43,9 @@ class PanelAllyBody {
   @IsString() @MaxLength(120) name!: string;
   @IsString() @MaxLength(160) email!: string;
   @IsString() @MaxLength(120) ownerFullName!: string;
-  @IsOptional() @IsString() @MaxLength(80) password?: string;
+  /** Si viene, es la clave que eligió quien da de alta; si no, se genera una. */
+  @IsOptional() @IsString() @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
+  @MaxLength(80) password?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) categoryId?: string | null;
   @IsOptional() @IsString() @MaxLength(30) whatsapp?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
@@ -65,6 +68,11 @@ class PanelAllyPatchBody {
   @IsOptional() @IsString() @MaxLength(80) city?: string;
   @IsOptional() @IsString() @MaxLength(200) address?: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) logoUrl?: string | null;
+}
+
+class PanelAllyPasswordBody {
+  @IsString() @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
+  @MaxLength(80) password!: string;
 }
 
 class PanelAllyStatusBody {
@@ -124,6 +132,7 @@ class PanelPlanPatchBody {
 /** Ajustes propios de la cuponera. `status` NO está: publicar o pausar es
  *  decisión de Fidelity (§1-2), no de la cuponera sobre sí misma. */
 class PanelSettingsBody {
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsString() @MaxLength(400) welcomeText?: string;
   @IsOptional() @IsBoolean() requireBenefitApproval?: boolean;
   @IsOptional() @IsInt() @Min(0) allyPushPerWeek?: number;
@@ -274,6 +283,63 @@ export class CuponeraPanelController {
     @Query('campaignId') campaignId?: string,
   ) {
     return this.svc.panelUpdateAlly(user, id, body, campaignId);
+  }
+
+  /** Clave nueva para el aliado que olvidó la suya. */
+  @Patch('allies/:id/password')
+  setAllyPassword(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PanelAllyPasswordBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelSetAllyPassword(user, id, body.password, campaignId);
+  }
+
+  @Get('ally-logins')
+  allyLogins(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelAllyLogins(user, campaignId);
+  }
+
+  // Sedes y GeoPush de cada aliado, desde el panel.
+  @Get('allies/:id/locations')
+  allyLocations(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelAllyLocations(user, id, campaignId);
+  }
+
+  @Post('allies/:id/locations')
+  createAllyLocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: AllyLocationBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelCreateAllyLocation(user, id, body, campaignId);
+  }
+
+  @Patch('allies/:id/locations/:locId')
+  updateAllyLocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('locId') locId: string,
+    @Body() body: AllyLocationBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelUpdateAllyLocation(user, id, locId, body, campaignId);
+  }
+
+  @Delete('allies/:id/locations/:locId')
+  deleteAllyLocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('locId') locId: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelDeleteAllyLocation(user, id, locId, campaignId);
   }
 
   /** El aliado nace PENDING: sin esto no aparece nunca en la cartelera. */

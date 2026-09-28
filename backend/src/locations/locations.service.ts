@@ -67,7 +67,9 @@ export class LocationsService {
     );
   }
 
-  private queueWalletRefresh(tenantId: string) {
+  /** Público porque la cuponera escribe sus propios puntos (el geofence de cada
+   *  sede de aliado) y necesita el mismo refresco de pases. */
+  queueWalletRefresh(tenantId: string) {
     void this.refreshTenantWallets(tenantId).catch((e) =>
       this.logger.warn(
         `GeoPush refresh falló para tenant ${tenantId}: ${e?.message ?? e}`,
