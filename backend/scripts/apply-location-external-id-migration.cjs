@@ -19,7 +19,13 @@
  * Uso:  railway run node scripts/apply-location-external-id-migration.cjs
  */
 const { PrismaClient } = require('@prisma/client');
-const p = new PrismaClient();
+// Pública primero: la interna (`…railway.internal`) solo resuelve dentro de
+// Railway y desde un portátil el script moría sin conectar.
+const p = new PrismaClient({
+  datasources: {
+    db: { url: process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL },
+  },
+});
 
 const INDICE = 'Location_tenantId_externalId_key';
 
