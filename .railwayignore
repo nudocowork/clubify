@@ -1,0 +1,52 @@
+# Lo que NO viaja a Railway al desplegar el backend.
+#
+# `railway up` sube el directorio entero como un tarball, y de esos 32 MB el
+# servicio solo usa `backend/` — el resto lo descarta al construir, después de
+# haberlo subido. Es peso muerto que se paga en cada despliegue.
+#
+# POR QUÉ IMPORTA, y no es una optimización de manual: el 2026-09-28 el
+# despliegue falló TRES veces seguidas con «operation timed out» al enviar.
+# Railway respondía en 0,14 s; lo que no daba abasto era la subida, medida en
+# 47 KB/s. A esa velocidad, 32 MB no caben en la ventana que Railway concede.
+# Con esto el paquete baja a la mitad.
+#
+# REGLA PARA TOCAR ESTO: aquí solo va lo que el build del backend no mira. Su
+# `rootDirectory` es `backend/` y su Dockerfile hace `COPY . .` dentro de esa
+# carpeta, así que nada de fuera le hace falta. Si algún día el backend
+# necesitara leer un archivo de la raíz, hay que quitarlo de esta lista o el
+# build fallará con un «no such file» difícil de relacionar con este archivo.
+#
+# El despliegue del FRONTEND no pasa por aquí: va por Vercel, desde
+# `COPIA/frontend`, y no lee este fichero.
+
+# El frontend entero: 12 MB que Railway tira.
+frontend/
+
+# La app móvil y sus recursos gráficos.
+mobile/
+
+# Documentación, bitácora y PDF del contrato de la Sync API.
+docs/
+
+# Material de diseño y demos: no son código de producción.
+design_handoff_masteradmin/
+visual-demo/
+
+# Capturas sueltas que acabaron versionadas en la raíz.
+#
+# CON LA BARRA DELANTE: solo las de la raíz. Sin ella, la regla se aplica a
+# todos los niveles y se llevaría `backend/certs/wallet-defaults/*.png`, que son
+# las imágenes por defecto del pase de Apple y sí viajan al contenedor
+# (`COPY --from=build /app/certs ./certs`). Se detectó al comprobar el paquete
+# resultante, no antes: el pase habría salido sin sus imágenes y nadie lo habría
+# relacionado con este archivo.
+/*.jpeg
+/*.jpg
+/*.png
+
+# Nada de esto se usa para construir.
+.claude/
+.github/
+.vscode/
+# Documentación suelta, en cualquier nivel: no la lee el build.
+*.md
