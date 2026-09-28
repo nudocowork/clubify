@@ -8,6 +8,85 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-27 (83) — Los mensajes de un negocio ya dicen de quién son
+
+Backend `fc31ab88`.
+
+### Lo que estaba mal, y por qué importa dos veces
+
+«Mensajes enviados» no podía contestar dos preguntas que se le hacen todos
+los días —*de quién es este mensaje* y *salió el aviso de tal negocio*—
+porque **la mayoría de las filas nacían sin dueño**. De **~1.346 filas de 30
+días, 700 no tenían marca**.
+
+`registrarEnvio` deduce la marca a partir del negocio, pero **solo si el
+llamador le pasa el `tenantId`**. Diez llamadas no se lo pasaban.
+
+Y una fila sin marca **no es neutra**: la lectura la atribuye a **Clubify**
+por la regla «null = legacy». Medido en producción hoy: **15 avisos de reseña
+de Jamarea y 6 de reserva de D'Ponke** —negocios de **Sellea**— se estaban
+pintando en el panel de Clubify. Es la fuga de marca de siempre, esta vez
+**por omisión**: nadie escribió «Clubify» en ningún sitio, simplemente no se
+escribió de quién era.
+
+El segundo daño es **el que se vio esta mañana**: sin `tenantId`, buscar el
+nombre de un negocio en «Mensajes enviados» **no encuentra sus mensajes**, y
+la pantalla contesta que no salió nada cuando sí salió. El arreglo de la
+búsqueda (entrada 81) tapaba el síntoma para los negocios que ya tenían
+`tenantId`; esto arregla la causa.
+
+### Qué lleva contexto ahora
+
+Las diez llamadas que **pertenecen a un negocio**: avisos de reseña y de
+reserva, el aviso de pedido **al negocio** y **al cliente final**, los avisos
+de cobro de **Cross** y de **Stripe**, y las **cuatro pruebas de «probar
+alerta»** del panel del dueño —que es justo donde va a mirar quien acaba de
+pulsar el botón para ver si salió—. Donde se sabe la plantilla se pasa también
+(`op_delivery_alert`, `op_customer_order_*`), que es la otra columna vacía.
+
+Las que **NO** llevan negocio se quedan como están, cada una con su motivo
+escrito en el spec: avisos internos al equipo, envíos del panel maestro,
+avisos a la marca, el CRM del afiliado, el portal de domicilios, y los pagos
+que llegan **antes de que exista la cuenta**.
+
+### El candado
+
+`backend/src/integrations/mensajes-con-dueno.spec.ts` recorre `src/` y falla
+si aparece **una llamada nueva** sin contexto que no esté en la lista de
+excepciones **con su motivo escrito**. También falla si una excepción **sobra**
+—una excepción que ya no hace falta es peor que ninguna, porque la siguiente
+persona la lee y cree que ese fichero sigue mandando a ciegas— y comprueba
+contra un texto de mentira que **el detector sabe ponerse en rojo**. Eso
+último no es adorno: ya van tres candados míos que pasaban en verde sin mirar
+nada.
+
+### Cuidado si tocas esto
+
+- `auth/auth.service.ts` está en la lista de excepciones **no por su motivo,
+  sino porque es trabajo sin commitear de la otra máquina y no se toca**. Hay
+  que revisarlo cuando aterrice: si manda algo de un negocio, le falta el
+  contexto.
+- Las claves de `feature` son las que ya había (`billing`, `orders`,
+  `reservations`, `reviews`, `prueba`). **Un nombre nuevo para lo mismo parte
+  el conteo en la pantalla**, que las pinta en crudo. Por eso se renombraron
+  mis `'resenas'` y `'reservas'` de antes de commitear.
+- Cuatro de los ficheros están en **CRLF** y el resto en LF. Al insertar
+  líneas con un script hay que respetar el del fichero, o el diff sale lleno
+  de ruido; me pasó y lo normalicé.
+
+### Pendiente, pequeño
+
+La pantalla pinta `feature` **en crudo y en inglés** (`billing`, `orders`).
+Traducirlo es un mapa de etiquetas de diez líneas en el frontend; no se hizo
+para que este despliegue fuera solo de backend.
+
+### Verificado
+
+`tsc` **en frío** (sin `tsconfig.tsbuildinfo`) limpio —en esta máquina hay que
+darle `--max-old-space-size=6144` o se queda sin memoria—, **3.112 pruebas en
+219 ficheros** en verde, `eslint` limpio.
+
+---
 ## 2026-09-27 (82) — Categorías que llegan en español, y dos cifras mías corregidas
 
 Backend `dbcd83e`.
