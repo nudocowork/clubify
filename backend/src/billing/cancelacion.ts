@@ -15,6 +15,41 @@
  * una tuviera su criterio es lo que dejó a LICORES EL AMANECER sin sus últimos
  * tres días pagados (2026-09-23).
  */
+/**
+ * ¿MANDA LA PASARELA SOBRE ESTE NEGOCIO?
+ *
+ * Un negocio que no le paga nada a Stripe ni a Hotmart no puede ser suspendido
+ * por ellos. Parece obvio y no lo era: la cuenta SELLEA vive del crédito de la
+ * marca y no tiene precio de suscripción, pero arrastraba una suscripción de
+ * Stripe de antes. El 26 de septiembre llegó su cancelación y la tumbó — la
+ * cuenta de la propia marca, apagada por una pasarela a la que no le debe nada.
+ *
+ * El origen del cobro se lee del prefijo de `hotmartSubscriberCode`, que es el
+ * mismo criterio que ya usa el reporte de comisiones para decidir quién aporta
+ * dinero: `wl-` (alta con créditos de marca), `comp-` (cortesía), `trial-`,
+ * `campaign-`/`sim-` (sistema) y el código vacío NO facturan por pasarela.
+ *
+ * Y ADEMÁS TIENE QUE NO TENER PRECIO. Un negocio dado de alta con créditos de
+ * marca que luego empezó a pagar de verdad sí depende de su pasarela, y a ese
+ * la cancelación tiene que afectarle como a cualquiera. Las dos condiciones
+ * juntas describen exactamente lo que se quiere proteger: el que no paga nada.
+ *
+ * Medido en producción el 2026-09-28: en toda la plataforma hay 4 negocios sin
+ * cobro por pasarela que arrastran una suscripción atada, y los 4 son de
+ * Sellea. Los 81 de Hotmart no tienen ninguna.
+ */
+export function laPasarelaMandaSobreElNegocio(tenant: {
+  hotmartSubscriberCode?: string | null;
+  subscriptionPriceUsd?: unknown;
+}): boolean {
+  const precio = Number(tenant.subscriptionPriceUsd ?? 0);
+  if (Number.isFinite(precio) && precio > 0) return true;
+
+  const codigo = (tenant.hotmartSubscriberCode ?? '').trim();
+  if (!codigo) return false;
+  return !/^(wl-|comp-|trial-|campaign-|sim-)/i.test(codigo);
+}
+
 export function desconectaAlCancelar(
   tenant: {
     status?: string | null;

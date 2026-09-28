@@ -19,7 +19,10 @@ import { HotmartService } from './hotmart.service';
 import { IncomeRecordService } from '../finance/income-record.service';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
-import { desconectaAlCancelar } from './cancelacion';
+import {
+  desconectaAlCancelar,
+  laPasarelaMandaSobreElNegocio,
+} from './cancelacion';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
 
@@ -613,6 +616,33 @@ export class StripeService {
      * cron de cobro que este negocio NO va a renovar. Sin eso seguiría
      * tratándolo como si fuera a pagar el mes que viene.
      */
+    /**
+     * Y ANTES QUE NADA: ¿le paga este negocio algo a Stripe?
+     *
+     * La cuenta SELLEA vive del crédito de la marca y no tiene precio de
+     * suscripción, pero arrastraba una suscripción de Stripe de antes. Su
+     * cancelación la tumbó: la cuenta de la propia marca, apagada por una
+     * pasarela a la que no le debe nada. Javier, 2026-09-28: «es del crédito
+     * gratuito, esta siempre debería estar encendida».
+     *
+     * No basta con arreglar el «cuándo» (respetar lo pagado): a estas cuentas
+     * el webhook no debe tocarlas NUNCA, ni ahora ni al vencer el período.
+     */
+    if (!laPasarelaMandaSobreElNegocio(tenant)) {
+      await this.billing.auditLifecycle('subscription.cancel_ignored', tenant.id, {
+        gateway: 'STRIPE',
+        reason: 'cancelled',
+        motivo: 'el negocio no paga por pasarela (crédito de marca o cortesía)',
+      });
+      this.logger.warn(
+        `Stripe canceló la suscripción de ${tenant.brandName}, pero este ` +
+          'negocio no le paga a ninguna pasarela (crédito de marca o cortesía): ' +
+          'se ignora y la cuenta sigue activa. Conviene desatarle la ' +
+          'suscripción de Stripe, que es lo que sobra.',
+      );
+      return { ok: true, action: 'cancel_ignored_not_gateway_paid' };
+    }
+
     const ahora = new Date();
     const desconectarYa = desconectaAlCancelar(tenant, ahora);
     await this.prisma.tenant.update({
@@ -1593,6 +1623,11 @@ export class StripeService {
       // tiene días pagados que respetar. Faltaba, y por eso este webhook no
       // podía aplicar la regla que sí aplican el panel y Hotmart.
       failedPaymentCount: true,
+      // Y estos dos los pide `laPasarelaMandaSobreElNegocio`: sin ellos no se
+      // puede saber que una cuenta vive del crédito de la marca y no le paga
+      // nada a Stripe. Es lo que tumbó a SELLEA.
+      subscriptionPriceUsd: true,
+      hotmartSubscriberCode: true,
       // Los tres de abajo son para COBRARLE EL CRÉDITO A LA MARCA al activar
       // (ver `activate`): sin ellos no se sabe de quién es el negocio ni cuánto
       // cuesta su ciclo.

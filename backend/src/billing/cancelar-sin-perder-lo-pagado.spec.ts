@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { desconectaAlCancelar } from './cancelacion';
+import {
+  desconectaAlCancelar,
+  laPasarelaMandaSobreElNegocio,
+} from './cancelacion';
 
 /**
  * CANCELAR NO ES RENUNCIAR A LO PAGADO, POR NINGUNA DE LAS PUERTAS.
@@ -108,6 +111,84 @@ describe('EL CASO SELLEA, con sus fechas reales', () => {
     // pasaría en verde sin proteger nada.
     expect(desconectaAlCancelar(SELLEA, CANCELACION)).not.toBe(
       desconectaAlCancelar(SELLEA, new Date('2026-10-27T00:00:00Z')),
+    );
+  });
+});
+
+describe('a quién NO puede tocar una pasarela, pase lo que pase', () => {
+  /**
+   * La segunda mitad del caso SELLEA, y la de fondo: esa cuenta vive del
+   * CRÉDITO DE LA MARCA y no tiene precio de suscripción. No le paga nada a
+   * Stripe. Arrastraba una suscripción de antes y su cancelación la tumbó.
+   *
+   * Javier, 2026-09-28: «es del crédito gratuito, esta siempre debería estar
+   * encendida». Respetar lo pagado no bastaba: al llegar el 26 de octubre se
+   * habría apagado igual.
+   */
+  it('EL CASO SELLEA: crédito de marca y sin precio → la pasarela no manda', () => {
+    expect(
+      laPasarelaMandaSobreElNegocio({
+        hotmartSubscriberCode: 'wl-0nUabc123',
+        subscriptionPriceUsd: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('cortesía, prueba y cuentas de sistema, tampoco', () => {
+    for (const codigo of ['comp-1', 'trial-9', 'campaign-x', 'sim-demo']) {
+      expect(
+        laPasarelaMandaSobreElNegocio({ hotmartSubscriberCode: codigo }),
+        codigo,
+      ).toBe(false);
+    }
+  });
+
+  it('sin código de suscripción no hay pasarela que mande', () => {
+    expect(laPasarelaMandaSobreElNegocio({})).toBe(false);
+    expect(laPasarelaMandaSobreElNegocio({ hotmartSubscriberCode: '  ' })).toBe(false);
+  });
+
+  it('UN NEGOCIO DE HOTMART SÍ DEPENDE DE SU PASARELA', () => {
+    // Lo contrario sería peor que el bug: nadie podría darse de baja.
+    expect(
+      laPasarelaMandaSobreElNegocio({
+        hotmartSubscriberCode: 'ABC123XYZ',
+        subscriptionPriceUsd: 80,
+      }),
+    ).toBe(true);
+  });
+
+  it('EL QUE EMPEZÓ CON CRÉDITO PERO YA PAGA, TAMBIÉN', () => {
+    // Es el matiz que impide que la protección se coma a medio mundo: de alta
+    // con créditos de marca hay 31 negocios, y a los que pagan de verdad la
+    // cancelación tiene que afectarles como a cualquiera.
+    expect(
+      laPasarelaMandaSobreElNegocio({
+        hotmartSubscriberCode: 'wl-0nUabc123',
+        subscriptionPriceUsd: 49,
+      }),
+    ).toBe(true);
+  });
+
+  it('un precio en 0 o en texto no cuenta como que paga', () => {
+    // `subscriptionPriceUsd` es un Decimal de Prisma: llega como objeto, como
+    // string o como null según el camino. Se normaliza con Number.
+    expect(
+      laPasarelaMandaSobreElNegocio({ hotmartSubscriberCode: 'wl-1', subscriptionPriceUsd: 0 }),
+    ).toBe(false);
+    expect(
+      laPasarelaMandaSobreElNegocio({ hotmartSubscriberCode: 'wl-1', subscriptionPriceUsd: '0' }),
+    ).toBe(false);
+    expect(
+      laPasarelaMandaSobreElNegocio({ hotmartSubscriberCode: 'wl-1', subscriptionPriceUsd: '80' }),
+    ).toBe(true);
+  });
+
+  it('LA PRUEBA SABE PONERSE EN ROJO: separa los dos mundos', () => {
+    const protegido = { hotmartSubscriberCode: 'wl-1', subscriptionPriceUsd: null };
+    const dePago = { hotmartSubscriberCode: 'wl-1', subscriptionPriceUsd: 80 };
+    expect(laPasarelaMandaSobreElNegocio(protegido)).not.toBe(
+      laPasarelaMandaSobreElNegocio(dePago),
     );
   });
 });
