@@ -100,6 +100,10 @@ export type WhiteLabelDto = {
   installationFeeUsd?: number | null;
   installationPromoUsd?: number | null;
   walletAdvanced?: Record<string, boolean> | null;
+  /** La academia de la marca para sus NEGOCIOS (menú lateral del dueño). */
+  academiaNegociosUrl?: string | null;
+  /** La academia de la marca para sus AFILIADOS (panel del que vende). */
+  academiaUrl?: string | null;
 };
 
 /** Periodicidades de plan válidas, en orden canónico. */
@@ -861,6 +865,16 @@ export class SuperAdminService {
           : normalizePeriodicities(patch.planPeriodicities),
         shareImageUrl: patch.shareImageUrl === undefined ? undefined : patch.shareImageUrl?.trim() || null,
         whatsappQrUrl: patch.whatsappQrUrl === undefined ? undefined : patch.whatsappQrUrl?.trim() || null,
+        // Las dos academias de la marca. Vaciar el campo lo deja en `null`, no
+        // en cadena vacía: null es lo que el menú lee como «esta marca no tiene
+        // academia» para no pintar la entrada. Una cadena vacía se colaría como
+        // enlace y llevaría a ninguna parte.
+        academiaNegociosUrl:
+          patch.academiaNegociosUrl === undefined
+            ? undefined
+            : patch.academiaNegociosUrl?.trim() || null,
+        academiaUrl:
+          patch.academiaUrl === undefined ? undefined : patch.academiaUrl?.trim() || null,
         subscriptionFeatureKeys: patch.subscriptionFeatureKeys === undefined
           ? undefined
           : patch.subscriptionFeatureKeys,

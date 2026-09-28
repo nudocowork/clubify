@@ -2496,6 +2496,10 @@ export class TenantsService {
               where: { active: true },
               select: { moduleKey: true, youtubeUrl: true, title: true, description: true },
             },
+            // El portal de formación de la marca PARA SUS NEGOCIOS, que es la
+            // entrada del menú lateral. Distinto de `academiaUrl`, que es el de
+            // los afiliados: en Clubify son dos rutas diferentes.
+            academiaNegociosUrl: true,
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY', 'REFERRALS'] } },
               select: { module: true, enabled: true },
@@ -2574,6 +2578,11 @@ export class TenantsService {
       whiteLabelSlug: t.whiteLabel?.slug ?? null,
       // Nombre de la marca (para la identidad del asistente IA del panel).
       whiteLabelName: t.whiteLabel?.name ?? null,
+      // La academia de SU marca, para el menú lateral. Null = esa marca no
+      // tiene, y entonces la entrada no se pinta: no se hereda la de otra.
+      // Antes el menú llevaba el enlace de Clubify escrito a mano y 13
+      // negocios de Sellea acababan en la academia de Clubify.
+      academiaNegociosUrl: t.whiteLabel?.academiaNegociosUrl ?? null,
       // Branding de la marca para el panel /app (null = Clubify → defaults).
       whiteLabelBranding: t.whiteLabel
         ? {

@@ -217,6 +217,8 @@ export default function AppShell({
     // Bloque 2 (2026-06-12): toggles per-tenant para ocultar los links
     // externos de Tutoriales / Academia Clubify desde admin.
     tutorialsEnabled?: boolean;
+    /** La academia de SU marca. Null = no tiene y la entrada no se pinta. */
+    academiaNegociosUrl?: string | null;
     academyEnabled?: boolean;
     // Reservations module 2026-06-12. SUPER_ADMIN lo activa per-tenant.
     reservationsEnabled?: boolean;
@@ -570,6 +572,7 @@ export default function AppShell({
           trialEndsAt: t?.trialEndsAt ?? null,
           status: t?.status ?? null,
           tutorialsEnabled: t?.tutorialsEnabled ?? true,
+          academiaNegociosUrl: t?.academiaNegociosUrl ?? null,
           academyEnabled: t?.academyEnabled ?? true,
           reservationsEnabled: t?.reservationsEnabled ?? false,
           serviceReservationsEnabled: t?.serviceReservationsEnabled ?? false,
@@ -1048,14 +1051,36 @@ export default function AppShell({
                       ...(tenantInfo && (!tenantInfo.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify')
                         ? [{ href: '/lab', label: tenantInfo.whiteLabelName ? `🧪 ${tenantInfo.whiteLabelName} Lab` : '🧪 Lab', icon: 'spark' as IconName }]
                         : []),
-                      // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
-                      // SUPER_ADMIN puede ocultarlo per-tenant desde
-                      // /admin/tenants/[id] vía Tenant.tutorialsEnabled.
-                      ...(tenantInfo?.tutorialsEnabled !== false
+                      // LA ACADEMIA DE SU MARCA, no la de Clubify.
+                      //
+                      // Esto era «Tutoriales» con el enlace de Clubify escrito
+                      // a mano (`academy.soyclubify.lat/cliente`). Medido el
+                      // 2026-09-28: **13 negocios de Sellea** acababan en la
+                      // academia de Clubify desde su propio panel. Es el mismo
+                      // fallo que ya se arregló en el panel del AFILIADO con
+                      // `WhiteLabel.academiaUrl`, vivo en la otra pantalla.
+                      //
+                      // Ahora el enlace sale de `academiaNegociosUrl` de su
+                      // marca y el nombre lleva el de la marca —«Clubify
+                      // Academy», «Sellea Academy»—, igual que el Lab de
+                      // arriba. Sin marca resuelta se queda en «Academy» a
+                      // secas: nunca «Clubify» por defecto.
+                      //
+                      // SIN URL PROPIA NO SE PINTA. Una marca sin academia no
+                      // hereda la ajena; enseñarle al dueño de un local la
+                      // academia de otra plataforma es la fuga de marca de
+                      // siempre. Lo mismo que hace el panel del afiliado.
+                      //
+                      // `tutorialsEnabled` sigue mandando: el SUPER_ADMIN puede
+                      // apagarlo por negocio desde /admin/tenants/[id].
+                      ...(tenantInfo?.tutorialsEnabled !== false &&
+                      tenantInfo?.academiaNegociosUrl
                         ? [
                             {
-                              href: 'https://academy.soyclubify.lat/cliente',
-                              label: tNav('tutorials'),
+                              href: tenantInfo.academiaNegociosUrl,
+                              label: tenantInfo.whiteLabelName
+                                ? `🎓 ${tenantInfo.whiteLabelName} Academy`
+                                : '🎓 Academy',
                               icon: 'book' as IconName,
                               external: true,
                             },

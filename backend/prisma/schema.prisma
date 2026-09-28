@@ -461,6 +461,7 @@ model RefreshToken {
 
 model Tenant {
   clubPlanes          ClubPlan[]
+  clubPagos           ClubPago[]
   id                          String                     @id @default(uuid())
   /// Marca Blanca a la que pertenece este negocio (Nivel 3 → Nivel 2).
   /// Nullable solo durante el backfill — todos los tenants existentes se
@@ -6151,6 +6152,21 @@ model WhiteLabel {
   /// entrar a— la academia de otra plataforma. Null = la marca no tiene
   /// academia y la pestaña NO se muestra; no se hereda la ajena.
   academiaUrl              String?
+  /// Academia de la marca para sus NEGOCIOS: el portal de formación que ve el
+  /// dueño de un local en su menú lateral.
+  ///
+  /// Es OTRO enlace que `academiaUrl`, que va dirigido a los AFILIADOS. Clubify
+  /// tiene los dos y son distintos —`/Embajadores` y `/cliente`—, así que uno
+  /// no se puede deducir del otro: mandar a un dueño de restaurante al portal
+  /// de embajadores es enseñarle cómo vender la plataforma.
+  ///
+  /// El menú tenía el enlace de Clubify escrito a mano, igual que le pasó al
+  /// panel del afiliado. Medido el 2026-09-28: **13 negocios de Sellea**
+  /// llegaban a la academia de Clubify desde su propio panel.
+  ///
+  /// Null = la marca no tiene academia para negocios y la entrada NO se
+  /// muestra. No se hereda la ajena — la misma regla que `academiaUrl`.
+  academiaNegociosUrl      String?
   /// Color secundario / tinta (textos y fondos oscuros).
   secondaryColor           String?
   /// Color de fondos suaves (crema).
@@ -7980,12 +7996,32 @@ model ClubMembresia {
   /// el histórico no cambie si el negocio sube el cupo a mitad de mes.
   cupoDelPeriodo Int @default(0)
 
+  /// HASTA CUÁNDO ESTÁ PAGADA. El último instante del día, en hora de Bogotá:
+  /// «pagada hasta el 14» incluye el 14 entero. Ver `club-vigencia.ts`.
+  ///
+  /// Hasta el 2026-09-28 esto no existía y el precio del plan era un adorno —
+  /// el esquema decía «informativo: el cobro es manual y por fuera»—, así que
+  /// un socio recibía su cupo todos los meses para siempre, pagara o no.
+  ///
+  /// `null` NO significa vencida, significa QUE NO SE SABE: son las membresías
+  /// anteriores a esto. No se les corta el cupo —cortárselo a quien pagó en
+  /// efectivo y quedó apuntado en una libreta sería quitarle lo suyo en
+  /// silencio— pero salen aparte en el panel para que el negocio las ponga al
+  /// día. Por eso la migración NO inventa una fecha: escribir «pagada hasta el
+  /// 28 de octubre» sin que nadie haya pagado es meter un dato falso.
+  ///
+  /// «Vencida» no es un estado guardado, se deduce de aquí. Un estado aparte
+  /// habría que mantenerlo sincronizado con un cron, y el día que fallara el
+  /// socio saldría vencido habiendo pagado.
+  pagadaHasta DateTime?
+
   /// Cuándo se dio de alta. De aquí sale el tramo de prorrateo.
   createdAt DateTime  @default(now())
   pausedAt  DateTime?
   updatedAt DateTime  @updatedAt
 
   consumos ClubConsumo[]
+  pagos    ClubPago[]
 
   /// Un cliente, una membresía por plan.
   @@unique([planId, customerId])
@@ -7997,6 +8033,71 @@ model ClubMembresia {
   /// rango; al revés recorría todas las membresías activas de la plataforma
   /// para devolver cero filas, 23 de las 24 pasadas diarias.
   @@index([periodo, status])
+  /// «Quién vence esta semana», que es la pregunta del panel y la del aviso al
+  /// negocio. Mismo criterio que el índice de arriba: el estado delante porque
+  /// es igualdad, y la fecha detrás porque es un rango.
+  @@index([status, pagadaHasta])
+  /// Y la misma pregunta dentro de UN plan, que es como la mira el dueño.
+  @@index([planId, pagadaHasta])
+}
+
+/// Un pago de una membresía de club. Es el histórico: nunca se edita.
+///
+/// Existe porque antes no se podía responder ni «cuánto ha pagado este socio»
+/// ni «cuándo pagó por última vez»: el precio estaba en el plan y el cobro se
+/// hacía por fuera. Cada fila deja la membresía pagada hasta `vigenciaHasta`,
+/// que se guarda AQUÍ además de en la membresía para que el histórico no cambie
+/// cuando alguien renueve después.
+model ClubPago {
+  id          String        @id @default(uuid())
+  membresiaId String
+  membresia   ClubMembresia @relation(fields: [membresiaId], references: [id], onDelete: Cascade)
+
+  /// El negocio dueño del pago. Se guarda aunque se pueda deducir por el plan:
+  /// un campo `tenantId` hace que el middleware de Prisma filtre esta tabla por
+  /// negocio SOLO, sin que nadie se acuerde de añadir el `where`. En una tabla
+  /// de dinero esa red vale más que ahorrarse la columna.
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Lo que pagó, en la unidad menor de la moneda, igual que `ClubPlan`.
+  /// Se copia del plan al cobrar y NO se vuelve a leer: si el negocio sube el
+  /// precio, lo que ya cobró no cambia.
+  montoCents Int
+  currency   String @default("COP")
+
+  /// MANUAL cuando lo registra el negocio (efectivo, transferencia, datáfono),
+  /// o el nombre de la pasarela cuando entre sola.
+  ///
+  /// Texto y no enum de Postgres, por lo mismo que `periodicidad` en el plan:
+  /// añadir un valor a un enum en producción es una migración con bloqueo, y
+  /// aquí van a ir apareciendo pasarelas.
+  metodo String @default("MANUAL")
+
+  /// Lo que el negocio escriba para reconocerlo: el número de la transferencia,
+  /// «pagó en efectivo en el local». Informativo.
+  referencia String @default("")
+
+  /// El id del cobro EN LA PASARELA. Único: es lo que impide que un webhook
+  /// repetido —que llegan— extienda la vigencia dos veces. Null en los pagos
+  /// manuales, y en Postgres varios NULL no chocan entre sí.
+  refExterna String? @unique
+
+  /// Hasta cuándo quedó pagada la membresía DESPUÉS de este pago.
+  vigenciaHasta DateTime
+
+  /// Quién lo registró. Sin FK, igual que `ClubConsumo.actorId`: el histórico
+  /// tiene que sobrevivir a que se borre la cuenta de quien lo apuntó.
+  /// Null = entró solo por la pasarela.
+  registradoPorId String?
+
+  nota      String   @default("")
+  createdAt DateTime @default(now())
+
+  /// El histórico de un socio, lo más nuevo primero.
+  @@index([membresiaId, createdAt(sort: Desc)])
+  /// Los ingresos del club de un negocio por fecha: es la consulta de caja.
+  @@index([tenantId, createdAt(sort: Desc)])
 }
 
 /// Cada beneficio consumido. Es el histórico: nunca se borra ni se edita.

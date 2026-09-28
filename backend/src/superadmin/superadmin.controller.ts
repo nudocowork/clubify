@@ -61,6 +61,23 @@ class WhiteLabelBody {
   // heredado/activo; la marca desactiva poniendo la clave en false. Se sanea en
   // el service (solo claves conocidas → boolean).
   @IsOptional() @IsObject() walletAdvanced?: Record<string, boolean> | null;
+  /**
+   * Las DOS academias de la marca, que no son la misma:
+   *
+   *  · `academiaNegociosUrl` — la que ve el DUEÑO DE UN LOCAL en su menú.
+   *  · `academiaUrl` — la que ve un AFILIADO en su panel.
+   *
+   * En Clubify son dos rutas distintas (`/cliente` y `/Embajadores`), así que
+   * una no se deduce de la otra: mandar a un dueño de restaurante al portal de
+   * embajadores es enseñarle a vender la plataforma en vez de a usarla.
+   *
+   * Ninguna de las dos se podía configurar desde aquí, y por eso el enlace de
+   * Clubify acabó escrito a mano en el menú: 13 negocios de Sellea llegaban a
+   * la academia de Clubify (2026-09-28). Vacío = esa marca no tiene academia y
+   * la entrada no se muestra; nunca se hereda la de otra marca.
+   */
+  @IsOptional() @IsString() @MaxLength(500) academiaNegociosUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(500) academiaUrl?: string | null;
 }
 
 class StatusBody {

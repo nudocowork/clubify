@@ -25,6 +25,10 @@ type WhiteLabel = {
   mapsApiKey: string | null;
   shareImageUrl: string | null;
   whatsappQrUrl: string | null;
+  /** La academia de esta marca para sus NEGOCIOS (menú lateral del dueño). */
+  academiaNegociosUrl: string | null;
+  /** La academia de esta marca para sus AFILIADOS (panel del que vende). */
+  academiaUrl: string | null;
   subscriptionFeatureKeys?: string[];
   installationFeeUsd?: number | string | null;
   installationPromoUsd?: number | string | null;
@@ -728,6 +732,16 @@ function BrandDetailFull({
               <WhatsAppQrConfig
                 whiteLabelId={w.id}
                 initial={w.whatsappQrUrl ?? ''}
+                onSaved={(msg) => {
+                  reloadAdmins();
+                  onChanged(msg);
+                }}
+              />
+
+              <AcademiasConfig
+                whiteLabelId={w.id}
+                initialNegocios={w.academiaNegociosUrl ?? ''}
+                initialAfiliados={w.academiaUrl ?? ''}
                 onSaved={(msg) => {
                   reloadAdmins();
                   onChanged(msg);
@@ -2685,6 +2699,126 @@ function WhatsAppQrConfig({
           }}
         >
           {busy ? 'Guardando…' : 'Guardar enlace'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Las DOS academias de la marca. PATCH a /superadmin/white-labels/:id.
+ *
+ * No son la misma y por eso van dos campos: la de NEGOCIOS la ve el dueño de un
+ * local en su menú lateral; la de AFILIADOS, quien vende la plataforma en su
+ * panel. En Clubify son dos rutas distintas del mismo portal, así que una no se
+ * puede deducir de la otra.
+ *
+ * Esto no se podía configurar desde ninguna pantalla, y por eso el enlace de
+ * Clubify acabó escrito a mano en el menú: 13 negocios de Sellea llegaban a la
+ * academia de Clubify desde su propio panel (2026-09-28).
+ *
+ * VACÍO SIGNIFICA «NO TIENE», y entonces la entrada no se pinta. Es
+ * deliberado: una marca sin academia no hereda la de otra.
+ */
+function AcademiasConfig({
+  whiteLabelId,
+  initialNegocios,
+  initialAfiliados,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initialNegocios: string;
+  initialAfiliados: string;
+  onSaved: (msg: string) => void;
+}) {
+  const [negocios, setNegocios] = useState(initialNegocios ?? '');
+  const [afiliados, setAfiliados] = useState(initialAfiliados ?? '');
+  const [busy, setBusy] = useState(false);
+
+  const limpio = (v: string) => v.trim();
+  const valida = (v: string) => !v || /^https?:\/\//i.test(v);
+  const todoBien = valida(limpio(negocios)) && valida(limpio(afiliados));
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          academiaNegociosUrl: limpio(negocios) || null,
+          academiaUrl: limpio(afiliados) || null,
+        }),
+      });
+      onSaved('Academias de la marca guardadas');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar las academias');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const campo = {
+    padding: '9px 12px',
+    borderRadius: 8,
+    border: '1px solid #d7dbe0',
+    background: 'white',
+    color: '#16241c',
+  } as const;
+
+  return (
+    <div>
+      <SectionTitle>Academia</SectionTitle>
+      <div className="mt-2 space-y-3">
+        <p className="text-xs" style={{ color: '#6b7785' }}>
+          El portal de formación de esta marca. Son <b>dos distintos</b>: uno para
+          los negocios y otro para los afiliados. Si se deja vacío, esa marca
+          <b> no verá la entrada</b> — nunca se le muestra la academia de otra
+          marca.
+        </p>
+
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            Para los negocios · sale en su menú como «{'{Marca}'} Academy»
+          </label>
+          <input
+            value={negocios}
+            onChange={(e) => setNegocios(e.target.value)}
+            placeholder="https://academy.tumarca.com/cliente"
+            className="w-full mt-1 text-sm font-mono"
+            style={campo}
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            Para los afiliados · sale en el panel de quien vende
+          </label>
+          <input
+            value={afiliados}
+            onChange={(e) => setAfiliados(e.target.value)}
+            placeholder="https://academy.tumarca.com/embajadores"
+            className="w-full mt-1 text-sm font-mono"
+            style={campo}
+          />
+        </div>
+
+        {!todoBien && (
+          <p className="text-xs font-semibold" style={{ color: '#b91c1c' }}>
+            El enlace tiene que empezar por http:// o https://
+          </p>
+        )}
+
+        <button
+          onClick={save}
+          disabled={busy || !todoBien}
+          className="w-full text-sm font-bold text-white rounded-[10px] disabled:opacity-50"
+          style={{
+            padding: '10px',
+            background: busy ? '#9ca3af' : 'linear-gradient(180deg, #28c95f, #16a34a)',
+            cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          {busy ? 'Guardando…' : 'Guardar academias'}
         </button>
       </div>
     </div>
