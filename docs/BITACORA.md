@@ -63,12 +63,11 @@ y se refrescan los pases. Esos puntos no se pueden borrar desde Comunidad → Ge
 iPhone algunos no avisan (la pantalla lo advierte). Las sedes ya creadas con el aviso encendido
 **no se sincronizan solas** hasta que alguien las guarde o se re-apruebe el aliado.
 
-### Pendiente (no tocado a propósito)
+### Decidido: el correo de recuperación del aliado sale como Clubify
 
 La recuperación de contraseña por correo de un ALLY_BUSINESS / CUPONERA_ADMIN sale con marca
-**Clubify** (el usuario no tiene `tenantId` ni `whiteLabelId`; habría que resolver la marca por
-`allyBusiness.campaign.whiteLabelId`). No lo toqué porque `auth.service.ts` tenía cambios sin
-commitear de la otra máquina (reset por SMS).
+**Clubify** (el usuario no tiene `tenantId` ni `whiteLabelId`). Se consultó el 2026-09-28 y
+**es aceptable que salga de Clubify**: no hay que resolverle la marca de la cuponera.
 
 ## 2026-09-28 (84) — El logo de la credencial, grande y centrado
 
