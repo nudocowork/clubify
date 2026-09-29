@@ -10,8 +10,13 @@
 
 ## 2026-09-29 (96) — SelleaLab: fuera «Hotmart» de los apartados de pagos; y los InfoLinks fuera del ciclo de cobro
 
-Commits `3a6a74b2` y `7c6e1d53` + `scripts/lab-hotmart-estado.cjs`. **SIN
-DESPLEGAR** (modo auto). La cadena pendiente:
+Commits `3a6a74b2` y `7c6e1d53` + `scripts/lab-hotmart-estado.cjs`.
+**ACTUALIZACIÓN, mismo día: DESPLEGADO Y VERIFICADO contra el dominio**
+(backend `439f523`, frontend `dpl_GVpA1Krp…`); la propuesta del Lab quedó
+IN_TESTING (20:19 UTC). Falta solo: cuando Humberto valide en pantalla,
+`railway run --service Postgres-Nq8w node scripts/lab-hotmart-estado.cjs implementada`.
+
+La cadena que se corrió:
 
 ```
 cd backend
