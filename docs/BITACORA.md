@@ -8,6 +8,36 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (95) — Historial de pagos en grupos empresariales + pauta de mayo 113→118.17
+
+Commit `42021133`. **SIN DESPLEGAR; los DOS scripts de datos SIN CORRER**
+(mismo bloqueo del modo auto). La cadena pendiente completa quedó así:
+
+```
+cd backend
+railway run --service Postgres-Nq8w node scripts/corregir-ingreso-habibi-432.cjs
+railway run --service Postgres-Nq8w node scripts/corregir-egreso-pauta-mayo.cjs
+cd ..
+node scripts/desplegar.cjs backend
+node scripts/desplegar.cjs frontend
+```
+
+Del segundo PDF de Javier:
+
+1. **Historial de pagos del grupo empresarial**:
+   `GET /admin/business-groups/:id/payment-history`. El grupo paga UNA
+   suscripción Hotmart y sus webhooks no traen tenantId: se rastrean por el
+   código de suscriptor en el payload (`data.subscription.subscriber.code` en
+   compras, `data.subscriber.code` en cancelaciones) y por el email del
+   responsable como buyer (respaldo para el primer cobro, anterior a fijar el
+   código). Reusa `agruparCobrosHotmart`/`resumirHistorial` y la tarjeta
+   `PaymentHistoryCard` (prop nueva `endpoint`) en el modal del grupo. Sirve
+   para el grupo actual y los futuros. Spec: `historial-del-grupo.spec.ts`.
+2. **Egreso «Pauta Publicitaria» 31-may**: registrado $113.00, real $118.17.
+   `scripts/corregir-egreso-pauta-mayo.cjs` (verificado en prod: único de
+   pauta en esas fechas, id `994e9c11…`, PAID; corrige monto y pagado, saldo
+   sigue $0).
+
 ## 2026-09-29 (94) — Emisión: el WhatsApp lo manda EL NEGOCIO con un botón; ni SMS ni línea de la casa
 
 Commit `48af1d22`. **SIN DESPLEGAR** (va en la misma cadena pendiente de la
