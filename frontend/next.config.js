@@ -6,6 +6,21 @@ const { sentryActivo } = require('./src/lib/sentry-activo.cjs');
 // detectado (cookie/header/IP) y las messages al SSR.
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
+/**
+ * El hostname de una URL, o null si no se puede leer. Existe para no meter un
+ * comodín en `remotePatterns`: de una variable mal puesta se prefiere no
+ * permitir nada a permitir un dominio entero.
+ */
+function hostDe(url) {
+  if (!url) return null;
+  try {
+    const h = new URL(url).hostname;
+    return h || null;
+  } catch {
+    return null;
+  }
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -17,15 +32,34 @@ const nextConfig = {
       },
     ];
   },
-  // next/image necesita whitelist de hosts remotos. Permitimos:
-  //   - El public URL de R2 (pub-*.r2.dev por default, o custom CDN
-  //     si se setea NEXT_PUBLIC_S3_PUBLIC_URL).
-  //   - Hostnames comunes (Google avatars, Hotmart product images).
-  // Sin esto, <Image src="https://pub-xxx.r2.dev/..." /> tira error.
+  // next/image necesita whitelist de hosts remotos. Sin esto,
+  // <Image src="https://pub-xxx.r2.dev/..." /> tira error.
+  //
+  // Van los hosts EXACTOS, nunca `**.r2.dev`: ese es un dominio COMPARTIDO de
+  // Cloudflare — todo bucket público de R2 del mundo es un `pub-<hash>.r2.dev`.
+  // Con el comodín, cualquiera con un bucket ahí podía hacer que nuestro
+  // optimizador le sirviera sus imágenes desde app.soyclubify.com: le
+  // regalábamos ancho de banda (la API de imágenes de Next tiene DoS conocido,
+  // GHSA-h64f-5h5j-jqjh) y nuestro dominio para alojar lo que quisiera. Igual
+  // `**.r2.cloudflarestorage.com`, que es el dominio compartido de la API.
+  //
+  // Al cambiar de bucket hay que añadir el host nuevo acá, o las imágenes
+  // dejarán de cargar. Es a propósito: una lista de permitidos que acepta
+  // cualquier cosa no es una lista de permitidos.
   images: {
     remotePatterns: [
-      { protocol: 'https', hostname: '**.r2.dev' },
-      { protocol: 'https', hostname: '**.r2.cloudflarestorage.com' },
+      // El bucket público de producción (S3_PUBLIC_URL del backend).
+      { protocol: 'https', hostname: 'pub-6de3a37544604346a69b9836aed1c6cf.r2.dev' },
+      // El endpoint de la cuenta R2, host exacto. Va por si quedan URLs
+      // guardadas de antes de que existiera S3_PUBLIC_URL: media.service.ts
+      // cae a `${endpoint}/${bucket}` cuando esa variable falta, así que una
+      // imagen vieja puede apuntar acá. Quitarlo sin comprobar la base rompería
+      // esas imágenes, y con un comodín valdría cualquier cuenta de R2.
+      { protocol: 'https', hostname: '5e5288c7d32815944510f3a01aa82614.r2.cloudflarestorage.com' },
+      // Si hay CDN propio configurado, su host exacto — no un comodín.
+      ...(hostDe(process.env.NEXT_PUBLIC_S3_PUBLIC_URL)
+        ? [{ protocol: 'https', hostname: hostDe(process.env.NEXT_PUBLIC_S3_PUBLIC_URL) }]
+        : []),
       { protocol: 'https', hostname: 'cdn.soyclubify.com' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // Google profile
       { protocol: 'https', hostname: 'static-media.hotmart.com' },

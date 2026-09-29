@@ -149,6 +149,14 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Un comodín en `images.remotePatterns` sobre un dominio COMPARTIDO deja
+      # que cualquiera use nuestro optimizador de imágenes. Estaba
+      # `**.r2.dev`, y todo bucket público de Cloudflare R2 vive ahí: nuestro
+      # ancho de banda y nuestro dominio sirviendo lo que quisiera el de al
+      # lado, encima de un DoS sin parche en la API de imágenes de Next 14.
+      - name: Imágenes remotas (ningún dominio compartido)
+        run: node scripts/arqueo-imagenes-remotas.cjs --ci
+
       # Las pruebas del menú público. El frontend no tiene runner, así que son
       # scripts sueltos de node — pero cubren dos cosas que ya se rompieron en
       # producción (preguntar el estado teniendo la sede, y el seguimiento de
