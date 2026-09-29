@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (93) — Contabilidad: período sin flechas + rango de fechas; Habibi 420→432; invitación por correo
+
+Commits `745bf99c` y `3e88826b`. La entrada 92 quedó desplegada y verificada
+(`/api/health` → `a1e82cd`). **Esto de acá está commiteado y SIN desplegar; el
+script de Habibi está SIN CORRER** (el modo auto me bloquea deploys y
+escrituras a prod). La cadena pendiente:
+
+```
+railway run --service Postgres-Nq8w node scripts/corregir-ingreso-habibi-432.cjs   # desde backend/
+node scripts/desplegar.cjs backend
+node scripts/desplegar.cjs frontend
+```
+
+Del PDF de solicitudes de Javier:
+
+1. **Contabilidad, filtro 1**: el período se ELIGE con selects (mes /
+   trimestre / año), ya no se navega a flechazos. En la lista de años solo
+   aparecen los vividos (`PRIMER_ANIO=2026` → año actual): 2027 saldrá al
+   llegar. `SelectorPeriodo.tsx` reescrito; al futuro sigue sin poderse ir.
+2. **Contabilidad, filtro 2**: rango libre de fechas («del 1 de septiembre al
+   30 de noviembre»). Período nuevo `YYYY-MM-DD..YYYY-MM-DD` resuelto en
+   `common/periodo-contable.ts` (bordes Bogotá; null si va al revés o el día
+   no existe → cae a histórico, no a un período vacío) + contraste de fechas
+   de egresos en `fecha-del-movimiento.ts`. Sin «período anterior», como el
+   histórico. Los rangos SÍ pueden mirar al futuro (próximos cobros). Todos
+   los endpoints pasan por `rangoDe`, así que no hubo que tocar ninguno.
+3. **Habibi Bar Cantina**: el ingreso del upgrade anual se registró por $420 y
+   lo real es $432 ($68 de mensualidad ya pagada). Verificado en prod
+   (id `cd7711d3…`, MANUAL/UPGRADE, sin conciliar); el script recalcula
+   impuesto (19 % → $82.08) y neto ($349.92), condicional e idempotente:
+   `scripts/corregir-ingreso-habibi-432.cjs`.
+4. **Emisión de tarjetas — correo** (pedido suelto del chat): si el cliente
+   tiene correo, le llega ADEMÁS la invitación por email. Transporta la
+   subcuenta GHL de la MARCA del negocio (remitente = la marca; Clubify para
+   los de Clubify, Sellea para los de Sellea), firma el NEGOCIO (nombre+logo)
+   con «Hecho con {marca}», enlace por el dominio de su marca, y sin
+   subcuenta no se envía. El SMS sigue SOLO por la línea propia del negocio
+   (entrada 92). `entrega` ahora trae también `correo/email` y el panel lo
+   cuenta. 21 tests de pases en verde.
+
+Al terminar hay que avisar por SMS a **Sara** (pedido explícito de Javier).
+
 ## 2026-09-29 (92) — El aviso de emisión ya NO cae a la subcuenta de la marca
 
 Commit `11ad9460`. **Compilado y probado en verde; SIN DESPLEGAR** (el modo
