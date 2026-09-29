@@ -15,7 +15,6 @@ import { AuditService } from '../audit/audit.service';
 import { AutomationsService } from '../automations/automations.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
-import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { brandAppUrl } from '../email/brand-email-creds.util';
 import { normalizePassLocale } from '../wallet/pass-labels';
 import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
@@ -179,10 +178,10 @@ export class PassesService {
    * enlace y se lo mandaba a mano, el cliente jamás sabía que tenía una
    * tarjeta. Medido: un pase emitido el 27-09 seguía sin instalar.
    *
-   * Ahora, al emitir, se le MANDA el enlace por SMS —con las credenciales del
-   * negocio o de su marca, nunca de otra— salvo que el negocio ya tenga activa
-   * una automatización de bienvenida (PASS_CREATED con SMS/WhatsApp): en ese
-   * caso manda ella y no se duplica el mensaje.
+   * Ahora, al emitir, se le MANDA el enlace por SMS —solo con la conexión de
+   * mensajes del PROPIO negocio; sin ella no sale nada— salvo que el negocio
+   * ya tenga activa una automatización de bienvenida (PASS_CREATED con
+   * SMS/WhatsApp): en ese caso manda ella y no se duplica el mensaje.
    *
    * La respuesta cuenta la verdad («entrega»), y el panel la enseña: enviado a
    * tal número, o «no tiene teléfono, cópiale el enlace».
@@ -248,8 +247,13 @@ export class PassesService {
       const telefono = cliente?.phone?.trim();
       if (!telefono) return { via: 'sin-telefono' };
 
-      // La cascada de siempre: credenciales del negocio, o de SU marca. Nunca
-      // de otra, y sin credenciales no se manda nada.
+      // SOLO la conexión Grow Business del PROPIO negocio, sin respaldo a la
+      // subcuenta de su marca — a propósito (Javier, 2026-09-29): el negocio
+      // no le escribe a sus clientes finales por un número que no es suyo. En
+      // producción 132 de 133 negocios no tienen conexión propia, así que con
+      // el respaldo casi todo aviso habría salido por el número de Clubify o
+      // de Sellea. Sin credenciales → no se manda, y el panel pide copiar el
+      // enlace.
       const negocio = await this.prisma.tenant.findUnique({
         where: { id: card.tenantId },
         select: {
@@ -257,17 +261,10 @@ export class PassesService {
           growBusinessLocationId: true,
           growBusinessApiKey: true,
           growBusinessSwitchNumber: true,
-          // BRAND_GROW_SELECT no trae los dominios, y sin ellos brandAppUrl
-          // cae al de la plataforma: el enlace de un negocio de Sellea saldría
-          // por soyclubify.com. Es la trampa documentada en la memoria de
-          // fugas de marca — por eso se piden aparte.
-          whiteLabel: {
-            select: {
-              ...BRAND_GROW_SELECT,
-              domain: true,
-              appDomain: true,
-            },
-          },
+          // El whiteLabel se pide SOLO por los dominios: sin ellos brandAppUrl
+          // cae al de la plataforma y el enlace de un negocio de Sellea
+          // saldría por soyclubify.com (la trampa de las fugas de marca).
+          whiteLabel: { select: { domain: true, appDomain: true } },
         },
       });
       const creds =
@@ -277,7 +274,7 @@ export class PassesService {
               apiKey: negocio.growBusinessApiKey,
               switchNumber: negocio.growBusinessSwitchNumber ?? null,
             }
-          : brandGrowCreds(negocio?.whiteLabel);
+          : null;
       if (!creds) return { via: 'sin-credenciales' };
 
       const base = brandAppUrl(

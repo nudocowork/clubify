@@ -680,11 +680,11 @@ export default function CardDetail() {
                 ) : issuedPass.entrega?.via === 'bienvenida' ? (
                   <>Tu automatización de bienvenida le está enviando el enlace. La tarjeta aparecerá en su teléfono cuando la abra e instale.</>
                 ) : issuedPass.entrega?.via === 'sin-telefono' ? (
-                  <>Este cliente <b>no tiene teléfono</b> en su ficha: cópiale el enlace de abajo y hazselo llegar — la tarjeta solo aparece en su teléfono si él la instala.</>
+                  <>Este cliente <b>no tiene teléfono</b> en su ficha: cópiale el enlace de abajo y házselo llegar — la tarjeta solo aparece en su teléfono si él la instala.</>
                 ) : issuedPass.entrega?.via === 'sin-credenciales' ? (
-                  <>No hay conexión de mensajes para avisarle: cópiale el enlace de abajo y hazselo llegar.</>
+                  <>Tu negocio <b>no tiene conectada su línea de mensajes</b>, así que no se le avisó: cópiale el enlace de abajo y házselo llegar.</>
                 ) : issuedPass.entrega?.via === 'fallo' ? (
-                  <>El SMS con el enlace <b>no salió</b>. Cópiale el enlace de abajo y hazselo llegar.</>
+                  <>El SMS con el enlace <b>no salió</b>. Cópiale el enlace de abajo y házselo llegar.</>
                 ) : issuedPass.entrega?.via === 'ya-existia' ? (
                   <>Este cliente <b>ya tenía esta tarjeta</b>: es el mismo enlace de siempre.</>
                 ) : (

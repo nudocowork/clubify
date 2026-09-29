@@ -165,6 +165,31 @@ describe('emitir una tarjeta desde el panel', () => {
     expect(sms).toHaveBeenCalledTimes(1);
   });
 
+  it('SIN CONEXIÓN PROPIA NO SE MANDA NADA — ni por la subcuenta de su marca', async () => {
+    // La regla de Javier (2026-09-29): «el negocio no puede enviar mensajes a
+    // los clientes finales» por un número que no es suyo. Y no es un caso
+    // raro: en producción solo 1 de 133 negocios tiene conexión propia — con
+    // el respaldo de marca, casi todo aviso habría salido por el número de
+    // Clubify o de Sellea hacia el cliente final de otro.
+    const prisma = makePrisma({
+      credsNegocio: false,
+      whiteLabel: {
+        domain: 'www.selleala.com',
+        appDomain: 'app.selleala.com',
+        // La marca SÍ tiene subcuenta GHL: aun así, no se usa.
+        growBusinessLocationId: 'loc-sellea',
+        growBusinessApiKey: 'key-cifrada',
+        growBusinessSwitchNumber: null,
+      },
+    } as any);
+    const { svc, sms } = makeService(prisma);
+
+    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
+
+    expect(r.entrega).toEqual({ via: 'sin-credenciales' });
+    expect(sms).not.toHaveBeenCalled();
+  });
+
   it('sin teléfono, LO DICE — y no manda nada', async () => {
     const prisma = makePrisma({ telefono: null });
     const { svc, sms } = makeService(prisma);
