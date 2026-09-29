@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { api, startImpersonation } from '@/lib/api';
 
 /**
  * Admin · Infolinks (freemium Sellea) — métricas + lista de usuarios "Solo
@@ -34,6 +35,46 @@ export default function AdminInfolinksPage() {
   const [data, setData] = useState<IlData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
+  const router = useRouter();
+  const [entrandoA, setEntrandoA] = useState<string | null>(null);
+
+  /**
+   * ENTRAR A ADMINISTRAR LA CUENTA DESDE SU NOMBRE.
+   *
+   * Antes esta lista no llevaba a ninguna parte: para tocar algo de un
+   * usuario de InfoLink había que volver a Negocios y buscarlo allí — y
+   * desde hoy los InfoLink ya ni salen en esa lista. Pedido de Humberto en
+   * el Lab de Sellea: «los nombres deberían dejarte darle click para entrar
+   * a administrar esa cuenta».
+   *
+   * Es el mismo camino que usa la lista de Negocios, ni uno nuevo ni uno
+   * más corto: el backend decide quién puede entrar dónde.
+   */
+  async function entrarACuenta(u: IlUser) {
+    if (entrandoA) return;
+    setEntrandoA(u.id);
+    try {
+      const res = await api<any>(`/tenants/${u.id}/impersonate`, { method: 'POST' });
+      startImpersonation({
+        accessToken: res.accessToken,
+        user: res.user,
+        tenant: {
+          id: res.tenant.id,
+          brandName: res.tenant.brandName,
+          primaryColor: res.tenant.primaryColor ?? undefined,
+          slug: res.tenant.slug,
+          whiteLabelSlug: res.tenant.whiteLabelSlug ?? null,
+          whiteLabelName: res.tenant.whiteLabelName ?? null,
+          logoUrl: res.tenant.logoUrl ?? null,
+          iconUrl: res.tenant.iconUrl ?? null,
+        },
+      });
+      router.push('/app');
+    } catch (e: any) {
+      setErr(e.message || 'No se pudo entrar a la cuenta');
+      setEntrandoA(null);
+    }
+  }
 
   useEffect(() => {
     api<IlData>('/admin/marketing/infolinks')
@@ -108,8 +149,18 @@ export default function AdminInfolinksPage() {
                   {users.map((u) => (
                     <tr key={u.id} className="border-t border-line2">
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-ink">{u.name}</div>
-                        <div className="text-xs text-mute">{u.email || '—'}</div>
+                        <button
+                          type="button"
+                          onClick={() => entrarACuenta(u)}
+                          disabled={!!entrandoA}
+                          title={`Entrar a administrar ${u.name}`}
+                          className="text-left disabled:opacity-60"
+                        >
+                          <div className="font-semibold text-ink hover:text-brand hover:underline">
+                            {entrandoA === u.id ? 'Entrando…' : u.name}
+                          </div>
+                          <div className="text-xs text-mute">{u.email || '—'}</div>
+                        </button>
                       </td>
                       <td className="px-4 py-3">
                         <a
@@ -154,11 +205,29 @@ export default function AdminInfolinksPage() {
   );
 }
 
+/**
+ * EL NÚMERO NUNCA VA DEL COLOR DE LA MARCA.
+ *
+ * La tarjeta destacada pintaba el número con `text-brand` sobre `bg-brand/5`.
+ * La idea era un fondo al 5 % y el número en el color de la marca, pero cuando
+ * esa transparencia no se aplica queda el color de marca sobre el color de
+ * marca — y el número desaparece. Humberto lo reportó así, y se ve en su
+ * captura: la tarjeta PRO en coral sólido y el 0 invisible dentro.
+ *
+ * Ahora el número va SIEMPRE en tinta y el destaque lo da el borde. Ya no
+ * depende de que una opacidad se resuelva bien en el tema de cada marca, que
+ * era lo frágil: el mismo componente se pinta en Clubify (verde), en Sellea
+ * (coral) y en la que venga mañana.
+ */
 function Tile({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
   return (
-    <div className={`rounded-2xl border p-4 ${accent ? 'border-brand/30 bg-brand/5' : 'border-line bg-surface'}`}>
+    <div
+      className={`rounded-2xl border p-4 ${
+        accent ? 'border-brand/40 bg-surface' : 'border-line bg-surface'
+      }`}
+    >
       <div className="text-xs font-bold text-mute">{label}</div>
-      <div className={`text-2xl font-extrabold mt-1 tabular-nums ${accent ? 'text-brand' : 'text-ink'}`}>
+      <div className="text-2xl font-extrabold mt-1 tabular-nums text-ink">
         {value.toLocaleString('es-CO')}
       </div>
     </div>

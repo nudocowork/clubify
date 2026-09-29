@@ -237,6 +237,18 @@ export default function TenantsPage() {
       .split(/\s+/)
       .filter(Boolean);
     return list.filter((tn) => {
+      // LOS «SOLO INFOLINK» NO SON NEGOCIOS DE ESTA LISTA.
+      //
+      // Un InfoLink gratuito es captación: no paga, no tiene tarjetas, no tiene
+      // pedidos. Mezclado aquí engorda la lista y descuadra la lectura de
+      // «cuántos negocios tengo» — de los 16 de Sellea, 5 eran InfoLinks.
+      // Tienen su propia sección, con sus visitas y su plan. Pedido de Humberto
+      // en el Lab de Sellea (2026-09-23): «los infolink no deben verse
+      // reflejados en el área de clientes, solo en la categoría infolink».
+      //
+      // NO SE ESCONDEN: debajo de la lista se dice cuántos hay y se enlaza su
+      // sección, para que nadie busque uno aquí y crea que se ha perdido.
+      if (tn.businessType === 'INFOLINK') return false;
       if (statusFilter !== 'ALL' && tn.status !== statusFilter) return false;
       if (planFilter !== 'ALL') {
         const name = (tn.plan?.name ?? '').toString().toUpperCase();
@@ -253,6 +265,17 @@ export default function TenantsPage() {
       return keywords.every((k) => hay.includes(k));
     });
   }, [list, statusFilter, planFilter, periodFilter, searchDebounced]);
+
+  /**
+   * Cuántos «solo InfoLink» se quedan fuera de esta lista.
+   *
+   * Se cuenta y se enseña para que ocultarlos no sea esconderlos: quien busque
+   * uno aquí tiene que poder ver adónde ha ido, en vez de pensar que se borró.
+   */
+  const infolinksFuera = useMemo(
+    () => list.filter((tn) => tn.businessType === 'INFOLINK').length,
+    [list],
+  );
 
   const hasActiveFilters =
     statusFilter !== 'ALL' ||
@@ -594,6 +617,19 @@ export default function TenantsPage() {
           </tbody>
         </table>
        </div>
+
+        {/* Dónde están los que no salen aquí. Ocultarlos sin decirlo haría que
+            alguien buscara un InfoLink en esta lista y lo diera por perdido. */}
+        {!loading && infolinksFuera > 0 && (
+          <div className="px-4 py-3 border-t border-line text-xs text-mute">
+            {infolinksFuera === 1
+              ? 'Hay 1 usuario de InfoLink que no se lista aquí.'
+              : `Hay ${infolinksFuera} usuarios de InfoLink que no se listan aquí.`}{' '}
+            <Link href="/admin/infolinks" className="text-brand hover:underline">
+              Verlos en InfoLink →
+            </Link>
+          </div>
+        )}
       </div>
 
       {duplicateTarget && (
