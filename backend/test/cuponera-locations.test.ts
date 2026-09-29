@@ -5,9 +5,24 @@ import { CuponeraService } from '../src/cuponera/cuponera.service';
  * Sedes del aliado (spec §5 y §9).
  *
  * El riesgo acá no es que no funcione, es que un aliado toque la sede de OTRO
- * adivinando el id. Por eso update/delete usan updateMany/deleteMany exigiendo
- * `allyBusinessId` junto al `id`: se prueba que esa condición esté siempre.
+ * adivinando el id. Por eso toda operación exige `allyBusinessId` junto al
+ * `id`: se prueba que esa condición esté siempre.
+ *
+ * Actualizar va por `updateMany` (atómico, mira el `count`). Borrar NO puede:
+ * antes de quitar la fila hay que quitar el punto de la tarjeta, y para eso
+ * necesita el `tenantId`. Así que lee con `findFirst` acotado por las dos
+ * claves y solo entonces borra por id. La condición se prueba sobre ese
+ * `findFirst`, que es donde vive ahora el aislamiento.
  */
+// El servicio navega `sede.ally.campaign.tenantId` para sincronizar el punto de
+// la tarjeta. Un doble que devolviera solo `{ id }` reventaba con «Cannot read
+// properties of undefined (reading 'campaign')», y los seis casos de
+// aislamiento morían antes de comprobar nada.
+const LA_SEDE = {
+  id: 'loc-1',
+  ally: { name: 'Aliado', status: 'APPROVED', campaign: { tenantId: 'tenant-1' } },
+};
+
 function make(count = 1) {
   const prisma = {
     allyLocation: {
@@ -15,12 +30,19 @@ function make(count = 1) {
       create: vi.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'loc-1', ...data })),
       updateMany: vi.fn().mockResolvedValue({ count }),
       deleteMany: vi.fn().mockResolvedValue({ count }),
-      findUnique: vi.fn().mockResolvedValue({ id: 'loc-1' }),
+      delete: vi.fn().mockResolvedValue({ id: 'loc-1' }),
+      // count 0 = la sede no es de este aliado, así que findFirst no la ve.
+      findFirst: vi.fn().mockResolvedValue(count === 0 ? null : LA_SEDE),
+      findUnique: vi.fn().mockResolvedValue(count === 0 ? null : LA_SEDE),
     },
   };
   const svc = Object.create(CuponeraService.prototype) as CuponeraService;
   (svc as any).prisma = prisma;
   (svc as any).getAllyForPortal = vi.fn().mockResolvedValue({ id: 'ally-mio' });
+  // Este test vigila el aislamiento, no el punto de la tarjeta: sin estos
+  // dobles cada caso arrastraría Wallet y push de verdad.
+  (svc as any).syncAllyGeofence = vi.fn().mockResolvedValue(undefined);
+  (svc as any).dropGeofence = vi.fn().mockResolvedValue(undefined);
   return { svc, prisma };
 }
 const user = { id: 'u1', allyBusinessId: 'ally-mio' } as any;
@@ -52,7 +74,9 @@ describe('sedes — aislamiento entre aliados', () => {
   it('borrar exige id Y allyBusinessId juntos', async () => {
     const { svc, prisma } = make();
     await svc.deleteAllyLocation(user, 'loc-1');
-    expect(prisma.allyLocation.deleteMany.mock.calls[0][0].where).toEqual({
+    // El aislamiento vive en el findFirst: si no casan las dos claves no hay
+    // sede, y salta el 404 antes de llegar al delete.
+    expect(prisma.allyLocation.findFirst.mock.calls[0][0].where).toEqual({
       id: 'loc-1',
       allyBusinessId: 'ally-mio',
     });

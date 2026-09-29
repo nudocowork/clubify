@@ -109,9 +109,20 @@ describe('createCampaignAdmin', () => {
     const dada = await svc.createCampaignAdmin('camp-mia', {
       email: 'c@d.com',
       fullName: 'Ana',
-      password: 'la-mia',
+      password: 'la-mia-yo',
     });
     expect(dada.tempPassword).toBeUndefined();
+  });
+
+  it('no acepta una clave más corta que el mínimo', async () => {
+    const { svc } = make();
+    await expect(
+      svc.createCampaignAdmin('camp-mia', {
+        email: 'e@f.com',
+        fullName: 'Ana',
+        password: 'corta',
+      }),
+    ).rejects.toThrow(/8 caracteres/i);
   });
 
   it('nunca devuelve el passwordHash', async () => {

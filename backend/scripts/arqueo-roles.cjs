@@ -63,7 +63,14 @@ function leerDecorador(d) {
     return {
       nombre: e.expression.text,
       arg: e.arguments[0] && ts.isStringLiteral(e.arguments[0]) ? e.arguments[0].text : '',
-      args: e.arguments.filter((a) => ts.isStringLiteral(a)).map((a) => a.text),
+      // Un spread (`@Roles(...ROLES_DE_EQUIPO)`) o una constante suelta NO son
+      // literales, pero SI son roles: si solo contaramos StringLiteral, `args`
+      // quedaria vacio y el endpoint saldria como «sin @Roles». Doce endpoints
+      // de sales-teams, todos protegidos por el @Roles de su clase, salieron
+      // asi en el CI. Un candado que grita en falso enseña a ignorarlo.
+      args: e.arguments.map((a) =>
+        ts.isStringLiteral(a) ? a.text : `<${a.getText().replace(/s+/g, " ")}>`,
+      ),
     };
   }
   if (ts.isIdentifier(e)) return { nombre: e.text, arg: '', args: [] };

@@ -20,7 +20,11 @@
   "overrides": {
     "@scure/base": "1.2.6",
     "@noble/hashes": "1.8.0",
-    "@otplib/plugin-crypto-noble": "13.0.0"
+    "@otplib/plugin-crypto-noble": "13.0.0",
+    "@xmldom/xmldom": "0.8.15",
+    "ws": "^8.22.0",
+    "socket.io-parser": "^4.2.7",
+    "fast-xml-builder": "^1.1.6"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
@@ -51,7 +55,7 @@
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.12.0",
     "multer": "^2.1.1",
-    "nanoid": "^3.3.7",
+    "nanoid": "^3.3.19",
     "otplib": "^13.4.0",
     "passkit-generator": "^3.2.0",
     "passport": "^0.7.0",
