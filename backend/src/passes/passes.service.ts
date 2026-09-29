@@ -14,6 +14,9 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
 import { AutomationsService } from '../automations/automations.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
+import { brandAppUrl } from '../email/brand-email-creds.util';
 import { normalizePassLocale } from '../wallet/pass-labels';
 import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
 
@@ -156,6 +159,7 @@ export class PassesService {
     private brand: WhitelabelBrandService,
     // AuditModule es @Global(): no hay que importarlo en PassesModule.
     private audit: AuditService,
+    private growBusiness: GrowBusinessService,
   ) {}
 
   private guardTenant(user: AuthUser, tenantId: string) {
@@ -164,11 +168,144 @@ export class PassesService {
     }
   }
 
+  /**
+   * EMITIR UNA TARJETA DESDE EL PANEL, y que el cliente SE ENTERE.
+   *
+   * Lo que «emitir» puede y no puede hacer, porque aquí estaba el
+   * malentendido (reporte de Javier vía su implementador, 2026-09-29): ni
+   * Apple ni Google permiten meter un pase en el teléfono de nadie — el
+   * cliente tiene que abrir el enlace e instalarlo él. Emitir crea el pase y
+   * lo deja listo; hasta hoy, ahí se acababa: si el negocio no copiaba el
+   * enlace y se lo mandaba a mano, el cliente jamás sabía que tenía una
+   * tarjeta. Medido: un pase emitido el 27-09 seguía sin instalar.
+   *
+   * Ahora, al emitir, se le MANDA el enlace por SMS —con las credenciales del
+   * negocio o de su marca, nunca de otra— salvo que el negocio ya tenga activa
+   * una automatización de bienvenida (PASS_CREATED con SMS/WhatsApp): en ese
+   * caso manda ella y no se duplica el mensaje.
+   *
+   * La respuesta cuenta la verdad («entrega»), y el panel la enseña: enviado a
+   * tal número, o «no tiene teléfono, cópiale el enlace».
+   */
   async issue(user: AuthUser, cardId: string, customerId: string) {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw new NotFoundException('Card');
     this.guardTenant(user, card.tenantId);
-    return this.issueInternal(cardId, customerId);
+
+    // ¿Ya la tenía? Se distingue ANTES de emitir: reemitir no debe volver a
+    // mandarle el SMS a quien ya tiene su tarjeta instalada.
+    const previo = await this.prisma.pass.findUnique({
+      where: { cardId_customerId: { cardId, customerId } },
+      select: { id: true },
+    });
+
+    const pass = await this.issueInternal(cardId, customerId);
+    if (previo) {
+      return { ...pass, entrega: { via: 'ya-existia' as const } };
+    }
+    const entrega = await this.entregarEnlaceDeTarjeta(pass.id, card, customerId);
+    return { ...pass, entrega };
+  }
+
+  /**
+   * El SMS con el enlace de instalación. Separado para poder razonar sus
+   * salidas: cada una se devuelve al panel para que diga la verdad en vez de
+   * un «emitida» a secas que no cuenta si el cliente se enteró.
+   */
+  private async entregarEnlaceDeTarjeta(
+    passId: string,
+    card: { tenantId: string; name: string },
+    customerId: string,
+  ): Promise<
+    | { via: 'sms'; telefono: string }
+    | { via: 'bienvenida' }
+    | { via: 'sin-telefono' }
+    | { via: 'sin-credenciales' }
+    | { via: 'fallo'; detalle: string }
+  > {
+    try {
+      // Si el negocio tiene bienvenida automática con SMS/WhatsApp, manda ella
+      // (el emit de PASS_CREATED ya salió en issueInternal). Dos SMS por la
+      // misma emisión es la clase de duplicado que este repo caza.
+      const reglas = await this.prisma.automationRule.findMany({
+        where: { tenantId: card.tenantId, isActive: true },
+        select: { trigger: true, actions: true },
+      });
+      const bienvenida = reglas.some((r) => {
+        const t = r.trigger as { type?: string } | null;
+        if (t?.type !== 'PASS_CREATED') return false;
+        const acciones = (r.actions as Array<{ type?: string }> | null) ?? [];
+        return acciones.some(
+          (a) => a.type === 'SEND_SMS' || a.type === 'SEND_WHATSAPP',
+        );
+      });
+      if (bienvenida) return { via: 'bienvenida' };
+
+      const cliente = await this.prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { phone: true },
+      });
+      const telefono = cliente?.phone?.trim();
+      if (!telefono) return { via: 'sin-telefono' };
+
+      // La cascada de siempre: credenciales del negocio, o de SU marca. Nunca
+      // de otra, y sin credenciales no se manda nada.
+      const negocio = await this.prisma.tenant.findUnique({
+        where: { id: card.tenantId },
+        select: {
+          brandName: true,
+          growBusinessLocationId: true,
+          growBusinessApiKey: true,
+          growBusinessSwitchNumber: true,
+          // BRAND_GROW_SELECT no trae los dominios, y sin ellos brandAppUrl
+          // cae al de la plataforma: el enlace de un negocio de Sellea saldría
+          // por soyclubify.com. Es la trampa documentada en la memoria de
+          // fugas de marca — por eso se piden aparte.
+          whiteLabel: {
+            select: {
+              ...BRAND_GROW_SELECT,
+              domain: true,
+              appDomain: true,
+            },
+          },
+        },
+      });
+      const creds =
+        negocio?.growBusinessLocationId && negocio.growBusinessApiKey
+          ? {
+              locationId: negocio.growBusinessLocationId,
+              apiKey: negocio.growBusinessApiKey,
+              switchNumber: negocio.growBusinessSwitchNumber ?? null,
+            }
+          : brandGrowCreds(negocio?.whiteLabel);
+      if (!creds) return { via: 'sin-credenciales' };
+
+      const base = brandAppUrl(
+        negocio?.whiteLabel ?? null,
+        process.env.APP_URL ?? 'https://app.soyclubify.com',
+      );
+      const enlace = `${base}/w/${passId}`;
+      const cuerpo =
+        `${negocio?.brandName ?? ''}: tu tarjeta "${card.name}" esta lista. ` +
+        `Abrela aqui para guardarla en tu telefono: ${enlace}`;
+
+      const r = await this.growBusiness.sendSmsWithCreds(creds, telefono, cuerpo, {
+        tenantId: card.tenantId,
+        feature: 'tarjetas',
+      });
+      return r.ok
+        ? { via: 'sms', telefono }
+        : {
+            via: 'fallo',
+            detalle:
+              (r as { message?: string }).message ??
+              'el proveedor no aceptó el mensaje',
+          };
+    } catch (e) {
+      // El pase YA está emitido: un fallo del aviso no puede convertirse en un
+      // fallo de la emisión. Se cuenta, y el panel ofrece copiar el enlace.
+      return { via: 'fallo', detalle: (e as Error).message };
+    }
   }
 
   /**

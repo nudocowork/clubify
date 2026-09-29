@@ -206,7 +206,7 @@ describe('revocar un pase', () => {
       },
     };
     const auditoria: any = { log: async (a: any) => llamadas.push({ audit: a }) };
-    const srv = new PassesService(prisma, nada(), nada(), nada(), auditoria);
+    const srv = new PassesService(prisma, nada(), nada(), nada(), auditoria, nada());
     return { srv, llamadas, borrados };
   }
   const dueño: any = { id: 'u1', role: 'TENANT_OWNER', tenantId: 't1' };

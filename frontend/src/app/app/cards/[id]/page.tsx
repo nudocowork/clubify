@@ -669,8 +669,27 @@ export default function CardDetail() {
               <div className="flex items-center gap-2 font-semibold text-ok-ink">
                 <Icon name="check" /> {t('passIssuedTo', { name: issuedPass.customer?.fullName ?? t('customerFallback') })}
               </div>
+              {/* LA VERDAD DE LA ENTREGA, no un «emitida» a secas. Un pase
+                  no puede meterse solo en el teléfono: el cliente instala el
+                  enlace. El backend cuenta qué pasó con ese enlace y aquí se
+                  dice tal cual — el malentendido que motivó todo esto fue
+                  creer que emitir ya lo dejaba en la Wallet del cliente. */}
               <div className="mt-2 text-ok-ink text-xs">
-                {t('shareLinkHelp')}
+                {issuedPass.entrega?.via === 'sms' ? (
+                  <>Se le envió el enlace por SMS a <b>{issuedPass.entrega.telefono}</b>. La tarjeta aparecerá en su teléfono cuando la abra e instale.</>
+                ) : issuedPass.entrega?.via === 'bienvenida' ? (
+                  <>Tu automatización de bienvenida le está enviando el enlace. La tarjeta aparecerá en su teléfono cuando la abra e instale.</>
+                ) : issuedPass.entrega?.via === 'sin-telefono' ? (
+                  <>Este cliente <b>no tiene teléfono</b> en su ficha: cópiale el enlace de abajo y hazselo llegar — la tarjeta solo aparece en su teléfono si él la instala.</>
+                ) : issuedPass.entrega?.via === 'sin-credenciales' ? (
+                  <>No hay conexión de mensajes para avisarle: cópiale el enlace de abajo y hazselo llegar.</>
+                ) : issuedPass.entrega?.via === 'fallo' ? (
+                  <>El SMS con el enlace <b>no salió</b>. Cópiale el enlace de abajo y hazselo llegar.</>
+                ) : issuedPass.entrega?.via === 'ya-existia' ? (
+                  <>Este cliente <b>ya tenía esta tarjeta</b>: es el mismo enlace de siempre.</>
+                ) : (
+                  t('shareLinkHelp')
+                )}
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">
