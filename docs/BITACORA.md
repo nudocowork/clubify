@@ -8,6 +8,71 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (90) — SelleaLab de Humberto ejecutado, y dos pasadas de Fable que pagaron el día
+
+Backend `e363be60` + `d05ffb0e` + `b789cbc9`. **Todo desplegado y verificado**
+**contra los dominios.** Las 4 solicitudes de Humberto: IMPLEMENTADAS en su Lab.
+
+### Las 4 solicitudes
+
+1. **Venta de mostrador** — `Order.customerId` ahora es opcional (migración
+   aditiva aplicada; los 705 pedidos intactos). «Continuar sin cliente» en el
+   modal, nombre suelto opcional (`customerName`) para la cocina. Sin ficha NO
+   hay sellos ni automatizaciones ni correos: es el punto, no una limitación.
+   Un cliente de otro negocio se sigue rechazando (probado).
+2. **InfoLink fuera de Negocios** — con nota de cuántos hay y enlace a su
+   sección; el contador de cabecera y el dashboard del admin también excluyen.
+3. **El número de la tarjeta PRO** — siempre en tinta; el destaque, el borde.
+4. **«No puedo apagar los mensajes» — YA ESTABA RESUELTA** desde el mismo
+   23-sep (`a6560dc3`). Verificado antes de tocar: se marcó IMPLEMENTED sin
+   rehacer nada. Hay que decírselo a Humberto.
+
+### Lo que encontró Fable (dos revisiones adversarias, TODO arreglado)
+
+- **500 real**: la rama «ya está pagado» de aceptar pago de domicilio con
+  cliente nulo. Guardada + prueba.
+- `setStatus`/`ratePublic` emitían automatizaciones sin cliente → un Message
+  huérfano con `{{nombre}}` sin sustituir. Guardados.
+- El `customerName` no llegaba a la TV de cocina, ni al buscador (panel y
+  backend), ni al historial, CSV, métricas («Walk-in»), ni campana. Conectado.
+- `customerName` se escapaba por la ruta pública por código. Excluido.
+- **`canceledAt` nunca se limpiaba en Stripe**: quien cancelaba y volvía a
+  pagar quedaba cancelado PARA SIEMPRE (sin pre-avisos, apagado sin gracia).
+  Ahora el pago confirmado lo limpia, como Hotmart.
+- **El escudo de cuentas que no pagan por pasarela solo cubría 1 de 5
+  puertas**: pausa, cobro fallido, reembolso y contracargo podían apagar la
+  cuenta de la casa (el cargo se encuentra hasta POR EMAIL). Las 5 cubiertas.
+- **Dos falsos emparejamientos de teléfono demostrados ejecutando**: +1 Miami
+  ↔ fijo de Brasil (por sufijo de variante; «Mi tarjeta» enseñaba pases
+  ajenos) y 310↔301 colombianos en local. Las variantes ahora solo casan por
+  IGUALDAD y solo con ≥11 cifras. Pares fijados como pruebas.
+- **El choque por correo ya no entrega la tarjeta de otro**: 400 accionable
+  («usa el mismo teléfono o deja el correo vacío») en vez de asignar la ficha
+  del dueño del correo (QR canjeable ajeno con correos compartidos).
+- Los 2 legacy sin marca recuperan la academia (null = Clubify, como en todo
+  el sistema). URL de academia validada EN EL SERVIDOR. `onDelete: Restrict`
+  explícito (evita que `db push` local diverja de la FK real). Candado de la
+  academia ya no se calla si mueven el fichero. Y un `|| 'Clubify'` en la
+  notificación nativa del navegador, fuera (fuga de marca).
+
+### ABIERTO — decisión de Javier
+
+**Las 4 cuentas del escudo (SELLEA, demo demo, Beauty By Mir, Smart
+Solutions) tienen TODAS `lastPaymentAmountUsd=80` y precio null**:
+indistinguibles por datos de un cliente que nació con crédito y hoy paga. Si
+uno de esos cancela su Stripe, la cancelación SE IGNORA y lo apaga la mora
+días después con mensajes de «pago pendiente». La salida limpia: un
+**interruptor explícito por negocio** («cuenta de casa: nunca suspender por
+pasarela»). También pendiente: usuarios MARKETING impersonan negocios de
+CUALQUIER marca (preexistente, lo señaló Fable), y los 5 clientes duplicados
+por el cero venezolano siguen capturando el alta exacta (fusión manual).
+
+### Verificado
+
+`tsc` en frío limpio ambos lados, **3.232 pruebas en 231 ficheros**, deploys
+comprobados contra los dominios (`b789cbc` / `dpl_Ha7uNeef`).
+
+---
 ## 2026-09-28 (89) — El primer respaldo de la base, restaurado y careado
 
 **Estado: hecho y empujado (`cda3a591`, `75656549`). El nocturno automático
