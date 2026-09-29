@@ -62,11 +62,13 @@ jobs:
         working-directory: backend
         run: node scripts/backup-db.mjs
 
-      - name: Notify Sentry on failure
-        if: failure() && env.SENTRY_BACKUP_DSN != ''
-        env:
-          SENTRY_BACKUP_DSN: ${{ secrets.SENTRY_DSN }}
-        run: |
-          curl -X POST "${SENTRY_BACKUP_DSN}/api/store/" \
-            -H 'Content-Type: application/json' \
-            -d '{"message":"DB backup failed","level":"error","tags":{"job":"github-actions-backup"}}'
+      # Aquí había un paso «Notify Sentry on failure» que NUNCA corrió: dependía
+      # de un secreto SENTRY_DSN que no existe. Resultado real: 135 noches
+      # seguidas de fallo (mayo-septiembre 2026) sin un solo aviso. Se quitó a
+      # propósito y no se reemplaza por otro aviso-desde-el-que-falla, porque un
+      # avisador que vive dentro del job muere con el job. El aviso real vigila
+      # el RESULTADO desde fuera: VigilanteService.respaldoQueNoExiste() revisa
+      # cada día a las 13:00 UTC que exista un respaldo de menos de 26 h en el
+      # bucket y manda SMS al equipo si no. Da igual si falló el job, si se
+      # borraron los secretos o si GitHub desactivó el cron por 60 días sin
+      # actividad: sin objeto fresco, suena.

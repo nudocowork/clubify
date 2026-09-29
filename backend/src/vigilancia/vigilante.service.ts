@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
+import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { respaldoVencido } from './frescura-del-respaldo';
 
 /** Un problema encontrado. `detalle` es lo que se pega en el aviso. */
 type Hallazgo = {
@@ -55,6 +57,7 @@ export class VigilanteService {
           this.fechasQueNoCuadranConHotmart(),
           this.pedidosSinAvisar(),
           this.negociosSinTelefono(),
+          this.respaldoQueNoExiste(),
         ])
       ).filter((h): h is Hallazgo => h !== null);
 
@@ -260,6 +263,81 @@ export class VigilanteService {
   }
 
   /** A quién se avisa. Reutiliza la lista del equipo, sin duplicar config. */
+  /**
+   * El último respaldo de la base, o por qué no se pudo saber.
+   *
+   * Método aparte y no inline para que la prueba lo doble sin red. Devuelve
+   * 'sin-configurar' cuando no hay S3 en el entorno (desarrollo local): ahí
+   * callar es correcto. Pero un FALLO hablando con el bucket no calla nunca —
+   * no poder comprobar los respaldos es en sí una de las cosas que hay que
+   * contar, porque el silencio del que vigila es indistinguible del «todo
+   * bien».
+   */
+  private async masRecienteEnBucket(): Promise<Date | null | 'sin-configurar' | 'fallo'> {
+    if (!process.env.S3_ENDPOINT || !process.env.S3_ACCESS_KEY) return 'sin-configurar';
+    try {
+      const s3 = new S3Client({
+        region: process.env.S3_REGION ?? 'auto',
+        endpoint: process.env.S3_ENDPOINT,
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY,
+          secretAccessKey: process.env.S3_SECRET_KEY ?? '',
+        },
+      });
+      // BACKUP_BUCKET existe para el día en que los respaldos tengan bucket
+      // propio; mientras, caen en el mismo que las imágenes bajo backups/.
+      const bucket = process.env.BACKUP_BUCKET ?? process.env.S3_BUCKET;
+      let masReciente: Date | null = null;
+      let token: string | undefined;
+      do {
+        const r = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: 'backups/',
+            ContinuationToken: token,
+          }),
+        );
+        for (const o of r.Contents ?? []) {
+          if (o.LastModified && (!masReciente || o.LastModified > masReciente)) {
+            masReciente = o.LastModified;
+          }
+        }
+        token = r.IsTruncated ? r.NextContinuationToken : undefined;
+      } while (token);
+      return masReciente;
+    } catch (e) {
+      this.logger.error(`no pude mirar los respaldos: ${(e as Error).message}`);
+      return 'fallo';
+    }
+  }
+
+  /**
+   * ¿Hay un respaldo fresco de la base? El nocturno estuvo fallando 135
+   * noches seguidas sin que nadie se enterara (su aviso dependía de un Sentry
+   * sin configurar). Por eso esto mira el RESULTADO en el bucket, no el job:
+   * da igual por qué no haya respaldo — sin objeto fresco, suena.
+   */
+  private async respaldoQueNoExiste(): Promise<Hallazgo | null> {
+    const visto = await this.masRecienteEnBucket();
+    if (visto === 'sin-configurar') return null;
+    if (visto === 'fallo') {
+      return {
+        titulo: 'Los respaldos no se pueden ni comprobar',
+        cuantos: 1,
+        detalle: 'El bucket de respaldos no responde con las credenciales del backend.',
+        queHacer: 'Revisa las variables S3_* en Railway y el log de arriba.',
+      };
+    }
+    const v = respaldoVencido(visto, new Date());
+    if (v.ok) return null;
+    return {
+      titulo: 'Respaldo de la base VENCIDO',
+      cuantos: 1,
+      detalle: v.motivo,
+      queHacer: 'Mira la última ejecución de «DB Backup» en GitHub Actions y sus secretos.',
+    };
+  }
+
   private async telefonosDelEquipo(): Promise<string[]> {
     const s = await this.prisma.setting.findUnique({
       where: { key: 'prereg.alertPhones' },
