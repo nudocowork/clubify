@@ -15,9 +15,41 @@ import { AuditService } from '../audit/audit.service';
 import { AutomationsService } from '../automations/automations.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  brandGrowCreds,
+  BRAND_GROW_SELECT,
+} from '../integrations/brand-sms-creds.util';
 import { brandAppUrl } from '../email/brand-email-creds.util';
+import { maquetarCorreo } from '../email/maquetador';
 import { normalizePassLocale } from '../wallet/pass-labels';
 import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
+
+/** Lo que hay que saber del negocio (y su marca) para avisar de una emisión. */
+type NegocioParaAvisar = {
+  brandName: string | null;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  growBusinessLocationId: string | null;
+  growBusinessApiKey: string | null;
+  growBusinessSwitchNumber: number | null;
+  whiteLabel: {
+    name: string | null;
+    domain: string | null;
+    appDomain: string | null;
+    growBusinessLocationId: string | null;
+    growBusinessApiKey: string | null;
+    growBusinessSwitchNumber: number | null;
+  } | null;
+};
+
+/** La verdad de la entrega, canal por canal, tal como la enseña el panel. */
+type EntregaDeTarjeta = (
+  | { via: 'sms'; telefono: string }
+  | { via: 'bienvenida' }
+  | { via: 'sin-telefono' }
+  | { via: 'sin-credenciales' }
+  | { via: 'fallo'; detalle: string }
+) & { correo?: 'enviado' | 'fallo' | 'sin-conexion'; email?: string };
 
 /**
  * De los clientes que Postgres encontró por un trozo del número, los que
@@ -181,7 +213,9 @@ export class PassesService {
    * Ahora, al emitir, se le MANDA el enlace por SMS —solo con la conexión de
    * mensajes del PROPIO negocio; sin ella no sale nada— salvo que el negocio
    * ya tenga activa una automatización de bienvenida (PASS_CREATED con
-   * SMS/WhatsApp): en ese caso manda ella y no se duplica el mensaje.
+   * SMS/WhatsApp): en ese caso manda ella y no se duplica el mensaje. Y si el
+   * cliente tiene correo en su ficha, le llega ADEMÁS la invitación por email,
+   * transportada por la subcuenta de la marca del negocio (Javier, 2026-09-29).
    *
    * La respuesta cuenta la verdad («entrega»), y el panel la enseña: enviado a
    * tal número, o «no tiene teléfono, cópiale el enlace».
@@ -207,14 +241,72 @@ export class PassesService {
   }
 
   /**
-   * El SMS con el enlace de instalación. Separado para poder razonar sus
+   * El aviso con el enlace de instalación. Separado para poder razonar sus
    * salidas: cada una se devuelve al panel para que diga la verdad en vez de
    * un «emitida» a secas que no cuenta si el cliente se enteró.
+   *
+   * Dos canales, con reglas DISTINTAS a propósito:
+   *  - SMS: SOLO la línea propia del negocio (Javier, 2026-09-29: «el negocio
+   *    no puede enviar mensajes a los clientes finales» por un número ajeno).
+   *  - Correo: por la subcuenta de la MARCA del negocio, que pone el
+   *    remitente (Javier, mismo día: «si el cliente tiene correo, que salga
+   *    un correo de Clubify con la invitación» — y de Sellea para los de
+   *    Sellea: a un cliente de una marca blanca jamás le escribe Clubify).
    */
   private async entregarEnlaceDeTarjeta(
     passId: string,
     card: { tenantId: string; name: string },
     customerId: string,
+  ): Promise<EntregaDeTarjeta> {
+    try {
+      const cliente = await this.prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { phone: true, email: true, fullName: true },
+      });
+      const negocio = await this.prisma.tenant.findUnique({
+        where: { id: card.tenantId },
+        select: {
+          brandName: true,
+          logoUrl: true,
+          primaryColor: true,
+          growBusinessLocationId: true,
+          growBusinessApiKey: true,
+          growBusinessSwitchNumber: true,
+          // De la marca: la subcuenta que transporta el correo, el nombre para
+          // el «Hecho con…» y los dominios del enlace — sin ellos brandAppUrl
+          // cae al de la plataforma y el enlace de un negocio de Sellea
+          // saldría por soyclubify.com (la trampa de las fugas de marca).
+          whiteLabel: {
+            select: {
+              ...BRAND_GROW_SELECT,
+              name: true,
+              domain: true,
+              appDomain: true,
+            },
+          },
+        },
+      });
+      const base = brandAppUrl(
+        negocio?.whiteLabel ?? null,
+        process.env.APP_URL ?? 'https://app.soyclubify.com',
+      );
+      const enlace = `${base}/w/${passId}`;
+
+      const sms = await this.avisarPorSms(card, cliente, negocio, enlace);
+      const correo = await this.avisarPorCorreo(card, cliente, negocio, enlace);
+      return { ...sms, ...correo };
+    } catch (e) {
+      // El pase YA está emitido: un fallo del aviso no puede convertirse en un
+      // fallo de la emisión. Se cuenta, y el panel ofrece copiar el enlace.
+      return { via: 'fallo', detalle: (e as Error).message };
+    }
+  }
+
+  private async avisarPorSms(
+    card: { tenantId: string; name: string },
+    cliente: { phone: string | null } | null,
+    negocio: NegocioParaAvisar | null,
+    enlace: string,
   ): Promise<
     | { via: 'sms'; telefono: string }
     | { via: 'bienvenida' }
@@ -222,86 +314,124 @@ export class PassesService {
     | { via: 'sin-credenciales' }
     | { via: 'fallo'; detalle: string }
   > {
-    try {
-      // Si el negocio tiene bienvenida automática con SMS/WhatsApp, manda ella
-      // (el emit de PASS_CREATED ya salió en issueInternal). Dos SMS por la
-      // misma emisión es la clase de duplicado que este repo caza.
-      const reglas = await this.prisma.automationRule.findMany({
-        where: { tenantId: card.tenantId, isActive: true },
-        select: { trigger: true, actions: true },
-      });
-      const bienvenida = reglas.some((r) => {
-        const t = r.trigger as { type?: string } | null;
-        if (t?.type !== 'PASS_CREATED') return false;
-        const acciones = (r.actions as Array<{ type?: string }> | null) ?? [];
-        return acciones.some(
-          (a) => a.type === 'SEND_SMS' || a.type === 'SEND_WHATSAPP',
-        );
-      });
-      if (bienvenida) return { via: 'bienvenida' };
-
-      const cliente = await this.prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { phone: true },
-      });
-      const telefono = cliente?.phone?.trim();
-      if (!telefono) return { via: 'sin-telefono' };
-
-      // SOLO la conexión Grow Business del PROPIO negocio, sin respaldo a la
-      // subcuenta de su marca — a propósito (Javier, 2026-09-29): el negocio
-      // no le escribe a sus clientes finales por un número que no es suyo. En
-      // producción 132 de 133 negocios no tienen conexión propia, así que con
-      // el respaldo casi todo aviso habría salido por el número de Clubify o
-      // de Sellea. Sin credenciales → no se manda, y el panel pide copiar el
-      // enlace.
-      const negocio = await this.prisma.tenant.findUnique({
-        where: { id: card.tenantId },
-        select: {
-          brandName: true,
-          growBusinessLocationId: true,
-          growBusinessApiKey: true,
-          growBusinessSwitchNumber: true,
-          // El whiteLabel se pide SOLO por los dominios: sin ellos brandAppUrl
-          // cae al de la plataforma y el enlace de un negocio de Sellea
-          // saldría por soyclubify.com (la trampa de las fugas de marca).
-          whiteLabel: { select: { domain: true, appDomain: true } },
-        },
-      });
-      const creds =
-        negocio?.growBusinessLocationId && negocio.growBusinessApiKey
-          ? {
-              locationId: negocio.growBusinessLocationId,
-              apiKey: negocio.growBusinessApiKey,
-              switchNumber: negocio.growBusinessSwitchNumber ?? null,
-            }
-          : null;
-      if (!creds) return { via: 'sin-credenciales' };
-
-      const base = brandAppUrl(
-        negocio?.whiteLabel ?? null,
-        process.env.APP_URL ?? 'https://app.soyclubify.com',
+    // Si el negocio tiene bienvenida automática con SMS/WhatsApp, manda ella
+    // (el emit de PASS_CREATED ya salió en issueInternal). Dos SMS por la
+    // misma emisión es la clase de duplicado que este repo caza.
+    const reglas = await this.prisma.automationRule.findMany({
+      where: { tenantId: card.tenantId, isActive: true },
+      select: { trigger: true, actions: true },
+    });
+    const bienvenida = reglas.some((r) => {
+      const t = r.trigger as { type?: string } | null;
+      if (t?.type !== 'PASS_CREATED') return false;
+      const acciones = (r.actions as Array<{ type?: string }> | null) ?? [];
+      return acciones.some(
+        (a) => a.type === 'SEND_SMS' || a.type === 'SEND_WHATSAPP',
       );
-      const enlace = `${base}/w/${passId}`;
-      const cuerpo =
-        `${negocio?.brandName ?? ''}: tu tarjeta "${card.name}" esta lista. ` +
-        `Abrela aqui para guardarla en tu telefono: ${enlace}`;
+    });
+    if (bienvenida) return { via: 'bienvenida' };
 
-      const r = await this.growBusiness.sendSmsWithCreds(creds, telefono, cuerpo, {
-        tenantId: card.tenantId,
-        feature: 'tarjetas',
+    const telefono = cliente?.phone?.trim();
+    if (!telefono) return { via: 'sin-telefono' };
+
+    // SOLO la conexión Grow Business del PROPIO negocio, sin respaldo a la
+    // subcuenta de su marca — a propósito (Javier, 2026-09-29): el negocio
+    // no le escribe a sus clientes finales por un número que no es suyo. En
+    // producción 132 de 133 negocios no tienen conexión propia, así que con
+    // el respaldo casi todo aviso habría salido por el número de Clubify o
+    // de Sellea. Sin credenciales → no se manda, y el panel pide copiar el
+    // enlace.
+    const creds =
+      negocio?.growBusinessLocationId && negocio.growBusinessApiKey
+        ? {
+            locationId: negocio.growBusinessLocationId,
+            apiKey: negocio.growBusinessApiKey,
+            switchNumber: negocio.growBusinessSwitchNumber ?? null,
+          }
+        : null;
+    if (!creds) return { via: 'sin-credenciales' };
+
+    const cuerpo =
+      `${negocio?.brandName ?? ''}: tu tarjeta "${card.name}" esta lista. ` +
+      `Abrela aqui para guardarla en tu telefono: ${enlace}`;
+
+    const r = await this.growBusiness.sendSmsWithCreds(creds, telefono, cuerpo, {
+      tenantId: card.tenantId,
+      feature: 'tarjetas',
+    });
+    return r.ok
+      ? { via: 'sms', telefono }
+      : {
+          via: 'fallo',
+          detalle:
+            (r as { message?: string }).message ??
+            'el proveedor no aceptó el mensaje',
+        };
+  }
+
+  /**
+   * La invitación por CORREO (Javier, 2026-09-29): sale por la subcuenta GHL
+   * de la marca del negocio — el remitente lo pone ella, así que el correo de
+   * un negocio de Clubify llega «de Clubify» y el de uno de Sellea, de Sellea.
+   * FIRMA el negocio (su nombre y su logo: es a quien el cliente conoce), con
+   * el «Hecho con {marca}» al pie. Sin marca con subcuenta no se envía nada:
+   * jamás un respaldo a otra marca ni a la plataforma.
+   */
+  private async avisarPorCorreo(
+    card: { tenantId: string; name: string },
+    cliente: { email: string | null; fullName: string | null } | null,
+    negocio: NegocioParaAvisar | null,
+    enlace: string,
+  ): Promise<{ correo?: 'enviado' | 'fallo' | 'sin-conexion'; email?: string }> {
+    const email = cliente?.email?.trim().toLowerCase();
+    if (!email || !email.includes('@')) return {};
+    try {
+      const creds = brandGrowCreds(negocio?.whiteLabel);
+      if (!creds) return { correo: 'sin-conexion' };
+
+      const nombrePila = (cliente?.fullName ?? '').trim().split(/\s+/)[0] || '';
+      const quien = negocio?.brandName?.trim() || '';
+      const html = maquetarCorreo({
+        identidad: quien
+          ? {
+              nombre: quien,
+              logoUrl: negocio?.logoUrl ?? null,
+              color: negocio?.primaryColor ?? null,
+              sitioUrl: null,
+            }
+          : null,
+        preheader: `Ábrela y guárdala en tu teléfono.`,
+        titulo: 'Tu tarjeta está lista',
+        bloques: [
+          {
+            tipo: 'texto',
+            texto:
+              `${nombrePila ? `Hola ${nombrePila}: ` : ''}` +
+              `${quien || 'tu negocio de confianza'} te emitió la tarjeta ` +
+              `«${card.name}». Ábrela y guárdala en tu teléfono para tenerla ` +
+              `siempre a mano.`,
+          },
+        ],
+        boton: { texto: 'Abrir mi tarjeta', url: enlace },
+        enlaceVisible: true,
+        motivo: quien
+          ? `Recibes este correo porque ${quien} te emitió una tarjeta.`
+          : null,
+        credito: negocio?.whiteLabel?.name
+          ? `Hecho con ${negocio.whiteLabel.name}`
+          : null,
       });
-      return r.ok
-        ? { via: 'sms', telefono }
-        : {
-            via: 'fallo',
-            detalle:
-              (r as { message?: string }).message ??
-              'el proveedor no aceptó el mensaje',
-          };
-    } catch (e) {
-      // El pase YA está emitido: un fallo del aviso no puede convertirse en un
-      // fallo de la emisión. Se cuenta, y el panel ofrece copiar el enlace.
-      return { via: 'fallo', detalle: (e as Error).message };
+      const r = await this.growBusiness.sendEmailWithCreds(
+        creds,
+        email,
+        `${quien ? `${quien}: tu` : 'Tu'} tarjeta «${card.name}» está lista`,
+        html,
+        { ctx: { tenantId: card.tenantId, feature: 'tarjetas' } },
+      );
+      return r.ok ? { correo: 'enviado', email } : { correo: 'fallo' };
+    } catch {
+      // Mejor un SMS entregado y un correo caído que una emisión rota.
+      return { correo: 'fallo' };
     }
   }
 

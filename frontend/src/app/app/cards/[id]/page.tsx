@@ -690,6 +690,12 @@ export default function CardDetail() {
                 ) : (
                   t('shareLinkHelp')
                 )}
+                {issuedPass.entrega?.correo === 'enviado' && (
+                  <> Además le llegó la invitación por <b>correo</b> a {issuedPass.entrega.email}.</>
+                )}
+                {issuedPass.entrega?.correo === 'fallo' && (
+                  <> El correo de invitación no salió.</>
+                )}
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">

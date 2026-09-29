@@ -27,6 +27,7 @@ const OWNER: AuthUser = {
 function makePrisma(opts: {
   pasePrevio?: boolean;
   telefono?: string | null;
+  correo?: string | null;
   reglas?: any[];
   credsNegocio?: boolean;
 } = {}) {
@@ -42,8 +43,9 @@ function makePrisma(opts: {
       findUnique: vi.fn(async () => ({
         id: 'cust-1',
         tenantId: 'tenant-1',
-        fullName: 'Cliente',
+        fullName: 'Cliente Prueba',
         phone: opts.telefono === undefined ? '+573001112233' : opts.telefono,
+        email: opts.correo ?? null,
       })),
     },
     pass: {
@@ -60,6 +62,8 @@ function makePrisma(opts: {
     tenant: {
       findUnique: vi.fn(async () => ({
         brandName: 'Cafe Prueba',
+        logoUrl: null,
+        primaryColor: null,
         growBusinessLocationId: opts.credsNegocio === false ? null : 'loc-1',
         growBusinessApiKey: opts.credsNegocio === false ? null : 'key-1',
         growBusinessSwitchNumber: null,
@@ -71,15 +75,16 @@ function makePrisma(opts: {
 
 function makeService(prisma: any) {
   const sms = vi.fn(async () => ({ ok: true as const }));
+  const mail = vi.fn(async () => ({ ok: true as const }));
   const svc = new PassesService(
     prisma,
     { emit: vi.fn(async () => undefined) } as any, // automations
     {} as any,
     {} as any, // brand
     { log: vi.fn(async () => undefined) } as any, // audit
-    { sendSmsWithCreds: sms } as any, // growBusiness
+    { sendSmsWithCreds: sms, sendEmailWithCreds: mail } as any, // growBusiness
   );
-  return { svc, sms };
+  return { svc, sms, mail };
 }
 
 describe('emitir una tarjeta desde el panel', () => {
@@ -188,6 +193,50 @@ describe('emitir una tarjeta desde el panel', () => {
 
     expect(r.entrega).toEqual({ via: 'sin-credenciales' });
     expect(sms).not.toHaveBeenCalled();
+  });
+
+  it('CON CORREO EN LA FICHA llega ADEMÁS la invitación por email, por la subcuenta de SU marca', async () => {
+    // Javier (2026-09-29): «si el cliente tiene correo en sus datos, que salga
+    // un correo de Clubify a ese cliente con la invitación» — y de Sellea para
+    // los negocios de Sellea: el remitente lo pone la subcuenta de la marca.
+    const prisma = makePrisma({
+      correo: 'cliente@gmail.com',
+      whiteLabel: {
+        name: 'Sellea',
+        domain: 'www.selleala.com',
+        appDomain: 'app.selleala.com',
+        growBusinessLocationId: 'loc-sellea',
+        growBusinessApiKey: 'key-sellea',
+        growBusinessSwitchNumber: null,
+      },
+    } as any);
+    const { svc, mail } = makeService(prisma);
+
+    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
+
+    expect(r.entrega.correo).toBe('enviado');
+    expect(r.entrega.email).toBe('cliente@gmail.com');
+    expect(mail).toHaveBeenCalledTimes(1);
+    const [creds, para, asunto, html] = mail.mock.calls[0] as any[];
+    expect(creds.locationId).toBe('loc-sellea'); // la subcuenta de SU marca
+    expect(para).toBe('cliente@gmail.com');
+    expect(asunto).toContain('Tarjeta de sellos');
+    // El correo lo FIRMA el negocio (a quien el cliente conoce), con el
+    // enlace por el dominio de su marca.
+    expect(html).toContain('Cafe Prueba');
+    expect(html).toContain('https://app.selleala.com/w/pass-nuevo');
+    expect(html).not.toContain('soyclubify');
+  });
+
+  it('sin subcuenta de marca, el correo NO sale — por ningún otro lado', async () => {
+    const prisma = makePrisma({ correo: 'cliente@gmail.com' }); // whiteLabel null
+    const { svc, mail } = makeService(prisma);
+
+    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
+
+    expect(r.entrega.correo).toBe('sin-conexion');
+    expect(mail).not.toHaveBeenCalled();
+    expect(r.entrega.via).toBe('sms'); // el SMS por la línea propia sí salió
   });
 
   it('sin teléfono, LO DICE — y no manda nada', async () => {
