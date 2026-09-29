@@ -34,7 +34,10 @@ type Order = {
     currencySymbol?: string | null;
   };
   brand?: BrandBadgeBrand;
-  customer: { fullName: string; phone: string };
+  // SIN `customer` A PROPÓSITO: la ruta pública por código no lo devuelve
+  // desde el 2026-09-05 (ni el `customerName` de las ventas de mostrador).
+  // El tipo lo seguía prometiendo y era una invitación a usar un campo que
+  // llega siempre vacío (revisión de Fable).
   /** Se entrega en una oficina del enlace: no hay repartidor que seguir. */
   enOficina?: boolean;
   delivery?: {

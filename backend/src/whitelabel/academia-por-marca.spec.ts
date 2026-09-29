@@ -34,7 +34,14 @@ describe('el enlace de la academia sale de la MARCA, nunca escrito a mano', () =
   for (const rel of PANTALLAS) {
     it(`${rel} no lleva el dominio de Clubify escrito`, () => {
       const p = path.join(RAIZ, rel);
-      if (!fs.existsSync(p)) return; // el fichero se movió: no es lo que se vigila
+      // El fichero TIENE que existir. La primera versión hacía `return` si no
+      // estaba, y un simple rename dejaba el candado vigilando el aire — la
+      // clase de candado que no sabe ponerse en rojo (revisión de Fable).
+      expect(
+        fs.existsSync(p),
+        `${rel} ya no existe: si la pantalla se movió, actualiza PANTALLAS ` +
+          'para que el candado siga vigilando el fichero nuevo.',
+      ).toBe(true);
       const src = fs.readFileSync(p, 'utf8');
       // Se ignoran los comentarios: ahí SÍ se nombra, para explicar el caso.
       const codigo = src

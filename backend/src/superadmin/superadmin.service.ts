@@ -144,6 +144,25 @@ export type CreditAdjustDto = {
  * créditos, módulos, integraciones. Nunca modifica datos internos de
  * los tenants (Nivel 3) — solo gestiona la metadata de nivel de marca.
  */
+/**
+ * La URL de una academia, validada EN EL SERVIDOR.
+ *
+ * La pantalla ya exige http(s), pero la pantalla no es la puerta: un PATCH
+ * directo guardaba «hola» —o `javascript:…`— y eso acababa como enlace en el
+ * menú de TODOS los negocios de la marca (revisión de Fable). Vacío = null,
+ * que es como el menú entiende «esta marca no tiene academia».
+ */
+function urlDeAcademia(valor: string | null | undefined): string | null {
+  const v = (valor ?? '').trim();
+  if (!v) return null;
+  if (!v.toLowerCase().startsWith('http://') && !v.toLowerCase().startsWith('https://')) {
+    throw new BadRequestException(
+      'El enlace de la academia tiene que empezar por http:// o https://',
+    );
+  }
+  return v;
+}
+
 @Injectable()
 export class SuperAdminService {
   constructor(
@@ -872,9 +891,9 @@ export class SuperAdminService {
         academiaNegociosUrl:
           patch.academiaNegociosUrl === undefined
             ? undefined
-            : patch.academiaNegociosUrl?.trim() || null,
+            : urlDeAcademia(patch.academiaNegociosUrl),
         academiaUrl:
-          patch.academiaUrl === undefined ? undefined : patch.academiaUrl?.trim() || null,
+          patch.academiaUrl === undefined ? undefined : urlDeAcademia(patch.academiaUrl),
         subscriptionFeatureKeys: patch.subscriptionFeatureKeys === undefined
           ? undefined
           : patch.subscriptionFeatureKeys,

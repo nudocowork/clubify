@@ -819,6 +819,9 @@ export class TenantDuplicatorService {
               id: newId,
               tenantId: newTenantId,
               customerId: newCustomerId,
+              // El nombre suelto de una venta de mostrador viaja con ella:
+              // sin esto la copia conservaba la venta y perdía el «mesa 5».
+              customerName: o.customerName ?? null,
               // Order.code es unique global — regeneramos para no chocar.
               code: `D${nanoid(10).toUpperCase()}`,
               items: (o.items ?? []) as any,

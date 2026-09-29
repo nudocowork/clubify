@@ -13,7 +13,9 @@ type Order = {
   total: number;
   fulfillment: 'PICKUP' | 'DINE_IN' | 'DELIVERY';
   tableNumber: string | null;
-  customer: { fullName: string; phone: string };
+  /** Null en una venta de mostrador: el nombre suelto va en `customerName`. */
+  customer: { fullName: string; phone: string } | null;
+  customerName?: string | null;
   items: any[];
   createdAt: string;
 };
@@ -323,7 +325,10 @@ function DisplayCard({
         </div>
       </div>
       <div className="text-sm font-semibold mt-1.5 truncate">
-        {o.customer?.fullName ?? '—'}
+        {/* La cocina necesita saber de quién es: en una venta de mostrador
+            va el nombre suelto («Juan», «mesa 5») o «Mostrador», nunca un
+            guion (revisión de Fable). */}
+        {o.customer?.fullName ?? o.customerName?.trim() ?? 'Mostrador'}
       </div>
       <div className="text-[11px] text-mute mb-2">
         {o.fulfillment === 'DINE_IN'

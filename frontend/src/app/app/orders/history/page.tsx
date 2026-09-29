@@ -16,6 +16,8 @@ type Order = {
   fulfillment: string | null;
   items?: unknown[];
   customer?: { fullName: string | null; phone: string | null; email?: string | null } | null;
+  /** El nombre suelto de una venta de mostrador («mesa 5»). */
+  customerName?: string | null;
 };
 
 const STATUS_CLS: Record<Order['status'], string> = {
@@ -229,7 +231,7 @@ export default function OrdersHistoryPage() {
                           minute: '2-digit',
                         })}
                       </td>
-                      <td className="px-4 py-2.5">{o.customer?.fullName ?? '—'}</td>
+                      <td className="px-4 py-2.5">{o.customer?.fullName ?? o.customerName?.trim() ?? 'Mostrador'}</td>
                       <td className="px-4 py-2.5 text-mute">{o.customer?.phone ?? '—'}</td>
                       <td className="px-4 py-2.5 text-mute">
                         {o.fulfillment

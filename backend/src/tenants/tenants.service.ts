@@ -2582,7 +2582,20 @@ export class TenantsService {
       // tiene, y entonces la entrada no se pinta: no se hereda la de otra.
       // Antes el menú llevaba el enlace de Clubify escrito a mano y 13
       // negocios de Sellea acababan en la academia de Clubify.
-      academiaNegociosUrl: t.whiteLabel?.academiaNegociosUrl ?? null,
+      //
+      // UN NEGOCIO SIN MARCA (whiteLabelId null) ES DE CLUBIFY: así lo trata
+      // todo el resto del sistema («null = legacy»), y así veía la academia
+      // con el enlace fijo de antes. Sin este respaldo, los 2 legacy que
+      // quedan en producción la perdían en silencio (revisión de Fable). No
+      // es heredar la de OTRA marca — es la suya.
+      academiaNegociosUrl: t.whiteLabel
+        ? t.whiteLabel.academiaNegociosUrl ?? null
+        : ((
+            await this.prisma.whiteLabel.findFirst({
+              where: { slug: 'clubify' },
+              select: { academiaNegociosUrl: true },
+            })
+          )?.academiaNegociosUrl ?? null),
       // Branding de la marca para el panel /app (null = Clubify → defaults).
       whiteLabelBranding: t.whiteLabel
         ? {

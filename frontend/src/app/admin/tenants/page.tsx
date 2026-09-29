@@ -297,7 +297,12 @@ export default function TenantsPage() {
         <h1 className="page-title">
           {t('title')}{' '}
           <span className="page-crumb">
-            {t('crumbRecords', { count: list.length })}
+            {/* Los NEGOCIOS de la lista, no la cruda: con los InfoLink fuera
+                de la tabla, decir «16 registros» sobre 11 filas era el mismo
+                descuadre que se estaba arreglando (revisión de Fable). Y no
+                `visible.length`, que baila con cada búsqueda: el contador de
+                cabecera dice cuántos HAY, no cuántos casan con el filtro. */}
+            {t('crumbRecords', { count: list.length - infolinksFuera })}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">

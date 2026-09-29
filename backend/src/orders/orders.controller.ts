@@ -21,6 +21,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -80,7 +81,10 @@ class ManualOrderBody {
    * antes en la base. Un negocio que usa los pedidos como caja no quiere
    * fichar a cada persona (Humberto, Lab de Sellea).
    */
-  @IsOptional() @IsString() customerId?: string;
+  // `MinLength(1)`: una cadena vacía no es «sin cliente», es un error del
+  // llamador. Sin esto, `customerId: ""` pasaba la validación y se convertía
+  // en venta de mostrador sin que nadie la hubiera elegido.
+  @IsOptional() @IsString() @MinLength(1) customerId?: string;
   /** A quién se le entrega cuando no hay ficha. Solo para la cocina y la caja. */
   @IsOptional() @IsString() @MaxLength(80) customerName?: string;
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => ManualOrderItem)
@@ -147,7 +151,10 @@ export class OrdersController {
       {
         key: 'customer',
         label: 'Cliente',
-        format: (c: any) => c?.fullName ?? '',
+        // La columna es del PEDIDO, no de la ficha: una venta de mostrador
+        // sale con su nombre suelto o como «Mostrador», no en blanco.
+        format: (c: any, fila: any) =>
+          c?.fullName ?? fila?.customerName?.trim() ?? 'Mostrador',
       },
       { key: 'customer', label: 'Teléfono', format: (c: any) => c?.phone ?? '' },
       { key: 'customer', label: 'Email', format: (c: any) => c?.email ?? '' },

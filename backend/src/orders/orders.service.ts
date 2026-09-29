@@ -1358,6 +1358,10 @@ export class OrdersService {
     // falta devolvérsela por una ruta que cualquiera puede llamar.
     const {
       customer: _cliente,
+      // El nombre suelto de la venta de mostrador se queda fuera por lo
+      // mismo que `customer`: esta ruta es pública por código y ya decidió
+      // no devolver a quién pertenece el pedido (Fable).
+      customerName: _nombreSuelto,
       deliveryAddress: _direccion,
       whatsappLink: _wa,
       customerId: _idCliente,
@@ -1428,19 +1432,23 @@ export class OrdersService {
       },
     });
 
-    this.automations
-      .emit('ORDER_RATED', {
-        tenantId: o.tenantId,
-        orderId: o.id,
-        customerId: o.customerId,
-        rating,
-        hasComment: !!trimmed,
-      })
-      .catch((e) =>
-        this.logger.warn(
-          `automations ORDER_RATED order=${o.id} falló: ${e?.message ?? e}`,
-        ),
-      );
+    // Sin ficha tampoco: la valoración se guarda igual (arriba), pero no hay
+    // cliente al que dirigir la regla que se dispare con ella.
+    if (o.customerId) {
+      this.automations
+        .emit('ORDER_RATED', {
+          tenantId: o.tenantId,
+          orderId: o.id,
+          customerId: o.customerId,
+          rating,
+          hasComment: !!trimmed,
+        })
+        .catch((e) =>
+          this.logger.warn(
+            `automations ORDER_RATED order=${o.id} falló: ${e?.message ?? e}`,
+          ),
+        );
+    }
 
     return { ok: true, rating: updated.rating, ratedAt: updated.ratedAt };
   }
@@ -1534,6 +1542,9 @@ export class OrdersService {
           { code: { contains: s, mode: 'insensitive' } },
           { customer: { is: { fullName: { contains: s, mode: 'insensitive' } } } },
           { customer: { is: { phone: { contains: s } } } },
+          // El nombre suelto de la venta de mostrador: sin esto, buscar
+          // «mesa 5» en el historial contestaba que no existe (Fable).
+          { customerName: { contains: s, mode: 'insensitive' } },
         ],
       });
     }
@@ -1915,7 +1926,11 @@ export class OrdersService {
       },
     });
 
-    if (next === 'CONFIRMED') {
+    // Sin ficha no se emite NADA hacia las automatizaciones: son mensajes al
+    // cliente y aquí no hay. Es la misma decisión que ya tomó createInternal;
+    // aquí faltaba, y una regla de WhatsApp creaba un mensaje huérfano con
+    // «{{nombre}}» sin sustituir (revisión de Fable).
+    if (o.customerId && next === 'CONFIRMED') {
       this.automations
         .emit('ORDER_CONFIRMED', {
           tenantId: o.tenantId,
@@ -1940,18 +1955,18 @@ export class OrdersService {
       // además no hay cliente al que avisar.
       if (o.customerId) {
         await this.autoStampOnDelivered(o.tenantId, o.customerId, o.id).catch(() => null);
+        this.automations
+          .emit('ORDER_DELIVERED', {
+            tenantId: o.tenantId,
+            orderId: id,
+            customerId: o.customerId,
+          })
+          .catch((e) =>
+            this.logger.warn(
+              `automations ORDER_DELIVERED order=${id} falló: ${e?.message ?? e}`,
+            ),
+          );
       }
-      this.automations
-        .emit('ORDER_DELIVERED', {
-          tenantId: o.tenantId,
-          orderId: id,
-          customerId: o.customerId,
-        })
-        .catch((e) =>
-          this.logger.warn(
-            `automations ORDER_DELIVERED order=${id} falló: ${e?.message ?? e}`,
-          ),
-        );
     }
     if (next === 'CANCELLED') {
       // Un pedido cancelado no puede dejar fidelización viva. Si este pedido
@@ -2071,9 +2086,13 @@ export class OrdersService {
         where: { id: o.tenantId },
         select: NEGOCIO_PARA_EL_DOMICILIARIO,
       });
-      const courierLink = negocio
-        ? this.channels.generateWaMeCourier(negocio, o as any, (o as any).customer)
-        : '';
+      // Sin ficha no hay enlace: ese mensaje es «Cliente: nombre · teléfono»
+      // y con el cliente nulo reventaba con 500 (lo encontró la revisión de
+      // Fable: esta rama se quedó sin la guarda que sí tiene la de abajo).
+      const courierLink =
+        negocio && (o as any).customer
+          ? this.channels.generateWaMeCourier(negocio, o as any, (o as any).customer)
+          : '';
       return {
         order: o,
         courierLink,

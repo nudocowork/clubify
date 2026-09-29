@@ -79,6 +79,13 @@ const soloDigitos = (v?: string | null) => (v || '').replace(/\D/g, '');
  * es parte del número— sería otra cosa, y mucho más peligrosa.
  */
 export function variantesDelNumero(digitos: string): string[] {
+  // SOLO CON INDICATIVO DELANTE. Un número local de 10 cifras no tiene cero
+  // de troncal que quitar: en «3101234567» (móvil colombiano tal cual) ese 0
+  // es parte del número, y quitárselo lo convertía en OTRA persona
+  // («3011234567» colapsaba a la misma variante — lo demostró la revisión de
+  // Fable ejecutando la función). Con 11 cifras o más sí hay indicativo y el
+  // 0 pegado a él sí es de marcar dentro del país.
+  if (digitos.length < 11) return [digitos];
   const fuera = new Set<string>([digitos]);
   for (const corte of [1, 2, 3]) {
     if (digitos[corte] === '0' && digitos.length > corte + 1) {
@@ -94,15 +101,20 @@ export function mismoNumeroDeCliente(a?: string | null, b?: string | null): bool
   const db = soloDigitos(b);
   if (!da || !db) return false;
   if (da === db) return true;
-  // Cada número con y sin su posible cero de troncal. Sin esto, un venezolano
-  // que teclea su móvil como lo teclea siempre —con el 0— no se reconocía y
-  // acababa creando una ficha nueva… que chocaba con su propio correo y
-  // devolvía un 500 (Eudes Rincón, 2026-09-28).
+  // El sufijo, con los números TAL CUAL: es la regla de siempre.
+  const [corto, largo] = da.length <= db.length ? [da, db] : [db, da];
+  if (corto.length >= MIN_DIGITOS_CLIENTE && largo.endsWith(corto)) return true;
+
+  // Y las variantes sin el cero de troncal, pero SOLO POR IGUALDAD EXACTA.
+  // Es lo que resuelve el caso real —«+5804247224687» tecleado ES
+  // «+584247224687» guardado (Eudes Rincón, 2026-09-28)— sin abrir la puerta
+  // que abría el sufijo: la variante de un +1 de Miami («+1 305…» sin su 0)
+  // resultaba ser la COLA de un fijo de Brasil y «Mi tarjeta» le enseñaba a
+  // uno los pases del otro. Lo demostró la revisión de Fable ejecutando la
+  // función; con igualdad exacta ese par ya no casa.
   for (const va of variantesDelNumero(da)) {
     for (const vb of variantesDelNumero(db)) {
       if (va === vb) return true;
-      const [corto, largo] = va.length <= vb.length ? [va, vb] : [vb, va];
-      if (corto.length >= MIN_DIGITOS_CLIENTE && largo.endsWith(corto)) return true;
     }
   }
   return false;
@@ -725,17 +737,31 @@ export class PassesService {
           // «Internal server error» delante del cliente, en el formulario de
           // alta. (Eudes Rincón, tarjeta compartida por Valmont, 2026-09-28.)
           //
-          // Se busca por los dos, en el orden en que se prefieren: el teléfono
-          // identifica mejor que el correo, que mucha gente comparte en casa.
+          // Primero el teléfono, que identifica mejor: si el choque fue la
+          // carrera de dos envíos del mismo número, se usa esa ficha y listo.
           customer = await this.prisma.customer.findUnique({
             where: {
               tenantId_phone: { tenantId: card.tenantId, phone: phoneNorm },
             },
           });
+          // Si el choque vino del CORREO, la ficha existente es de OTRO
+          // teléfono. NO se le entrega la tarjeta de esa ficha: el correo se
+          // comparte en casa, y devolver aquí el pase del titular le daría a
+          // quien teclea el correo de otro un QR canjeable ajeno — lo señaló
+          // la revisión de Fable. Se contesta con un mensaje que se puede
+          // obedecer, en vez del «Internal server error» de antes.
           if (!customer && email) {
-            customer = await this.prisma.customer.findUnique({
+            const delCorreo = await this.prisma.customer.findUnique({
               where: { tenantId_email: { tenantId: card.tenantId, email } },
+              select: { id: true },
             });
+            if (delCorreo) {
+              throw new BadRequestException(
+                'Ese correo ya está registrado en este negocio con otro ' +
+                  'teléfono. Usa el mismo teléfono con el que te registraste, ' +
+                  'o deja el correo vacío para crear un registro nuevo.',
+              );
+            }
           }
           // Si aun así no aparece, el choque es de algo que no sabemos leer y
           // relanzar es lo honesto: mejor un error que un pase mal atribuido.

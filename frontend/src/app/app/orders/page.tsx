@@ -357,7 +357,9 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
     };
     for (const k of Object.keys(board)) {
       out[k] = (board[k] ?? []).filter((o) => {
-        const hay = `${o.code} ${o.customer?.fullName ?? ''} ${o.customer?.phone ?? ''}`.toLowerCase();
+        // `nombreDelPedido` y no `customer.fullName` a secas: buscar «mesa 5»
+      // tiene que encontrar la venta de mostrador (revisión de Fable).
+      const hay = `${o.code} ${nombreDelPedido(o)} ${o.customer?.phone ?? ''}`.toLowerCase();
         return hay.includes(term);
       });
     }

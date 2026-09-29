@@ -104,26 +104,31 @@ export function NotificationBell() {
       if (seenRef.current.has(dedupKey)) return;
       seenRef.current.add(dedupKey);
 
+      // Cómo se llama este pedido en el aviso: la ficha, el nombre suelto de
+      // la venta de mostrador, o «Mostrador». «Cliente» a secas no decía nada.
+      const nombre =
+        o.customer?.fullName ?? o.customerName?.trim() ?? 'Mostrador';
+
       // Detectar tipo según el cambio
       if (o.paymentStatus === 'PAID') {
         pushNotif({
           type: 'order_paid',
           title: `💳 Pago recibido #${o.code}`,
-          body: `${o.customer?.fullName ?? 'Cliente'} pagó $${(Number(o.total) || 0).toLocaleString('es-CO')}`,
+          body: `${nombre} pagó $${(Number(o.total) || 0).toLocaleString('es-CO')}`,
           href: '/app/orders',
         });
       } else if (o.status === 'PENDING') {
         pushNotif({
           type: 'order_new',
           title: `🛒 Nuevo pedido #${o.code}`,
-          body: `${o.customer?.fullName ?? 'Cliente'} pidió ${(o.items?.length ?? 0)} items`,
+          body: `${nombre} pidió ${(o.items?.length ?? 0)} items`,
           href: '/app/orders',
         });
       } else {
         pushNotif({
           type: 'order_status',
           title: `📦 Pedido #${o.code} → ${o.status}`,
-          body: o.customer?.fullName ?? 'Cliente',
+          body: nombre,
           href: '/app/orders',
         });
       }
@@ -135,10 +140,15 @@ export function NotificationBell() {
         document.visibilityState !== 'visible'
       ) {
         try {
-          new Notification(`${brandRef.current?.name || 'Clubify'} · #${o.code}`, {
-            body: `${o.customer?.fullName ?? 'Cliente'} · ${o.status}`,
-            icon: '/icons/icon-192.png',
-          });
+          new Notification(
+            brandRef.current?.name
+              ? `${brandRef.current.name} · #${o.code}`
+              : `Pedido #${o.code}`,
+            {
+            body: `${nombre} · ${o.status}`,
+              icon: '/icons/icon-192.png',
+            },
+          );
         } catch {}
       }
     }

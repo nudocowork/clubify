@@ -942,7 +942,15 @@ export class AdminReportsService {
 
     // isCampaignHost: excluye SIEMPRE el/los tenant(s) "de sistema" de Cuponera/
     // Living Card — no son negocios reales, no deben contar en el panel azul.
-    const tenantWhere = { isCampaignHost: false, ...(wlId ? { whiteLabelId: wlId } : {}) };
+    // Y sin los «solo InfoLink»: no son negocios (no pagan, no tienen
+    // tarjetas ni pedidos) y desde 2026-09-29 tampoco salen en la lista de
+    // Negocios. Contarlos aquí dejaba el dashboard diciendo una cifra y la
+    // lista otra, en el mismo panel (revisión de Fable).
+    const tenantWhere = {
+      isCampaignHost: false,
+      businessType: { not: 'INFOLINK' as const },
+      ...(wlId ? { whiteLabelId: wlId } : {}),
+    };
     const commWhere = wlId
       ? { referralUse: { tenant: { whiteLabelId: wlId } } }
       : {};
@@ -1661,7 +1669,15 @@ export class AdminReportsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const wlId = user.whiteLabelId ?? null;
     // isCampaignHost: excluye el tenant de sistema de Cuponera del facturado.
-    const tenantWhere = { isCampaignHost: false, ...(wlId ? { whiteLabelId: wlId } : {}) };
+    // Y sin los «solo InfoLink»: no son negocios (no pagan, no tienen
+    // tarjetas ni pedidos) y desde 2026-09-29 tampoco salen en la lista de
+    // Negocios. Contarlos aquí dejaba el dashboard diciendo una cifra y la
+    // lista otra, en el mismo panel (revisión de Fable).
+    const tenantWhere = {
+      isCampaignHost: false,
+      businessType: { not: 'INFOLINK' as const },
+      ...(wlId ? { whiteLabelId: wlId } : {}),
+    };
     const groupWhere = wlId ? { whiteLabelId: wlId } : {};
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);

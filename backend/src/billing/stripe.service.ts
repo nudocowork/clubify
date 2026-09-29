@@ -562,6 +562,16 @@ export class StripeService {
     const ctx = await this.extractCtx(brand, event);
     const tenant = await this.findTenant(brand.whiteLabelId, ctx);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    // Un cobro fallido de una suscripción que no debería existir no puede
+    // meter en mora a una cuenta que no le paga nada a la pasarela: por ahí
+    // se repetía el caso SELLEA con otros pasos (revisión de Fable).
+    if (!laPasarelaMandaSobreElNegocio(tenant)) {
+      await this.billing.auditLifecycle('subscription.payment_failed_ignored', tenant.id, {
+        gateway: 'STRIPE',
+        motivo: 'el negocio no paga por pasarela (crédito de marca o cortesía)',
+      });
+      return { ok: true, action: 'payment_failed_ignored_not_gateway_paid' };
+    }
     const wasFirstFailure = !tenant.firstFailedAt;
     await this.prisma.tenant.update({
       where: { id: tenant.id },
@@ -780,6 +790,30 @@ export class StripeService {
     if (await this.downgradeInfolinkPro(tenant.id)) {
       return { ok: true, action: 'infolink_downgraded_to_free' };
     }
+    // Las MISMAS dos reglas que la cancelación; esta puerta se había quedado
+    // sin ninguna (revisión de Fable): pausar desde el panel de Stripe
+    // suspendía en el acto a cualquiera — cortando días pagados — incluidas
+    // las cuentas que no le pagan nada a la pasarela.
+    if (!laPasarelaMandaSobreElNegocio(tenant)) {
+      await this.billing.auditLifecycle('subscription.pause_ignored', tenant.id, {
+        gateway: 'STRIPE',
+        motivo: 'el negocio no paga por pasarela (crédito de marca o cortesía)',
+      });
+      return { ok: true, action: 'pause_ignored_not_gateway_paid' };
+    }
+    if (!desconectaAlCancelar(tenant, new Date())) {
+      // Tiene días pagados por delante: se anota y se respeta lo pagado. El
+      // cron de cancelados lo apagará cuando venza el período.
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { canceledAt: new Date() },
+      });
+      await this.billing.auditLifecycle('subscription.pause_scheduled', tenant.id, {
+        gateway: 'STRIPE',
+        accessUntil: tenant.currentPeriodEnd?.toISOString() ?? null,
+      });
+      return { ok: true, action: 'pause_scheduled' };
+    }
     if (tenant.status !== 'SUSPENDED') {
       await this.prisma.tenant.update({
         where: { id: tenant.id },
@@ -916,6 +950,16 @@ export class StripeService {
     }
     const tenant = await this.findTenantFromCharge(brand, event);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    // El escudo de las cuentas que no pagan por pasarela, también aquí: el
+    // cargo se encuentra hasta POR EMAIL, así que un reembolso de otra cosa
+    // podía apagar una cuenta de crédito de marca (revisión de Fable).
+    if (!laPasarelaMandaSobreElNegocio(tenant)) {
+      await this.billing.auditLifecycle('subscription.refund_ignored', tenant.id, {
+        gateway: 'STRIPE',
+        motivo: 'el negocio no paga por pasarela (crédito de marca o cortesía)',
+      });
+      return { ok: true, action: 'refund_ignored_not_gateway_paid' };
+    }
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: { status: 'SUSPENDED', suspendedAt: new Date() },
@@ -961,6 +1005,15 @@ export class StripeService {
     }
     const tenant = await this.findTenantFromCharge(brand, event);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    // Mismo escudo que el reembolso, y por lo mismo: el cargo se encuentra
+    // hasta por email y podía apagar una cuenta que no paga por pasarela.
+    if (!laPasarelaMandaSobreElNegocio(tenant)) {
+      await this.billing.auditLifecycle('subscription.chargeback_ignored', tenant.id, {
+        gateway: 'STRIPE',
+        motivo: 'el negocio no paga por pasarela (crédito de marca o cortesía)',
+      });
+      return { ok: true, action: 'chargeback_ignored_not_gateway_paid' };
+    }
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: { status: 'SUSPENDED', suspendedAt: new Date() },
@@ -1135,6 +1188,14 @@ export class StripeService {
         // En prueba queda TRIAL (con vencimiento a 7 días); el cobro real del
         // día 7 lo pasa a ACTIVE.
         status: inTrial ? 'TRIAL' : 'ACTIVE',
+        // UN PAGO CONFIRMADO ANULA LA CANCELACIÓN PENDIENTE. Sin esto, quien
+        // canceló y se arrepintió quedaba con `canceledAt` puesto PARA
+        // SIEMPRE: fuera de todos los pre-avisos (filtran canceledAt null) y
+        // el cron de cancelados lo apagaba al primer cobro fallido, sin
+        // gracia. Hotmart ya lo limpia al confirmar pago, con este mismo
+        // motivo escrito; Stripe no lo hacía en ninguna parte (revisión de
+        // Fable, 2026-09-29).
+        canceledAt: null,
         ...entitlement,
         // 2026-07-31: monto crudo → auditoría, no a la base de comisiones. En
         // prueba no hubo cobro (monto $0), así que no tocamos el último monto.

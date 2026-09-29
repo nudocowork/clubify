@@ -2414,7 +2414,13 @@ model Order {
   /// `customerName`; no se crea ninguna ficha ni se acumulan sellos, que es
   /// justo lo que se quería evitar.
   customerId     String?
-  customer       Customer?    @relation(fields: [customerId], references: [id])
+  /// `onDelete: Restrict` EXPLÍCITO: al volverse opcional la relación,
+  /// Prisma pasa a asumir `SetNull`, pero la FK real de producción sigue en
+  /// RESTRICT (la migración solo quitó el NOT NULL). Se fija para que el
+  /// esquema diga la verdad y el `db push` local no divergiera de prod.
+  /// Borrar un cliente sigue exigiendo borrar antes sus pedidos, como hace
+  /// `customers.service`.
+  customer       Customer?    @relation(fields: [customerId], references: [id], onDelete: Restrict)
   /// A quién se le entrega, cuando no hay ficha: «Juan», «el de la moto».
   /// Solo para que la cocina y la caja sepan de quién es. Sin ficha y sin esto,
   /// el pedido se muestra como venta de mostrador a secas.

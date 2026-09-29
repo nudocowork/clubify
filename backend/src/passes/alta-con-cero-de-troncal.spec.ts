@@ -78,6 +78,8 @@ describe('el cero de troncal no convierte a un cliente en otro', () => {
     // protege de fundir a dos clientes es ese umbral, no esta lista.
     expect(variantesDelNumero('5804247224687')).toContain('584247224687');
     expect(variantesDelNumero('573000112233')).toContain('573000112233');
+    // Y NUNCA por sufijo: la variante solo casa si es EXACTAMENTE el otro
+    // número. Que dos números distintos compartan cola no las junta.
     // Sin ningún 0 en esa zona, no hay variante que inventar. (Ojo al elegir
     // el ejemplo: casi todos los móviles colombianos son `+57 3xx…` y el
     // cuarto dígito suele ser 0, así que sí generan candidata.)
@@ -90,6 +92,19 @@ describe('el cero de troncal no convierte a un cliente en otro', () => {
     // La comprobación que de verdad importa del cambio de arriba.
     expect(mismoNumeroDeCliente('+573000112233', '+5700112233')).toBe(false);
     expect(mismoNumeroDeCliente('+573000112233', '+573001112233')).toBe(false);
+  });
+
+  it('LOS DOS PARES QUE ROMPIÓ FABLE, fijados para siempre', () => {
+    // 1. Miami +1 305… contra un fijo de Santos (Brasil): la variante del
+    //    +1 sin su 0 resultaba ser exactamente la COLA del brasileño, y por
+    //    sufijo casaban. «Mi tarjeta» le enseñaba a uno los pases del otro.
+    //    Por eso las variantes solo valen por IGUALDAD, nunca por sufijo.
+    expect(mismoNumeroDeCliente('+13055550123', '+551355550123')).toBe(false);
+    // 2. Dos móviles colombianos REALES tecleados en local (310… y 301…):
+    //    ambos colapsaban a la misma variante. Por eso un número sin
+    //    indicativo (menos de 11 cifras) no genera variantes: su 0 es suyo.
+    expect(mismoNumeroDeCliente('3101234567', '3011234567')).toBe(false);
+    expect(variantesDelNumero('3101234567')).toEqual(['3101234567']);
   });
 
   it('el filtro del mostrador hereda el arreglo', () => {
@@ -122,16 +137,25 @@ describe('y si aun así choca, el alta NO revienta', () => {
     src.indexOf('async enrollPublic') + 9000,
   );
 
-  it('el catch del P2002 busca por teléfono Y por correo', () => {
+  it('el catch del P2002 conoce los DOS índices, y el del correo contesta con un mensaje', () => {
     const i = trozo.indexOf("code === 'P2002'");
     expect(i, 'ya no hay manejo de P2002 en enrollPublic').toBeGreaterThan(-1);
-    const manejo = trozo.slice(i, i + 1200);
+    const manejo = trozo.slice(i, i + 2600);
     expect(manejo).toContain('tenantId_phone');
     expect(
       manejo.includes('tenantId_email'),
       'el catch solo mira el índice del teléfono. Si el choque viene del ' +
         'correo —el cliente ya estaba con otro formato de número— relanza y el ' +
         'cliente ve un 500 en el formulario.',
+    ).toBe(true);
+    // Y EL DEL CORREO NO ENTREGA LA TARJETA DE OTRO. La primera versión usaba
+    // la ficha del dueño del correo, y con correos compartidos en casa eso le
+    // daba a quien teclea el correo de otro un QR canjeable ajeno (lo señaló
+    // la revisión de Fable). El contrato es un 400 que se puede obedecer.
+    expect(
+      manejo.includes('ya está registrado en este negocio con otro'),
+      'el choque por correo tiene que contestar con el mensaje accionable, ' +
+        'no asignar la ficha del dueño del correo.',
     ).toBe(true);
   });
 

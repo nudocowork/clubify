@@ -814,6 +814,7 @@ export class MetricsService {
           total: true,
           createdAt: true,
           status: true,
+          customerName: true,
           customer: { select: { fullName: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -868,7 +869,7 @@ export class MetricsService {
         at: o.createdAt.toISOString(),
         emoji: '🛒',
         title: `Pedido #${o.code}`,
-        detail: `${o.customer?.fullName ?? 'Walk-in'} · COP ${Number(o.total).toLocaleString('es-CO')}`,
+        detail: `${o.customer?.fullName ?? o.customerName?.trim() ?? 'Mostrador'} · COP ${Number(o.total).toLocaleString('es-CO')}`,
         href: `/app/orders/${o.id}`,
       });
     }

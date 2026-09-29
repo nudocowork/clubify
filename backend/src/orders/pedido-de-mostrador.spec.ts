@@ -179,6 +179,55 @@ describe('un pedido SIN ficha de cliente', () => {
   });
 });
 
+describe('el 500 que encontró Fable: aceptar el pago de un domicilio de mostrador', () => {
+  /**
+   * La rama idempotente de `acceptDeliveryPayment` («ya está pagado») pasaba
+   * el cliente NULO a `generateWaMeCourier`, que hace `customer.fullName` sin
+   * guarda → 500. Solo alcanzable por API (la pantalla no crea domicilios de
+   * mostrador), pero un 500 alcanzable es un 500.
+   */
+  it('con el pedido YA pagado devuelve el enlace vacío, no un 500', async () => {
+    const prisma = makePrisma();
+    // Lo que `get()` devuelve para un domicilio de mostrador ya pagado.
+    prisma.order.findUnique = vi.fn(async (args: any) =>
+      args?.where?.code
+        ? null
+        : ({
+            id: 'order-1',
+            tenantId: 'tenant-1',
+            customerId: null,
+            customer: null,
+            code: 'AB12',
+            status: 'CONFIRMED',
+            fulfillment: 'DELIVERY',
+            paymentStatus: 'PAID',
+            total: 10,
+            items: [],
+            events: [],
+            location: null,
+            delivery: null,
+          } as any),
+    );
+    // El negocio TIENE el WhatsApp del domiciliario configurado: es la
+    // condición que hacía llegar hasta el `customer.fullName`.
+    prisma.tenant.findUnique = vi.fn(async () => ({
+      id: 'tenant-1',
+      status: 'ACTIVE',
+      whatsappDeliveryPhone: '+573001112233',
+    })) as any;
+
+    // El canal REAL reventaría con customer nulo; aquí basta con comprobar
+    // que ni siquiera se le llama.
+    const canal = { generateWaMeCourier: vi.fn(() => { throw new Error("no debía llamarse"); }) };
+    const { svc } = makeService(prisma);
+    (svc as any).channels = canal;
+
+    const r = await (svc as any).acceptDeliveryPayment(OWNER, 'order-1');
+    expect(r.courierLink).toBe('');
+    expect(canal.generateWaMeCourier).not.toHaveBeenCalled();
+  });
+});
+
 describe('un pedido CON ficha sigue igual que antes', () => {
   let prisma: ReturnType<typeof makePrisma>;
 
