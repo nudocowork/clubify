@@ -52,7 +52,13 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y postgresql-client-18
-          pg_dump --version
+          # El runner YA TRAE un pg_dump 16 que gana en el PATH: instalar el 18
+          # no basta, y un `pg_dump --version` a secas salia verde enseñando el
+          # 16 — el respaldo moria despues con «server version mismatch». Se
+          # antepone el binario 18 para los pasos siguientes y se comprueba de
+          # verdad: si lo que va a usarse no es 18, ESTE paso falla, no el dump.
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/18/bin/pg_dump --version | grep -E " 18." || exit 1
 
       - name: Install @aws-sdk/client-s3
         working-directory: backend
