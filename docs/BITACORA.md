@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (98) — La ficha del cliente también deja editar el teléfono
+
+Commit `ad3ec8e5`. **SIN DESPLEGAR el frontend** (el cambio visible es del
+modal; el spec nuevo es de backend pero no cambia comportamiento):
+`node scripts/desplegar.cjs frontend`.
+
+Pedido de Javier (captura de PRIMOR BARBER): el modal «Editar datos del
+cliente» solo dejaba nombre, correo y cumpleaños. El PATCH del backend YA
+aceptaba `phone` (y su P2002 ya distinguía teléfono/email con 409 legible):
+faltaba solo el campo en el modal. Añadido con nota del indicativo (+57…).
+3 candados en `customers/editar-telefono.spec.ts`.
+
 ## 2026-09-29 (97) — Lab: implementar una propuesta de marca avisa a la marca y a Sara
 
 Commit `a9dac92e`. **SIN DESPLEGAR** (modo auto): `node scripts/desplegar.cjs backend`.
