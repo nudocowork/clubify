@@ -109,6 +109,125 @@ DOMINIO: `/api/health` devuelve el commit, y el frontend por el `dpl_` que
 sirve cada marca.
 
 ---
+## 2026-09-28 (88) — 141 ms por consulta, next/image servía imágenes de cualquiera, y por fin avisamos cuando algo se para
+
+**Estado: commiteado y empujado. NADA de esto está desplegado.** Tres de las
+cuatro cosas solo sirven una vez desplegadas.
+
+### 1. La base cuesta 141 ms por consulta, y son 2.723 consultas
+
+`DATABASE_URL` y `REDIS_URL` apuntan las dos a `tramway.proxy.rlwy.net`: el
+**proxy público** de Railway. Medido con `/api/health/ready` contra producción,
+un `SELECT 1` tarda **141 ms** (tomas: 283, 141, 141). Por la red interna serían
+1-3.
+
+Lo que cuesta, contado sobre el código:
+
+```
+47 consultas  duplicate()           admin/tenant-duplicator.service.ts:68
+26 consultas  tenant()              metrics/metrics.service.ts:182      [ya paralelo]
+22 consultas  dashboardMetricsV2()  admin-reports/admin-reports.service.ts:924  [ya paralelo]
+14 consultas  createPublic()        orders/orders.service.ts:559   <- crear un pedido, ~2 s
+12 consultas  trialSignup()         auth/auth.service.ts:2076
+11 consultas  enrollPublic()        passes/passes.service.ts:550   <- alta en la tarjeta, ~1,5 s
+```
+
+**El arreglo es una variable de entorno, no código**, y mejora las 2.723 de
+golpe. Verificado cuál es el servicio bueno, porque hay **DOS Postgres** en el
+proyecto y apuntar al otro tumbaría producción: el puerto público de
+`Postgres-Nq8w` (39155) es exactamente el que el backend tiene hoy.
+
+```
+DATABASE_URL = ${{Postgres-Nq8w.DATABASE_URL}}    -> yyy.railway.internal:5432
+REDIS_URL    = ${{Redis.REDIS_URL}}               -> redis.railway.internal:6379
+```
+
+Pendiente de Javier. Para comprobarlo antes y después quedan `GET /health/red`
+(dice por qué camino va, cuánto tarda y qué costaría cada pantalla) y
+`backend/scripts/medir-latencia-base.cjs`. El endpoint **no devuelve hosts ni
+credenciales**, solo el tipo de camino y las latencias; `destinoDe` va con test
+propio porque es lo único que abre la URL con la contraseña dentro.
+
+No se pudo medir el camino interno desde aquí: `railway ssh` exige registrar una
+clave SSH en la cuenta y eso no se toca sin permiso. El endpoint lo dirá en el
+primer despliegue.
+
+### 2. `next/image` optimizaba imágenes de cualquiera
+
+`images.remotePatterns` tenía:
+
+```js
+{ protocol: 'https', hostname: '**.r2.dev' }
+{ protocol: 'https', hostname: '**.r2.cloudflarestorage.com' }
+```
+
+`r2.dev` es un dominio **COMPARTIDO** de Cloudflare: todo bucket público de R2
+del mundo es un `pub-<hash>.r2.dev`. Con ese comodín, cualquiera con un bucket
+podía hacer que nuestro optimizador le sirviera sus imágenes desde
+**app.soyclubify.com** — nuestro ancho de banda, y nuestro dominio alojando lo
+que quisiera. Encima la API de imágenes de Next arrastra un DoS sin parche en la
+rama 14 (GHSA-h64f-5h5j-jqjh), así que el comodín era la forma de dispararlo con
+imágenes de fuera.
+
+Ahora son 10 hosts exactos. **Y los hosts se sacaron preguntándole a la base**,
+no suponiéndolos: se consultaron las 47 columnas de imagen del esquema para ver
+qué hay guardado de verdad. Faltaban tres y ya están (`images.unsplash.com` de
+`Category.imageUrl`, `assets.cdn.filesafe.space` de `DeliveryCompany.logoUrl`,
+`app.wazzap.mx` de `WhiteLabel.whatsappQrUrl`). Sin ese paso, acotar la lista
+habría roto imágenes que hoy cargan.
+
+Candado nuevo en el CI: `frontend/scripts/arqueo-imagenes-remotas.cjs`.
+Distingue lo que importa — un comodín sobre un dominio de terceros es una puerta
+abierta, uno sobre `**.soyclubify.com` no, porque esos subdominios los damos
+nosotros. Probado por mutación en los tres casos.
+
+### 3. Fase 24: avisar cuando deja de pasar lo que tiene que pasar
+
+`VigilanciaDeActividadService`, cada hora, sobre pedidos, sellos, tarjetas
+emitidas y reservas. Va al `VigilanciaModule` que ya existía, al lado de
+`VigilanteService`, **y no se pisan**: aquel busca INCOHERENCIAS una vez al día,
+este busca que siga PASANDO. Uno caza «el número está mal», el otro «dejó de
+pasar».
+
+Lo difícil no era detectar la caída, era no dar falsos positivos — una alarma
+que suena de madrugada a diario se ignora en dos días:
+
+- Cada franja se compara **consigo misma** en los 21 días anteriores. No hay
+  umbrales fijos. La pregunta es «¿pocos pedidos PARA UN VIERNES A LAS 8?».
+- **Mediana, no media**: un día de promoción con 400 pedidos dispara la media a
+  96 y el día siguiente parece roto.
+- **Mínimo útil por señal**: donde lo normal es 1, tener 0 es martes.
+- Menos de 5 días comparables y se calla.
+- Avisa solo al **cambiar** de estado, y avisa la recuperación.
+- Una franja «sin señal» **no pisa** el estado guardado.
+- El estado se sella **después** y **solo si el aviso salió** — el mismo fallo
+  del `reminderSentAt` de las citas y de la alerta de capacidad.
+
+Sale por `sendTeamAlert` con tipo nuevo `'actividad'`, así que cada uno lo activa
+o no desde «Avisos al equipo».
+
+### 4. Dependencias del backend: limpias
+
+Cinco parches por `overrides` (xmldom, ws, socket.io-parser, fast-xml-builder,
+nanoid a ^3.3.19). El backend quedó **sin ningún paquete grave nuevo**. Detalle
+en la entrada 87, incluido por qué **no se usa `npm audit fix` en este repo**.
+
+### Estado de las pruebas
+
+**3.604 pruebas en verde, 0 en rojo.** Antes de hoy había 7 rojas. Siguen sin
+cargar los 3 archivos e2e que necesitan base de datos, que es lo de siempre.
+
+### Un aviso y una metedura de pata mía
+
+- Siguen en el árbol **`backend/src/=`** y **`backend/src/[]`**, dos archivos con
+  nombre corrupto de algún comando mal escapado. No los toqué. Si son tuyos,
+  bórralos.
+
+- Al crear la vigilancia **sobrescribí `vigilancia.module.ts`**, que ya existía,
+  porque escribí el archivo sin comprobar si la carpeta estaba. Se recuperó de
+  git intacto y `VigilanteService` sigue igual, pero lo dejo escrito: en este
+  repo, mirar antes de escribir.
+
 ## 2026-09-28 (87) — CI otra vez en verde (era un falso positivo mío), y la medida que confirma el peaje de la base
 
 **Estado: commiteado y empujado (`e5675f4b`). Nada de esto necesita desplegarse**
