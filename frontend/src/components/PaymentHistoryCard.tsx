@@ -76,8 +76,17 @@ function importe(monto: number | null, moneda: string | null) {
   return moneda ? `${n} ${moneda}` : n;
 }
 
-export function PaymentHistoryCard({ tenantId }: { tenantId: string }) {
+export function PaymentHistoryCard({
+  tenantId,
+  endpoint,
+}: {
+  tenantId?: string;
+  /** Otra fuente con la MISMA forma de respuesta — p. ej. el historial de un
+   *  grupo empresarial (`/admin/business-groups/:id/payment-history`). */
+  endpoint?: string;
+}) {
   const t = useTranslations('admin_tenants_id');
+  const url = endpoint ?? `/tenants/${tenantId}/payment-history`;
   const [data, setData] = useState<HistorialResp | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(false);
@@ -87,7 +96,7 @@ export function PaymentHistoryCard({ tenantId }: { tenantId: string }) {
     setCargando(true);
     setError(false);
     try {
-      setData(await api<HistorialResp>(`/tenants/${tenantId}/payment-history`));
+      setData(await api<HistorialResp>(url));
     } catch {
       setError(true);
     } finally {
@@ -98,7 +107,7 @@ export function PaymentHistoryCard({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     void cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId]);
+  }, [url]);
 
   const ESTADO: Record<
     PagoHistorial['estado'],

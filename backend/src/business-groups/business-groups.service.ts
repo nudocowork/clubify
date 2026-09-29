@@ -10,6 +10,10 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { addPlanPeriod } from '../common/plan-period';
 import { ReferralsService } from '../referrals/referrals.service';
+import {
+  agruparCobrosHotmart,
+  resumirHistorial,
+} from '../tenants/payment-history.util';
 
 export type CreateGroupDto = {
   name: string;
@@ -130,6 +134,85 @@ export class BusinessGroupsService {
     });
     if (!group) throw new NotFoundException('Grupo no encontrado');
     return group;
+  }
+
+  /**
+   * Historial de pagos del GRUPO (Javier, 2026-09-29): en cada negocio ya se
+   * veía; en los grupos no había forma. Vale para el grupo actual y para
+   * cualquiera que se cree: no depende de nada sembrado a mano.
+   *
+   * Un grupo paga UNA suscripción de Hotmart por todos sus negocios, así que
+   * sus cobros NO cuelgan de ningún `tenantId` — se buscan en los webhooks
+   * crudos por el código de suscriptor del grupo dentro del payload (las
+   * compras lo traen en `data.subscription.subscriber.code`; las
+   * cancelaciones, en `data.subscriber.code`) y, de respaldo, por el email
+   * del responsable como comprador: así el primer cobro, anterior a que el
+   * código quedara fijado, también aparece.
+   */
+  async paymentHistory(id: string, user?: AuthUser, limit = 100) {
+    const wlId = this.scope(user);
+    const group = await this.prisma.businessGroup.findFirst({
+      where: { id, deletedAt: null, whiteLabelId: wlId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
+        hotmartSubscriberCode: true,
+        responsibleEmail: true,
+      },
+    });
+    if (!group) throw new NotFoundException('Grupo no encontrado');
+
+    const code = group.hotmartSubscriberCode?.trim() || null;
+    const emailCrudo = group.responsibleEmail?.trim() || null;
+    const email = emailCrudo?.toLowerCase() ?? null;
+
+    const OR: Prisma.HotmartWebhookEventWhereInput[] = [];
+    if (code) {
+      OR.push({
+        payload: {
+          path: ['data', 'subscription', 'subscriber', 'code'],
+          equals: code,
+        },
+      });
+      OR.push({ payload: { path: ['data', 'subscriber', 'code'], equals: code } });
+    }
+    if (email) {
+      OR.push({ payload: { path: ['data', 'buyer', 'email'], equals: email } });
+      // El filtro JSON compara exacto; si el email se guardó con mayúsculas,
+      // la variante original también cuenta.
+      if (emailCrudo && emailCrudo !== email) {
+        OR.push({
+          payload: { path: ['data', 'buyer', 'email'], equals: emailCrudo },
+        });
+      }
+    }
+
+    const eventos = OR.length
+      ? await this.prisma.hotmartWebhookEvent.findMany({
+          where: { OR },
+          orderBy: { processedAt: 'desc' },
+          take: 400,
+          select: { eventType: true, payload: true, processedAt: true },
+        })
+      : [];
+
+    const pagos = agruparCobrosHotmart(eventos);
+    pagos.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+
+    return {
+      groupId: group.id,
+      name: group.name,
+      status: group.status,
+      planPeriodicity: group.planPeriodicity,
+      currentPeriodEnd: group.currentPeriodEnd,
+      lastChargeAt: group.lastChargeAt,
+      resumen: resumirHistorial(pagos),
+      pagos: pagos.slice(0, limit),
+    };
   }
 
   /** Negocios de la marca que aún no pertenecen a ningún grupo (para el picker). */

@@ -77,6 +77,13 @@ export class BusinessGroupsController {
     return this.svc.get(id, user);
   }
 
+  /** Historial de cobros Hotmart del grupo — la misma tarjeta que ya tienen
+   *  los negocios, para responder si el grupo está pagando o no. */
+  @Get(':id/payment-history')
+  paymentHistory(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.paymentHistory(id, user);
+  }
+
   @Post()
   create(@Body() body: CreateGroupBody, @CurrentUser() user: AuthUser) {
     return this.svc.create(body, user);

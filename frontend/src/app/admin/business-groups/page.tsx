@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { PaymentHistoryCard } from '@/components/PaymentHistoryCard';
 
 type GroupStatus = 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED';
 type GroupTenant = {
@@ -666,6 +667,14 @@ function GroupDetailModal({
             {available.length === 0 && (
               <div className="text-[11px] text-mute mb-3 -mt-2">{t('noAvailableBusinesses')}</div>
             )}
+
+            {/* Historial de pagos del GRUPO (Javier, 2026-09-29): la misma
+                tarjeta que ya tienen los negocios. El grupo paga UNA
+                suscripción por todos, así que el historial es del grupo, no
+                la suma de sus negocios. */}
+            <PaymentHistoryCard
+              endpoint={`/admin/business-groups/${groupId}/payment-history`}
+            />
 
             {/* Simulador QA: ejercita la cascada Hotmart→grupo sin cobro real */}
             <div className="mt-2 rounded-lg border border-dashed border-line p-3">
