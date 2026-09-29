@@ -1397,18 +1397,51 @@ original.
 |---|---|---|---|
 | 30 | Primera visita | ✅ | `humo.cjs` |
 | 6 | Service worker / PWA | ✅ | Auditado y corregido el 2026-09-05 |
-| 3 | Navegadores (Playwright) | ❌ | Hoy solo Chrome. Falta WebKit y Firefox |
-| 24 | Observabilidad | 🔄 | Sentry sí. Falta alerta por TASA: si los pedidos caen a cero un viernes a las 8 PM, algo pasó aunque todo responda 200 |
+| 3 | Navegadores (Playwright) | ❌ | Hoy solo Chrome. Falta WebKit y Firefox. Ojo: esta máquina va justa de RAM y no compila el frontend, así que esto va en CI o en la otra |
+| 24 | Observabilidad | 🟡 | **Alerta por TASA hecha** el 2026-09-28 y sin desplegar. `VigilanciaDeActividadService`: cada hora compara pedidos, sellos, pases y reservas con la MISMA franja de los 21 días anteriores (mediana, no media). Falta desplegar y ver una semana de avisos |
 | 12 | Roles y permisos | 🔄 | P2-3. Matriz hecha: 898/917 con @Roles; los 19 sin el, revisados y correctos. Ya en el CI. Falta: si cada rol DEBE llegar a lo suyo (AFFILIATE_* tiene 74) |
 | 13 | Autenticación y sesiones | 🔄 | Auditada: **P0-7** (toma de cuenta con solo el telefono), **P0-8** (2FA sin intentos), **P1-10** (MARKETING cruza marcas), **P1-11** (cambiar clave no cierra sesiones). Lo demas, verificado y bien |
 | 17 | Idempotencia | 🔄 | P1-7. Medido: 18 sitios crean sin nada que corte la carrera, y son los de cobros |
-| 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales |
+| 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales. Contados los métodos más charlatanes: `duplicate()` 47 consultas, `metrics.tenant()` 26 y `dashboardMetricsV2()` 22 (los dos últimos ya en `Promise.all`), `orders.createPublic()` 14, `passes.enrollPublic()` 11 |
 | 27 | Disaster recovery | ❌ | Definir RPO y RTO. Hoy no existen |
-| 21 | Rendimiento | 🔄 | Fuentes arregladas. Falta medir de verdad |
+| 21 | Rendimiento | 🔄 | **Medido el 2026-09-28: 141 ms por consulta.** El backend sale por el proxy PÚBLICO de Railway; por dentro serían 1-3. Crear un pedido (14 consultas) son ~2 s de puro ir y venir. Es una variable de entorno, pendiente de que Javier la cambie. `GET /health/red` y `scripts/medir-latencia-base.cjs` lo dejan comprobable |
 | 22 | Carga | ❌ | Nadie sabe cuánto aguanta la plataforma |
-| 37 | Dependencias | 🔄 | P1-4. Ya corre en el CI con techo. Faltan las 40 por arreglar, empezando por `jsonwebtoken` |
+| 37 | Dependencias | 🔄 | P1-4. Ya corre en el CI con techo. El 2026-09-28 se parchearon 5 por `overrides` (xmldom, ws, socket.io-parser, fast-xml-builder, nanoid) y el **backend quedó sin ningún paquete grave nuevo**. Faltan los que piden versión mayor: `@nestjs/platform-express`+`multer` (Nest 12), `apn`+`jsonwebtoken`+`node-forge` (apn 2), `js-yaml`+`lodash` (swagger 12). `tar` crítico se queda: entra por argon2→node-pre-gyp, que solo corre al compilar. **No usar `npm audit fix` en este repo** (ver bitácora 87) |
 | 38 | Secretos | 🔄 | P1-5. Buscados en git, codigo y bundle: **ninguno filtrado**. Siguen faltando los del backup en GitHub |
 | 35 | Accesibilidad | 🔄 | Íconos de 26 px pendientes (guía: 44) |
+
+### Next 14 sin parches (nuevo el 2026-09-28)
+
+`next` sale CRITICAL en el arqueo de dependencias y **14.2.35 ya es la última
+14.x publicada**: Vercel no parchea esa rama, así que no hay parche, solo el
+salto a 15.5.26.
+
+Qué aplica de verdad a este despliegue, comprobado en el código y no de memoria:
+
+- **NO** el RCE de CVSS 9 — es solo en servidores Windows y vamos en Vercel.
+- **NO** el RCE de la API de imágenes por AVIF — no está en `formats`.
+- **NO** los dos XSS — no se usan nonces de CSP ni `beforeInteractive`.
+- **NO** el bypass de middleware con i18n — no hay `pages/`, es todo App Router.
+- **NO** el SSRF de `rewrites` — el destino es nuestra propia variable.
+- **SÍ** DoS y envenenamiento de caché. Grave, pero no toma del servidor.
+
+Mitigado sin subir de versión: `images.remotePatterns` tenía `**.r2.dev`, y
+`r2.dev` es un dominio COMPARTIDO de Cloudflare — cualquiera con un bucket
+podía hacer que nuestro optimizador le sirviera sus imágenes desde
+app.soyclubify.com. Ahora son hosts exactos, con candado en el CI
+(`frontend/scripts/arqueo-imagenes-remotas.cjs`). Los hosts se sacaron
+preguntándole a la base qué usa de verdad en sus 47 columnas de imagen, no
+suponiéndolo.
+
+Coste del salto a 15, contado: **~46 archivos, dos días, sin bloqueante duro.**
+28 por `params`/`searchParams` que pasan a ser `Promise`, 17 llamadas de
+`cookies()`/`headers()`, 3 librerías (react-konva a 19, qrcode.react a 4.2 sin
+tocar código, y `@emoji-mart/react` que **no tiene versión compatible** →
+`legacy-peer-deps` o sustituirlo en 2 archivos). React 19 obligatorio de hecho.
+El caché no cuesta nada: de 51 `fetch` en servidor, 50 ya declaran su política.
+Lo caro no es escribirlo: los 28 archivos que cambian de firma son las rutas
+públicas de clientes finales, no hay tests de render, y esta máquina no compila
+el frontend — la validación va por CI y preview de Vercel.
 
 ### Lo que NO se puede hacer desde aquí
 

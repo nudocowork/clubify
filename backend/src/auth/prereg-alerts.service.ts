@@ -29,7 +29,12 @@ export type TipoAviso =
    *  24 h), con sus datos y su enlace de activación para reenviárselo. */
   | 'implementacion'
   /** Infraestructura de la plataforma: la base de datos llenandose. */
-  | 'infraestructura';
+  | 'infraestructura'
+  /**
+   * Se paró algo y todo responde 200: cero pedidos un viernes a las 8, o
+   * entran 2 de los 40 de siempre. Lo manda VigilanciaDeActividadService.
+   */
+  | 'actividad';
 
 /**
  * Todos los tipos, para validar lo que llega desde la pantalla de «Avisos al
@@ -45,6 +50,7 @@ export const TIPOS_DE_AVISO = [
   'lab',
   'implementacion',
   'infraestructura',
+  'actividad',
 ] as const satisfies readonly TipoAviso[];
 type _TodosLosTiposListados = Exclude<
   TipoAviso,
