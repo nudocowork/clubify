@@ -55,14 +55,57 @@ const MIN_DIGITOS_CLIENTE = 8;
 
 const soloDigitos = (v?: string | null) => (v || '').replace(/\D/g, '');
 
+/**
+ * EL CERO QUE SOBRA CUANDO YA HAY INDICATIVO.
+ *
+ * En media Europa y en buena parte de Latinoamérica el móvil se escribe con un
+ * 0 delante para llamar dentro del país: en Venezuela es `0424 722 4687`. Al
+ * elegir el país en el formulario, ese 0 se queda **en medio**:
+ * `+58` + `04247224687` → `+5804247224687`.
+ *
+ * Y en medio es justo donde no lo ve una comparación por el final: el número
+ * guardado `+584247224687` NO es sufijo de `+5804247224687`, así que el mismo
+ * cliente parecía otro. Esta función devuelve también la versión sin ese cero,
+ * para poder reconocerlo.
+ *
+ * Se prueban las tres posiciones posibles porque los indicativos tienen entre
+ * uno y tres dígitos (1 Estados Unidos, 58 Venezuela, 593 Ecuador) y aquí no se
+ * sabe cuál es cuál. Es una lista corta de candidatos, no una suposición: el
+ * que valga tendrá que coincidir por el final igual que siempre.
+ *
+ * NO SE TOCA LO QUE SE GUARDA. Esto solo sirve para RECONOCER a un cliente que
+ * ya está; el teléfono de su ficha se queda como estaba. Reescribir números de
+ * media base por una regla que no vale en todos los países —en Italia el 0 sí
+ * es parte del número— sería otra cosa, y mucho más peligrosa.
+ */
+export function variantesDelNumero(digitos: string): string[] {
+  const fuera = new Set<string>([digitos]);
+  for (const corte of [1, 2, 3]) {
+    if (digitos[corte] === '0' && digitos.length > corte + 1) {
+      fuera.add(digitos.slice(0, corte) + digitos.slice(corte + 1));
+    }
+  }
+  return [...fuera];
+}
+
 /** ¿El mismo número? Iguales, o uno acaba en el otro con ≥ 8 dígitos. */
 export function mismoNumeroDeCliente(a?: string | null, b?: string | null): boolean {
   const da = soloDigitos(a);
   const db = soloDigitos(b);
   if (!da || !db) return false;
   if (da === db) return true;
-  const [corto, largo] = da.length <= db.length ? [da, db] : [db, da];
-  return corto.length >= MIN_DIGITOS_CLIENTE && largo.endsWith(corto);
+  // Cada número con y sin su posible cero de troncal. Sin esto, un venezolano
+  // que teclea su móvil como lo teclea siempre —con el 0— no se reconocía y
+  // acababa creando una ficha nueva… que chocaba con su propio correo y
+  // devolvía un 500 (Eudes Rincón, 2026-09-28).
+  for (const va of variantesDelNumero(da)) {
+    for (const vb of variantesDelNumero(db)) {
+      if (va === vb) return true;
+      const [corto, largo] = va.length <= vb.length ? [va, vb] : [vb, va];
+      if (corto.length >= MIN_DIGITOS_CLIENTE && largo.endsWith(corto)) return true;
+    }
+  }
+  return false;
 }
 
 /** ¿Hay dígitos suficientes para buscar? Por debajo, ni se consulta la base. */
@@ -673,11 +716,29 @@ export class PassesService {
         });
       } catch (e: any) {
         if (e?.code === 'P2002') {
+          // HAY DOS ÍNDICES ÚNICOS, NO UNO: `[tenantId, phone]` y
+          // `[tenantId, email]`. El hotfix de junio solo miraba el del
+          // teléfono, porque solo pensaba en dos envíos simultáneos del mismo
+          // número. Cuando el choque venía del CORREO —el cliente ya estaba,
+          // con ese mismo email y el teléfono escrito de otra forma— esta
+          // búsqueda no encontraba nada y el `throw` acababa en un
+          // «Internal server error» delante del cliente, en el formulario de
+          // alta. (Eudes Rincón, tarjeta compartida por Valmont, 2026-09-28.)
+          //
+          // Se busca por los dos, en el orden en que se prefieren: el teléfono
+          // identifica mejor que el correo, que mucha gente comparte en casa.
           customer = await this.prisma.customer.findUnique({
             where: {
               tenantId_phone: { tenantId: card.tenantId, phone: phoneNorm },
             },
           });
+          if (!customer && email) {
+            customer = await this.prisma.customer.findUnique({
+              where: { tenantId_email: { tenantId: card.tenantId, email } },
+            });
+          }
+          // Si aun así no aparece, el choque es de algo que no sabemos leer y
+          // relanzar es lo honesto: mejor un error que un pase mal atribuido.
           if (!customer) throw e;
         } else {
           throw e;
