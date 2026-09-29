@@ -23,6 +23,7 @@
       "browserslist:high",
       "fast-uri:high",
       "nanoid:high",
+      "next:critical",
       "next:high",
       "postcss:high",
       "socket.io-parser:high",
