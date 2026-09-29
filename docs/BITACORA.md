@@ -8,6 +8,107 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-28 (88) — La academia por marca, el paquete de Railway y un 500 en el alta
+
+Backend `fedfde35` + `302dd52c` + `6adf5934`. **Todo desplegado y verificado
+contra los dominios.**
+
+### 1. «Clubify Academy», y cada marca a la SUYA
+
+Javier pidió renombrar «Tutoriales». Debajo había otra cosa: el enlace estaba
+escrito a mano a `academy.soyclubify.lat/cliente`, igual para todos. Medido
+antes de tocar: **13 negocios de Sellea** llegaban a la academia de Clubify
+desde su propio panel. Renombrar sin más les habría puesto «Clubify Academy».
+
+Es el MISMO fallo que ya se arregló en el panel del AFILIADO con
+`WhiteLabel.academiaUrl`. Seguía vivo en la otra pantalla.
+
+- El nombre lo compone la marca; sin marca resuelta, «Academy» a secas.
+- El enlace sale de **`academiaNegociosUrl`**, campo NUEVO. No reusa
+  `academiaUrl`, que es la de los AFILIADOS: en Clubify son `/cliente` y
+  `/Embajadores`, y mandar al dueño de un local al portal de embajadores es
+  enseñarle a vender la plataforma en vez de a usarla.
+- **Sin URL propia no se pinta la entrada.** Sellea no tiene, así que sus 13
+  negocios dejan de verla hasta que la configuren. Decisión de Javier.
+
+**La causa de fondo era que no había dónde configurarlo.** Ninguna de las dos
+academias se podía editar desde ninguna pantalla. Ahora están en
+**Superadmin → Marcas → Academia**. Mientras no se pueda configurar, el
+enlace vuelve al código: por eso el candado lo comprueba.
+
+### 2. El despliegue que fallaba tres veces NO era Railway
+
+`operation timed out` al enviar, tres veces seguidas. Medido: Railway
+respondía en 0,14 s y **la subida iba a 47 KB/s**. A esa velocidad los 32 MB
+del tarball no caben en su ventana.
+
+De esos 32 MB el servicio solo usa `backend/` y tira el resto DESPUÉS de
+subirlo. `.railwayignore` lo deja en **15 MB**.
+
+**Casi meto un fallo feo:** la primera versión excluía `*.png` por unas
+capturas de la raíz, y esa regla se llevaba
+`backend/certs/wallet-defaults/*.png` —las imágenes del pase de Apple, que el
+Dockerfile sí copia—. Se vio comprobando el paquete resultante, no leyendo el
+archivo. Ahora van con barra delante (`/*.png`).
+
+**Si vuelve a fallar una subida: pausar OneDrive.** El repo vive dentro y
+sincroniza sin parar, compitiendo por el mismo ancho de banda de salida.
+
+### 3. El «Internal server error» que veía un cliente al registrarse
+
+Un cliente rellena el formulario de alta y recibe **«Internal server error»**
+en rojo. No era la red, ni el negocio suspendido, ni el deploy del día.
+
+Los cuatro pasos, con datos reales:
+
+1. Ya estaba en ese negocio, con su correo y el teléfono `+584247224687`.
+2. Se reinscribe y teclea el móvil **como se escribe en Venezuela**:
+   `04247224687`. Con el `+58` queda `+5804247224687` y **el cero se queda en
+   medio**.
+3. `mismoNumeroDeCliente` compara por el FINAL, así que no lo reconoce. Al no
+   reconocerlo intenta CREAR una ficha, que choca con
+   `@@unique([tenantId, email])`.
+4. El `catch` del P2002 **solo buscaba por teléfono**. No lo encuentra y
+   relanza → 500.
+
+El hotfix de junio solo contemplaba dos envíos simultáneos del mismo número.
+**`Customer` tiene DOS índices únicos**, y el del correo nunca se cubrió.
+
+Arreglado por los dos lados: se reconoce el cero de troncal (tres cortes,
+porque los indicativos tienen de 1 a 3 cifras) y el `catch` mira los dos
+índices.
+
+**Lo que NO se toca: los números guardados.** Esto solo sirve para RECONOCER
+a quien ya está. Reescribir media base por una regla que no vale en todos los
+países —en Italia el 0 SÍ es parte del número— es otra cosa y peligrosa.
+
+**El cuidado que importa al hacer un match más permisivo:** no fundir a dos
+clientes en uno, que sería peor que el bug. Las variantes son candidatas; el
+emparejamiento sigue exigiendo 8 cifras por el final, y hay pruebas de que
+dos números parecidos no casan.
+
+### Suelto, para quien siga
+
+- **5 clientes guardados con el cero de más** (`+5804120601059`…). Son fichas
+  duplicadas de gente que ya estaba. No se crean más; las existentes habría
+  que fusionarlas a mano.
+- **VALMONT BARBERIA está SUSPENDIDO** y su tarjeta sigue activa con el
+  enlace circulando. Quien lo abre ve «no disponible» — correcto, pero el
+  negocio quizá no lo sabe.
+- **Sellea sigue sin academia propia.** Se pone en Superadmin → Marcas.
+- **El cobro del Club está a medias** y SIN COMMITEAR: la vigencia, el corte
+  al vencer y el pago manual están hechos y probados (`club-vigencia.ts`), y
+  su migración YA está aplicada en producción. Falta la pantalla para
+  registrar el pago y el aviso de los que vencen.
+
+### Verificado
+
+`tsc` en frío limpio en backend y frontend, **3.190 pruebas en 225 ficheros**
+en verde, `eslint` sin errores. Los despliegues comprobados contra el
+DOMINIO: `/api/health` devuelve el commit, y el frontend por el `dpl_` que
+sirve cada marca.
+
+---
 ## 2026-09-28 (87) — CI otra vez en verde (era un falso positivo mío), y la medida que confirma el peaje de la base
 
 **Estado: commiteado y empujado (`e5675f4b`). Nada de esto necesita desplegarse**
