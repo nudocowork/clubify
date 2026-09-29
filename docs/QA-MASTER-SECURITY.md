@@ -1385,8 +1385,8 @@ original.
 
 | # | Fase | Estado | Nota |
 |---|---|---|---|
-| 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
-| 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
+| 26 | Backups | 🟡 | **El primer respaldo EXISTE** (2026-09-28, 299,5 MB cifrados, a mano con el pipeline real). El nocturno automático espera solo los 6 `gh secret set` de Javier — el porqué de 135 noches de fallo era que los secretos de GitHub nunca se configuraron. La ausencia ya hace ruido: el Vigilante revisa a diario que haya respaldo <26 h y avisa por SMS |
+| 26 | Prueba de restauración | ✅ | **PROBADA el 2026-09-28**: el respaldo cifrado se restauró en un Postgres 18 limpio (Docker) con `restore-db.mjs --latest` y se careó tabla a tabla contra producción: Tenant 138=138, User 362=362, Order 705=705, Pass 9092=9092, Stamp 12383=12383, Card 222=222, MessageLog 1597=1597. Repetirla tras cambios grandes de esquema |
 | 16 | Rate limiting | 🟡 | P0-2. **Codigo hecho y APAGADO** tras `TRUST_PROXY`. Cubo por usuario, signup a 10/hora. Falta desplegar y encender |
 | 10 | API — rutas públicas | 🔄 | P1-2. **150** rutas, **125 abiertas**, **54 escriben** (ya en el CI). Auditadas a fondo: 2 hallazgos P0 y 8 correctas |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |

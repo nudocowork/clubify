@@ -8,6 +8,58 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-28 (89) — El primer respaldo de la base, restaurado y careado
+
+**Estado: hecho y empujado (`cda3a591`, `75656549`). El nocturno automático
+espera SOLO los 6 secretos de GitHub (cadena lista abajo). El chequeo del
+Vigilante necesita desplegar el backend.**
+
+### Lo que había
+
+El workflow `DB Backup` (pg_dump 18 → gzip → AES-256-GCM → R2, retención 30 d)
+estaba **bien construido y muerto de hambre**: `gh secret list` vacío — los 6
+secretos que pide nunca se configuraron. 135 noches seguidas de fallo, la
+última esta misma mañana. Y su único aviso de fallo dependía de un `SENTRY_DSN`
+que tampoco existe: el vigilante estaba tan muerto como lo vigilado.
+
+### Lo que se hizo
+
+1. **Primer respaldo real**, corriendo el pipeline auténtico a mano (Docker
+   local: node 20 + postgresql-client-18, la misma receta del CI):
+   `backups/2026-09-29T03-20-…sql.gz.enc`, **299,5 MB cifrados**.
+
+2. **Prueba de restauración** (fase 26 cerrada): `restore-db.mjs --latest`
+   contra un Postgres 18 limpio, y careo tabla a tabla contra producción —
+   Tenant 138=138, User 362=362, Order 705=705, Pass 9092=9092, Stamp
+   12383=12383, Card 222=222, MessageLog 1597=1597. **Idénticos los siete.**
+   La copia local se destruyó después (contenedor y volumen borrados: eran
+   datos reales).
+
+3. **La ausencia de respaldo ya hace ruido**:
+   `VigilanteService.respaldoQueNoExiste()` mira cada día a las 13:00 UTC el
+   RESULTADO en el bucket, no el job. Respaldo >26 h o inexistente → SMS al
+   equipo. Bucket inconsultable → TAMBIÉN suena («el silencio del que vigila es
+   indistinguible del todo bien», que es como se perdieron las 135 noches).
+   El paso muerto de Sentry del workflow se quitó con el porqué comentado.
+
+4. El nombre del objeto lleva **16 bytes aleatorios**: los respaldos caen (por
+   ahora) en el mismo bucket que las imágenes públicas, que tiene la URL
+   `pub-*.r2.dev` abierta — con nombre adivinable, cualquiera podía bajarse el
+   blob cifrado. Con sufijo aleatorio no hay ruta que adivinar.
+
+### Lo que queda, y de quién es
+
+- **Javier — los 6 secretos** (bloqueado en modo auto): ver la cadena que le
+  dejé en el chat. Después: `gh workflow run backup.yml` y mirar que salga ✓.
+- **Javier — guardar `BACKUP_ENCRYPTION_KEY` en su gestor.** Sin esa clave los
+  respaldos son ILEGIBLES. No está en el repo ni en Railway a propósito.
+- **Desplegar el backend** para que el chequeo del Vigilante empiece a mirar.
+- Mejora pendiente (no bloquea): bucket R2 dedicado y privado para respaldos
+  con token propio — las claves S3 actuales son por-bucket y no pueden crearlo.
+  Con bucket propio, quien comprometa el backend no puede tocar los respaldos.
+- Repetir la prueba de restauración tras cambios grandes de esquema. La receta
+  entera está en este bloque y en los comentarios de `backup-db.mjs`.
+
 ## 2026-09-28 (88) — La academia por marca, el paquete de Railway y un 500 en el alta
 
 Backend `fedfde35` + `302dd52c` + `6adf5934`. **Todo desplegado y verificado
