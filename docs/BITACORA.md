@@ -8,6 +8,38 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (96) — SelleaLab: fuera «Hotmart» de los apartados de pagos; y los InfoLinks fuera del ciclo de cobro
+
+Commits `3a6a74b2` y `7c6e1d53` + `scripts/lab-hotmart-estado.cjs`. **SIN
+DESPLEGAR** (modo auto). La cadena pendiente:
+
+```
+cd backend
+railway run --service Postgres-Nq8w node scripts/lab-hotmart-estado.cjs en-pruebas
+cd ..
+node scripts/desplegar.cjs backend
+node scripts/desplegar.cjs frontend
+```
+
+1. **Lab de Sellea, «Modificacion (Aun dice hotmart)»** (Humberto, 22-09):
+   lo que un admin de marca ve en pagos ya nombra SU pasarela, no Hotmart —
+   hint «Stripe enlazado» dinámico (`pasarelaDelNegocio`), cabecera de
+   «Pagos sin activar», 8 textos es+en (por fuera de la pasarela, código de
+   suscriptor…), descripción de la plantilla de activación. Se quedan: el
+   simulador (solo Clubify), el ORIGEN de un pago real, el alta (solo admin
+   global), comisiones (Jhon). Los lockscreens ya eran dinámicos.
+2. **Reporte nuevo de Humberto: mensajes de cobro a InfoLinks GRATIS.**
+   Verificado en MessageLog: Corks Arts (InfoLink de Sellea) recibió los
+   recordatorios D-7 y D-3 («verifica que tu tarjeta tenga fondos») por SMS
+   y correo. Entraban por la rama de marcas Stripe (PDF 1256 §4) sin filtro
+   de tipo. Regla única `billing/quien-recibe-cobros.ts` en las CINCO
+   selecciones del cron + fechas tardías; candado que las ejercita todas.
+   253 tests de billing en verde. OJO dato: `businessType` es enum NOT NULL
+   (default FULL) — el `not: 'INFOLINK'` basta, sin pata de null.
+   **Los interruptores de apagado SÍ funcionan** (los 2 que Sellea apagó no
+   volvieron a salir): lo que seguía llegando eran las plantillas hermanas
+   de SMS (interruptor aparte) y los InfoLinks.
+
 ## 2026-09-29 (95) — Historial de pagos en grupos empresariales + pauta de mayo 113→118.17
 
 Commit `42021133`. **ACTUALIZACIÓN, mismo día**: Javier corrió la cadena y
