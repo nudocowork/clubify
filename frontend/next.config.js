@@ -62,6 +62,13 @@ const nextConfig = {
         : []),
       { protocol: 'https', hostname: 'cdn.soyclubify.com' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // Google profile
+      // Estos tres salieron de preguntarle a la base qué hosts tiene guardados
+      // de verdad en columnas de imagen (2026-09-28). Sin ellos, al acotar la
+      // lista dejaban de cargar imágenes que hoy funcionan. Son hosts únicos,
+      // no dominios compartidos: no abren la puerta a nadie.
+      { protocol: 'https', hostname: 'images.unsplash.com' }, // Category.imageUrl
+      { protocol: 'https', hostname: 'assets.cdn.filesafe.space' }, // DeliveryCompany.logoUrl
+      { protocol: 'https', hostname: 'app.wazzap.mx' }, // WhiteLabel.whatsappQrUrl
       { protocol: 'https', hostname: 'static-media.hotmart.com' },
       // Bucket público del Onboarding (Supabase): fotos de menú/branding
       // sincronizadas. Restringido al path público de storage.
