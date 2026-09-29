@@ -58,7 +58,9 @@ type Order = {
   readyAt: string | null;
   deliveredAt: string | null;
   cancelledAt: string | null;
-  customer: { id: string; fullName: string; phone: string; email: string | null };
+  /** Null en una venta de mostrador. El nombre suelto va en `customerName`. */
+  customer: { id: string; fullName: string; phone: string; email: string | null } | null;
+  customerName?: string | null;
   /** Direccion de entrega que el cliente rellena en el checkout. */
   deliveryAddress: {
     firstName?: string;
@@ -536,26 +538,46 @@ export default function OrderDetail() {
         <div className="space-y-4">
           <div className="card card-pad">
             <h3 className="font-semibold mb-3">{t('customerTitle')}</h3>
-            <Link
-              href={`/app/customers/${o.customer.id}`}
-              className="block hover:text-brand"
-            >
-              <div className="font-medium">{o.customer.fullName}</div>
-            </Link>
-            <div className="text-sm text-mute mt-1">{o.customer.phone}</div>
-            {o.customer.email && (
-              <div className="text-xs text-mute">{o.customer.email}</div>
+            {/* UNA VENTA DE MOSTRADOR NO TIENE FICHA.
+
+                Sin esta guarda, abrir uno de esos pedidos rompía la pantalla
+                entera: `o.customer.id` sobre null. Se enseña el nombre suelto
+                si lo escribieron —para que en la cocina sepan de quién es— y se
+                ocultan el enlace a la ficha y el botón de WhatsApp, que no
+                llevarían a ningún sitio. */}
+            {o.customer ? (
+              <>
+                <Link
+                  href={`/app/customers/${o.customer.id}`}
+                  className="block hover:text-brand"
+                >
+                  <div className="font-medium">{o.customer.fullName}</div>
+                </Link>
+                <div className="text-sm text-mute mt-1">{o.customer.phone}</div>
+                {o.customer.email && (
+                  <div className="text-xs text-mute">{o.customer.email}</div>
+                )}
+                <div className="flex gap-2 mt-3">
+                  <a
+                    href={`https://wa.me/${o.customer.phone.replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-ghost text-xs flex-1 justify-center"
+                  >
+                    <Icon name="send" /> WhatsApp
+                  </a>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-medium">
+                  {o.customerName?.trim() || 'Mostrador'}
+                </div>
+                <div className="text-sm text-mute mt-1">
+                  Venta de mostrador · sin ficha de cliente
+                </div>
+              </>
             )}
-            <div className="flex gap-2 mt-3">
-              <a
-                href={`https://wa.me/${o.customer.phone.replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-ghost text-xs flex-1 justify-center"
-              >
-                <Icon name="send" /> WhatsApp
-              </a>
-            </div>
           </div>
 
           <div className="card card-pad">
@@ -600,7 +622,7 @@ export default function OrderDetail() {
                   </div>
                 )}
                 {o.deliveryAddress.phone &&
-                  o.deliveryAddress.phone !== o.customer.phone && (
+                  o.deliveryAddress.phone !== o.customer?.phone && (
                     <div className="text-xs text-mute mt-1">
                       Teléfono de la entrega: {o.deliveryAddress.phone}
                     </div>
@@ -1125,9 +1147,11 @@ function KitchenTicket({ order }: { order: Order }) {
             minute: '2-digit',
           })}
           {' · '}
-          {order.customer.fullName}
-          {' · '}
-          {order.customer.phone}
+          {/* En una venta de mostrador no hay ficha: va el nombre suelto, o
+              «Mostrador». El ticket es lo que lee la cocina, así que no puede
+              quedarse en blanco ni reventar. */}
+          {order.customer?.fullName || order.customerName?.trim() || 'Mostrador'}
+          {order.customer?.phone ? ` · ${order.customer.phone}` : ''}
         </div>
 
         <div className="ticket-divider" />
@@ -1283,10 +1307,14 @@ function CustomerReceipt({
         <div className="receipt-section">
           <div className="receipt-label">{t('receiptCustomer')}</div>
           <div className="receipt-row">
-            <span>{order.customer.fullName}</span>
-            <span>{order.customer.phone}</span>
+            <span>
+              {order.customer?.fullName ||
+                order.customerName?.trim() ||
+                'Mostrador'}
+            </span>
+            <span>{order.customer?.phone ?? ''}</span>
           </div>
-          {order.customer.email && (
+          {order.customer?.email && (
             <div className="receipt-row receipt-meta">
               <span>{order.customer.email}</span>
             </div>

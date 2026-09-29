@@ -73,7 +73,16 @@ class ManualOrderItem {
 }
 
 class ManualOrderBody {
-  @IsString() customerId!: string;
+  /**
+   * Opcional desde 2026-09-29: el pedido de MOSTRADOR no tiene ficha.
+   *
+   * Para cobrarle a alguien que entra, pide y se va había que registrarlo
+   * antes en la base. Un negocio que usa los pedidos como caja no quiere
+   * fichar a cada persona (Humberto, Lab de Sellea).
+   */
+  @IsOptional() @IsString() customerId?: string;
+  /** A quién se le entrega cuando no hay ficha. Solo para la cocina y la caja. */
+  @IsOptional() @IsString() @MaxLength(80) customerName?: string;
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => ManualOrderItem)
   items!: ManualOrderItem[];
   @IsOptional() @IsEnum(Fulfillment) fulfillment?: Fulfillment;

@@ -22,7 +22,9 @@ type Order = {
   total: number;
   fulfillment: 'PICKUP' | 'DINE_IN' | 'DELIVERY';
   tableNumber: string | null;
-  customer: { fullName: string; phone: string };
+  /** Null en una venta de mostrador: ahí el nombre suelto va en `customerName`. */
+  customer: { fullName: string; phone: string } | null;
+  customerName?: string | null;
   items: any[];
   createdAt: string;
   confirmedAt?: string | null;
@@ -62,6 +64,23 @@ const NEXT_LABEL_KEY: Record<string, string> = {
   CONFIRMED: 'nextMarkReady',
   READY: 'nextDelivered',
 };
+
+/**
+ * CÓMO SE LLAMA UN PEDIDO EN PANTALLA.
+ *
+ * Con ficha, el nombre del cliente. Sin ficha —venta de mostrador— el nombre
+ * suelto que escribieron, y si no escribieron ninguno, «Mostrador».
+ *
+ * Vive aquí y no repetido en cada sitio porque son tres: la lista, el aviso
+ * de pedido nuevo y el buscador. Con la copia pegada, uno se queda atrás y le
+ * enseña «undefined» al negocio.
+ */
+function nombreDelPedido(o: {
+  customer?: { fullName: string } | null;
+  customerName?: string | null;
+}): string {
+  return o.customer?.fullName || o.customerName?.trim() || 'Mostrador';
+}
 
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -149,12 +168,12 @@ export default function OrdersBoard() {
       setTimeout(() => {
         setFlashId((cur) => (cur === o.id ? null : cur));
       }, 4000);
-      toast(t('toastNewOrder', { code: o.code, name: o.customer.fullName }), 'info');
+      toast(t('toastNewOrder', { code: o.code, name: nombreDelPedido(o) }), 'info');
       // Notificación nativa solo si la pestaña no está visible
       if (typeof document !== 'undefined' && document.hidden) {
         browserNotify(
           t('notifyNewOrder', { code: o.code }),
-          `${o.customer.fullName} · ${fmt(Number(o.total))}`,
+          `${nombreDelPedido(o)} · ${fmt(Number(o.total))}`,
           `/app/orders/${o.id}`,
         );
       }
@@ -648,9 +667,13 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
                     href={`/app/orders/${o.id}`}
                     className="font-semibold text-sm mt-0.5 block hover:text-brand"
                   >
-                    {o.customer.fullName}
+                    {nombreDelPedido(o)}
                   </Link>
-                  <div className="text-xs text-mute">{o.customer.phone}</div>
+                  {o.customer?.phone ? (
+                    <div className="text-xs text-mute">{o.customer.phone}</div>
+                  ) : !o.customer ? (
+                    <div className="text-xs text-mute">Venta de mostrador</div>
+                  ) : null}
                   <div className="text-xs text-mute mt-1">
                     {t('itemsCount', { count: o.items.length })} · {fmt(Number(o.total))}
                   </div>
@@ -761,6 +784,18 @@ function NewOrderModal({
   const t = useTranslations('app_orders');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
+  /**
+   * VENTA DE MOSTRADOR: el pedido sin ficha de cliente.
+   *
+   * El cliente era obligatorio, así que para cobrarle a quien entra, pide y
+   * se va había que registrarlo antes. Un negocio que usa los pedidos como
+   * CAJA no quiere fichar a cada persona (Humberto, Lab de Sellea).
+   *
+   * `sinFicha` y `pickedCustomer` se excluyen: elegir uno limpia el otro.
+   */
+  const [sinFicha, setSinFicha] = useState(false);
+  /** A quién se le entrega, cuando no hay ficha. Opcional. */
+  const [nombreSuelto, setNombreSuelto] = useState("");
   const [pickedCustomer, setPickedCustomer] = useState<CustomerLite | null>(
     null,
   );
@@ -865,7 +900,9 @@ function NewOrderModal({
   const total = subtotal + deliveryNumber;
 
   async function submit() {
-    if (!pickedCustomer) {
+    // O hay ficha, o es venta de mostrador. Lo que no vale es ninguna de las
+    // dos: un pedido sin dueño ni marca de mostrador sería un pedido perdido.
+    if (!pickedCustomer && !sinFicha) {
       setErr(t('errorSelectCustomer'));
       return;
     }
@@ -879,7 +916,12 @@ function NewOrderModal({
       const order = await api<{ id: string }>('/orders', {
         method: 'POST',
         body: JSON.stringify({
-          customerId: pickedCustomer.id,
+          customerId: pickedCustomer?.id,
+          // Solo viaja cuando no hay ficha; con cliente, su nombre es el suyo.
+          customerName:
+            !pickedCustomer && nombreSuelto.trim()
+              ? nombreSuelto.trim()
+              : undefined,
           items: cart.map((c) => ({ productId: c.productId, qty: c.qty })),
           status,
           paymentStatus,
@@ -933,7 +975,39 @@ function NewOrderModal({
           {/* Cliente */}
           <div>
             <label className="label">{t('customer')}</label>
-            {pickedCustomer ? (
+            {sinFicha ? (
+              /* VENTA DE MOSTRADOR. El nombre es opcional y solo sirve para
+                 que la cocina sepa de quién es: no crea ninguna ficha, no
+                 suma sellos y no dispara automatizaciones. */
+              <div className="bg-brand-soft border border-brand/20 rounded-input px-3 py-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm">Venta de mostrador</div>
+                    <div className="text-xs text-mute">
+                      No se guarda ninguna ficha de cliente
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSinFicha(false);
+                      setNombreSuelto("");
+                    }}
+                    className="text-xs text-mute hover:text-ink"
+                  >
+                    {t('change')}
+                  </button>
+                </div>
+                <input
+                  className="input mt-2"
+                  placeholder="¿Para quién? (opcional) — ej. Juan, mesa 5"
+                  value={nombreSuelto}
+                  onChange={(e) => setNombreSuelto(e.target.value)}
+                  maxLength={80}
+                  autoFocus
+                />
+              </div>
+            ) : pickedCustomer ? (
               <div className="flex items-center gap-3 bg-brand-soft border border-brand/20 rounded-input px-3 py-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm">
@@ -963,6 +1037,24 @@ function NewOrderModal({
                   onChange={(e) => setCustomerSearch(e.target.value)}
                   autoFocus
                 />
+                {/* LA SALIDA QUE NO EXISTÍA.
+
+                    Antes, quien no encontraba al cliente solo tenía «Crear
+                    cliente nuevo», que abre otra pantalla y obliga a fichar a
+                    alguien que solo quiere pagar y marcharse. Va aquí arriba y
+                    siempre visible, no escondido tras una búsqueda sin
+                    resultados: en una caja lo normal es no tener ficha. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSinFicha(true);
+                    setPickedCustomer(null);
+                    setCustomerSearch("");
+                  }}
+                  className="mt-2 text-xs text-brand hover:underline"
+                >
+                  Continuar sin cliente (venta de mostrador) →
+                </button>
                 {customerSearch.trim().length >= 2 && (
                   <div className="border border-line rounded-input mt-1 max-h-48 overflow-y-auto bg-white">
                     {customers.length === 0 ? (
@@ -1204,7 +1296,7 @@ function NewOrderModal({
               type="button"
               onClick={submit}
               disabled={
-                submitting || !pickedCustomer || cart.length === 0
+                submitting || (!pickedCustomer && !sinFicha) || cart.length === 0
               }
               className="btn-primary disabled:opacity-50"
             >

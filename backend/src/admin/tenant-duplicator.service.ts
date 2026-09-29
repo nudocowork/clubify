@@ -806,8 +806,12 @@ export class TenantDuplicatorService {
           where: { tenantId: opts.sourceTenantId },
         });
         for (const o of orders) {
-          const newCustomerId = customerMap.get(o.customerId);
-          if (!newCustomerId) continue;
+          // Un pedido de MOSTRADOR no tiene cliente que mapear, y saltárselo
+          // dejaría la copia del negocio sin sus ventas de caja.
+          const newCustomerId = o.customerId
+            ? customerMap.get(o.customerId)
+            : null;
+          if (o.customerId && !newCustomerId) continue;
           const newId = randomUUID();
           orderMap.set(o.id, newId);
           await this.prisma.order.create({

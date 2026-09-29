@@ -1100,7 +1100,8 @@ export class OrdersService {
     user: AuthUser,
     override: string | undefined,
     dto: {
-      customerId: string;
+      customerId?: string;
+      customerName?: string;
       items: Array<{
         productId: string;
         variantId?: string | null;
@@ -1125,10 +1126,20 @@ export class OrdersService {
     await this.assertTenantActive(tid);
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
 
-    const customer = await this.prisma.customer.findUnique({
-      where: { id: dto.customerId },
-    });
-    if (!customer || customer.tenantId !== tid) {
+    // VENTA DE MOSTRADOR: sin ficha de cliente.
+    //
+    // El cliente era obligatorio, así que para cobrarle a alguien que entra,
+    // pide y se va había que registrarlo antes en la base. Un negocio que usa
+    // los pedidos como CAJA —para que la cocina los procese— no quiere fichar
+    // a cada persona (Humberto, Lab de Sellea, 2026-09-23).
+    //
+    // Si SÍ viene un cliente se comprueba igual que siempre, incluido que sea
+    // de ESTE negocio: que el campo sea opcional no puede abrir la puerta a
+    // colgarle un pedido al cliente de otro.
+    const customer = dto.customerId
+      ? await this.prisma.customer.findUnique({ where: { id: dto.customerId } })
+      : null;
+    if (dto.customerId && (!customer || customer.tenantId !== tid)) {
       throw new NotFoundException('Cliente no existe en este negocio');
     }
 
@@ -1203,7 +1214,11 @@ export class OrdersService {
     const order = await this.prisma.order.create({
       data: {
         tenantId: tid,
-        customerId: customer.id,
+        customerId: customer?.id ?? null,
+        // El nombre suelto SOLO cuando no hay ficha: con cliente, el nombre
+        // es el suyo y duplicarlo aquí crearía dos versiones que se
+        // contradicen en cuanto alguien edite la ficha.
+        customerName: customer ? null : dto.customerName?.trim() || null,
         code,
         items: items as any,
         subtotal,
@@ -1237,7 +1252,12 @@ export class OrdersService {
     // Si arranca confirmed o más, dispara la automation igual que público.
     // El sello automático NO: ese va solo si el pedido nace ya ENTREGADO
     // (regla 2026-08-20 — ver autoStampOnDelivered).
-    if (['CONFIRMED', 'READY', 'DELIVERED'].includes(status)) {
+    // SIN FICHA NO HAY AUTOMATIZACIONES NI SELLOS, y no es una limitación:
+    // es lo que se pidió. Las automatizaciones mandan mensajes AL CLIENTE y
+    // aquí no hay a quién, y el sello es fidelización — el negocio que usa
+    // los pedidos como caja no quiere fidelizar a quien pasa por el
+    // mostrador. Con ficha, todo sigue exactamente igual que antes.
+    if (customer && ['CONFIRMED', 'READY', 'DELIVERED'].includes(status)) {
       this.automations
         .emit('ORDER_CONFIRMED', {
           tenantId: tid,
@@ -1251,7 +1271,7 @@ export class OrdersService {
           ),
         );
     }
-    if (status === 'DELIVERED') {
+    if (customer && status === 'DELIVERED') {
       // Registro de venta pasada (POS): nace entregado → sí lleva su sello.
       await this.autoStampOnDelivered(tid, customer.id, order.id).catch(() => null);
       this.automations
@@ -1270,7 +1290,7 @@ export class OrdersService {
     await this.prisma.event.create({
       data: {
         tenantId: tid,
-        customerId: customer.id,
+        customerId: customer?.id ?? null,
         type: 'order.created',
         payload: { orderId: order.id, total, channel: 'MANUAL', actorId: user.id },
       },
@@ -1915,7 +1935,12 @@ export class OrdersService {
       // luego se cancelaba, el sello quedaba regalado (pasó en producción:
       // pedidos cancelados con sello vivo). El negocio siempre puede sellar
       // manualmente cuando quiera; esto solo mueve el automático.
-      await this.autoStampOnDelivered(o.tenantId, o.customerId, o.id).catch(() => null);
+      // Un pedido de MOSTRADOR no tiene ficha: ni sello ni aviso. Es lo que
+      // se pidió —usar los pedidos como caja sin fidelizar a quien pasa—, y
+      // además no hay cliente al que avisar.
+      if (o.customerId) {
+        await this.autoStampOnDelivered(o.tenantId, o.customerId, o.id).catch(() => null);
+      }
       this.automations
         .emit('ORDER_DELIVERED', {
           tenantId: o.tenantId,
@@ -2003,7 +2028,7 @@ export class OrdersService {
     );
 
     // Emails transaccionales para cambios clave
-    if (next === 'CONFIRMED' || next === 'READY') {
+    if (o.customerId && (next === 'CONFIRMED' || next === 'READY')) {
       this.sendStatusEmail(o.tenantId, o.customerId, o.code, next).catch(
         () => null,
       );
@@ -2080,11 +2105,16 @@ export class OrdersService {
       },
     });
 
-    const courierLink = this.channels.generateWaMeCourier(
-      updated.tenant,
-      updated as any,
-      updated.customer,
-    );
+    // Sin ficha, el enlace al domiciliario se queda vacío: ese mensaje es
+      // «Cliente: nombre · teléfono» y sin cliente no dice nada. Una venta de
+    // mostrador se entrega en el mostrador.
+    const courierLink = updated.customer
+      ? this.channels.generateWaMeCourier(
+          updated.tenant,
+          updated as any,
+          updated.customer,
+        )
+      : '';
 
     this.broadcast(id).catch((e) =>
       this.logger.warn(

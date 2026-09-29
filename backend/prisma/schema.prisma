@@ -2402,8 +2402,23 @@ model Order {
   id             String       @id @default(uuid())
   tenantId       String
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerId     String
-  customer       Customer     @relation(fields: [customerId], references: [id])
+  /// EL PEDIDO DE MOSTRADOR NO TIENE FICHA DE CLIENTE.
+  ///
+  /// Era obligatorio, así que para cobrar a alguien que entra, pide y se va
+  /// había que registrarlo antes en la base. Un negocio de Sellea (Empanadas La
+  /// Parada) usa los pedidos como CAJA —para que la cocina los procese— y no
+  /// quiere fichar a cada persona: pedido de Humberto en el Lab de Sellea
+  /// (2026-09-23), «solo quiere poder usar las órdenes como sistema de venta».
+  ///
+  /// Null = venta de mostrador. El nombre suelto, si lo escribieron, va en
+  /// `customerName`; no se crea ninguna ficha ni se acumulan sellos, que es
+  /// justo lo que se quería evitar.
+  customerId     String?
+  customer       Customer?    @relation(fields: [customerId], references: [id])
+  /// A quién se le entrega, cuando no hay ficha: «Juan», «el de la moto».
+  /// Solo para que la cocina y la caja sepan de quién es. Sin ficha y sin esto,
+  /// el pedido se muestra como venta de mostrador a secas.
+  customerName   String?
   code           String       @unique
   items          Json
   subtotal       Decimal      @db.Decimal(10, 2)
