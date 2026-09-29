@@ -247,6 +247,41 @@ por el cero venezolano siguen capturando el alta exacta (fusión manual).
 comprobados contra los dominios (`b789cbc` / `dpl_Ha7uNeef`).
 
 ---
+## 2026-09-29 (90) — El 429 habla español: lo único que frenaba el rate limiting
+
+**Estado: commiteado y empujado (`289ee9a6`). SIN desplegar — y el orden del
+encendido importa, ver abajo.**
+
+El límite de peticiones lleva semanas construido y APAGADO (`TRUST_PROXY` sin
+poner en Railway). Lo que frenaba encenderlo: el día que mordiera, un negocio
+iba a ver **«ThrottlerException: Too Many Requests»** en el toast del login.
+
+- El mensaje ahora **nace en español** en `ThrottlerPorUsuario`
+  (`throwThrottlingException`): «Demasiados intentos seguidos. Espera un
+  momento y vuelve a intentarlo.» Con eso quedan bien TODAS las superficies de
+  una vez: panel, reserva pública, pedido público, app iOS, Onboarding. El
+  `Retry-After` no se pierde (el guard base lo pone antes).
+- `frontend/src/lib/api.ts` además decide por el **código 429**, no por el
+  texto (un 429 puede venir de Vercel o un proxy, en inglés o sin cuerpo), y
+  usa el `Retry-After` para decir cuánto falta: «…en 40 segundos».
+
+### El ORDEN de encendido — no saltárselo
+
+1. Migraciones de la entrada 86 (obligatorias, la cuponera se cae sin ellas):
+   `railway run node scripts/apply-ally-zone-migration.cjs` y
+   `railway run node scripts/apply-location-external-id-migration.cjs`
+   (desde `backend/`).
+2. `node scripts/desplegar.cjs backend` y luego `frontend` (desde la raíz).
+3. Verificar: `curl -s https://api.soyclubify.com/api/health/red` (nuevo) debe
+   responder, y `/api/health` decir el commit nuevo.
+4. **Recién entonces**: `railway variables --set "TRUST_PROXY=1" --service backend`
+   (Railway redespliega solo al cambiar la variable, y el main.ts que la lee
+   ya está en producción desde septiembre).
+
+Encender ANTES de desplegar activaría el límite con el mensaje viejo en inglés
+— justo lo que se acaba de arreglar. Al encender, vigilar el log de arranque:
+debe decir «trust proxy ACTIVADO».
+
 ## 2026-09-28 (89) — El primer respaldo de la base, restaurado y careado
 
 **Estado: hecho y empujado (`cda3a591`, `75656549`). El nocturno automático
