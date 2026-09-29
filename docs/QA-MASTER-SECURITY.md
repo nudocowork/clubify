@@ -1387,7 +1387,7 @@ original.
 |---|---|---|---|
 | 26 | Backups | ✅ | **El nocturno CORRE solo** desde el 2026-09-29 (03:00 UTC, 30 d de retención, AES-256-GCM). Secretos puestos por Javier; clave de cifrado SOLO en su gestor. Tres guardarraíles tras cazar dos verdes falsos (pg_dump 16 del runner; success de 15 s con bucket vacío): PATH verificado que muerde, mínimo de tamaño, y el Vigilante mirando el bucket a diario (ese espera deploy). Mejora pendiente: bucket R2 dedicado y privado |
 | 26 | Prueba de restauración | ✅ | **PROBADA el 2026-09-28**: el respaldo cifrado se restauró en un Postgres 18 limpio (Docker) con `restore-db.mjs --latest` y se careó tabla a tabla contra producción: Tenant 138=138, User 362=362, Order 705=705, Pass 9092=9092, Stamp 12383=12383, Card 222=222, MessageLog 1597=1597. Repetirla tras cambios grandes de esquema |
-| 16 | Rate limiting | 🟡 | P0-2. Código hecho; el 429 ya habla español en las dos puntas (2026-09-29), que era lo que frenaba encenderlo. Queda: desplegar backend+frontend y LUEGO `TRUST_PROXY=1` — el orden exacto está en la bitácora 90 |
+| 16 | Rate limiting | ✅ | **P0-2 CERRADO el 2026-09-29**: `TRUST_PROXY=1` puesto y verificado contra producción — el login responde 429 en español al exceder 10/min, `trial-signup` a 2/hora con `retry-after` correcto, y cuenta por la IP real del cliente. Matiz documentado en la bitácora 90: IPv4+IPv6 = dos cubos por cliente (presupuesto ×2), aceptado a conciencia |
 | 10 | API — rutas públicas | 🔄 | P1-2. **150** rutas, **125 abiertas**, **54 escriben** (ya en el CI). Auditadas a fondo: 2 hallazgos P0 y 8 correctas |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 

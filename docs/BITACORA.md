@@ -323,6 +323,32 @@ Encender ANTES de desplegar activaría el límite con el mensaje viejo en inglé
 — justo lo que se acaba de arreglar. Al encender, vigilar el log de arranque:
 debe decir «trust proxy ACTIVADO».
 
+### Anexo (misma tarde): ENCENDIDO Y VERIFICADO — P0-2 cerrado
+
+Javier corrió la cadena (el redeploy y `TRUST_PROXY=1`) y quedó comprobado
+contra producción, no contra el código:
+
+- 24 golpes al login: los que caben pasan, el resto **429 con
+  `{"message":"Demasiados intentos seguidos. Espera un momento y vuelve a
+  intentarlo."}`** — en español, como nació en el guard.
+- `trial-signup` (2/hora): mordiendo con `retry-after: 3445` en la cabecera,
+  que el frontend nuevo convierte en «puedes volver a intentarlo en 57
+  minutos».
+- El límite cuenta por la IP REAL del cliente (trust proxy funcionando), no
+  por la del proxy de Railway.
+
+**Un matiz para no sorprenderse después:** un cliente con IPv4 e IPv6 tiene
+DOS cubos (el tracker es por IP), así que su presupuesto efectivo se dobla —
+el login son 10/min por pila, 20/min si alterna. Se queda así a conciencia:
+el freno contra fuerza bruta ilimitada es lo que importa, el global de
+100/min corre igual por encima, y «arreglarlo» agrupando por prefijo
+castigaría a los locales con varios empleados, que fue el motivo del cubo
+por usuario. Mis primeras tandas de prueba (11 y 3 golpes) no chocaban
+justo por esto: se repartían entre las dos pilas sin llenar ninguna.
+
+Con esto el **P0-2 queda cerrado** después de meses: había código sin efecto
+desde septiembre y ya frena de verdad.
+
 ## 2026-09-28 (89) — El primer respaldo de la base, restaurado y careado
 
 **Estado: hecho y empujado (`cda3a591`, `75656549`). El nocturno automático
