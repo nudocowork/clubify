@@ -176,6 +176,43 @@ prueba('la lista de hosts no se ha separado de next.config.js', () => {
   }
 });
 
+prueba('y tampoco al revés: optimizable pero no configurado sale EN BLANCO', () => {
+  // La dirección que faltaba, y es la peligrosa. La de arriba pilla «un CDN
+  // nuevo se sirve crudo», que es feo pero funciona. Esta pilla lo contrario:
+  // si PATRONES_OPTIMIZABLES acepta un host que next.config.js no tiene, la
+  // URL se envuelve en /_next/image, Next la rechaza y la imagen no sale.
+  // No sale fea: NO SALE.
+  //
+  // Pasó el 2026-09-28 al acotar remotePatterns a hosts exactos: el config se
+  // quedó con los exactos y esta lista mantuvo el comodín de r2.dev. La de
+  // arriba pasaba igual, porque solo mira en un sentido.
+  const cfg = readFileSync(CONFIG, 'utf8');
+  const configurados = [...cfg.matchAll(/hostname:\s*'([^']+)'/g)].map((m) => m[1]);
+
+  const espejo = readFileSync(
+    new URL('../src/lib/imagen-optimizada.mjs', import.meta.url),
+    'utf8',
+  );
+  // De una expresión como /^cdn\.soyclubify\.com$/i sale cdn.soyclubify.com.
+  const optimizables = [...espejo.matchAll(/host:\s*\/\^?([^$\/]+)\$?\//g)].map((m) =>
+    m[1].split('\\.').join('.'),
+  );
+  afirmar(optimizables.length > 0, 'no pude leer PATRONES_OPTIMIZABLES');
+
+  const sinComodin = (h) => h.replace(/^\*+\.?/, '');
+  for (const h of optimizables) {
+    const base = sinComodin(h);
+    const casa = configurados.some((c) => {
+      const cb = sinComodin(c);
+      return c === h || cb === base || base.endsWith('.' + cb) || cb.endsWith('.' + base);
+    });
+    afirmar(
+      casa,
+      `optimizable pero NO está en next.config.js: ${h} — sus imágenes saldrían en blanco`,
+    );
+  }
+});
+
 prueba('los anchos por defecto de Next siguen siendo los que damos por buenos', () => {
   // ANCHOS_PERMITIDOS son los `deviceSizes` POR DEFECTO. Si alguien los
   // redefine en next.config.js, nuestra lista deja de ser cierta y podemos

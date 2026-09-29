@@ -13,7 +13,6 @@
  * BLANCO (dentro de un `srcset` el navegador no cae al `src`). Comprobado
  * contra producción el 2026-09-17:
  *   - un ancho fuera de la lista (w=900)                    → 400
- *   - un host fuera de `remotePatterns` (images.unsplash.com) → 400
  *   - supabase fuera de `/storage/v1/object/public/`        → 400
  *   - el bucket por `http://` en vez de `https://`           → 400
  * Una original de 4,4 MB sí la acepta (200, 269 KB a w=828).
@@ -37,9 +36,15 @@ export const ANCHOS_PERMITIDOS = [640, 750, 828, 1080, 1200, 1920, 2048, 3840];
  * ruta: el optimizador compara las TRES cosas, no solo el host. Hay una prueba
  * que lee `next.config.js` para que las dos listas no se separen en silencio.
  */
+// Hosts EXACTOS, en el mismo orden que `next.config.js`. Nada de un comodin
+// sobre `r2.dev`: es un dominio COMPARTIDO de Cloudflare —todo bucket publico
+// de R2 es un `pub-<hash>.r2.dev`—. Y aqui ser mas permisivo que el config es
+// peor que un despiste: esta lista decide si la URL se envuelve en
+// `/_next/image`, asi que un host que aqui pasa y alli no sale EN BLANCO, no
+// crudo. La prueba `pruebas-libro-imagenes.mjs` compara las dos listas.
 const PATRONES_OPTIMIZABLES = [
-  { protocolo: 'https:', host: /\.r2\.dev$/i },
-  { protocolo: 'https:', host: /\.r2\.cloudflarestorage\.com$/i },
+  { protocolo: 'https:', host: /^pub-6de3a37544604346a69b9836aed1c6cf\.r2\.dev$/i },
+  { protocolo: 'https:', host: /^5e5288c7d32815944510f3a01aa82614\.r2\.cloudflarestorage\.com$/i },
   { protocolo: 'https:', host: /^cdn\.soyclubify\.com$/i },
   { protocolo: 'https:', host: /^lh3\.googleusercontent\.com$/i },
   { protocolo: 'https:', host: /^static-media\.hotmart\.com$/i },

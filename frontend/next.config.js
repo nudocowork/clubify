@@ -56,19 +56,15 @@ const nextConfig = {
       // imagen vieja puede apuntar acá. Quitarlo sin comprobar la base rompería
       // esas imágenes, y con un comodín valdría cualquier cuenta de R2.
       { protocol: 'https', hostname: '5e5288c7d32815944510f3a01aa82614.r2.cloudflarestorage.com' },
-      // Si hay CDN propio configurado, su host exacto — no un comodín.
-      ...(hostDe(process.env.NEXT_PUBLIC_S3_PUBLIC_URL)
-        ? [{ protocol: 'https', hostname: hostDe(process.env.NEXT_PUBLIC_S3_PUBLIC_URL) }]
-        : []),
       { protocol: 'https', hostname: 'cdn.soyclubify.com' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // Google profile
-      // Estos tres salieron de preguntarle a la base qué hosts tiene guardados
-      // de verdad en columnas de imagen (2026-09-28). Sin ellos, al acotar la
-      // lista dejaban de cargar imágenes que hoy funcionan. Son hosts únicos,
-      // no dominios compartidos: no abren la puerta a nadie.
-      { protocol: 'https', hostname: 'images.unsplash.com' }, // Category.imageUrl
-      { protocol: 'https', hostname: 'assets.cdn.filesafe.space' }, // DeliveryCompany.logoUrl
-      { protocol: 'https', hostname: 'app.wazzap.mx' }, // WhiteLabel.whatsappQrUrl
+      // Ojo: `images.unsplash.com`, `assets.cdn.filesafe.space` y
+      // `app.wazzap.mx` SÍ tienen imágenes guardadas en la base, y aun así NO
+      // van aquí. Nunca estuvieron permitidos, así que siempre se sirvieron
+      // crudos y funcionan. Unsplash además devuelve 400 cuando el
+      // optimizador de Next le pide la imagen, y eso ya se pagó una vez: está
+      // fijado en `scripts/pruebas-imagenes-del-menu.mjs`. Que un host esté en
+      // la base no significa que haya que optimizarlo.
       { protocol: 'https', hostname: 'static-media.hotmart.com' },
       // Bucket público del Onboarding (Supabase): fotos de menú/branding
       // sincronizadas. Restringido al path público de storage.
