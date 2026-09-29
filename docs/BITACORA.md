@@ -10,8 +10,12 @@
 
 ## 2026-09-29 (95) — Historial de pagos en grupos empresariales + pauta de mayo 113→118.17
 
-Commit `42021133`. **SIN DESPLEGAR; los DOS scripts de datos SIN CORRER**
-(mismo bloqueo del modo auto). La cadena pendiente completa quedó así:
+Commit `42021133`. **ACTUALIZACIÓN, mismo día**: Javier corrió la cadena y
+quedó TODO verificado contra el dominio — backend `2ebcd9d` (la ruta de
+grupos pasó de 404 a 401), frontend `dpl_AsDTxFs2…`, Habibi `432/82.08/349.92`
+y pauta `118.17`. Sara avisada por SMS. Nada pendiente de este bloque.
+
+La cadena que se corrió (la dejo por si hay que repetirla):
 
 ```
 cd backend
