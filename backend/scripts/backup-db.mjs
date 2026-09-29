@@ -88,7 +88,15 @@ function timestamp() {
 
 async function backup() {
   const stamp = timestamp();
-  const key = `${PREFIX}${stamp}.sql.gz.enc`;
+  // El nombre lleva un sufijo aleatorio ADEMÁS del cifrado, porque el bucket
+  // donde caen estos respaldos es el mismo que sirve las imágenes públicas y
+  // tiene URL de desarrollo de R2 (pub-*.r2.dev): todo objeto del bucket se
+  // puede descargar por ruta. Con un nombre adivinable (la fecha lo es),
+  // cualquiera podría bajarse el blob cifrado y guardárselo para el día en que
+  // la clave se filtre. Con 16 bytes aleatorios en el nombre, no hay ruta que
+  // adivinar. El día que exista un bucket dedicado y privado para respaldos,
+  // este sufijo sobra — pero no estorba.
+  const key = `${PREFIX}${stamp}-${randomBytes(16).toString('hex')}.sql.gz.enc`;
   const aesKey = deriveKey();
   const iv = randomBytes(12); // GCM standard
   const cipher = createCipheriv('aes-256-gcm', aesKey, iv);
