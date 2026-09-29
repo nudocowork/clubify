@@ -8,6 +8,22 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (97) — Lab: implementar una propuesta de marca avisa a la marca y a Sara
+
+Commit `a9dac92e`. **SIN DESPLEGAR** (modo auto): `node scripts/desplegar.cjs backend`.
+
+Regla nueva de Javier: al pasar a IMPLEMENTED una propuesta de una MARCA
+BLANCA, `notifyStatusChange` manda (1) SMS al administrador que la propuso
+por la línea de la plataforma (sin teléfono → correo) y (2) SMS a Sara
+(`TELEFONO_SARA_LAB` en `lab-aviso.ts`) con marca, título y autor. Las de la
+plataforma siguen igual. 4 candados; 88 tests del Lab en verde.
+
+**OJO operativo**: la propuesta «Aun dice hotmart» está IN_TESTING; para
+cerrarla hay que marcarla IMPLEMENTED **desde el panel** (Admin → Lab) una
+vez desplegado esto — así salen los dos avisos solos. El script
+`lab-hotmart-estado.cjs implementada` escribe directo a la base y se los
+salta (ya lo advierte su cabecera).
+
 ## 2026-09-29 (96) — SelleaLab: fuera «Hotmart» de los apartados de pagos; y los InfoLinks fuera del ciclo de cobro
 
 Commits `3a6a74b2` y `7c6e1d53` + `scripts/lab-hotmart-estado.cjs`.
