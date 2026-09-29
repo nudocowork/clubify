@@ -8,6 +8,34 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (92) — El aviso de emisión ya NO cae a la subcuenta de la marca
+
+Commit `11ad9460`. **Compilado y probado en verde; SIN DESPLEGAR** (el modo
+auto bloquea el deploy — la cadena es `node scripts/desplegar.cjs backend` y
+luego `frontend`).
+
+Javier, al ver el SMS de la entrada 91: **«El negocio no puede enviar
+mensajes a los clientes finales.»** Y el arqueo de producción le da la razón
+con números: 133 negocios y **solo 1 con conexión Grow Business propia** (una
+prueba de Sellea). El respaldo «negocio → subcuenta de su marca» que copié de
+las automatizaciones significaba que casi todo aviso de emisión habría salido
+por el número de **Clubify** (113 negocios apuntan a esa marca) o de Sellea
+(11) hacia el cliente final de otro. Coste y remitente ajenos.
+
+- `entregarEnlaceDeTarjeta` ya solo envía con las credenciales del **propio
+  negocio**; sin ellas → `via: 'sin-credenciales'`, nada sale.
+- El `whiteLabel` se sigue consultando pero **solo por los dominios** del
+  enlace (`brandAppUrl`); fuera `brandGrowCreds`/`BRAND_GROW_SELECT` de
+  pases.
+- Panel: «Tu negocio no tiene conectada su línea de mensajes, así que no se
+  le avisó: cópiale el enlace…» (+ tildes de «házselo» en las tres salidas).
+- Candado en `emitir-y-entregar.spec.ts` (8/8): marca CON subcuenta y negocio
+  sin conexión → no se envía.
+
+**OJO — el mismo respaldo de marca sigue vivo en** `customer-order-sms`
+(opt-in por negocio) **y en las automatizaciones** (`resolveCustomerSmsCreds`).
+Son preexistentes y de más alcance: no se tocan sin decisión de Javier.
+
 ## 2026-09-29 (91) — «Emitir tarjeta» ahora le cuenta al cliente que existe
 
 Backend `c7b20c3b`. **Desplegado y verificado contra los dominios** (backend
