@@ -50,6 +50,22 @@ describe('a quien se le cuentan las peticiones', () => {
     expect(t).toBe('ip:181.50.2.3');
   });
 
+  it('el 429 sale en español y sigue siendo un 429', async () => {
+    // Lo que el negocio iba a ver en el toast era «ThrottlerException: Too
+    // Many Requests» — y ese texto fue lo que frenó el encendido del limite
+    // durante semanas. El mensaje nace en español en el guard para que TODAS
+    // las superficies (panel, reserva pública, app iOS, Onboarding) queden
+    // bien de una vez, sin cazar pantallas.
+    try {
+      await (guard as any).throwThrottlingException();
+      expect.unreachable('tenía que lanzar');
+    } catch (e: any) {
+      expect(e.getStatus()).toBe(429);
+      expect(e.message).toMatch(/Demasiados intentos/);
+      expect(e.message).not.toMatch(/Throttler|Too Many/i);
+    }
+  });
+
   it('si no hay ni usuario ni IP, agrupa — nunca deja pasar sin contar', async () => {
     // El peor caso tiene que ser "cuenta de mas", jamas "no cuenta".
     const t = await tracker(guard, {});

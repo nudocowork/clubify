@@ -349,6 +349,26 @@ async function apiWithRefresh<T>(
       }
     }
 
+    // 429: el límite de peticiones. El backend ya manda este error en
+    // español, pero acá NO se depende de ese texto: un 429 puede venir de
+    // cualquier capa por delante (Vercel, un proxy) con el cuerpo en inglés o
+    // sin cuerpo. Se decide por el código de estado, que no miente, y se
+    // aprovecha el Retry-After — que el guard pone en segundos — para decir
+    // cuánto falta en vez de un «inténtalo luego» a ciegas.
+    if (res.status === 429) {
+      const retry = Number(res.headers.get('retry-after'));
+      const cuanto =
+        Number.isFinite(retry) && retry > 0
+          ? retry <= 90
+            ? ` Puedes volver a intentarlo en ${Math.ceil(retry)} segundos.`
+            : ` Puedes volver a intentarlo en ${Math.ceil(retry / 60)} minutos.`
+          : ' Espera un momento y vuelve a intentarlo.';
+      const err: any = new Error(`Demasiados intentos seguidos.${cuanto}`);
+      err.status = 429;
+      err.code = 'RATE_LIMIT';
+      throw err;
+    }
+
     // El `ValidationPipe` de Nest devuelve `message` como ARRAY de frases. Con
     // `JSON.stringify` el negocio veía en el toast un literal con corchetes y
     // comillas —`["desdeDia must not be less than 1"]`— en vez de una frase.

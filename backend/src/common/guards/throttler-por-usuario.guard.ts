@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerException, ThrottlerGuard } from '@nestjs/throttler';
 
 /**
  * Limitador de peticiones que cuenta POR USUARIO cuando hay sesión, y por IP
@@ -26,6 +26,23 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  */
 @Injectable()
 export class ThrottlerPorUsuario extends ThrottlerGuard {
+  /**
+   * El 429 sale en español DESDE AQUÍ, no traducido en cada pantalla.
+   *
+   * El de serie responde «ThrottlerException: Too Many Requests», y eso era lo
+   * que iba a ver un negocio en el toast del login el día que se encendiera
+   * TRUST_PROXY — de hecho fue LO QUE FRENÓ el encendido durante semanas.
+   * Naciendo en español, queda bien en todas las superficies de una vez: el
+   * panel, las páginas públicas de reserva y pedido (que no pasan por
+   * api.ts), la app iOS y el Onboarding. El header Retry-After no se pierde:
+   * el guard base lo pone ANTES de llamar acá (throttler.guard.js:107).
+   */
+  protected async throwThrottlingException(): Promise<void> {
+    throw new ThrottlerException(
+      'Demasiados intentos seguidos. Espera un momento y vuelve a intentarlo.',
+    );
+  }
+
   protected async getTracker(req: Record<string, any>): Promise<string> {
     const userId = req?.user?.id;
     if (userId) return `u:${userId}`;
