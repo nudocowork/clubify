@@ -168,11 +168,14 @@ export default function PendingPaymentsPage() {
           Actualizar
         </button>
       </div>
+      {/* Sin nombrar Hotmart: esta pantalla la ven los admins de marca y su
+          pasarela es la suya (la queja de Humberto en el Lab, 2026-09-22).
+          La columna «Pasarela» ya dice la de cada pago, que es la verdad. */}
       <p className="text-sm text-mute mb-4">
-        Compradores que pagaron (Hotmart o la pasarela de la marca) pero aún no
-        terminaron de crear su cuenta. Reenvíales el enlace de activación, o si
-        el negocio ya existe (paga otra persona: el contador, el socio),
-        asígnale el pago directamente.
+        Compradores que pagaron en la pasarela pero aún no terminaron de crear
+        su cuenta. Reenvíales el enlace de activación, o si el negocio ya
+        existe (paga otra persona: el contador, el socio), asígnale el pago
+        directamente.
       </p>
 
       <div className="card overflow-hidden p-0">

@@ -91,7 +91,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     label: 'Pago recibido sin cuenta creada',
     folderLabel: 'Pago sin cuenta',
     description:
-      'Se envía al comprador que pagó (Hotmart o la pasarela de la marca) y todavía no creó su cuenta, con el enlace para activarla. El botón «Reenviar» de Pagos sin activar manda este mismo correo.',
+      'Se envía al comprador que pagó en la pasarela y todavía no creó su cuenta, con el enlace para activarla. El botón «Reenviar» de Pagos sin activar manda este mismo correo.',
     // Va al COMPRADOR, que aún no tiene negocio: acá no existen {brandName} ni
     // {ownerName} — la identidad es la de la MARCA ({platform}).
     vars: ['platform', 'buyerName', 'loginEmail', 'activateUrl'],

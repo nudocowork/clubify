@@ -2990,12 +2990,31 @@ function NotifStep({
 
 type BillingMode = 'free' | 'trial' | 'paid' | 'pending';
 
+// El hint de «Pagada» nombra la pasarela REAL del negocio/marca: a un admin
+// de Sellea (Stripe) le decía «Hotmart enlazado» — la queja literal de
+// Humberto en el Lab (2026-09-22): «en los apartados de pagos, dice hotmart».
 const MODE_OPTIONS: Array<{ v: BillingMode; emoji: string; label: string; hint: string }> = [
   { v: 'pending', emoji: '🔒', label: 'Sin pago', hint: 'Lockscreen activo' },
   { v: 'free', emoji: '🎁', label: 'Sin costo', hint: 'Cortesía indefinida' },
   { v: 'trial', emoji: '⏱', label: 'Trial', hint: 'Acceso por X días' },
-  { v: 'paid', emoji: '💳', label: 'Pagada', hint: 'Hotmart enlazado' },
+  { v: 'paid', emoji: '💳', label: 'Pagada', hint: 'Pasarela enlazada' },
 ];
+
+const GATEWAY_LABELS: Record<string, string> = {
+  HOTMART: 'Hotmart',
+  STRIPE: 'Stripe',
+  MANUAL: 'Manual',
+  MERCADOPAGO: 'Mercado Pago',
+  WOMPI: 'Wompi',
+  PAYPAL: 'PayPal',
+};
+
+/** La pasarela por la que paga este negocio: la de su suscripción o la de su
+ *  marca; sin marca (Clubify) es Hotmart. */
+function pasarelaDelNegocio(tenant: any): string {
+  const g = tenant?.subscription?.gateway || tenant?.whiteLabel?.paymentGateway || 'HOTMART';
+  return GATEWAY_LABELS[g] ?? g;
+}
 
 function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }) {
   const t = useTranslations('admin_tenants_id');
@@ -3214,7 +3233,11 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
             >
               <div className="text-lg mb-0.5">{opt.emoji}</div>
               <div className="text-sm font-semibold">{opt.label}</div>
-              <div className="text-[11px] text-mute">{opt.hint}</div>
+              <div className="text-[11px] text-mute">
+                {opt.v === 'paid'
+                  ? `${pasarelaDelNegocio(tenant)} enlazado`
+                  : opt.hint}
+              </div>
             </button>
           );
         })}
@@ -3274,14 +3297,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
               tenant.subscription?.gateway ||
               tenant.whiteLabel?.paymentGateway ||
               'HOTMART';
-            const gatewayLabels: Record<string, string> = {
-              HOTMART: 'Hotmart',
-              STRIPE: 'Stripe',
-              MANUAL: 'Manual',
-              MERCADOPAGO: 'Mercado Pago',
-              WOMPI: 'Wompi',
-              PAYPAL: 'PayPal',
-            };
+            const gatewayLabels = GATEWAY_LABELS;
             const editable = gateway === 'HOTMART' || gateway === 'MANUAL';
             return (
               <div>
