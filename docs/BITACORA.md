@@ -8,6 +8,28 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (94) — Emisión: el WhatsApp lo manda EL NEGOCIO con un botón; ni SMS ni línea de la casa
+
+Commit `48af1d22`. **SIN DESPLEGAR** (va en la misma cadena pendiente de la
+entrada 93). Anula parte de la 92/93: Javier, viendo la pantalla en vivo,
+decidió el flujo definitivo — «es más sano para nuestro WhatsApp»:
+
+- **Fuera el SMS automático** de la emisión (el de la 92, que duró unas
+  horas): ninguna línea de la casa escribe al cliente final. Candado en
+  `emitir-y-entregar.spec.ts` («JAMÁS manda un SMS automático»).
+- **Botón «Invitar o enviar pase»**: el backend devuelve
+  `entrega.whatsapp = { telefono, texto }` (dígitos para wa.me, texto con el
+  enlace por el dominio de SU marca) y el panel abre el WhatsApp del CLIENTE
+  con el mensaje listo; lo envía el negocio desde su propio WhatsApp.
+- **El correo de la marca queda como único automático**, solo en la primera
+  emisión (reemitir no reenvía). `entrega.via` ahora es
+  `emitida | ya-existia` + `correo/email/whatsapp`.
+- La nota «Pase emitido» va ARRIBA del título del panel de emitir.
+
+OJO al leer la 92: la regla «solo la línea propia del negocio» para el SMS de
+emisión quedó superada — ya no hay SMS de emisión en absoluto. Lo que sigue
+vigente de la 92: la subcuenta de una marca no manda SMS a clientes finales.
+
 ## 2026-09-29 (93) — Contabilidad: período sin flechas + rango de fechas; Habibi 420→432; invitación por correo
 
 Commits `745bf99c` y `3e88826b`. La entrada 92 quedó desplegada y verificada
