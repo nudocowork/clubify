@@ -26,6 +26,51 @@ import { esDeLaPlataforma } from './lab-access';
  */
 export const TELEFONO_EQUIPO_LAB = '+573248088401';
 
+/**
+ * Sara, del equipo de Clubify. Javier pidió (2026-09-29) que cuando una
+ * propuesta del Lab de una MARCA quede implementada, a ella le llegue un SMS
+ * diciendo cuál quedó — es quien le da seguimiento a las marcas.
+ */
+export const TELEFONO_SARA_LAB = '+573189554627';
+
+/**
+ * El mensaje que recibe el ADMINISTRADOR de la marca cuando su propuesta queda
+ * implementada (Javier, 2026-09-29: «enviar un mensaje a Sellea desde Clubify,
+ * indicando lo que se hizo»). Sale por la línea de la plataforma: quien lo
+ * recibe es el cliente-marca de Clubify, no un cliente final — Clubify sí
+ * puede hablarle con su nombre.
+ */
+export function textoImplementadaParaLaMarca(p: {
+  titulo: string;
+  autor: string | null;
+}): string {
+  const saludo = p.autor?.trim()
+    ? `Hola ${p.autor.trim().split(/\s+/)[0]}: tu`
+    : 'Tu';
+  return (
+    `${saludo} propuesta «${recorta(p.titulo, 80)}» del Lab ya está ` +
+    `implementada y en producción. Entra a tu panel para verla en acción. ` +
+    `— Clubify`
+  );
+}
+
+/**
+ * El SMS que recibe Sara cuando una propuesta de una marca queda implementada:
+ * qué quedó, de qué marca y quién la había pedido.
+ */
+export function textoImplementadaParaSara(p: {
+  marca: string | null;
+  titulo: string;
+  autor: string | null;
+}): string {
+  const lab = p.marca ? `Lab de ${p.marca}` : 'Lab (marca sin resolver)';
+  const quien = p.autor?.trim() || 'la marca';
+  return (
+    `${lab}: quedó IMPLEMENTADA la propuesta «${recorta(p.titulo, 70)}» ` +
+    `(pedida por ${quien}). Ya está en producción.`
+  );
+}
+
 /** Qué pasó. Cambia el verbo del SMS, nada más. */
 export type HechoLab = 'propuesta' | 'comentario';
 

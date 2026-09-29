@@ -42,11 +42,14 @@ import {
   type HechoLab,
   MemoriaDeAvisos,
   TELEFONO_EQUIPO_LAB,
+  TELEFONO_SARA_LAB,
   claveDeComentario,
   claveDePropuesta,
   debeAvisarAlEquipo,
   enlaceDeModeracion,
   textoAvisoLab,
+  textoImplementadaParaLaMarca,
+  textoImplementadaParaSara,
 } from './lab-aviso';
 
 // Pesos del voting widget. NEED/HIGH_PRIORITY pesan más que un LIKE normal
@@ -714,7 +717,9 @@ export class LabService {
     const proposal = await this.prisma.labProposal.findUnique({
       where: { id },
       include: {
-        author: { select: { id: true, fullName: true, email: true } },
+        author: {
+          select: { id: true, fullName: true, email: true, phone: true },
+        },
       },
     });
     if (!proposal) throw new NotFoundException(NO_ENCONTRADA);
@@ -1165,7 +1170,7 @@ export class LabService {
       id: string;
       title: string;
       whiteLabelId: string | null;
-      author: { fullName: string; email: string } | null;
+      author: { fullName: string; email: string; phone: string | null } | null;
     },
     newStatus: LabStatus,
     reason: string | null,
@@ -1184,6 +1189,55 @@ export class LabService {
     } catch (e) {
       this.logger.warn(
         `Lab team alert falló: ${(e as Error)?.message ?? e}`,
+      );
+    }
+
+    // IMPLEMENTADA una propuesta de una MARCA (Javier, 2026-09-29): dos avisos.
+    //  1. A la marca, desde Clubify: SU administrador la pidió y merece
+    //     enterarse sin entrar a mirar (SMS a su línea; sin teléfono, correo).
+    //  2. A Sara, que le da seguimiento a las marcas: cuál quedó y de quién.
+    // Solo marcas blancas: las propuestas de la plataforma ya tienen su cauce
+    // (el correo al autor de abajo) y avisar cada una ahogaría el canal.
+    // IMPLEMENTED es terminal y el caller solo notifica cambios reales, así
+    // que esto no puede repetirse por la misma propuesta.
+    try {
+      const { clubifyId } = await resolveBrandScope(this.prisma, null);
+      if (
+        newStatus === 'IMPLEMENTED' &&
+        !esDeLaPlataforma(proposal.whiteLabelId, clubifyId)
+      ) {
+        const marca = await this.nombreDeMarca(proposal.whiteLabelId);
+        const autor = proposal.author?.fullName ?? null;
+
+        const telefonoAutor = proposal.author?.phone?.trim();
+        if (telefonoAutor) {
+          await this.alerts.sendInternalAlert(
+            telefonoAutor,
+            textoImplementadaParaLaMarca({ titulo: proposal.title, autor }),
+          );
+        } else if (proposal.author?.email) {
+          await this.brandEmail.sendRaw({
+            whiteLabelId: null,
+            to: proposal.author.email,
+            subject: 'Tu propuesta del Lab ya está implementada',
+            html: `
+              <p>Hola ${proposal.author.fullName},</p>
+              <p>Tu propuesta <b>"${proposal.title}"</b> ya está
+                <b>implementada y en producción</b>. Entra a tu panel para
+                verla en acción.</p>
+              <p>— Clubify</p>
+            `,
+          });
+        }
+
+        await this.alerts.sendInternalAlert(
+          TELEFONO_SARA_LAB,
+          textoImplementadaParaSara({ marca, titulo: proposal.title, autor }),
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Aviso de implementada falló: ${(e as Error)?.message ?? e}`,
       );
     }
 

@@ -9,7 +9,11 @@
  * pasarela real de cada negocio, no Hotmart). Flujo de Javier: «en pruebas» al
  * desplegarse; «implementada» cuando se verificó en producción.
  *
- * Cambiar el estado NO manda ningún aviso (el SMS del Lab sale solo al CREAR).
+ * ⚠️ PREFERIR EL PANEL para «implementada»: desde 2026-09-29 marcar
+ * IMPLEMENTED por el panel (Admin → Lab) dispara los DOS avisos que pidió
+ * Javier — el mensaje al administrador de la marca y el SMS a Sara
+ * (`lab.service.ts` → `notifyStatusChange`). Este script escribe DIRECTO a la
+ * base y se los salta: úsalo solo si el panel no está a mano, y avisa a mano.
  * El id va escrito a mano y se verifica título y autor antes de tocar nada.
  *
  * Uso:  railway run --service Postgres-Nq8w node scripts/lab-hotmart-estado.cjs en-pruebas

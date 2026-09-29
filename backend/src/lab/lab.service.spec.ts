@@ -814,3 +814,98 @@ describe('retirar del panel (la plataforma) y borrar (el autor)', () => {
     expect(Object.keys(where).sort()).toEqual(['id', 'removedAt']);
   });
 });
+
+describe('IMPLEMENTADA una propuesta de una marca: dos avisos (Javier, 2026-09-29)', () => {
+  // «Cuando se marquen las propuestas de Humberto como implementadas: 1) un
+  // mensaje a Sellea desde Clubify indicando lo que se hizo; 2) un SMS a Sara
+  // indicando que quedó equis propuesta de Sellea.»
+  const enPruebas = {
+    id: 'p-sellea-en-pruebas',
+    title: 'Aun dice hotmart',
+    whiteLabelId: SELLEA,
+    status: 'IN_TESTING',
+    authorId: 'u-humberto',
+    author: {
+      id: 'u-humberto',
+      fullName: 'Humberto Montiel',
+      role: 'X',
+      email: 'humberto@sellea.test',
+      phone: '+573001234567',
+    },
+  };
+
+  it('SMS al autor de la marca y SMS a Sara, cada uno con su verdad', async () => {
+    const { svc, alerts } = montar({ extra: [enPruebas] });
+
+    await svc.setStatus('p-sellea-en-pruebas', 'IMPLEMENTED', sesion.equipoClubify);
+    await esperarAvisos();
+
+    const llamadas = alerts.sendInternalAlert.mock.calls;
+    const alAutor = llamadas.find(([tel]) => tel === '+573001234567');
+    expect(alAutor, 'falta el SMS al administrador de la marca').toBeTruthy();
+    expect(alAutor![1]).toContain('Aun dice hotmart');
+    expect(alAutor![1]).toContain('implementada');
+    expect(alAutor![1]).toContain('Clubify');
+
+    const aSara = llamadas.find(([tel]) => tel === '+573189554627');
+    expect(aSara, 'falta el SMS a Sara').toBeTruthy();
+    expect(aSara![1]).toContain('Sellea');
+    expect(aSara![1]).toContain('Aun dice hotmart');
+    expect(aSara![1]).toContain('Humberto');
+  });
+
+  it('sin teléfono del autor, el aviso a la marca sale por CORREO — y Sara recibe igual', async () => {
+    const { svc, alerts, email } = montar({
+      extra: [
+        {
+          ...enPruebas,
+          id: 'p-sin-telefono',
+          author: { ...enPruebas.author, phone: null },
+        },
+      ],
+    });
+
+    await svc.setStatus('p-sin-telefono', 'IMPLEMENTED', sesion.equipoClubify);
+    await esperarAvisos();
+
+    const correo = (email.sendRaw.mock.calls as any[]).find(
+      ([o]) => o.to === 'humberto@sellea.test',
+    );
+    expect(correo, 'falta el correo al administrador de la marca').toBeTruthy();
+    expect(correo![0].subject).toContain('implementada');
+
+    const aSara = alerts.sendInternalAlert.mock.calls.find(
+      ([tel]) => tel === '+573189554627',
+    );
+    expect(aSara).toBeTruthy();
+  });
+
+  it('una propuesta de la PLATAFORMA implementada no dispara los avisos de marca', async () => {
+    const { svc, alerts } = montar({
+      extra: [
+        {
+          ...enPruebas,
+          id: 'p-clubify-en-pruebas',
+          whiteLabelId: CLUBIFY,
+          authorId: 'u-afiliado-clubify',
+        },
+      ],
+    });
+
+    await svc.setStatus('p-clubify-en-pruebas', 'IMPLEMENTED', sesion.equipoClubify);
+    await esperarAvisos();
+
+    // Ni al autor por SMS ni a Sara: el cauce de la plataforma es el correo
+    // al autor de siempre, y el SMS de Sara es solo para marcas.
+    expect(alerts.sendInternalAlert).not.toHaveBeenCalled();
+  });
+
+  it('APROBAR (sin implementar) no molesta a nadie por estos canales', async () => {
+    const { svc, alerts } = montar({ extra: [enPruebas] });
+
+    await svc.setStatus('p-sellea-en-pruebas', 'IN_DEVELOPMENT', sesion.equipoClubify);
+    await esperarAvisos();
+
+    expect(alerts.sendInternalAlert).not.toHaveBeenCalled();
+  });
+});
