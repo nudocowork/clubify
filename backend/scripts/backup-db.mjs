@@ -107,6 +107,26 @@ async function backup() {
     stdio: ['ignore', 'pipe', 'inherit'],
   });
 
+  // El destino de pg_dump se captura DESDE AQUÍ, antes de consumir un solo
+  // byte. La versión anterior registraba el listener de 'exit' DESPUÉS de
+  // drenar los streams: si pg_dump moría temprano, el evento ya había pasado,
+  // la promesa quedaba colgada, el event loop se vaciaba y Node salía con
+  // código CERO — sin subir nada y sin decir nada. Así fue el run 36532708840
+  // del 2026-09-29: «success» de 15 segundos con el bucket vacío. Un respaldo
+  // que falla en verde es peor que uno que falla en rojo, porque nadie lo va a
+  // mirar. Y 'error' también: sin ese listener, un pg_dump que no se puede ni
+  // lanzar (PATH, permisos) moría por la misma puerta silenciosa.
+  const finDelDump = new Promise((resolve, reject) => {
+    dump.on('error', (e) => reject(new Error(`pg_dump no se pudo ni lanzar: ${e.message}`)));
+    dump.on('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`pg_dump exit ${code ?? `señal ${signal}`}`));
+    });
+  });
+  // Si el throw sale antes por otra rama, que este rechazo no tumbe el proceso
+  // por su cuenta: ya lo recogerá el await de abajo o el catch del main.
+  finDelDump.catch(() => {});
+
   dump.stdout.pipe(gzip).pipe(cipher);
 
   // Collectamos chunks cifrados a buffer. Para DBs >500MB esto saturaría RAM —
@@ -117,12 +137,19 @@ async function backup() {
   const ciphertext = Buffer.concat(chunks);
   const authTag = cipher.getAuthTag();
 
-  await new Promise((resolve, reject) => {
-    dump.on('exit', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`pg_dump exit ${code}`));
-    });
-  });
+  await finDelDump;
+
+  // Y el cinturón que no depende de ningún evento: el TAMAÑO. Un dump real de
+  // esta base ronda los 300 MB ya comprimido y cifrado; si lo producido no
+  // llega ni a 1 MB, aquí no se respaldó nada — sea cual sea la forma nueva y
+  // creativa en que el proceso logró «terminar bien». Mejor un rojo que un
+  // objeto diminuto durmiendo 30 días en el bucket como si fuera un respaldo.
+  const MINIMO_CREIBLE = 1024 * 1024;
+  if (ciphertext.length < MINIMO_CREIBLE) {
+    throw new Error(
+      `el dump pesa ${ciphertext.length} bytes: eso no es un respaldo de esta base`,
+    );
+  }
 
   // Format final: [12-byte IV][16-byte auth tag][ciphertext]
   const body = Buffer.concat([iv, authTag, ciphertext]);
