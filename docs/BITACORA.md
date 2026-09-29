@@ -8,6 +8,58 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-29 (91) — «Emitir tarjeta» ahora le cuenta al cliente que existe
+
+Backend `c7b20c3b`. **Desplegado y verificado contra los dominios** (backend
+`c7b20c3`, frontend `dpl_3Rravy…`).
+
+### El malentendido, que conviene dejar escrito
+
+**Ni Apple ni Google permiten meter un pase en el teléfono de nadie.** El
+cliente tiene que abrir el enlace e instalarlo. «Emitir» creaba el pase y ahí
+se acababa: si el negocio no copiaba el enlace a mano, el cliente jamás sabía
+que tenía una tarjeta. Reporte de Javier vía su implementador; medido: un
+pase emitido el 27-09 seguía con cero instalaciones.
+
+Javier dio a elegir entre corregir o quitar el botón. Se corrigió: no estaba
+roto, estaba INCOMPLETO Y MUDO.
+
+### Qué hace ahora
+
+- Al emitir se **manda el enlace por SMS** (cascada negocio → marca, nunca
+  otra; enlace por el dominio de LA MARCA — `BRAND_GROW_SELECT` no trae
+  `domain`/`appDomain` y hay que pedirlos aparte, la trampa documentada).
+- Si hay **bienvenida automática** (PASS_CREATED con SMS/WhatsApp) manda ella
+  y no se duplica. Una regla que solo manda PUSH no cuenta: un push no lleva
+  enlace instalable.
+- **El panel dice la verdad** («enviado a +57…», «sin teléfono: cópiale el
+  enlace», «el SMS no salió», «ya la tenía»). Reemitir no re-avisa. Un fallo
+  del SMS no rompe la emisión.
+- 6 pruebas (`emitir-y-entregar.spec.ts`), incluida la de que el SMS lleva
+  dueño en «Mensajes enviados».
+
+### Lo que NO hace, a propósito
+
+Los **sellos de la tarjeta vieja no se trasladan** a la nueva, y la vieja
+**sigue en el teléfono** hasta que el negocio la revoque (revocar existe y se
+pinta DESACTIVADA). El gesto «reemplazar tarjeta» completo —emitir nueva +
+retirar vieja + migrar sellos— es otra pieza, pendiente de que Javier la pida.
+
+### El push que GitHub rechazó tres veces
+
+El push de este commit falló 3 veces con `remote rejected (Internal Server
+Error)` — con githubstatus en verde. No era el contenido: empujando los
+objetos por partes a una rama de prueba (borrada después), el push de `main`
+pasó a la primera. Si vuelve a pasar: bisecar así antes de sospechar del
+commit, y NUNCA `--force`.
+
+### Verificado
+
+`tsc` en frío limpio en ambos lados, **3.238 pruebas en 232 ficheros** en
+verde. El script del backend se rindió a los 12 min de espera pero el deploy
+ENTRÓ justo después — lo dice `/api/health`, que es lo que vale.
+
+---
 ## 2026-09-29 (90) — SelleaLab de Humberto ejecutado, y dos pasadas de Fable que pagaron el día
 
 Backend `e363be60` + `d05ffb0e` + `b789cbc9`. **Todo desplegado y verificado**
