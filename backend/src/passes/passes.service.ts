@@ -29,9 +29,6 @@ type NegocioParaAvisar = {
   brandName: string | null;
   logoUrl: string | null;
   primaryColor: string | null;
-  growBusinessLocationId: string | null;
-  growBusinessApiKey: string | null;
-  growBusinessSwitchNumber: number | null;
   whiteLabel: {
     name: string | null;
     domain: string | null;
@@ -43,13 +40,14 @@ type NegocioParaAvisar = {
 };
 
 /** La verdad de la entrega, canal por canal, tal como la enseña el panel. */
-type EntregaDeTarjeta = (
-  | { via: 'sms'; telefono: string }
-  | { via: 'bienvenida' }
-  | { via: 'sin-telefono' }
-  | { via: 'sin-credenciales' }
-  | { via: 'fallo'; detalle: string }
-) & { correo?: 'enviado' | 'fallo' | 'sin-conexion'; email?: string };
+type EntregaDeTarjeta = {
+  via: 'emitida' | 'ya-existia';
+  /** El correo automático de la marca (solo en la primera emisión). */
+  correo?: 'enviado' | 'fallo' | 'sin-conexion';
+  email?: string;
+  /** Para «Invitar o enviar pase»: el WhatsApp DEL CLIENTE y el texto listo. */
+  whatsapp?: { telefono: string; texto: string };
+};
 
 /**
  * De los clientes que Postgres encontró por un trozo del número, los que
@@ -210,15 +208,18 @@ export class PassesService {
    * enlace y se lo mandaba a mano, el cliente jamás sabía que tenía una
    * tarjeta. Medido: un pase emitido el 27-09 seguía sin instalar.
    *
-   * Ahora, al emitir, se le MANDA el enlace por SMS —solo con la conexión de
-   * mensajes del PROPIO negocio; sin ella no sale nada— salvo que el negocio
-   * ya tenga activa una automatización de bienvenida (PASS_CREATED con
-   * SMS/WhatsApp): en ese caso manda ella y no se duplica el mensaje. Y si el
-   * cliente tiene correo en su ficha, le llega ADEMÁS la invitación por email,
-   * transportada por la subcuenta de la marca del negocio (Javier, 2026-09-29).
+   * Cómo se entera, tras iterarlo con Javier el mismo 2026-09-29:
+   *  - CORREO automático, si la ficha lo tiene: transportado por la subcuenta
+   *    GHL de la marca del negocio (Clubify para los de Clubify, Sellea para
+   *    los de Sellea), firmado por el negocio.
+   *  - WhatsApp NO se manda solo: la emisión devuelve el teléfono y el texto
+   *    listos, y el panel pinta «Invitar o enviar pase», que abre el WhatsApp
+   *    del cliente para que lo envíe EL NEGOCIO desde el suyo. Palabras de
+   *    Javier: «es más sano para nuestro WhatsApp» — ni la línea de la
+   *    plataforma ni la de la marca le escriben al cliente final.
+   *  - SMS automático: se quitó ese mismo día, por lo mismo.
    *
-   * La respuesta cuenta la verdad («entrega»), y el panel la enseña: enviado a
-   * tal número, o «no tiene teléfono, cópiale el enlace».
+   * La respuesta cuenta la verdad («entrega»), y el panel la enseña.
    */
   async issue(user: AuthUser, cardId: string, customerId: string) {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
@@ -226,17 +227,19 @@ export class PassesService {
     this.guardTenant(user, card.tenantId);
 
     // ¿Ya la tenía? Se distingue ANTES de emitir: reemitir no debe volver a
-    // mandarle el SMS a quien ya tiene su tarjeta instalada.
+    // mandarle el correo a quien ya tiene su tarjeta instalada.
     const previo = await this.prisma.pass.findUnique({
       where: { cardId_customerId: { cardId, customerId } },
       select: { id: true },
     });
 
     const pass = await this.issueInternal(cardId, customerId);
-    if (previo) {
-      return { ...pass, entrega: { via: 'ya-existia' as const } };
-    }
-    const entrega = await this.entregarEnlaceDeTarjeta(pass.id, card, customerId);
+    const entrega = await this.entregarEnlaceDeTarjeta(
+      pass.id,
+      card,
+      customerId,
+      previo ? 'ya-existia' : 'emitida',
+    );
     return { ...pass, entrega };
   }
 
@@ -245,18 +248,21 @@ export class PassesService {
    * salidas: cada una se devuelve al panel para que diga la verdad en vez de
    * un «emitida» a secas que no cuenta si el cliente se enteró.
    *
-   * Dos canales, con reglas DISTINTAS a propósito:
-   *  - SMS: SOLO la línea propia del negocio (Javier, 2026-09-29: «el negocio
-   *    no puede enviar mensajes a los clientes finales» por un número ajeno).
-   *  - Correo: por la subcuenta de la MARCA del negocio, que pone el
-   *    remitente (Javier, mismo día: «si el cliente tiene correo, que salga
-   *    un correo de Clubify con la invitación» — y de Sellea para los de
-   *    Sellea: a un cliente de una marca blanca jamás le escribe Clubify).
+   * Dos canales, con reglas DISTINTAS a propósito (Javier, 2026-09-29):
+   *  - Correo: AUTOMÁTICO, por la subcuenta de la MARCA del negocio, que pone
+   *    el remitente («que salga un correo de Clubify con la invitación» — y
+   *    de Sellea para los de Sellea: a un cliente de una marca blanca jamás
+   *    le escribe Clubify). Solo en la PRIMERA emisión: reemitir no reenvía.
+   *  - WhatsApp: MANUAL. Aquí solo se arma el teléfono y el texto; el envío
+   *    es el botón «Invitar o enviar pase» del panel, desde el WhatsApp del
+   *    propio negocio. «Es más sano para nuestro WhatsApp»: ninguna línea de
+   *    la casa le escribe al cliente final.
    */
   private async entregarEnlaceDeTarjeta(
     passId: string,
     card: { tenantId: string; name: string },
     customerId: string,
+    via: 'emitida' | 'ya-existia',
   ): Promise<EntregaDeTarjeta> {
     try {
       const cliente = await this.prisma.customer.findUnique({
@@ -269,9 +275,6 @@ export class PassesService {
           brandName: true,
           logoUrl: true,
           primaryColor: true,
-          growBusinessLocationId: true,
-          growBusinessApiKey: true,
-          growBusinessSwitchNumber: true,
           // De la marca: la subcuenta que transporta el correo, el nombre para
           // el «Hecho con…» y los dominios del enlace — sin ellos brandAppUrl
           // cae al de la plataforma y el enlace de un negocio de Sellea
@@ -292,81 +295,30 @@ export class PassesService {
       );
       const enlace = `${base}/w/${passId}`;
 
-      const sms = await this.avisarPorSms(card, cliente, negocio, enlace);
-      const correo = await this.avisarPorCorreo(card, cliente, negocio, enlace);
-      return { ...sms, ...correo };
-    } catch (e) {
-      // El pase YA está emitido: un fallo del aviso no puede convertirse en un
-      // fallo de la emisión. Se cuenta, y el panel ofrece copiar el enlace.
-      return { via: 'fallo', detalle: (e as Error).message };
-    }
-  }
-
-  private async avisarPorSms(
-    card: { tenantId: string; name: string },
-    cliente: { phone: string | null } | null,
-    negocio: NegocioParaAvisar | null,
-    enlace: string,
-  ): Promise<
-    | { via: 'sms'; telefono: string }
-    | { via: 'bienvenida' }
-    | { via: 'sin-telefono' }
-    | { via: 'sin-credenciales' }
-    | { via: 'fallo'; detalle: string }
-  > {
-    // Si el negocio tiene bienvenida automática con SMS/WhatsApp, manda ella
-    // (el emit de PASS_CREATED ya salió en issueInternal). Dos SMS por la
-    // misma emisión es la clase de duplicado que este repo caza.
-    const reglas = await this.prisma.automationRule.findMany({
-      where: { tenantId: card.tenantId, isActive: true },
-      select: { trigger: true, actions: true },
-    });
-    const bienvenida = reglas.some((r) => {
-      const t = r.trigger as { type?: string } | null;
-      if (t?.type !== 'PASS_CREATED') return false;
-      const acciones = (r.actions as Array<{ type?: string }> | null) ?? [];
-      return acciones.some(
-        (a) => a.type === 'SEND_SMS' || a.type === 'SEND_WHATSAPP',
-      );
-    });
-    if (bienvenida) return { via: 'bienvenida' };
-
-    const telefono = cliente?.phone?.trim();
-    if (!telefono) return { via: 'sin-telefono' };
-
-    // SOLO la conexión Grow Business del PROPIO negocio, sin respaldo a la
-    // subcuenta de su marca — a propósito (Javier, 2026-09-29): el negocio
-    // no le escribe a sus clientes finales por un número que no es suyo. En
-    // producción 132 de 133 negocios no tienen conexión propia, así que con
-    // el respaldo casi todo aviso habría salido por el número de Clubify o
-    // de Sellea. Sin credenciales → no se manda, y el panel pide copiar el
-    // enlace.
-    const creds =
-      negocio?.growBusinessLocationId && negocio.growBusinessApiKey
+      // El texto que el NEGOCIO le manda al cliente por su WhatsApp. wa.me
+      // quiere el número en dígitos internacionales, sin «+» ni espacios.
+      const nombrePila = (cliente?.fullName ?? '').trim().split(/\s+/)[0] || '';
+      const telefono = (cliente?.phone ?? '').replace(/\D/g, '');
+      const whatsapp = telefono
         ? {
-            locationId: negocio.growBusinessLocationId,
-            apiKey: negocio.growBusinessApiKey,
-            switchNumber: negocio.growBusinessSwitchNumber ?? null,
+            telefono,
+            texto:
+              `${nombrePila ? `¡Hola, ${nombrePila}!` : '¡Hola!'} Te emitimos ` +
+              `tu tarjeta «${card.name}» de ${negocio?.brandName ?? 'nuestro negocio'}. ` +
+              `Ábrela aquí para guardarla en tu teléfono: ${enlace}`,
           }
-        : null;
-    if (!creds) return { via: 'sin-credenciales' };
+        : undefined;
 
-    const cuerpo =
-      `${negocio?.brandName ?? ''}: tu tarjeta "${card.name}" esta lista. ` +
-      `Abrela aqui para guardarla en tu telefono: ${enlace}`;
-
-    const r = await this.growBusiness.sendSmsWithCreds(creds, telefono, cuerpo, {
-      tenantId: card.tenantId,
-      feature: 'tarjetas',
-    });
-    return r.ok
-      ? { via: 'sms', telefono }
-      : {
-          via: 'fallo',
-          detalle:
-            (r as { message?: string }).message ??
-            'el proveedor no aceptó el mensaje',
-        };
+      const correo =
+        via === 'emitida'
+          ? await this.avisarPorCorreo(card, cliente, negocio, enlace)
+          : {};
+      return { via, whatsapp, ...correo };
+    } catch {
+      // El pase YA está emitido: un fallo del aviso no puede convertirse en un
+      // fallo de la emisión. El panel siempre puede copiar el enlace.
+      return { via };
+    }
   }
 
   /**

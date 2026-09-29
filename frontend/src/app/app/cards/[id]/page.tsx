@@ -181,8 +181,12 @@ export default function CardDetail() {
 
   function copyLink() {
     if (!issuedPass) return;
-    const url = `${window.location.origin}/w/${issuedPass.id}`;
-    navigator.clipboard.writeText(url).then(
+    // Se copia el MENSAJE de invitación completo (con el enlace dentro); si
+    // el backend no lo pudo armar, al menos el enlace.
+    const texto =
+      issuedPass.entrega?.whatsapp?.texto ??
+      `${window.location.origin}/w/${issuedPass.id}`;
+    navigator.clipboard.writeText(texto).then(
       () => toast(t('linkCopied'), 'success'),
       () => toast(t('copyFailed'), 'error'),
     );
@@ -601,6 +605,65 @@ export default function CardDetail() {
 
         {/* Emitir pase */}
         <div className="card card-pad">
+          {/* La nota del pase emitido va ARRIBA del título (pedido de Javier,
+              2026-09-29): abajo, tras una lista de 460px, nadie la veía. */}
+          {issuedPass && (
+            <div className="mb-4 rounded-lg bg-ok-soft px-4 py-3 text-sm">
+              <div className="flex items-center gap-2 font-semibold text-ok-ink">
+                <Icon name="check" /> {t('passIssuedTo', { name: issuedPass.customer?.fullName ?? t('customerFallback') })}
+              </div>
+              {/* LA VERDAD DE LA ENTREGA. Un pase no puede meterse solo en el
+                  teléfono: el cliente instala el enlace. El correo lo manda la
+                  marca; el WhatsApp lo manda EL NEGOCIO con el botón — ninguna
+                  línea de la casa escribe al cliente final. */}
+              <div className="mt-2 text-ok-ink text-xs">
+                {issuedPass.entrega?.via === 'ya-existia' && (
+                  <>Este cliente <b>ya tenía esta tarjeta</b>: es el mismo enlace de siempre. </>
+                )}
+                {issuedPass.entrega?.correo === 'enviado' && (
+                  <>Le llegó la invitación por <b>correo</b> a {issuedPass.entrega.email}. </>
+                )}
+                {issuedPass.entrega?.correo === 'fallo' && (
+                  <>El correo de invitación <b>no salió</b>. </>
+                )}
+                {issuedPass.entrega?.whatsapp ? (
+                  <>Envíale tú la invitación: el botón abre su WhatsApp con este mensaje listo. La tarjeta aparecerá en su teléfono cuando abra el enlace y la instale.</>
+                ) : (
+                  <>Este cliente <b>no tiene teléfono</b> en su ficha: cópiale el mensaje y házselo llegar — la tarjeta solo aparece en su teléfono si él la instala.</>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="flex-1 text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">
+                  {issuedPass.entrega?.whatsapp?.texto ??
+                    `${typeof window !== 'undefined' ? window.location.origin : ''}/w/${issuedPass.id}`}
+                </code>
+                <button
+                  onClick={copyLink}
+                  className="btn-ghost text-xs whitespace-nowrap"
+                >
+                  {t('copy')}
+                </button>
+                <a
+                  href={`/w/${issuedPass.id}`}
+                  target="_blank"
+                  className="btn-ghost text-xs whitespace-nowrap"
+                >
+                  {t('open')}
+                </a>
+                {issuedPass.entrega?.whatsapp && (
+                  <a
+                    href={`https://wa.me/${issuedPass.entrega.whatsapp.telefono}?text=${encodeURIComponent(issuedPass.entrega.whatsapp.texto)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-primary text-xs whitespace-nowrap"
+                  >
+                    Invitar o enviar pase
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
           <h2 className="text-base font-semibold m-0">{t('issueNewPass')}</h2>
           <p className="text-sm text-mute mt-1">
             {t('issueNewPassHelp')}
@@ -664,59 +727,6 @@ export default function CardDetail() {
             ))}
           </div>
 
-          {issuedPass && (
-            <div className="mt-5 rounded-lg bg-ok-soft px-4 py-3 text-sm">
-              <div className="flex items-center gap-2 font-semibold text-ok-ink">
-                <Icon name="check" /> {t('passIssuedTo', { name: issuedPass.customer?.fullName ?? t('customerFallback') })}
-              </div>
-              {/* LA VERDAD DE LA ENTREGA, no un «emitida» a secas. Un pase
-                  no puede meterse solo en el teléfono: el cliente instala el
-                  enlace. El backend cuenta qué pasó con ese enlace y aquí se
-                  dice tal cual — el malentendido que motivó todo esto fue
-                  creer que emitir ya lo dejaba en la Wallet del cliente. */}
-              <div className="mt-2 text-ok-ink text-xs">
-                {issuedPass.entrega?.via === 'sms' ? (
-                  <>Se le envió el enlace por SMS a <b>{issuedPass.entrega.telefono}</b>. La tarjeta aparecerá en su teléfono cuando la abra e instale.</>
-                ) : issuedPass.entrega?.via === 'bienvenida' ? (
-                  <>Tu automatización de bienvenida le está enviando el enlace. La tarjeta aparecerá en su teléfono cuando la abra e instale.</>
-                ) : issuedPass.entrega?.via === 'sin-telefono' ? (
-                  <>Este cliente <b>no tiene teléfono</b> en su ficha: cópiale el enlace de abajo y házselo llegar — la tarjeta solo aparece en su teléfono si él la instala.</>
-                ) : issuedPass.entrega?.via === 'sin-credenciales' ? (
-                  <>Tu negocio <b>no tiene conectada su línea de mensajes</b>, así que no se le avisó: cópiale el enlace de abajo y házselo llegar.</>
-                ) : issuedPass.entrega?.via === 'fallo' ? (
-                  <>El SMS con el enlace <b>no salió</b>. Cópiale el enlace de abajo y házselo llegar.</>
-                ) : issuedPass.entrega?.via === 'ya-existia' ? (
-                  <>Este cliente <b>ya tenía esta tarjeta</b>: es el mismo enlace de siempre.</>
-                ) : (
-                  t('shareLinkHelp')
-                )}
-                {issuedPass.entrega?.correo === 'enviado' && (
-                  <> Además le llegó la invitación por <b>correo</b> a {issuedPass.entrega.email}.</>
-                )}
-                {issuedPass.entrega?.correo === 'fallo' && (
-                  <> El correo de invitación no salió.</>
-                )}
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">
-                  {typeof window !== 'undefined' ? window.location.origin : ''}/w/{issuedPass.id}
-                </code>
-                <button
-                  onClick={copyLink}
-                  className="btn-ghost text-xs whitespace-nowrap"
-                >
-                  {t('copy')}
-                </button>
-                <a
-                  href={`/w/${issuedPass.id}`}
-                  target="_blank"
-                  className="btn-primary text-xs whitespace-nowrap"
-                >
-                  {t('open')}
-                </a>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

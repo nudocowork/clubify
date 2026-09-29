@@ -8,13 +8,16 @@ import type { AuthUser } from '../common/decorators/current-user.decorator';
  * El malentendido que motivó esto (Javier, vía su implementador, 2026-09-29):
  * «al emitir, la tarjeta no se actualiza en el teléfono del cliente». No puede:
  * ni Apple ni Google permiten meter un pase en un teléfono — el cliente tiene
- * que abrir el enlace e instalarlo. «Emitir» creaba el pase y ahí se acababa:
- * nadie le mandaba el enlace, y en producción había pases emitidos días atrás
- * con cero instalaciones.
+ * que abrir el enlace e instalarlo.
  *
- * El contrato nuevo: emitir ENVÍA el enlace por SMS (o lo delega en la
- * bienvenida automática del negocio) y devuelve `entrega`, que el panel enseña
- * tal cual. Estas pruebas fijan cada salida.
+ * El contrato, tras iterarlo con Javier ese mismo día:
+ *  - CORREO automático si la ficha lo tiene, por la subcuenta GHL de la MARCA
+ *    del negocio (el remitente lo pone ella). Solo en la primera emisión.
+ *  - WhatsApp MANUAL: la emisión devuelve teléfono y texto listos, y el panel
+ *    pinta «Invitar o enviar pase» que abre el WhatsApp del cliente para que
+ *    lo mande EL NEGOCIO desde el suyo. «Es más sano para nuestro WhatsApp».
+ *  - NINGÚN SMS automático: se quitó ese mismo día, por lo mismo — ninguna
+ *    línea de la casa le escribe al cliente final.
  */
 
 const OWNER: AuthUser = {
@@ -24,12 +27,20 @@ const OWNER: AuthUser = {
   tenantId: 'tenant-1',
 };
 
+const SELLEA = {
+  name: 'Sellea',
+  domain: 'www.selleala.com',
+  appDomain: 'app.selleala.com',
+  growBusinessLocationId: 'loc-sellea',
+  growBusinessApiKey: 'key-sellea',
+  growBusinessSwitchNumber: null,
+};
+
 function makePrisma(opts: {
   pasePrevio?: boolean;
   telefono?: string | null;
   correo?: string | null;
-  reglas?: any[];
-  credsNegocio?: boolean;
+  whiteLabel?: any;
 } = {}) {
   return {
     card: {
@@ -44,7 +55,7 @@ function makePrisma(opts: {
         id: 'cust-1',
         tenantId: 'tenant-1',
         fullName: 'Cliente Prueba',
-        phone: opts.telefono === undefined ? '+573001112233' : opts.telefono,
+        phone: opts.telefono === undefined ? '+57 300 111 2233' : opts.telefono,
         email: opts.correo ?? null,
       })),
     },
@@ -56,18 +67,12 @@ function makePrisma(opts: {
       ),
       create: vi.fn(async (args: any) => ({ id: 'pass-nuevo', ...args.data })),
     },
-    automationRule: {
-      findMany: vi.fn(async () => opts.reglas ?? []),
-    },
     tenant: {
       findUnique: vi.fn(async () => ({
         brandName: 'Cafe Prueba',
         logoUrl: null,
         primaryColor: null,
-        growBusinessLocationId: opts.credsNegocio === false ? null : 'loc-1',
-        growBusinessApiKey: opts.credsNegocio === false ? null : 'key-1',
-        growBusinessSwitchNumber: null,
-        whiteLabel: (opts as any).whiteLabel ?? null,
+        whiteLabel: opts.whiteLabel ?? null,
       })),
     },
   };
@@ -88,128 +93,54 @@ function makeService(prisma: any) {
 }
 
 describe('emitir una tarjeta desde el panel', () => {
-  it('LE MANDA EL ENLACE POR SMS, con el pase dentro del texto', async () => {
-    const prisma = makePrisma();
+  it('JAMÁS manda un SMS automático — ninguna línea de la casa escribe al cliente', async () => {
+    // La razón de Javier (2026-09-29): «es más sano para nuestro WhatsApp».
+    // El SMS automático que existió unas horas salía por líneas de la casa.
+    const prisma = makePrisma({ correo: 'cliente@gmail.com', whiteLabel: SELLEA });
     const { svc, sms } = makeService(prisma);
+
+    await svc.issue(OWNER, 'card-1', 'cust-1');
+
+    expect(sms).not.toHaveBeenCalled();
+  });
+
+  it('DEJA LISTO el WhatsApp: teléfono en dígitos y texto con el enlace de SU marca', async () => {
+    // El envío es del NEGOCIO, con su botón «Invitar o enviar pase». wa.me
+    // exige el número internacional en dígitos pelados.
+    const prisma = makePrisma({ whiteLabel: SELLEA });
+    const { svc } = makeService(prisma);
 
     const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
 
-    expect(r.entrega).toEqual({ via: 'sms', telefono: '+573001112233' });
-    expect(sms).toHaveBeenCalledTimes(1);
-    const [, telefono, cuerpo, ctx] = sms.mock.calls[0] as any[];
-    expect(telefono).toBe('+573001112233');
-    expect(cuerpo).toContain('/w/pass-nuevo');
-    expect(cuerpo).toContain('Cafe Prueba');
-    // Y con dueño en «Mensajes enviados»: la regla de la casa.
-    expect(ctx).toMatchObject({ tenantId: 'tenant-1', feature: 'tarjetas' });
+    expect(r.entrega.via).toBe('emitida');
+    expect(r.entrega.whatsapp.telefono).toBe('573001112233');
+    expect(r.entrega.whatsapp.texto).toContain('Cliente');
+    expect(r.entrega.whatsapp.texto).toContain('Tarjeta de sellos');
+    expect(r.entrega.whatsapp.texto).toContain('Cafe Prueba');
+    // La pregunta exacta de Javier: «¿cómo vas a colocar el nombre de un
+    // negocio de Clubify con un enlace de Sellea?» — no se puede: el dominio
+    // sale del whiteLabel DEL NEGOCIO.
+    expect(r.entrega.whatsapp.texto).toContain('https://app.selleala.com/w/pass-nuevo');
+    expect(r.entrega.whatsapp.texto).not.toContain('soyclubify');
   });
 
-  it('EL ENLACE SALE POR EL DOMINIO DE LA MARCA DEL PROPIO NEGOCIO', async () => {
-    // La pregunta exacta de Javier (2026-09-29): «¿cómo vas a colocar el
-    // nombre de un negocio de Clubify con un enlace de Sellea?». No se puede:
-    // el dominio sale del whiteLabel DEL NEGOCIO, no de ninguna otra parte.
-    // Un negocio de Sellea manda su enlace por el dominio de Sellea…
-    const deSellea = makePrisma({
-      whiteLabel: {
-        domain: 'www.selleala.com',
-        appDomain: 'app.selleala.com',
-        growLocationId: null,
-        growApiKey: null,
-        growSwitchNumber: null,
-      },
-    } as any);
-    const a = makeService(deSellea);
-    await a.svc.issue(OWNER, 'card-1', 'cust-1');
-    const cuerpoSellea = (a.sms.mock.calls[0] as any[])[2] as string;
-    expect(cuerpoSellea).toContain('https://app.selleala.com/w/');
-    expect(cuerpoSellea).not.toContain('soyclubify');
+  it('sin marca blanca, el enlace va por el respaldo de la plataforma — nunca por otra marca', async () => {
+    const prisma = makePrisma();
+    const { svc } = makeService(prisma);
 
-    // …y uno de Clubify (sin marca blanca), por el de Clubify.
-    const deClubify = makePrisma();
-    const b = makeService(deClubify);
-    await b.svc.issue(OWNER, 'card-1', 'cust-1');
-    const cuerpoClubify = (b.sms.mock.calls[0] as any[])[2] as string;
-    // Contra el respaldo REAL del entorno (APP_URL, o el dominio de la
-    // plataforma): lo que importa es que jamás sea el dominio de otra marca.
+    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
+
     let respaldo = process.env.APP_URL ?? 'https://app.soyclubify.com';
     while (respaldo.endsWith('/')) respaldo = respaldo.slice(0, -1);
-    expect(cuerpoClubify).toContain(`${respaldo}/w/`);
-    expect(cuerpoClubify).not.toContain('selleala');
+    expect(r.entrega.whatsapp.texto).toContain(`${respaldo}/w/`);
+    expect(r.entrega.whatsapp.texto).not.toContain('selleala');
   });
 
-  it('SI HAY BIENVENIDA AUTOMÁTICA, manda ella y no se duplica el SMS', async () => {
-    const prisma = makePrisma({
-      reglas: [
-        {
-          trigger: { type: 'PASS_CREATED' },
-          actions: [{ type: 'SEND_WHATSAPP' }],
-        },
-      ],
-    });
-    const { svc, sms } = makeService(prisma);
-
-    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
-
-    expect(r.entrega).toEqual({ via: 'bienvenida' });
-    expect(sms).not.toHaveBeenCalled();
-  });
-
-  it('una regla de bienvenida SIN mensajes (solo push) no cuenta como entrega', async () => {
-    // El matiz que haría el filtro mentiroso: una regla PASS_CREATED que solo
-    // manda push no le hace llegar ningún enlace instalable al cliente.
-    const prisma = makePrisma({
-      reglas: [
-        { trigger: { type: 'PASS_CREATED' }, actions: [{ type: 'SEND_PUSH' }] },
-      ],
-    });
-    const { svc, sms } = makeService(prisma);
-
-    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
-
-    expect(r.entrega.via).toBe('sms');
-    expect(sms).toHaveBeenCalledTimes(1);
-  });
-
-  it('SIN CONEXIÓN PROPIA NO SE MANDA NADA — ni por la subcuenta de su marca', async () => {
-    // La regla de Javier (2026-09-29): «el negocio no puede enviar mensajes a
-    // los clientes finales» por un número que no es suyo. Y no es un caso
-    // raro: en producción solo 1 de 133 negocios tiene conexión propia — con
-    // el respaldo de marca, casi todo aviso habría salido por el número de
-    // Clubify o de Sellea hacia el cliente final de otro.
-    const prisma = makePrisma({
-      credsNegocio: false,
-      whiteLabel: {
-        domain: 'www.selleala.com',
-        appDomain: 'app.selleala.com',
-        // La marca SÍ tiene subcuenta GHL: aun así, no se usa.
-        growBusinessLocationId: 'loc-sellea',
-        growBusinessApiKey: 'key-cifrada',
-        growBusinessSwitchNumber: null,
-      },
-    } as any);
-    const { svc, sms } = makeService(prisma);
-
-    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
-
-    expect(r.entrega).toEqual({ via: 'sin-credenciales' });
-    expect(sms).not.toHaveBeenCalled();
-  });
-
-  it('CON CORREO EN LA FICHA llega ADEMÁS la invitación por email, por la subcuenta de SU marca', async () => {
-    // Javier (2026-09-29): «si el cliente tiene correo en sus datos, que salga
-    // un correo de Clubify a ese cliente con la invitación» — y de Sellea para
-    // los negocios de Sellea: el remitente lo pone la subcuenta de la marca.
-    const prisma = makePrisma({
-      correo: 'cliente@gmail.com',
-      whiteLabel: {
-        name: 'Sellea',
-        domain: 'www.selleala.com',
-        appDomain: 'app.selleala.com',
-        growBusinessLocationId: 'loc-sellea',
-        growBusinessApiKey: 'key-sellea',
-        growBusinessSwitchNumber: null,
-      },
-    } as any);
+  it('CON CORREO EN LA FICHA sale la invitación por email, por la subcuenta de SU marca', async () => {
+    // Javier (2026-09-29): «que solo salga el correo de Clubify al cliente» —
+    // y de Sellea para los negocios de Sellea: el remitente lo pone la
+    // subcuenta de la marca.
+    const prisma = makePrisma({ correo: 'cliente@gmail.com', whiteLabel: SELLEA });
     const { svc, mail } = makeService(prisma);
 
     const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
@@ -236,38 +167,54 @@ describe('emitir una tarjeta desde el panel', () => {
 
     expect(r.entrega.correo).toBe('sin-conexion');
     expect(mail).not.toHaveBeenCalled();
-    expect(r.entrega.via).toBe('sms'); // el SMS por la línea propia sí salió
   });
 
-  it('sin teléfono, LO DICE — y no manda nada', async () => {
-    const prisma = makePrisma({ telefono: null });
-    const { svc, sms } = makeService(prisma);
+  it('sin correo en la ficha, no hay envío ni campo que lo finja', async () => {
+    const prisma = makePrisma({ whiteLabel: SELLEA });
+    const { svc, mail } = makeService(prisma);
 
     const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
 
-    expect(r.entrega).toEqual({ via: 'sin-telefono' });
-    expect(sms).not.toHaveBeenCalled();
+    expect(r.entrega.correo).toBeUndefined();
+    expect(mail).not.toHaveBeenCalled();
   });
 
-  it('REEMITIR no vuelve a mandar el SMS a quien ya tiene su tarjeta', async () => {
-    const prisma = makePrisma({ pasePrevio: true });
-    const { svc, sms } = makeService(prisma);
+  it('sin teléfono no hay botón de WhatsApp, y lo dice no trayéndolo', async () => {
+    const prisma = makePrisma({ telefono: null, whiteLabel: SELLEA });
+    const { svc } = makeService(prisma);
 
     const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
 
-    expect(r.entrega).toEqual({ via: 'ya-existia' });
-    expect(sms).not.toHaveBeenCalled();
+    expect(r.entrega.whatsapp).toBeUndefined();
   });
 
-  it('UN FALLO DEL AVISO NO ROMPE LA EMISIÓN: el pase queda, y se cuenta', async () => {
-    const prisma = makePrisma();
-    const { svc, sms } = makeService(prisma);
-    sms.mockRejectedValueOnce(new Error('proveedor caído') as never);
+  it('REEMITIR no reenvía el correo, pero sí deja el WhatsApp listo', async () => {
+    // Quien ya tiene su tarjeta no necesita otro correo automático; el botón
+    // manual no estorba: lo aprieta el negocio si quiere.
+    const prisma = makePrisma({
+      pasePrevio: true,
+      correo: 'cliente@gmail.com',
+      whiteLabel: SELLEA,
+    });
+    const { svc, mail } = makeService(prisma);
+
+    const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
+
+    expect(r.entrega.via).toBe('ya-existia');
+    expect(r.entrega.correo).toBeUndefined();
+    expect(mail).not.toHaveBeenCalled();
+    expect(r.entrega.whatsapp.telefono).toBe('573001112233');
+  });
+
+  it('UN FALLO DEL AVISO NO ROMPE LA EMISIÓN: el pase queda', async () => {
+    const prisma = makePrisma({ correo: 'cliente@gmail.com', whiteLabel: SELLEA });
+    const { svc, mail } = makeService(prisma);
+    mail.mockRejectedValueOnce(new Error('proveedor caído') as never);
 
     const r: any = await svc.issue(OWNER, 'card-1', 'cust-1');
 
     expect(r.id).toBe('pass-nuevo');
-    expect(r.entrega.via).toBe('fallo');
-    expect(r.entrega.detalle).toContain('proveedor caído');
+    expect(r.entrega.via).toBe('emitida');
+    expect(r.entrega.correo).toBe('fallo');
   });
 });
