@@ -169,12 +169,31 @@ que quisiera. Encima la API de imágenes de Next arrastra un DoS sin parche en l
 rama 14 (GHSA-h64f-5h5j-jqjh), así que el comodín era la forma de dispararlo con
 imágenes de fuera.
 
-Ahora son 10 hosts exactos. **Y los hosts se sacaron preguntándole a la base**,
-no suponiéndolos: se consultaron las 47 columnas de imagen del esquema para ver
-qué hay guardado de verdad. Faltaban tres y ya están (`images.unsplash.com` de
-`Category.imageUrl`, `assets.cdn.filesafe.space` de `DeliveryCompany.logoUrl`,
-`app.wazzap.mx` de `WhiteLabel.whatsappQrUrl`). Sin ese paso, acotar la lista
-habría roto imágenes que hoy cargan.
+Ahora son **7 hosts exactos**.
+
+Y acá hay dos correcciones mías que importan más que el arreglo:
+
+**La primera: la lista de hosts vive en DOS sitios.** `next.config.js` decide si
+Next optimiza; `PATRONES_OPTIMIZABLES` de `src/lib/imagen-optimizada.mjs` decide
+si nuestro código ENVUELVE la URL en `/_next/image`. Acoté solo la primera y
+dejé el comodín en la segunda. Ese descuadre no es cosmético: **un host que el
+espejo acepta y el config no hace que la imagen NO SALGA** — no sale fea, no
+sale. Lo cazó `pruebas-libro-imagenes.mjs`. Las dos listas ya dicen lo mismo, y
+la prueba ahora compara en los DOS sentidos: solo miraba config ⊆ optimizable,
+que pilla «un CDN nuevo se sirve crudo» (feo pero funciona), y le faltaba el
+sentido peligroso. Por eso mi descuadre pasó el candado.
+
+**La segunda: consultar la base y añadir lo que salga estaba MAL.** Consulté las
+47 columnas de imagen, salieron tres hosts que no estaban en la lista
+(`images.unsplash.com`, `assets.cdn.filesafe.space`, `app.wazzap.mx`) y los
+añadí pensando que si no, se romperían. Falso: **nunca estuvieron permitidos**,
+así que siempre se sirvieron crudos y funcionan. Peor, unsplash devuelve **400**
+cuando el optimizador de Next le pide la imagen, y eso ya estaba fijado en
+`pruebas-imagenes-del-menu.mjs` desde antes — «un host fuera de remotePatterns
+se sirve CRUDO (unsplash: 400 en producción)». Alguien ya lo había pagado.
+
+Que un host tenga imágenes guardadas **no significa que haya que optimizarlas**.
+Los tres están fuera y el motivo queda escrito en el config.
 
 Candado nuevo en el CI: `frontend/scripts/arqueo-imagenes-remotas.cjs`.
 Distingue lo que importa — un comodín sobre un dominio de terceros es una puerta
