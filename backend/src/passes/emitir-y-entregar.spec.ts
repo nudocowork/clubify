@@ -63,7 +63,7 @@ function makePrisma(opts: {
         growBusinessLocationId: opts.credsNegocio === false ? null : 'loc-1',
         growBusinessApiKey: opts.credsNegocio === false ? null : 'key-1',
         growBusinessSwitchNumber: null,
-        whiteLabel: null,
+        whiteLabel: (opts as any).whiteLabel ?? null,
       })),
     },
   };
@@ -97,6 +97,39 @@ describe('emitir una tarjeta desde el panel', () => {
     expect(cuerpo).toContain('Cafe Prueba');
     // Y con dueño en «Mensajes enviados»: la regla de la casa.
     expect(ctx).toMatchObject({ tenantId: 'tenant-1', feature: 'tarjetas' });
+  });
+
+  it('EL ENLACE SALE POR EL DOMINIO DE LA MARCA DEL PROPIO NEGOCIO', async () => {
+    // La pregunta exacta de Javier (2026-09-29): «¿cómo vas a colocar el
+    // nombre de un negocio de Clubify con un enlace de Sellea?». No se puede:
+    // el dominio sale del whiteLabel DEL NEGOCIO, no de ninguna otra parte.
+    // Un negocio de Sellea manda su enlace por el dominio de Sellea…
+    const deSellea = makePrisma({
+      whiteLabel: {
+        domain: 'www.selleala.com',
+        appDomain: 'app.selleala.com',
+        growLocationId: null,
+        growApiKey: null,
+        growSwitchNumber: null,
+      },
+    } as any);
+    const a = makeService(deSellea);
+    await a.svc.issue(OWNER, 'card-1', 'cust-1');
+    const cuerpoSellea = (a.sms.mock.calls[0] as any[])[2] as string;
+    expect(cuerpoSellea).toContain('https://app.selleala.com/w/');
+    expect(cuerpoSellea).not.toContain('soyclubify');
+
+    // …y uno de Clubify (sin marca blanca), por el de Clubify.
+    const deClubify = makePrisma();
+    const b = makeService(deClubify);
+    await b.svc.issue(OWNER, 'card-1', 'cust-1');
+    const cuerpoClubify = (b.sms.mock.calls[0] as any[])[2] as string;
+    // Contra el respaldo REAL del entorno (APP_URL, o el dominio de la
+    // plataforma): lo que importa es que jamás sea el dominio de otra marca.
+    let respaldo = process.env.APP_URL ?? 'https://app.soyclubify.com';
+    while (respaldo.endsWith('/')) respaldo = respaldo.slice(0, -1);
+    expect(cuerpoClubify).toContain(`${respaldo}/w/`);
+    expect(cuerpoClubify).not.toContain('selleala');
   });
 
   it('SI HAY BIENVENIDA AUTOMÁTICA, manda ella y no se duplica el SMS', async () => {
