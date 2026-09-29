@@ -11,6 +11,7 @@ import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
+import { quienRecibeMensajesDeCobro } from './quien-recibe-cobros';
 import {
   decideDunning,
   esMoraFantasma,
@@ -987,18 +988,13 @@ export class BillingService {
     const candidatos = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        canceledAt: null,
+        // El mismo universo que los avisos de pre-cobro (regla única en
+        // billing/quien-recibe-cobros.ts): un InfoLink gratis con fecha rara
+        // tampoco es un problema de cobro que amerite sonar aquí.
+        ...quienRecibeMensajesDeCobro(),
         deletedAt: null,
-        isCampaignHost: false,
         currentPeriodEnd: { not: null },
         lastChargeAt: { not: null },
-        // El mismo universo que los avisos de pre-cobro: Clubify (legacy con
-        // whiteLabelId null) + marcas que cobran directo por Stripe.
-        OR: [
-          { whiteLabelId: null },
-          { whiteLabel: { slug: 'clubify' } },
-          { whiteLabel: { paymentGateway: 'STRIPE' } },
-        ],
       },
       select: {
         id: true,
@@ -1120,24 +1116,14 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
-        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
-        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
-        // que recordárselo solo hace ruido y parece que no nos enteramos.
-        canceledAt: null,
-        isCampaignHost: false,
+        // Regla única de audiencia (marcas Stripe sí, cancelados no, INFOLINK
+        // gratis JAMÁS — el caso Corks Arts): billing/quien-recibe-cobros.ts.
+        ...quienRecibeMensajesDeCobro(),
         // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
         // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
         // días después de decirle que había fallado (septiembre de 2026).
         failedPaymentCount: 0,
         currentPeriodEnd: { gte: from, lt: to },
-        // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
-        // marcas que cobran directo por Stripe (antes solo Clubify).
-        OR: [
-          { whiteLabelId: null },
-          { whiteLabel: { slug: 'clubify' } },
-          { whiteLabel: { paymentGateway: 'STRIPE' } },
-        ],
       },
       select: {
         id: true,
@@ -1239,22 +1225,13 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
-        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
-        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
-        // que recordárselo solo hace ruido y parece que no nos enteramos.
-        canceledAt: null,
-        isCampaignHost: false,
+        // Regla única de audiencia: billing/quien-recibe-cobros.ts.
+        ...quienRecibeMensajesDeCobro(),
         // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
         // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
         // días después de decirle que había fallado (septiembre de 2026).
         failedPaymentCount: 0,
         currentPeriodEnd: { gte: from, lt: to },
-        OR: [
-          { whiteLabelId: null },
-          { whiteLabel: { slug: 'clubify' } },
-          { whiteLabel: { paymentGateway: 'STRIPE' } },
-        ],
       },
       select: {
         id: true,
@@ -1332,24 +1309,13 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
-        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
-        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
-        // que recordárselo solo hace ruido y parece que no nos enteramos.
-        canceledAt: null,
-        isCampaignHost: false,
+        // Regla única de audiencia: billing/quien-recibe-cobros.ts.
+        ...quienRecibeMensajesDeCobro(),
         // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
         // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
         // días después de decirle que había fallado (septiembre de 2026).
         failedPaymentCount: 0,
         currentPeriodEnd: { gte: desde, lt: to },
-        // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
-        // marcas que cobran directo por Stripe (antes solo Clubify).
-        OR: [
-          { whiteLabelId: null },
-          { whiteLabel: { slug: 'clubify' } },
-          { whiteLabel: { paymentGateway: 'STRIPE' } },
-        ],
       },
       select: {
         id: true,
@@ -1423,29 +1389,13 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
-        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
-        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
-        // que recordárselo solo hace ruido y parece que no nos enteramos.
-        canceledAt: null,
-        isCampaignHost: false,
+        // Regla única de audiencia: billing/quien-recibe-cobros.ts.
+        ...quienRecibeMensajesDeCobro(),
         // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
         // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
         // días después de decirle que había fallado (septiembre de 2026).
         failedPaymentCount: 0,
         currentPeriodEnd: { gte: inOneDay, lt: inTwoDays },
-        // El recordatorio "revisa tu tarjeta en Hotmart" solo aplica a
-        // negocios que pagan DIRECTO a la pasarela (Clubify). Las marcas
-        // blancas se renuevan con créditos (cron de renovaciones) → no hay
-        // cobro Hotmart que recordar, así que las excluimos. Legacy con
-        // whiteLabelId null = Clubify.
-        // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
-        // marcas que cobran directo por Stripe (antes solo Clubify).
-        OR: [
-          { whiteLabelId: null },
-          { whiteLabel: { slug: 'clubify' } },
-          { whiteLabel: { paymentGateway: 'STRIPE' } },
-        ],
       },
       select: {
         id: true,
@@ -1528,25 +1478,15 @@ export class BillingService {
    * (cron de renovaciones) y tienen su propia suspensión.
    */
   private async processOverdueAccounts(now: Date) {
+    // Regla única de audiencia: billing/quien-recibe-cobros.ts. Su AND se
+    // compone con el OR propio de la mora (fallo de cobro o fecha vencida).
+    const audiencia = quienRecibeMensajesDeCobro();
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
-        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
-        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
-        // que recordárselo solo hace ruido y parece que no nos enteramos.
-        canceledAt: null,
-        isCampaignHost: false,
+        ...audiencia,
         AND: [
-          {
-            // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
-        // marcas que cobran directo por Stripe (antes solo Clubify).
-        OR: [
-          { whiteLabelId: null },
-          { whiteLabel: { slug: 'clubify' } },
-          { whiteLabel: { paymentGateway: 'STRIPE' } },
-        ],
-          },
+          ...audiencia.AND,
           {
             OR: [
               { failedPaymentCount: { gt: 0 } },
