@@ -1022,6 +1022,7 @@ function EditCustomerModal({
   const validBd = bd && !Number.isNaN(bd.getTime()) ? bd : null;
   const [fullName, setFullName] = useState(customer.fullName);
   const [email, setEmail] = useState(customer.email ?? '');
+  const [phone, setPhone] = useState(customer.phone ?? '');
   const [day, setDay] = useState(validBd ? String(validBd.getUTCDate()) : '');
   const [month, setMonth] = useState(
     validBd ? String(validBd.getUTCMonth() + 1) : '',
@@ -1042,10 +1043,15 @@ function EditCustomerModal({
     const body: {
       fullName: string;
       email: string | null;
+      phone: string | null;
       birthday?: string;
     } = {
       fullName: name,
       email: email.trim() || null,
+      // Pedido de Javier (2026-09-29): el teléfono también se corrige desde
+      // aquí. El backend ya lo aceptaba (PATCH /customers) y responde claro si
+      // otro cliente del negocio lo tiene.
+      phone: phone.trim() || null,
     };
     if (day && month) {
       body.birthday = `2000-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
@@ -1093,6 +1099,19 @@ function EditCustomerModal({
           onChange={(e) => setEmail(e.target.value)}
           placeholder="correo@ejemplo.com (opcional)"
         />
+
+        <label className="label mt-3">Teléfono</label>
+        <input
+          className="input w-full"
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="+57 300 123 4567 (opcional)"
+        />
+        <p className="text-[11px] text-mute mt-1">
+          Con el indicativo del país (+57…) el cliente encuentra su tarjeta
+          buscando por su número.
+        </p>
 
         <label className="label mt-3">Cumpleaños</label>
         <div className="flex gap-2">
