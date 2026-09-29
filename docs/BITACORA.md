@@ -8,6 +8,132 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-28 (87) — CI otra vez en verde (era un falso positivo mío), y la medida que confirma el peaje de la base
+
+**Estado: commiteado y empujado (`e5675f4b`). Nada de esto necesita desplegarse**
+— son candados, dependencias y tests. Lo que SÍ está pendiente de desplegar es
+lo de la entrada 86, con su migración.
+
+### El CI llevaba 4 tandas en rojo y no era código nuevo roto
+
+Tres causas, ninguna un agujero:
+
+1. **Falso positivo de `arqueo-roles.cjs`.** Señalaba 12 endpoints `DELETE` de
+   `sales-teams` como «sin `@Roles`» y los 12 lo tienen **en su clase**. El
+   lector de decoradores solo recogía argumentos `StringLiteral`, y
+   `@Roles(...ROLES_DE_EQUIPO)` es un *spread*: `args` quedaba vacío y el
+   endpoint contaba como desprotegido. Arreglado y comprobado por mutación
+   (quitar el decorador y dejarlo vacío lo ponen en rojo). Pasó de vigilar 937
+   endpoints a 1065 — los 128 que no veía eran justo los que usan spread.
+
+   *Un candado que grita en falso enseña a ignorarlo, que es peor que no
+   tenerlo.*
+
+2. **`@xmldom/xmldom` grave en producción.** Entra por `mammoth` (leer .docx).
+   Puestos `overrides` a las versiones parcheadas de xmldom, `ws`,
+   `socket.io-parser` y `fast-xml-builder`, y `nanoid` a `^3.3.19`. Todos son
+   parches dentro de la misma versión mayor: ninguno cambia API. El backend
+   quedó **sin ningún paquete grave nuevo**.
+
+   **No usar `npm audit fix` en este repo.** Con `--omit=dev` se lleva por
+   delante las dependencias de desarrollo del lockfile (iba a quitar webpack,
+   yargs y compañía); sin él quiere reestructurar Sentry y borrar
+   `@prisma/instrumentation`. `tar` (crítico) se queda a propósito: entra por
+   `argon2` → `node-pre-gyp`, que solo corre al compilar el binario nativo, no
+   en tiempo de ejecución.
+
+3. **Dos tests que el código dejó atrás** (los dos de la cuponera, de estos
+   días). `cuponera-locations`: su doble de Prisma no tenía `findFirst` ni
+   `delete`, y los **seis casos de aislamiento entre aliados morían con
+   «reading 'campaign'» sin comprobar nada**. Borrar ya no usa `deleteMany`
+   porque antes hay que quitar el punto de la tarjeta y para eso necesita el
+   `tenantId`: la condición se comprueba ahora sobre el `findFirst`.
+   Comprobado por mutación por las dos vías. `cuponera-admin-role`: mandaba
+   una clave de 6 caracteres y el servicio pasó a exigir 8, así que moría en
+   la validación; se le da una válida y se cubre el mínimo.
+
+### Techo de aislamiento: 204 consultas, las 8 nuevas revisadas una a una
+
+Ninguna deja que un administrador de campaña toque otra campaña ni un aliado
+otro aliado. `updateCampaignById` y `setCampaignAdminPassword` solo las alcanzan
+roles de plataforma; `panelUpdateAlly`, `panelSetAllyPassword` y `setAllyStatus`
+pasan por `resolveAdminCampaign` + `assertAlly`; `panelUpdateSettings` escribe
+sobre el `campaign.id` del token; `updateAllyProfile` usa `user.allyBusinessId`;
+`propagarASincronizados` es privada tras un `get()` que lanza 403.
+
+**Ojo para quien siga con cuponera:** su aislamiento es **todo manual**. Un
+`CUPONERA_ADMIN` nace sin `tenantId` y sin `whiteLabelId`, así que el middleware
+de Prisma no llega a actuar. Lo que hay que vigilar en ese módulo no es «update
+por id», es «método del panel que escribe sin `resolveAdminCampaign` ni
+`assertAlly`».
+
+Anotado sin tocar (es de marca blanca, no de campaña): `updateCampaignById`
+deja a un `SUPER_ADMIN` de marca reasignar el `whiteLabelId` de su campaña a
+cualquier otra marca (`cuponera.service.ts:347-353`), y el tenant anfitrión no
+se actualiza, así que `campaign.whiteLabelId` y `tenant.whiteLabelId` divergen.
+
+### La medida que confirma el peaje de la base: 141 ms por consulta
+
+`/api/health/ready` mide la latencia contra Postgres **desde dentro del
+servidor**. Tres tomas seguidas en producción:
+
+```
+postgres: ok  283 ms
+postgres: ok  141 ms
+postgres: ok  141 ms
+```
+
+Eso es un `SELECT 1`. En la red interna de Railway serían **1-3 ms**. Confirma
+lo que ya estaba anotado: el backend va a Postgres por el **proxy público**, y
+cada consulta paga ~140 ms de ida y vuelta.
+
+Lo que eso cuesta, contado sobre el código (`prisma.` por método):
+
+```
+47 consultas  duplicate()            admin/tenant-duplicator.service.ts:68
+26 consultas  tenant()               metrics/metrics.service.ts:182      [ya en Promise.all]
+22 consultas  dashboardMetricsV2()   admin-reports/admin-reports.service.ts:924  [ya en Promise.all]
+14 consultas  createPublic()         orders/orders.service.ts:559        ← crear un pedido
+12 consultas  trialSignup()          auth/auth.service.ts:2076
+11 consultas  enrollPublic()         passes/passes.service.ts:550        ← alta en la tarjeta
+```
+
+Crear un pedido son ~2 segundos de puro ir y venir a la base. El alta en la
+tarjeta, ~1,5 s.
+
+**El cambio es una variable de entorno, no código**, y mejora las 2.723
+consultas del backend a la vez:
+
+```
+DATABASE_URL = ${{Postgres-Nq8w.DATABASE_URL}}
+```
+
+Pendiente de que Javier lo apruebe y lo ejecute (en modo auto no se pueden
+tocar variables de Railway). Conviene mirar `REDIS_URL` a la vez, que va por el
+mismo camino. Refactorizar los métodos de arriba rinde mucho menos que esto y
+cuesta mucho más.
+
+### Queda rojo `next:critical` en el frontend
+
+**14.2.35 ya es la última 14.x publicada**: Vercel no parchea esa rama, así que
+no hay parche — solo el salto a 15.5.26. Comprobado qué aplica de verdad aquí:
+**no** el RCE de CVSS 9 (es solo en servidores Windows y vamos en Vercel/Linux),
+**no** el RCE de la API de imágenes por AVIF (no está en `formats`), **no** el
+XSS de nonces de CSP (no se usan), **no** el de `beforeInteractive` (no hay),
+**no** el bypass de middleware con i18n (no hay `pages/`, es todo App Router), y
+**no** el SSRF de `rewrites` (el destino es nuestra propia variable, no del
+atacante). Lo que sí queda es **DoS y envenenamiento de caché**. Grave, pero no
+toma del servidor: es para planificar, no para esta noche.
+
+### Dos avisos operativos
+
+- Sigue **sin desplegar** lo de la entrada 86 y trae migración obligatoria
+  (`apply-ally-zone-migration.cjs`), sin la cual se cae toda la cuponera.
+- Aparecieron dos archivos con nombre corrupto en el árbol,
+  **`backend/src/=`** y **`backend/src/[]`**, seguramente de un comando mal
+  escapado. No los toqué (regla de no revertir lo ajeno). Si son tuyos,
+  bórralos tú.
+
 ## 2026-09-28 (86) — Cuponeras: páginas en HTML, zona/barrio del aliado, claves de administradores
 
 **Estado: commiteado. SIN desplegar. ⚠️ TRAE MIGRACIÓN:**
