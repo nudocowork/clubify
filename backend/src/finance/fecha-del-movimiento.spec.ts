@@ -67,6 +67,19 @@ describe('si la fecha pertenece al período', () => {
     expect(fechaDentroDelPeriodo('2026-05-15', '')).toBe(true);
     expect(fechaDentroDelPeriodo('2026-05-15', undefined)).toBe(true);
   });
+
+  it('el rango de días, bordes incluidos', () => {
+    const r = '2026-09-01..2026-11-30';
+    expect(fechaDentroDelPeriodo('2026-09-01', r)).toBe(true);
+    expect(fechaDentroDelPeriodo('2026-11-30', r)).toBe(true);
+    expect(fechaDentroDelPeriodo('2026-08-31', r)).toBe(false);
+    expect(fechaDentroDelPeriodo('2026-12-01', r)).toBe(false);
+  });
+
+  it('desde un rango que no incluye hoy, el formulario trae su primer día', () => {
+    expect(diaPorDefecto('2026-05-01..2026-05-20', HOY)).toBe('2026-05-01');
+    expect(diaPorDefecto('2026-09-01..2026-11-30', HOY)).toBe('2026-09-24');
+  });
 });
 
 describe('la fecha que trae puesta el formulario', () => {

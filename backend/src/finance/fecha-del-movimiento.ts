@@ -83,6 +83,13 @@ export function fechaDentroDelPeriodo(
   if (!ES_UN_DIA.test(ymd)) return false;
   const p = (periodo ?? '').trim();
   if (!p || p === 'todo') return true;
+  // Rango de días ("2026-09-01..2026-11-30"): texto contra texto, como todo
+  // aquí. Un rango mal escrito cae al `true` de «no se entiende», igual que
+  // cualquier otro período que no se entienda.
+  const rango = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(p);
+  if (rango && rango[1] <= rango[2]) {
+    return ymd >= rango[1] && ymd <= rango[2];
+  }
   const meses = mesesDe(p);
   if (!meses) return true;
   return meses.includes(ymd.slice(0, 7));
@@ -102,6 +109,10 @@ export function diaPorDefecto(
   const hoy = hoyEnBogota(ahora);
   const p = (periodo ?? '').trim();
   if (!p || p === 'todo') return hoy;
+  const rango = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(p);
+  if (rango && rango[1] <= rango[2]) {
+    return hoy >= rango[1] && hoy <= rango[2] ? hoy : rango[1];
+  }
   const meses = mesesDe(p);
   if (!meses) return hoy;
   if (meses.includes(hoy.slice(0, 7))) return hoy;

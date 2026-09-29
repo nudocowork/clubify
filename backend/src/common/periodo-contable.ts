@@ -62,10 +62,11 @@ export function mesAtras(periodo: string, meses: number): string {
 /**
  * Límites de cualquier período que sepa pedir el panel:
  *
- *   "2026-09"    → ese mes
- *   "2026-T3"    → ese trimestre (julio a septiembre)
- *   "2026"       → ese año
- *   "todo" / ""  → sin límites (histórico completo)
+ *   "2026-09"                 → ese mes
+ *   "2026-T3"                 → ese trimestre (julio a septiembre)
+ *   "2026"                    → ese año
+ *   "2026-09-01..2026-11-30"  → ese rango de días, ambos incluidos
+ *   "todo" / ""               → sin límites (histórico completo)
  *
  * Todo en hora de Bogotá, apoyado en `limitesDelMes` para que el borde del
  * período sea el MISMO en las tres granularidades. Devuelve `null` si el
@@ -96,7 +97,37 @@ export function limitesDelPeriodo(
       to: limitesDelMes(`${anio[1]}-12`)!.to,
     };
   }
+
+  // Rango de días sueltos: lo pidió Javier (2026-09-29) para poder mirar,
+  // p. ej., del 1 de septiembre al 30 de noviembre sin partirlo en meses.
+  const rango = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(p);
+  if (rango) {
+    const desde = diaComoFechas(rango[1]);
+    const hasta = diaComoFechas(rango[2]);
+    if (!desde || !hasta || rango[1] > rango[2]) return null;
+    return { from: desde.from, to: hasta.to };
+  }
   return null;
+}
+
+/**
+ * Un día "YYYY-MM-DD" como sus dos bordes en hora de Bogotá. `null` si el día
+ * no existe (2026-02-31 pasa el regex pero no el calendario).
+ */
+function diaComoFechas(dia: string): { from: Date; to: Date } | null {
+  const [y, m, d] = dia.split('-').map(Number);
+  const prueba = new Date(Date.UTC(y, m - 1, d));
+  if (
+    prueba.getUTCFullYear() !== y ||
+    prueba.getUTCMonth() !== m - 1 ||
+    prueba.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return {
+    from: new Date(Date.UTC(y, m - 1, d, OFFSET_BOGOTA_HORAS, 0, 0, 0)),
+    to: new Date(Date.UTC(y, m - 1, d, 23 + OFFSET_BOGOTA_HORAS, 59, 59, 999)),
+  };
 }
 
 /** Etiqueta legible de un período, para títulos y mensajes. */
@@ -114,6 +145,15 @@ export function nombreDelPeriodo(periodo: string): string {
   const t = /^(\d{4})-T([1-4])$/i.exec(p);
   if (t) return `${t[2]}º trimestre de ${t[1]}`;
   if (/^\d{4}$/.test(p)) return `año ${p}`;
+  const r = /^(\d{4})-(\d{2})-(\d{2})\.\.(\d{4})-(\d{2})-(\d{2})$/.exec(p);
+  if (r) {
+    const dia = (d: string, m: string) => `${Number(d)} de ${MESES[Number(m) - 1]}`;
+    if (r[1] === r[4]) {
+      // Mismo año: «del 1 de septiembre al 30 de noviembre de 2026».
+      return `del ${dia(r[3], r[2])} al ${dia(r[6], r[5])} de ${r[1]}`;
+    }
+    return `del ${dia(r[3], r[2])} de ${r[1]} al ${dia(r[6], r[5])} de ${r[4]}`;
+  }
   return p;
 }
 
@@ -167,6 +207,16 @@ export function mesesDelPeriodo(periodo: string, ahora: Date = new Date()): stri
       { length: 12 },
       (_, i) => `${p}-${String(i + 1).padStart(2, '0')}`,
     );
+  }
+  const r = /^(\d{4}-\d{2})-\d{2}\.\.(\d{4}-\d{2})-\d{2}$/.exec(p);
+  if (r && r[1] <= r[2]) {
+    // Un rango de días se dibuja por los meses que toca. Techo de 24 barras:
+    // más que eso ya no es una gráfica legible, es un histograma de píxeles.
+    const meses: string[] = [];
+    for (let m = r[1]; m <= r[2] && meses.length < 24; m = mesAtras(m, -1)) {
+      meses.push(m);
+    }
+    return meses;
   }
   const actual = mesContable(ahora);
   return Array.from({ length: 12 }, (_, i) => mesAtras(actual, 11 - i));

@@ -12,11 +12,19 @@
  * nunca se mezclan: lo que se ve pertenece a UN período.
  *
  * El valor viaja tal cual al backend como `?period=` y él lo resuelve
- * (`common/periodo-contable.ts`). Las cuatro formas válidas:
- *   "2026-09"  mes · "2026-T3" trimestre · "2026" año · "todo" histórico
+ * (`common/periodo-contable.ts`). Las cinco formas válidas:
+ *   "2026-09" mes · "2026-T3" trimestre · "2026" año · "todo" histórico
+ *   "2026-09-01..2026-11-30" rango de días (lo pidió Javier el 2026-09-29)
+ *
+ * El período se ELIGE, no se navega con flechas: con los años acumulándose,
+ * llegar a un mes viejo a flechazos era una tortura (petición de Javier,
+ * 2026-09-29). Y en la lista de años solo aparecen los que ya vivimos —
+ * 2027 aparecerá cuando estemos en él, no antes.
  */
 
-export type Granularidad = 'mes' | 'trimestre' | 'anio' | 'todo';
+import { useEffect, useState } from 'react';
+
+export type Granularidad = 'mes' | 'trimestre' | 'anio' | 'todo' | 'rango';
 
 const MESES = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -27,6 +35,7 @@ export function granularidadDe(p: string): Granularidad {
   if (/^\d{4}-\d{2}$/.test(p)) return 'mes';
   if (/^\d{4}-T[1-4]$/.test(p)) return 'trimestre';
   if (/^\d{4}$/.test(p)) return 'anio';
+  if (/^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(p)) return 'rango';
   return 'todo';
 }
 
@@ -72,6 +81,11 @@ export function diaEnPeriodo(dia: string, periodo: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return false;
   const p = (periodo ?? '').trim();
   if (!p || p === 'todo') return true;
+  if (granularidadDe(p) === 'rango') {
+    // ISO se compara como texto sin sorpresas: mismo criterio que el resto.
+    const [desde, hasta] = p.split('..');
+    return dia >= desde && dia <= hasta;
+  }
   const meses = mesesDe(p);
   return !meses || meses.includes(dia.slice(0, 7));
 }
@@ -87,10 +101,18 @@ export function diaPorDefectoDelPeriodo(periodo: string): string {
   const hoy = hoyComoDia();
   const p = (periodo ?? '').trim();
   if (!p || p === 'todo') return hoy;
+  if (granularidadDe(p) === 'rango') {
+    return diaEnPeriodo(hoy, p) ? hoy : p.split('..')[0];
+  }
   const meses = mesesDe(p);
   if (!meses) return hoy;
   return meses.includes(hoy.slice(0, 7)) ? hoy : `${meses[0]}-01`;
 }
+
+const MESES_CORTOS = [
+  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+  'jul', 'ago', 'sept', 'oct', 'nov', 'dic',
+];
 
 export function nombreDePeriodo(p: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(p);
@@ -98,6 +120,14 @@ export function nombreDePeriodo(p: string): string {
   const t = /^(\d{4})-T([1-4])$/.exec(p);
   if (t) return `${t[2]}º trimestre ${t[1]}`;
   if (/^\d{4}$/.test(p)) return `Año ${p}`;
+  const r = /^(\d{4})-(\d{2})-(\d{2})\.\.(\d{4})-(\d{2})-(\d{2})$/.exec(p);
+  if (r) {
+    // Corto, que va incrustado en frases: «1 sept — 30 nov 2026».
+    const dia = (d: string, m2: string) => `${Number(d)} ${MESES_CORTOS[Number(m2) - 1]}`;
+    return r[1] === r[4]
+      ? `${dia(r[3], r[2])} — ${dia(r[6], r[5])} ${r[1]}`
+      : `${dia(r[3], r[2])} ${r[1]} — ${dia(r[6], r[5])} ${r[4]}`;
+  }
   return 'Todo el histórico';
 }
 
@@ -114,13 +144,16 @@ export function correrPeriodo(p: string, paso: number): string {
     return `${Math.floor(total / 4)}-T${(total % 4) + 1}`;
   }
   if (/^\d{4}$/.test(p)) return String(Number(p) + paso);
-  return p; // "todo" no se corre
+  return p; // "todo" y el rango no se corren
 }
 
 /** Cambia de granularidad SIN perder dónde estabas: sep-2026 → 3º trim. 2026. */
 function convertir(p: string, a: Granularidad): string {
   if (a === 'todo') return 'todo';
-  const base = granularidadDe(p) === 'todo' ? periodoActual() : p;
+  const g = granularidadDe(p);
+  // Del rango se sale por el mes en que empieza; del histórico, por el actual.
+  const base =
+    g === 'todo' ? periodoActual() : g === 'rango' ? p.slice(0, 7) : p;
   const anio = base.slice(0, 4);
   if (a === 'anio') return anio;
   const m = /^\d{4}-(\d{2})$/.exec(base);
@@ -142,6 +175,9 @@ const GRANULARIDADES: Array<[Granularidad, string]> = [
   ['todo', 'Todo'],
 ];
 
+/** El primer año con datos del producto: antes de él no hay nada que mirar. */
+const PRIMER_ANIO = 2026;
+
 export function SelectorPeriodo({
   valor,
   onChange,
@@ -151,9 +187,40 @@ export function SelectorPeriodo({
 }) {
   const g = granularidadDe(valor);
   const hoy = periodoActual();
-  // No se navega al futuro: un mes que no ha pasado no tiene nada que mirar.
-  const enElTope =
-    g !== 'todo' && correrPeriodo(valor, 1) > convertir(hoy, g);
+  const anioActual = Number(hoy.slice(0, 4));
+  const mesActual = Number(hoy.slice(5, 7));
+
+  // Solo los años que ya vivimos (2027 aparecerá al llegar 2027). Si un enlace
+  // viejo trae un año anterior al primero, se lista para que el select no
+  // muestre un valor que no existe en sus opciones.
+  const anioDelValor = /^\d{4}/.test(valor) ? Number(valor.slice(0, 4)) : anioActual;
+  const primero = Math.min(PRIMER_ANIO, anioDelValor);
+  const anios = Array.from(
+    { length: Math.max(1, anioActual - primero + 1) },
+    (_, i) => primero + i,
+  );
+
+  // El rango se arma con dos fechas y solo se aplica cuando las dos están y en
+  // orden; mientras tanto vive aquí para no mandarle medio filtro al backend.
+  const [rango, setRango] = useState<{ d: string; h: string }>(() =>
+    g === 'rango'
+      ? { d: valor.split('..')[0], h: valor.split('..')[1] }
+      : { d: '', h: '' },
+  );
+  useEffect(() => {
+    setRango(
+      granularidadDe(valor) === 'rango'
+        ? { d: valor.split('..')[0], h: valor.split('..')[1] }
+        : { d: '', h: '' },
+    );
+  }, [valor]);
+  const tocarRango = (d: string, h: string) => {
+    setRango({ d, h });
+    if (d && h && d <= h) onChange(`${d}..${h}`);
+  };
+
+  const selectCls = 'input py-1.5 text-sm capitalize';
+  const anioSel = anioDelValor;
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -169,39 +236,101 @@ export function SelectorPeriodo({
         ))}
       </div>
 
-      {g !== 'todo' && (
-        <div className="inline-flex items-center gap-1 bg-bg2 border border-line rounded-pill px-1 py-1">
-          <button
-            aria-label="Período anterior"
-            onClick={() => onChange(correrPeriodo(valor, -1))}
-            className="w-7 h-7 rounded-pill text-mute hover:bg-white hover:text-ink font-bold leading-none"
-          >
-            ‹
-          </button>
-          <span className="px-2 text-sm font-semibold capitalize min-w-[9.5rem] text-center">
-            {nombreDePeriodo(valor)}
-          </span>
-          <button
-            aria-label="Período siguiente"
-            disabled={enElTope}
-            onClick={() => onChange(correrPeriodo(valor, 1))}
-            className="w-7 h-7 rounded-pill text-mute hover:bg-white hover:text-ink font-bold leading-none disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            ›
-          </button>
-        </div>
+      {g === 'mes' && (
+        <select
+          aria-label="Elegir mes"
+          className={selectCls}
+          value={Number(valor.slice(5, 7))}
+          onChange={(e) =>
+            onChange(`${anioSel}-${String(e.target.value).padStart(2, '0')}`)
+          }
+        >
+          {MESES.map((n, i) => (
+            <option
+              key={n}
+              value={i + 1}
+              // Al futuro no: un mes que no ha pasado no tiene nada que mirar.
+              disabled={anioSel === anioActual && i + 1 > mesActual}
+            >
+              {n}
+            </option>
+          ))}
+        </select>
       )}
 
-      {g === 'mes' && (
-        <input
-          type="month"
-          aria-label="Elegir mes"
-          className="input py-1.5 text-sm"
-          value={valor}
-          max={hoy}
-          onChange={(e) => e.target.value && onChange(e.target.value)}
-        />
+      {g === 'trimestre' && (
+        <select
+          aria-label="Elegir trimestre"
+          className={selectCls}
+          value={Number(valor.slice(6, 7))}
+          onChange={(e) => onChange(`${anioSel}-T${e.target.value}`)}
+        >
+          {[1, 2, 3, 4].map((t) => (
+            <option
+              key={t}
+              value={t}
+              disabled={anioSel === anioActual && t > Math.ceil(mesActual / 3)}
+            >
+              {t}º trimestre
+            </option>
+          ))}
+        </select>
       )}
+
+      {(g === 'mes' || g === 'trimestre' || g === 'anio') && (
+        <select
+          aria-label="Elegir año"
+          className={selectCls}
+          value={anioSel}
+          onChange={(e) => {
+            const anio = Number(e.target.value);
+            if (g === 'anio') return onChange(String(anio));
+            if (g === 'trimestre') {
+              const t = Number(valor.slice(6, 7));
+              const tope = anio === anioActual ? Math.ceil(mesActual / 3) : 4;
+              return onChange(`${anio}-T${Math.min(t, tope)}`);
+            }
+            // Mes: si al cambiar de año el mes queda en el futuro, se recorta
+            // al último mes vivido en vez de quedar en un período sin datos.
+            const m = Number(valor.slice(5, 7));
+            const mes = anio === anioActual ? Math.min(m, mesActual) : m;
+            onChange(`${anio}-${String(mes).padStart(2, '0')}`);
+          }}
+        >
+          {anios.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {/* Rango libre de días: «del 1 de septiembre al 30 de noviembre». Puede
+          mirar hacia adelante (próximos cobros), por eso no se capa a hoy. */}
+      <div
+        className={`inline-flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-sm ${
+          g === 'rango' ? 'border-brand bg-white' : 'border-line bg-bg2'
+        }`}
+      >
+        <span className="text-xs text-mute font-semibold">Del</span>
+        <input
+          type="date"
+          aria-label="Rango: desde"
+          className="bg-transparent text-sm outline-none"
+          min={`${PRIMER_ANIO}-01-01`}
+          value={rango.d}
+          onChange={(e) => tocarRango(e.target.value, rango.h)}
+        />
+        <span className="text-xs text-mute font-semibold">al</span>
+        <input
+          type="date"
+          aria-label="Rango: hasta"
+          className="bg-transparent text-sm outline-none"
+          min={rango.d || `${PRIMER_ANIO}-01-01`}
+          value={rango.h}
+          onChange={(e) => tocarRango(rango.d, e.target.value)}
+        />
+      </div>
 
       {valor !== hoy && (
         <button

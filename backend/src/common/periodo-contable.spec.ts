@@ -110,6 +110,27 @@ describe('limitesDelPeriodo', () => {
     expect(limitesDelPeriodo('2026-T5')).toBeNull();
     expect(limitesDelPeriodo('el mes pasado')).toBeNull();
   });
+
+  // El rango de días lo pidió Javier (2026-09-29): «del 1 de septiembre al
+  // 30 de noviembre», sin partirlo en meses.
+  it('un rango de días abre el primero y cierra el último, en Bogotá', () => {
+    const r = limitesDelPeriodo('2026-09-01..2026-11-30')!;
+    expect(r.from!.toISOString()).toBe('2026-09-01T05:00:00.000Z');
+    expect(r.to!.toISOString()).toBe('2026-12-01T04:59:59.999Z');
+  });
+
+  it('un rango de un solo día es ese día entero', () => {
+    const r = limitesDelPeriodo('2026-09-16..2026-09-16')!;
+    expect(r.from!.toISOString()).toBe('2026-09-16T05:00:00.000Z');
+    expect(r.to!.toISOString()).toBe('2026-09-17T04:59:59.999Z');
+  });
+
+  it('un rango al revés o con un día que no existe es null, no un período vacío', () => {
+    // Al revés devolvería from > to: TODAS las consultas darían cero y el
+    // panel parecería un mes sin movimiento en vez de un filtro mal puesto.
+    expect(limitesDelPeriodo('2026-11-30..2026-09-01')).toBeNull();
+    expect(limitesDelPeriodo('2026-02-31..2026-03-05')).toBeNull();
+  });
 });
 
 describe('nombreDelPeriodo', () => {
@@ -118,6 +139,15 @@ describe('nombreDelPeriodo', () => {
     expect(nombreDelPeriodo('2026-T3')).toBe('3º trimestre de 2026');
     expect(nombreDelPeriodo('2026')).toBe('año 2026');
     expect(nombreDelPeriodo('todo')).toBe('Todo el histórico');
+  });
+
+  it('nombra un rango como se dice, con el año una sola vez si es el mismo', () => {
+    expect(nombreDelPeriodo('2026-09-01..2026-11-30')).toBe(
+      'del 1 de septiembre al 30 de noviembre de 2026',
+    );
+    expect(nombreDelPeriodo('2026-12-15..2027-01-10')).toBe(
+      'del 15 de diciembre de 2026 al 10 de enero de 2027',
+    );
   });
 });
 
@@ -156,5 +186,15 @@ describe('mesesDelPeriodo', () => {
     expect(m).toHaveLength(12);
     expect(m[11]).toBe('2026-09');
     expect(m[0]).toBe('2025-10');
+  });
+
+  it('un rango de días se dibuja por los meses que toca', () => {
+    expect(mesesDelPeriodo('2026-09-15..2026-11-02')).toEqual([
+      '2026-09', '2026-10', '2026-11',
+    ]);
+  });
+
+  it('un rango no tiene «período anterior» comparable, como el histórico', () => {
+    expect(periodoAnterior('2026-09-01..2026-11-30')).toBeNull();
   });
 });
