@@ -47,6 +47,30 @@ que tampoco existe: el vigilante estaba tan muerto como lo vigilado.
    `pub-*.r2.dev` abierta — con nombre adivinable, cualquiera podía bajarse el
    blob cifrado. Con sufijo aleatorio no hay ruta que adivinar.
 
+### Anexo (29-sep por la mañana): el nocturno YA CORRE — y por el camino cazó dos verdes falsos
+
+Javier puso los 6 secretos y el nocturno se estrenó. Dos fallos por el camino,
+los dos de la misma familia:
+
+1. **El runner de GitHub trae un pg_dump 16 que le ganaba al 18 recién
+   instalado.** El paso instalador salía verde enseñando la versión equivocada
+   y el dump moría con «server version mismatch». Ahora el paso antepone
+   `/usr/lib/postgresql/18/bin` al PATH y su verificación FALLA si lo que va a
+   usarse no es un 18.
+
+2. **El peor: un «success» de 15 segundos con el bucket vacío.** En
+   `backup-db.mjs`, el listener del código de salida de pg_dump se registraba
+   DESPUÉS de drenar los streams: si pg_dump moría temprano, su evento ya había
+   pasado, la promesa quedaba colgada, y Node — que no espera promesas
+   pendientes — salía con código CERO sin subir ni imprimir nada. Arreglado con
+   tres capas: 'exit' y 'error' capturados ANTES de consumir un byte; un mínimo
+   creíble de tamaño (<1 MB no es un respaldo de esta base, error); y la de
+   fuera, el Vigilante, que mira el resultado a diario.
+
+Tras el arreglo: `[backup] ✓ backups/2026-09-29T06-52-….sql.gz.enc (299.52 MB)`
+y el bucket con DOS respaldos (el manual careado + el del workflow). Desde esta
+noche corre solo a las 03:00 UTC, retención 30 días.
+
 ### Lo que queda, y de quién es
 
 - **Javier — los 6 secretos** (bloqueado en modo auto): ver la cadena que le

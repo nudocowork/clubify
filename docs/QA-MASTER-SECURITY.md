@@ -1385,7 +1385,7 @@ original.
 
 | # | Fase | Estado | Nota |
 |---|---|---|---|
-| 26 | Backups | 🟡 | **El primer respaldo EXISTE** (2026-09-28, 299,5 MB cifrados, a mano con el pipeline real). El nocturno automático espera solo los 6 `gh secret set` de Javier — el porqué de 135 noches de fallo era que los secretos de GitHub nunca se configuraron. La ausencia ya hace ruido: el Vigilante revisa a diario que haya respaldo <26 h y avisa por SMS |
+| 26 | Backups | ✅ | **El nocturno CORRE solo** desde el 2026-09-29 (03:00 UTC, 30 d de retención, AES-256-GCM). Secretos puestos por Javier; clave de cifrado SOLO en su gestor. Tres guardarraíles tras cazar dos verdes falsos (pg_dump 16 del runner; success de 15 s con bucket vacío): PATH verificado que muerde, mínimo de tamaño, y el Vigilante mirando el bucket a diario (ese espera deploy). Mejora pendiente: bucket R2 dedicado y privado |
 | 26 | Prueba de restauración | ✅ | **PROBADA el 2026-09-28**: el respaldo cifrado se restauró en un Postgres 18 limpio (Docker) con `restore-db.mjs --latest` y se careó tabla a tabla contra producción: Tenant 138=138, User 362=362, Order 705=705, Pass 9092=9092, Stamp 12383=12383, Card 222=222, MessageLog 1597=1597. Repetirla tras cambios grandes de esquema |
 | 16 | Rate limiting | 🟡 | P0-2. **Codigo hecho y APAGADO** tras `TRUST_PROXY`. Cubo por usuario, signup a 10/hora. Falta desplegar y encender |
 | 10 | API — rutas públicas | 🔄 | P1-2. **150** rutas, **125 abiertas**, **54 escriben** (ya en el CI). Auditadas a fondo: 2 hallazgos P0 y 8 correctas |
