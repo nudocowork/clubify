@@ -468,7 +468,10 @@ export function LibroDeHojas({
         style={{
           width: spread ? W * 2 : W,
           height: H,
-          perspective: 1600,
+          // La perspectiva solo existe mientras hay una hoja en vuelo: dejarla
+          // fija promueve TODAS las páginas planas a capas 3D y el compositor
+          // vuelve a arrastrarse (la lección de Degodoy, dos veces).
+          ...(vuelo ? { perspective: 1600 } : {}),
           transform: `translateX(${spread ? despl : 0}px)`,
           transition: 'transform .5s cubic-bezier(.4,.1,.2,1)',
         }}
