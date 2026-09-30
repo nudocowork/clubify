@@ -50,6 +50,7 @@ import {
   zoomInicial,
 } from '@/lib/menu/zoom-del-libro.mjs';
 import { urlDelLibro } from '@/lib/api-publica.mjs';
+import { LibroDeHojas } from './LibroDeHojas';
 
 // Ancho de partida del `src` mientras el navegador elige del srcset. 1080
 // cubre un teléfono grande sin bajarse el original.
@@ -167,6 +168,24 @@ export function MenuBookViewer({
   const vertical = data?.direction === 'VERTICAL';
   const ampliado = !pasaPagina(zoom.escala);
 
+  // MODO LIBRO (2026-09-30): el efecto de hoja que eligió Javier (estilo del
+  // flipbook de referencia) es el predeterminado. `?efecto=deslizar` vuelve
+  // al slider de siempre — la red para revertir en caliente si a un negocio
+  // le molesta. El modo VERTICAL sigue siendo el slider: un libro con lomo
+  // izquierdo no aplica a hojear de arriba a abajo. Se lee la query en un
+  // effect (y no en el primer render) para no discrepar con el HTML del
+  // servidor, que no conoce la query.
+  const [fuerzaDeslizar, setFuerzaDeslizar] = useState(false);
+  useEffect(() => {
+    setFuerzaDeslizar(
+      new URLSearchParams(window.location.search).get('efecto') === 'deslizar',
+    );
+  }, []);
+  const modoLibro = !vertical && !fuerzaDeslizar;
+  // El libro registra aquí su «pasar una hoja»: en doble página una flecha
+  // son dos páginas, y eso solo lo sabe él.
+  const pasoLibroRef = useRef<((delta: 1 | -1) => void) | null>(null);
+
   // ── Fetch
   useEffect(() => {
     let cancelled = false;
@@ -236,6 +255,13 @@ export function MenuBookViewer({
       initialUrlSetRef.current = true;
       return;
     }
+    // En modo libro no hay scroller: el libro reacciona a pageIdx y salta
+    // directo a su estado (sin animar hojas de en medio).
+    if (modoLibro) {
+      setPageIdx(targetIdx);
+      initialUrlSetRef.current = true;
+      return;
+    }
     // Saltar después de un tick para que el scroller ya esté montado.
     setTimeout(() => {
       const el = scrollerRef.current;
@@ -252,13 +278,19 @@ export function MenuBookViewer({
       setPageIdx(targetIdx);
       initialUrlSetRef.current = true;
     }, 50);
-  }, [data, initialSectionSlug, sectionSlugs, sectionStarts, vertical]);
+  }, [data, initialSectionSlug, sectionSlugs, sectionStarts, vertical, modoLibro]);
 
   // ── Navegación: scrollTo página por índice
   function goTo(idx: number) {
     const total = allPages.length;
     if (total === 0) return;
     const target = Math.max(0, Math.min(total - 1, idx));
+    // En modo libro basta con pedir la página: el libro decide si vuela una
+    // hoja (vecina) o salta directo (chips de sección).
+    if (modoLibro) {
+      setPageIdx(target);
+      return;
+    }
     const el = scrollerRef.current;
     if (!el) return;
     // Un salto largo va INSTANTÁNEO a propósito: animarlo arrastra la ventana
@@ -475,6 +507,17 @@ export function MenuBookViewer({
 
           Con una página ampliada se le quita el snap: el arrastre de esa
           página es para moverla, no para pasar hoja. */}
+      {modoLibro ? (
+        <LibroDeHojas
+          pages={allPages}
+          pageIdx={pageIdx}
+          onPageIdx={setPageIdx}
+          onAbrirPopup={(popup) => setOpenPopup(popup as Popup)}
+          registrarPaso={(fn) => {
+            pasoLibroRef.current = fn;
+          }}
+        />
+      ) : (
       <div
         ref={scrollerRef}
         onScroll={onScrollerScroll}
@@ -509,13 +552,16 @@ export function MenuBookViewer({
           />
         ))}
       </div>
+      )}
 
       {/* Controles compactos — flotantes sobre la parte baja del slider.
           Ocultos si solo hay 1 página y no se puede ampliar. */}
       <div className="sticky bottom-2 z-20 mx-auto mt-2 flex items-center gap-1 px-1.5 py-1 rounded-full bg-white/90 backdrop-blur-sm shadow-md select-none">
         {allPages.length > 1 && (
           <button
-            onClick={() => goTo(pageIdx - 1)}
+            onClick={() =>
+              modoLibro ? pasoLibroRef.current?.(-1) : goTo(pageIdx - 1)
+            }
             disabled={pageIdx === 0}
             className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
             title="Anterior"
@@ -563,14 +609,19 @@ export function MenuBookViewer({
                 <span className="opacity-60"> / {allPages.length}</span>
               </div>
             )}
-            <button
-              onClick={() => ajustarZoom(PASO_DE_ZOOM)}
-              className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 text-base"
-              title={t('zoomIn')}
-              aria-label={t('zoomIn')}
-            >
-              +
-            </button>
+            {/* El zoom por gesto vive en el modo deslizar; en modo libro la
+                lupa del panel no aplica (V1) y pantalla completa cumple el
+                papel de acercar la carta. */}
+            {!modoLibro && (
+              <button
+                onClick={() => ajustarZoom(PASO_DE_ZOOM)}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 text-base"
+                title={t('zoomIn')}
+                aria-label={t('zoomIn')}
+              >
+                +
+              </button>
+            )}
             <button
               onClick={toggleFullscreen}
               className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 text-sm"
@@ -583,7 +634,9 @@ export function MenuBookViewer({
 
         {allPages.length > 1 && (
           <button
-            onClick={() => goTo(pageIdx + 1)}
+            onClick={() =>
+              modoLibro ? pasoLibroRef.current?.(1) : goTo(pageIdx + 1)
+            }
             disabled={pageIdx >= allPages.length - 1}
             className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
             title="Siguiente"
