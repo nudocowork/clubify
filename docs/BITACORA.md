@@ -8,6 +8,31 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-30 (101) — La API de Hotmart: cancelar acá cancela ALLÁ, y el upgrade desconecta el plan viejo
+
+Commit pendiente de deploy al escribir esto (el bloque se cierra con la
+verificación contra /api/health). Credenciales de Jhon en Railway
+(`HOTMART_CLIENT_ID/SECRET`), verificadas contra la API real (token 200,
+48 h) y contra la doc oficial del endpoint de cancelación (con `send_mail`).
+
+`billing/hotmart-api.service.ts` (nunca lanza; send_mail:false — el correo
+que ve el cliente es el de su marca) + dos puertas:
+1. **Cancelar desde el panel** → cancela también en Hotmart (best-effort,
+   fallo auditado como `billing.gateway_cancel_failed` para terminar a
+   mano). Cierra el hueco que señaló Javier: la suscripción seguía viva
+   allá, cobraba el ciclo siguiente y el webhook lo re-activaba como
+   «arrepentido». Solo códigos REALES (`esCodigoHotmartReal`).
+2. **Upgrade a anual**: método PASARELA (o `cancelarEnPasarela` en manual)
+   cancela la vieja por la API — sello `API_CONFIRMADA`. Sin API o código
+   no-Hotmart, PASARELA cae al checkbox clásico (comodidad, no requisito).
+
+`UPGRADE_POR_PASARELA` SIGUE APAGADO: se enciende para el estreno con un
+cobro real, como se acordó. Stripe sigue sin clave de plataforma (la
+Secret de Sellea es un `ed_…` inválido) → su cancelación automática no
+existe aún. Pendiente aparte: silenciar el correo/SMS de «cancelado»
+cuando la cancelación venga de un upgrade (hoy el aviso amarillo lo
+advierte y se avisa al cliente a mano).
+
 ## 2026-09-30 (100) — El menú libro HOJEA como un libro: efecto de hoja en producción
 
 Commits `96ed9328` → `a81a6f70` (5, con dos lecciones de rendimiento).
