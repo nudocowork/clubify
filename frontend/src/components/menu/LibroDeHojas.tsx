@@ -29,7 +29,7 @@
 // matemática de `lib/menu/hoja-del-libro.mjs`, probada desde node
 // (`scripts/pruebas-libro-hoja.mjs`).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { srcSetDelLibro, urlOptimizada } from '@/lib/menu/imagen-del-libro.mjs';
 import {
   anguloDesdePuntero,
@@ -132,6 +132,14 @@ export function LibroDeHojas({
   const [pasadas, setPasadas] = useState(0);
   const pasadasRef = useRef(0);
   pasadasRef.current = pasadas;
+  // Refs siempre-actuales: `termina` puede dispararse desde un temporizador
+  // viejo (la red del vuelo) y con un closure de `hojas`/`spread` de otro
+  // render reportaba una página equivocada — así se atascó el contador
+  // probando contra Degodoy con la pestaña oculta.
+  const hojasRef = useRef(hojas);
+  hojasRef.current = hojas;
+  const spreadRef = useRef(spread);
+  spreadRef.current = spread;
   // La hoja en vuelo: índice + hacia dónde va. null = todo plano.
   const [vuelo, setVuelo] = useState<{
     idxHoja: number;
@@ -185,9 +193,11 @@ export function LibroDeHojas({
       topeRef.current = null;
       setVuelo(null);
       setPasadas(nuevasPasadas);
-      onPageIdx(paginaActiva(hojas, nuevasPasadas, spread));
+      onPageIdx(
+        paginaActiva(hojasRef.current, nuevasPasadas, spreadRef.current),
+      );
     },
-    [hojas, spread, onPageIdx],
+    [onPageIdx],
   );
 
   const anima = useCallback(
@@ -219,14 +229,13 @@ export function LibroDeHojas({
     [reducido, termina, pintaHoja],
   );
 
-  // El vuelo automático arranca cuando la pila 3D ya está montada.
-  useEffect(() => {
+  // El vuelo automático arranca cuando la pila 3D ya está montada. SIN
+  // requestAnimationFrame: en una pestaña oculta no corre y el vuelo se
+  // quedaba armado para siempre bloqueando todos los pases siguientes.
+  useLayoutEffect(() => {
     if (!vuelo?.animar) return;
     const { haciaPasada, desdeAngulo } = vuelo.animar;
-    const raf = requestAnimationFrame(() =>
-      anima(vuelo.idxHoja, haciaPasada, desdeAngulo),
-    );
-    return () => cancelAnimationFrame(raf);
+    anima(vuelo.idxHoja, haciaPasada, desdeAngulo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vuelo?.animar]);
 
@@ -237,12 +246,20 @@ export function LibroDeHojas({
       const k = pasadasRef.current;
       const idxHoja = delta > 0 ? k : k - 1;
       if (idxHoja < 0 || idxHoja >= hojas.length) return;
+      // Pestaña oculta: nadie ve la animación y el navegador ni la corre.
+      // Se salta directo al estado final.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        const nuevas = delta > 0 ? idxHoja + 1 : idxHoja;
+        setPasadas(nuevas);
+        onPageIdx(paginaActiva(hojasRef.current, nuevas, spreadRef.current));
+        return;
+      }
       setVuelo({
         idxHoja,
         animar: { haciaPasada: delta > 0, desdeAngulo: delta > 0 ? 0 : -180 },
       });
     },
-    [hojas.length, vuelo],
+    [hojas.length, vuelo, onPageIdx],
   );
 
   useEffect(() => {
@@ -254,7 +271,10 @@ export function LibroDeHojas({
     if (girandoRef.current != null || vuelo) return;
     const objetivo = pasadasParaVer(hojas, pageIdx, spread);
     if (objetivo === pasadas) return;
-    if (Math.abs(objetivo - pasadas) === 1) {
+    if (
+      Math.abs(objetivo - pasadas) === 1 &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+    ) {
       const haciaPasada = objetivo > pasadas;
       setVuelo({
         idxHoja: haciaPasada ? pasadas : pasadas - 1,
