@@ -352,11 +352,19 @@ export class PlanUpgradeService {
       cancelacionEnPasarela: {
         estado: cancelacion.estado,
         referencia: cancelacion.ref,
-        /** Hoy SIEMPRE hay que cancelar a mano: no hay credenciales de API. */
-        automatica: false,
-        /** Si es true, el POST exige `suscripcionAnteriorCancelada`. */
+        /** Si la vieja se puede cancelar sola por la API de Hotmart (con
+         *  `metodo: 'PASARELA'` o `cancelarEnPasarela`). Stripe, códigos
+         *  sembrados o la API sin credenciales → a mano, como siempre. */
+        automatica:
+          cancelacion.estado === 'PENDIENTE' &&
+          esCodigoHotmartReal(cancelacion.ref) &&
+          this.hotmartApi.estaConfigurada(),
+        /** Si es true, el POST MANUAL exige `suscripcionAnteriorCancelada`. */
         requiereConfirmacion: cancelacion.estado === 'PENDIENTE',
       },
+      /** El interruptor `UPGRADE_POR_PASARELA`: sin él, la pantalla muestra el
+       *  método por pasarela cerrado y el POST lo rechaza. */
+      pasarelaAbierta: process.env.UPGRADE_POR_PASARELA === '1',
       /** El enlace del plan anual de su marca, para el cobro por pasarela. */
       enlaceDePago: await this.enlaceAnualDeLaMarca(t.whiteLabelId),
       avisos,

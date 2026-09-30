@@ -62,6 +62,8 @@ export type UpgradePreview = {
     requiereConfirmacion: boolean;
   };
   enlaceDePago: { id: string; nombre: string; url: string } | null;
+  /** El interruptor `UPGRADE_POR_PASARELA` del backend. */
+  pasarelaAbierta?: boolean;
   avisos: string[];
   sePuede: boolean;
   motivo: string | null;
@@ -105,6 +107,7 @@ export type UpgradeRow = {
   createdAt: string;
   repetido: boolean;
   aviso?: string;
+  enlaceDePago?: { id: string; nombre: string; url: string } | null;
   revisarComision?: {
     motivo: string;
     baseQueCorresponde: number;
@@ -368,7 +371,9 @@ function UpgradeAnualModal({
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   const hoy = hoyLocalISO();
+  const [metodo, setMetodo] = useState<'MANUAL' | 'PASARELA'>('MANUAL');
   const [monto, setMonto] = useState('');
+  const [copiado, setCopiado] = useState(false);
   const [metodoDePago, setMetodoDePago] = useState<MetodoDePago>('TRANSFERENCIA');
   const [referenciaCobro, setReferenciaCobro] = useState('');
   const [fecha, setFecha] = useState(hoy);
@@ -412,11 +417,19 @@ function UpgradeAnualModal({
     : null;
   const acorta =
     !!renovacion && !!cobertura && renovacion.getTime() < cobertura.getTime();
-  const exigeCancelacion = !!preview?.cancelacionEnPasarela?.requiereConfirmacion;
+  const porPasarela = metodo === 'PASARELA';
+  const cancelaSola = !!preview?.cancelacionEnPasarela?.automatica;
+  // Por pasarela con API, la suscripción vieja la cancela el backend: no hay
+  // casilla que marcar. Si la API falló (el POST volvió con error), vuelve la
+  // casilla — el backend cae entonces a la confirmación manual de siempre.
+  const exigeCancelacion =
+    !!preview?.cancelacionEnPasarela?.requiereConfirmacion &&
+    (!porPasarela || !cancelaSola || errorEnvio != null);
   const puedeSeguir =
     !!preview?.sePuede &&
     montoOk &&
-    fechaOk &&
+    // Por pasarela el año se cuenta desde el día que PAGUE, no se elige.
+    (porPasarela || fechaOk) &&
     (!exigeCancelacion || canceleLaAnterior);
 
   async function confirmar() {
@@ -431,14 +444,21 @@ function UpgradeAnualModal({
           operationRef: referencia.current,
           paidAmountUsd: Math.round(montoNum * 100) / 100,
           currency: 'USD',
-          metodo: 'MANUAL',
-          metodoDePago,
-          ...(referenciaCobro.trim() ? { reference: referenciaCobro.trim() } : {}),
-          ...(exigeCancelacion ? { suscripcionAnteriorCancelada: true } : {}),
-          // Hoy → instante real. Fecha pasada → mediodía UTC: a medianoche UTC
-          // América (UTC-5) la mostraría como el día ANTERIOR.
-          effectiveAt:
-            fecha === hoy ? new Date().toISOString() : `${fecha}T12:00:00.000Z`,
+          metodo,
+          ...(exigeCancelacion && canceleLaAnterior
+            ? { suscripcionAnteriorCancelada: true }
+            : {}),
+          ...(porPasarela
+            ? {}
+            : {
+                metodoDePago,
+                ...(referenciaCobro.trim() ? { reference: referenciaCobro.trim() } : {}),
+                // Hoy → instante real. Fecha pasada → mediodía UTC: a
+                // medianoche UTC América (UTC-5) la mostraría como el día
+                // ANTERIOR.
+                effectiveAt:
+                  fecha === hoy ? new Date().toISOString() : `${fecha}T12:00:00.000Z`,
+              }),
         }),
       });
       setResultado(res);
@@ -474,7 +494,11 @@ function UpgradeAnualModal({
         <div className="px-5 py-4 border-b border-line2 flex items-center justify-between sticky top-0 bg-white z-10">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold m-0 text-ink truncate">
-              {paso === 'resultado' ? 'Upgrade aplicado' : 'Upgrade a Plan Anual'}
+              {paso !== 'resultado'
+                ? 'Upgrade a Plan Anual'
+                : resultado?.estado === 'PENDIENTE'
+                  ? 'Esperando el pago'
+                  : 'Upgrade aplicado'}
             </h3>
             {preview && (
               <p className="text-xs text-mute m-0 mt-0.5 truncate">
@@ -566,31 +590,90 @@ function UpgradeAnualModal({
               <div>
                 <label className="label">Cómo se cobró</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="p-3 rounded-lg border border-brand bg-brand-soft">
+                  <button
+                    type="button"
+                    aria-pressed={!porPasarela}
+                    onClick={() => setMetodo('MANUAL')}
+                    className={`p-3 rounded-lg border text-left transition-colors touch-manipulation ${
+                      !porPasarela
+                        ? 'border-brand bg-brand-soft'
+                        : 'border-line bg-white hover:border-brand/50'
+                    }`}
+                  >
                     <div className="text-sm font-semibold text-ink">
                       Por fuera (Nequi, efectivo, transferencia)
                     </div>
                     <div className="text-xs text-mute mt-0.5">
                       El dinero ya entró y lo registras aquí.
                     </div>
-                  </div>
-                  {/* El cobro por pasarela está construido en el backend pero
-                      todavía cerrado: se muestra para que nadie lo busque, no
-                      para que lo pulse. */}
-                  <div className="p-3 rounded-lg border border-line bg-bg2/40 opacity-70">
-                    <div className="text-sm font-semibold text-mute">
-                      Por pasarela — no disponible
+                  </button>
+                  {preview.pasarelaAbierta ? (
+                    <button
+                      type="button"
+                      aria-pressed={porPasarela}
+                      onClick={() => setMetodo('PASARELA')}
+                      className={`p-3 rounded-lg border text-left transition-colors touch-manipulation ${
+                        porPasarela
+                          ? 'border-brand bg-brand-soft'
+                          : 'border-line bg-white hover:border-brand/50'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold text-ink">Por pasarela</div>
+                      <div className="text-xs text-mute mt-0.5">
+                        Le mandas el enlace de pago del plan anual y se completa
+                        solo cuando pague.
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="p-3 rounded-lg border border-line bg-bg2/40 opacity-70">
+                      <div className="text-sm font-semibold text-mute">
+                        Por pasarela — no disponible
+                      </div>
+                      <div className="text-xs text-mute mt-0.5">
+                        Todavía no está abierto; cóbralo y regístralo como manual.
+                      </div>
                     </div>
-                    <div className="text-xs text-mute mt-0.5">
-                      Todavía no está abierto; cóbralo y regístralo como manual.
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
+              {porPasarela && (
+                <div className="rounded-lg border border-line bg-bg2/40 px-3.5 py-3 text-xs text-mute leading-relaxed space-y-1.5">
+                  <p className="m-0">
+                    Al confirmar, el upgrade queda <b className="text-ink">pendiente</b>{' '}
+                    y no se mueve nada todavía. Cuando el pago del plan anual entre
+                    por la pasarela, se completa solo: plan, ingreso y comisión.
+                    El año se cuenta desde el día que pague.
+                  </p>
+                  {preview.cancelacionEnPasarela.estado === 'PENDIENTE' &&
+                    cancelaSola &&
+                    !exigeCancelacion && (
+                      <p className="m-0">
+                        La suscripción anterior (
+                        <span className="font-mono">
+                          {preview.cancelacionEnPasarela.referencia}
+                        </span>
+                        ) se cancela sola en Hotmart al confirmar. El cliente
+                        conserva el servicio hasta el final de lo que ya pagó.
+                        Confirma solo cuando haya aceptado pagar el año.
+                      </p>
+                    )}
+                  {!preview.enlaceDePago && (
+                    <p className="m-0 text-warn-ink">
+                      Esta marca no tiene configurado un enlace de pago del plan
+                      anual: tendrás que mandarle el tuyo. El pago se reconoce
+                      igual, venga del enlace que venga, mientras sea del plan
+                      anual.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Monto que pagó (USD)</label>
+                  <label className="label">
+                    {porPasarela ? 'Monto que va a pagar (USD)' : 'Monto que pagó (USD)'}
+                  </label>
                   <input
                     className="input"
                     type="number"
@@ -600,8 +683,9 @@ function UpgradeAnualModal({
                     onChange={(e) => setMonto(e.target.value)}
                   />
                   <p className="text-[11px] text-mute mt-1 leading-relaxed">
-                    Lo que pagó DE VERDAD. Sobre este monto se calcula la
-                    comisión del afiliado.
+                    {porPasarela
+                      ? 'Lo pactado con el cliente. Sobre este monto se calcula la comisión del afiliado cuando pague.'
+                      : 'Lo que pagó DE VERDAD. Sobre este monto se calcula la comisión del afiliado.'}
                   </p>
                   {!montoOk && monto !== '' && (
                     <p className="text-[11px] text-bad-ink mt-1">
@@ -609,6 +693,8 @@ function UpgradeAnualModal({
                     </p>
                   )}
                 </div>
+                {!porPasarela && (
+                <>
                 <div>
                   <label className="label">Método de pago</label>
                   <select
@@ -651,8 +737,11 @@ function UpgradeAnualModal({
                     </p>
                   )}
                 </div>
+                </>
+                )}
               </div>
 
+              {!porPasarela && (
               <div className="rounded-lg border border-line bg-bg2/40 px-3.5 py-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-mute">El plan anual empieza el</span>
@@ -676,6 +765,7 @@ function UpgradeAnualModal({
                   </p>
                 )}
               </div>
+              )}
 
               {/* La casilla obligatoria de la suscripción anterior */}
               {exigeCancelacion && (
@@ -717,8 +807,9 @@ function UpgradeAnualModal({
           {!cargando && preview && paso === 'resumen' && (
             <>
               <p className="text-sm text-mute m-0 leading-relaxed">
-                Revisa antes de cobrar. Al confirmar se registra el cobro, el
-                negocio pasa a anual y se genera la comisión del afiliado.
+                {porPasarela
+                  ? 'Revisa antes de confirmar. El upgrade queda pendiente y se completa solo cuando el cliente pague el plan anual por la pasarela.'
+                  : 'Revisa antes de cobrar. Al confirmar se registra el cobro, el negocio pasa a anual y se genera la comisión del afiliado.'}
               </p>
               <dl className="rounded-lg border border-line bg-bg2/40 px-3.5 py-3 text-sm space-y-1.5">
                 <div className="flex justify-between gap-3">
@@ -748,25 +839,41 @@ function UpgradeAnualModal({
                 <div className="flex justify-between gap-3">
                   <dt className="text-mute">Método</dt>
                   <dd className="font-medium text-right">
-                    {METODO_LABEL[metodoDePago]}
+                    {porPasarela ? 'Por pasarela' : METODO_LABEL[metodoDePago]}
                   </dd>
                 </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-mute">Empieza el</dt>
-                  <dd className="font-medium text-right">
-                    {fechaLarga(`${fecha}T12:00:00`)}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-mute">Próxima renovación</dt>
-                  <dd className="font-medium text-right">
-                    {renovacion ? fechaLarga(renovacion.toISOString()) : '—'}
-                  </dd>
-                </div>
+                {porPasarela ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-mute">Empieza el</dt>
+                    <dd className="font-medium text-right">El día que pague</dd>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-mute">Empieza el</dt>
+                      <dd className="font-medium text-right">
+                        {fechaLarga(`${fecha}T12:00:00`)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-mute">Próxima renovación</dt>
+                      <dd className="font-medium text-right">
+                        {renovacion ? fechaLarga(renovacion.toISOString()) : '—'}
+                      </dd>
+                    </div>
+                  </>
+                )}
               </dl>
               <div className="rounded-lg bg-brand-soft border border-brand/30 px-3.5 py-3 text-sm text-ink leading-relaxed">
-                La comisión se calculará sobre {usd(montoNum)}.
+                La comisión se calculará sobre {usd(montoNum)}
+                {porPasarela ? ' cuando entre el pago.' : '.'}
               </div>
+              {porPasarela && cancelaSola && !exigeCancelacion && (
+                <p className="text-xs text-mute leading-relaxed m-0">
+                  Al confirmar se cancela en Hotmart la suscripción anterior (
+                  {preview.cancelacionEnPasarela.referencia}).
+                </p>
+              )}
               {exigeCancelacion && (
                 <p className="text-xs text-mute leading-relaxed m-0">
                   Confirmaste que ya cancelaste la suscripción anterior en{' '}
@@ -781,7 +888,59 @@ function UpgradeAnualModal({
           )}
 
           {/* ── PASO 3: qué quedó hecho ───────────────────────────────────── */}
-          {paso === 'resultado' && resultado && (
+          {paso === 'resultado' && resultado && resultado.estado === 'PENDIENTE' && (
+            <>
+              <div className="rounded-lg bg-brand-soft border border-brand/30 px-3.5 py-3 text-sm text-ink leading-relaxed">
+                El upgrade de {preview?.brandName ?? 'este negocio'} quedó
+                pendiente. Cuando pague {usd(resultado.paidAmountUsd)} por la
+                pasarela, pasa a Plan Anual solo.
+              </div>
+              {resultado.enlaceDePago?.url && (
+                <div>
+                  <label className="label">Enlace de pago para el cliente</label>
+                  <div className="flex gap-2">
+                    <input
+                      className="input font-mono text-xs"
+                      readOnly
+                      value={resultado.enlaceDePago.url}
+                      onFocus={(e) => e.currentTarget.select()}
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary text-sm flex-none"
+                      onClick={() => {
+                        navigator.clipboard
+                          ?.writeText(resultado.enlaceDePago!.url)
+                          .then(() => {
+                            setCopiado(true);
+                            window.setTimeout(() => setCopiado(false), 2000);
+                          })
+                          .catch(() => null);
+                      }}
+                    >
+                      {copiado ? 'Copiado' : 'Copiar'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {resultado.cancelacion.estado === 'API_CONFIRMADA' && (
+                <p className="text-xs text-mute leading-relaxed m-0">
+                  La suscripción anterior
+                  {resultado.cancelacion.referencia
+                    ? ` (${resultado.cancelacion.referencia})`
+                    : ''}{' '}
+                  quedó cancelada en Hotmart.
+                </p>
+              )}
+              {resultado.aviso && (
+                <p className="text-xs text-mute leading-relaxed m-0">
+                  {resultado.aviso}
+                </p>
+              )}
+            </>
+          )}
+
+          {paso === 'resultado' && resultado && resultado.estado !== 'PENDIENTE' && (
             <>
               <div className="rounded-lg bg-brand-soft border border-brand/30 px-3.5 py-3 text-sm text-ink leading-relaxed">
                 {resultado.repetido
