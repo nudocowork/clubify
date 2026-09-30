@@ -155,11 +155,17 @@ export function LibroDeHojas({
         hoja.style.background = '#fff';
         hoja.style.overflow = 'hidden';
         const img = document.createElement('img');
-        img.src = urlOptimizada(p.imageUrl, w * dpr);
+        img.src = urlOptimizada(p.imageUrl, w * 2 * dpr);
         const srcset = srcSetDelLibro(p.imageUrl);
         if (srcset) {
           img.srcset = srcset;
-          img.sizes = `${w}px`; // el navegador multiplica por su DPR
+          // El DOBLE del tamaño de pintado a propósito (y el navegador
+          // multiplica además por su DPR): una carta es TEXTO, y a 1× la
+          // letra pequeña se ve lavada — Javier lo reportó el mismo día
+          // del estreno. El techo real lo pone el srcset (1920) y las
+          // hojas lejanas siguen siendo perezosas, así que el sobrepeso
+          // queda acotado.
+          img.sizes = `${w * 2}px`;
         }
         // Lejos del lector: perezosa. Dentro del libro una hoja oculta
         // está display:none y un lazy ahí no dispara — la carga la
