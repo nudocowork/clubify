@@ -81,6 +81,10 @@ export function LibroDeHojas({
   useEffect(() => {
     const el = marcoRef.current;
     if (!el) return;
+    // Medida INICIAL síncrona: en una pestaña en segundo plano el
+    // ResizeObserver puede no disparar nunca (lección repetida de este
+    // visor) y el libro se quedaba esperando medidas para montar.
+    setMedidas({ ancho: el.clientWidth, alto: el.clientHeight });
     let t: number | null = null;
     const ro = new ResizeObserver(() => {
       if (t != null) window.clearTimeout(t);
