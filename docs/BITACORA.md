@@ -820,7 +820,9 @@ toma del servidor: es para planificar, no para esta noche.
 
 ## 2026-09-30 (87) — Cuponeras: orden estable de los 10 puntos del pase y panel que carga por pestañas
 
-**Estado: commiteado y empujado. SIN desplegar. Sin migración.**
+**Estado: DESPLEGADO el 2026-09-30 (verificado: `/api/health` devuelve `commit 19fdec8`
+y el dominio sirve el chunk nuevo del panel). Sin migración.** También quedaron
+desplegados los commits 647843ed…28ba199c del 28-09 (las 2 migraciones aplicadas).
 
 - **Los 10 puntos de GeoPush ya no se eligen al azar.** Apple y Google cortan a
   10 con `slice(0, 10)` y la consulta no tenía orden: con más de 10 puntos, un
