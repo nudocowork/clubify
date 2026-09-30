@@ -23,10 +23,45 @@ import { oficinaDelPedido } from '../orders/pedido-en-oficina';
  * móvil sin prefijo de país—. 8 y no 10 porque no todos los países tienen
  * móvil de 10 dígitos.
  */
+/**
+ * La cola con la que se BUSCAN candidatos, nunca con la que se decide.
+ *
+ * Son 8 dígitos porque es el móvil nacional más corto de la región (Panamá).
+ * Con 10 —el largo colombiano— un número panameño guardado sin prefijo jamás
+ * casaba: la cola de quien escribía «+507 6123-4567» eran diez dígitos que se
+ * comían parte del 507, y «61234567» no termina en eso. Lo mismo en Perú, con
+ * nueve. Quien no era de Colombia se quedaba sin ver sus propios pedidos.
+ *
+ * Ocho abre la búsqueda a candidatos de más A PROPÓSITO: el que decide de
+ * verdad es `mismoTelefono`, que compara todo lo que los dos números tengan
+ * en común. Buscar ancho y decidir fino, nunca al revés.
+ */
 export function colaDelTelefono(phoneRaw: string | null | undefined): string | null {
   const digits = (phoneRaw || '').replace(/\D/g, '');
   if (digits.length < 8) return null;
-  return digits.length > 10 ? digits.slice(-10) : digits;
+  return digits.slice(-8);
+}
+
+/**
+ * ¿Son el mismo teléfono, aunque uno lleve prefijo de país y el otro no?
+ *
+ * Compara por la cola COMÚN: hasta diez dígitos cuando los dos son largos
+ * —sin perder nada frente a lo de antes— y los que haya cuando uno es más
+ * corto. Así «+507 6123-4567» y «61234567» son el mismo número, y dos
+ * colombianos se siguen comparando por sus diez dígitos enteros.
+ *
+ * El mínimo de ocho no se toca: por debajo ya no es una llave, y esta
+ * comparación decide quién entra al chat de un pedido ajeno.
+ */
+export function mismoTelefono(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const da = (a || '').replace(/\D/g, '');
+  const db = (b || '').replace(/\D/g, '');
+  if (da.length < 8 || db.length < 8) return false;
+  const comun = Math.min(da.length, db.length, 10);
+  return da.slice(-comun) === db.slice(-comun);
 }
 
 /**
@@ -1228,17 +1263,22 @@ export class DeliveryService {
     // `[^0-9]` y NO `\D`: en la plantilla de Prisma la barra se pierde por el
     // camino y llega `'D'` a Postgres, que entonces no quita nada. Comprobado
     // contra la base real el 2026-09-17: con `\\D` no encontraba a nadie.
-    const clientes = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "Customer"
+    const clientes = await this.prisma.$queryRaw<{ id: string; phone: string | null }[]>`
+      SELECT id, phone FROM "Customer"
       WHERE "tenantId" = ${tenant.id}
         AND regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') LIKE ${`%${cola}`}
     `;
-    if (!clientes.length) return { orders: [] };
+    // El LIKE busca por ocho dígitos y puede traer de más; `mismoTelefono`
+    // compara todo lo que ambos números tengan en común y descarta al vecino
+    // que casualmente comparta la cola corta. Sin este filtro, abrir la
+    // búsqueda para Panamá habría enseñado pedidos ajenos.
+    const propios = clientes.filter((c) => mismoTelefono(phoneRaw, c.phone));
+    if (!propios.length) return { orders: [] };
 
     const orders = await this.prisma.order.findMany({
       where: {
         tenantId: tenant.id,
-        customerId: { in: clientes.map((c) => c.id) },
+        customerId: { in: propios.map((c) => c.id) },
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
@@ -1345,11 +1385,7 @@ export class DeliveryService {
    * países tienen móvil de 10 dígitos.
    */
   private telefonoDelPedidoCoincide(phoneRaw: string, phoneGuardado?: string | null): boolean {
-    const cola = colaDelTelefono(phoneRaw);
-    if (!cola) return false;
-    const guardado = (phoneGuardado || '').replace(/\D/g, '');
-    if (!guardado) return false;
-    return guardado.endsWith(cola);
+    return mismoTelefono(phoneRaw, phoneGuardado);
   }
 
   async customerChatPost(code: string, body: string, phoneRaw: string) {

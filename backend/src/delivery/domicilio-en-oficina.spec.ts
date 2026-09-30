@@ -126,7 +126,9 @@ describe('«Mis pedidos» (la lista por teléfono)', () => {
     svc.prisma = {
       tenant: { findUnique: vi.fn(async () => ({ id: 't1', status: 'ACTIVE' })) },
       // Los clientes que casan por teléfono (dígito a dígito, en la base).
-      $queryRaw: vi.fn(async () => [{ id: 'c1' }]),
+      // El SELECT real trae `id, phone`: el listado filtra fino con
+      // `mismoTelefono` para descartar al vecino que comparta la cola corta.
+      $queryRaw: vi.fn(async () => [{ id: 'c1', phone: '3150621706' }]),
       order: { findMany: vi.fn(async () => rows) },
     };
     return svc;

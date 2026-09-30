@@ -161,6 +161,21 @@ export class TwoFactorService {
       return false;
     }
 
+    // El bloqueo CADUCÓ: hay que devolverle los cinco tiros, no dejarle uno.
+    //
+    // El contador sobrevivía al bloqueo. Quien esperaba sus quince minutos
+    // volvía con `totpFallos` en 5, así que UNA sola equivocación al teclear
+    // —un dígito, un código que expiró mientras lo copiaba— daba 6 >= 5 y lo
+    // rebloqueaba otros quince. A partir del primer bloqueo, cada fallo suelto
+    // costaba un cuarto de hora, y el dueño de la cuenta se quedaba fuera de
+    // la suya dando vueltas sin entender por qué.
+    //
+    // Los cinco tiros son SEGUIDOS, que es justo lo que ya decía el comentario
+    // de la rama del acierto. Acá se cumple también cuando el que perdona es
+    // el reloj y no el acierto.
+    const bloqueoCaducado = !!user.totpBloqueadoHasta && user.totpBloqueadoHasta <= new Date();
+    const fallosPrevios = bloqueoCaducado ? 0 : user.totpFallos;
+
     const code = (totpCode ?? '').replace(/\s+/g, '');
     if (!code) return false;
     const result = verifySync({
@@ -174,7 +189,7 @@ export class TwoFactorService {
       // ±30 s hay unos tres códigos válidos por ventana, así que sin contador
       // —y sin límite de peticiones que funcione— el segundo factor de una
       // cuenta con la contraseña ya filtrada era cuestión de insistir.
-      const fallos = user.totpFallos + 1;
+      const fallos = fallosPrevios + 1;
       await this.prisma.user.update({
         where: { id: userId },
         data: {
@@ -185,7 +200,12 @@ export class TwoFactorService {
           totpBloqueadoHasta:
             fallos >= TwoFactorService.MAX_FALLOS
               ? new Date(Date.now() + TwoFactorService.BLOQUEO_MIN * 60 * 1000)
-              : user.totpBloqueadoHasta,
+              : // Si el bloqueo ya caducó hay que LIMPIARLO, no arrastrarlo:
+                // dejarlo puesto haría que el propio `bloqueoCaducado` de la
+                // próxima vuelta siguiera perdonando fallos para siempre.
+                bloqueoCaducado
+                ? null
+                : user.totpBloqueadoHasta,
         },
       });
       return false;

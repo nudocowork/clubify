@@ -92,7 +92,13 @@ describe('bloqueo del segundo factor', () => {
 
     await svc.verify('u1', '000000');
     // Vuelve a contar intentos en vez de rechazar sin mirar.
-    expect(prisma.usuario.totpFallos).toBe(6);
+    //
+    // Este caso esperaba 6, y ese 6 ERA el bug: el contador sobrevivía al
+    // bloqueo, así que el primer tropiezo después de esperar los quince
+    // minutos rebloqueaba otros quince. La prueba daba por bueno el
+    // comportamiento que dejaba a la gente fuera de su cuenta. Con el bloqueo
+    // ya cumplido los cinco tiros se devuelven enteros: esto es 1 de 5.
+    expect(prisma.usuario.totpFallos).toBe(1);
   });
 
   it('sin 2FA activo no bloquea a nadie', async () => {
@@ -102,5 +108,59 @@ describe('bloqueo del segundo factor', () => {
     expect(await svc.verify('u1', '000000')).toBe(false);
     // Y no escribe nada: no hay segundo factor que proteger.
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('cuando el bloqueo CADUCA, se devuelven los cinco tiros', async () => {
+    // El contador sobrevivía al bloqueo: quien esperaba sus quince minutos
+    // volvía con totpFallos en 5, así que UNA equivocación al teclear lo
+    // rebloqueaba otros quince. A partir del primer bloqueo, cada fallo
+    // suelto costaba un cuarto de hora y el dueño se quedaba fuera de su
+    // propia cuenta dando vueltas.
+    const prisma = prismaFalso({
+      totpFallos: 5,
+      totpBloqueadoHasta: new Date(Date.now() - 60_000), // caducó hace un minuto
+    });
+    const svc = servicio(prisma);
+
+    expect(await svc.verify('u1', '000000')).toBe(false);
+
+    // Lo que importa: cuenta 1 de 5, no 6 — y el bloqueo viejo se limpia.
+    expect(prisma.usuario.totpFallos).toBe(1);
+    expect(prisma.usuario.totpBloqueadoHasta).toBeNull();
+  });
+
+  it('el bloqueo viejo se limpia, no se arrastra vuelta tras vuelta', async () => {
+    // Si el bloqueo caducado siguiera puesto, el propio «caducó» de la
+    // siguiente vuelta perdonaría los fallos otra vez, y así siempre: nunca
+    // se volvería a bloquear a nadie.
+    const prisma = prismaFalso({
+      totpFallos: 5,
+      totpBloqueadoHasta: new Date(Date.now() - 60_000),
+    });
+    const svc = servicio(prisma);
+
+    for (let i = 0; i < 5; i++) {
+      await svc.verify('u1', '000000');
+    }
+
+    // Cinco fallos seguidos tras el perdón: vuelve a bloquear de verdad.
+    expect(prisma.usuario.totpFallos).toBe(5);
+    expect(prisma.usuario.totpBloqueadoHasta).toBeInstanceOf(Date);
+    expect(prisma.usuario.totpBloqueadoHasta.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('un bloqueo VIGENTE sigue bloqueando: esto no lo perdona', async () => {
+    // El perdón es solo para el bloqueo ya cumplido. Mientras corre, ni se
+    // mira el código.
+    const prisma = prismaFalso({
+      totpFallos: 5,
+      totpBloqueadoHasta: new Date(Date.now() + 10 * 60_000),
+    });
+    const svc = servicio(prisma);
+
+    expect(await svc.verify('u1', '000000')).toBe(false);
+    // Ni siquiera escribe: sale antes de tocar la base.
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.usuario.totpFallos).toBe(5);
   });
 });
