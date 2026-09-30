@@ -760,10 +760,16 @@ function PageCard({
         !page.isActive ? 'opacity-50' : ''
       }`}
     >
+      {/* `object-contain`, no `cover`: una página HORIZONTAL se veía amputada
+          en esta celda vertical y parecía que el libro «solo acepta
+          verticales» (Javier, 2026-09-30). El visor público ya la muestra
+          entera; el panel tiene que contar la misma verdad. La celda sigue
+          3:4 para que el grid no baile: la horizontal se ve completa con
+          bandas, que es lo honesto. */}
       <img
         src={page.imageUrl}
         alt=""
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain"
         loading="lazy"
       />
       {page.popupEnabled && (
