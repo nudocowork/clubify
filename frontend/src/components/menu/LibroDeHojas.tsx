@@ -9,12 +9,20 @@
 // decide sola si cae o se devuelve. En el teléfono, una página a la vez con
 // la misma hoja.
 //
+// ARQUITECTURA QUE NO SE NEGOCIA: plano en reposo, 3D solo en vuelo.
+// La primera versión montaba TODAS las hojas visibles como pilas 3D
+// (columnas anidadas con preserve-3d + doble cara). El compositor quedaba
+// con una docena de capas 3D de imágenes grandes y el raster se arrastraba
+// —medido contra Degodoy (105 páginas) el mismo día del estreno—. Ahora en
+// reposo cada página visible es UNA imagen plana, como el modo deslizar, y
+// solo la hoja que está girando se convierte en la pila 3D mientras dura el
+// vuelo (<1 s).
+//
 // Este componente SOLO pinta el libro. El armazón (chips de sección, popups,
 // URL de sección, pantalla completa, contador) sigue siendo de
-// `MenuBookViewer`, que nos controla por `pageIdx` — así los deep-links y
-// los popups funcionan idéntico en los dos modos. Las flechas del visor
-// avanzan POR HOJA a través de `registrarPaso` (en doble página una flecha
-// son dos páginas; el visor no tiene por qué saberlo).
+// `MenuBookViewer`, que nos controla por `pageIdx`. Las flechas del visor
+// pasan POR HOJA vía `registrarPaso` (en doble página una flecha son dos
+// páginas; el visor no tiene por qué saberlo).
 //
 // A propósito NO usa react-pageflip: ya estuvo en el visor y se quitó porque
 // en móvil apilaba las páginas en vez de paginar. Todo esto es CSS 3D + la
@@ -38,8 +46,7 @@ type Popup = Record<string, unknown>;
 type Pagina = { id: string; imageUrl: string; popup: Popup | null };
 type DefHoja = { frente: number; dorso: number | null };
 
-/** Columnas de curvatura por hoja: 3 bastan para que el papel se arquee sin
- *  multiplicar por mucho las imágenes montadas. */
+/** Columnas de curvatura de la hoja EN VUELO. */
 const COLS = 3;
 /** A partir de este ancho el libro se abre a doble página. */
 const ANCHO_SPREAD = 720;
@@ -49,165 +56,45 @@ const ANCHO_IMG = 828;
 const suaviza = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-// ─────────────────────────────────────────────────────────────────────
-// Una cara de hoja (fuera del componente padre a propósito: definirlos
-// adentro les cambia la identidad en cada render y React desmonta y
-// remonta las imágenes — el libro parpadearía con cada pase).
-// ─────────────────────────────────────────────────────────────────────
-function CaraDeHoja({
+/** La imagen de una página, plana. La misma pieza sirve en reposo y dentro
+ *  de las columnas del vuelo. */
+function ImagenDePagina({
   pagina,
-  dorso,
-  activa,
+  prioritaria,
   spread,
-  esPrimera,
   onProporcion,
 }: {
   pagina: Pagina | null;
-  dorso: boolean;
-  activa: boolean;
+  prioritaria: boolean;
   spread: boolean;
-  esPrimera: boolean;
-  onProporcion: (p: number) => void;
+  onProporcion?: (p: number) => void;
 }) {
-  const srcSet = pagina ? srcSetDelLibro(pagina.imageUrl) : null;
-  if (!pagina) {
-    // Dorso de papel (móvil, o última hoja de un total impar).
-    return <div className="absolute inset-0 bg-[#F4F0E6]" />;
-  }
+  if (!pagina) return <div className="absolute inset-0 bg-[#F4F0E6]" />;
+  const srcSet = srcSetDelLibro(pagina.imageUrl);
   return (
-    <>
-      <img
-        src={urlOptimizada(pagina.imageUrl, ANCHO_IMG)}
-        {...(srcSet ? { srcSet, sizes: spread ? '50vw' : '100vw' } : {})}
-        alt=""
-        draggable={false}
-        // La ventana de hojas ya limita cuánto se monta; dentro de ella, la
-        // cara que se mira va con prioridad y el resto en lazy.
-        loading={activa ? 'eager' : 'lazy'}
-        fetchPriority={activa ? 'high' : 'auto'}
-        decoding="async"
-        className="absolute inset-0 w-full h-full object-contain select-none"
-        onLoad={(e) => {
-          const img = e.currentTarget;
-          if (esPrimera && img.naturalWidth && img.naturalHeight) {
-            onProporcion(img.naturalWidth / img.naturalHeight);
-          }
-        }}
-      />
-      <div
-        className={`${dorso ? 'velo-d' : 'velo-f'} absolute inset-0 pointer-events-none`}
-      />
-    </>
+    <img
+      src={urlOptimizada(pagina.imageUrl, ANCHO_IMG)}
+      {...(srcSet ? { srcSet, sizes: spread ? '50vw' : '100vw' } : {})}
+      alt=""
+      draggable={false}
+      loading={prioritaria ? 'eager' : 'lazy'}
+      fetchPriority={prioritaria ? 'high' : 'auto'}
+      decoding="async"
+      className="absolute inset-0 w-full h-full object-contain select-none"
+      onLoad={
+        onProporcion
+          ? (e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth && img.naturalHeight) {
+                onProporcion(img.naturalWidth / img.naturalHeight);
+              }
+            }
+          : undefined
+      }
+    />
   );
 }
 
-function HojaDelLibro({
-  def,
-  idxHoja,
-  pasada,
-  totalHojas,
-  pages,
-  W,
-  H,
-  spread,
-  registraRef,
-  onProporcion,
-}: {
-  def: DefHoja;
-  idxHoja: number;
-  pasada: boolean;
-  totalHojas: number;
-  pages: Pagina[];
-  W: number;
-  H: number;
-  spread: boolean;
-  registraRef: (idx: number, el: HTMLDivElement | null) => void;
-  onProporcion: (p: number) => void;
-}) {
-  const colW = W / COLS;
-  // Se construye de adentro hacia afuera: la columna k vive DENTRO de la
-  // k−1, así girar una arrastra a las siguientes y el papel se curva.
-  let interior: JSX.Element | null = null;
-  for (let k = COLS - 1; k >= 0; k--) {
-    interior = (
-      <div
-        className={k === 0 ? 'seg-raiz' : 'seg-curva'}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: k === 0 ? 0 : colW,
-          width: colW + 0.7,
-          height: H,
-          transformStyle: 'preserve-3d',
-          transformOrigin: 'left center',
-        }}
-      >
-        <div
-          className="absolute inset-0 overflow-hidden bg-white"
-          style={{ backfaceVisibility: 'hidden' }}
-        >
-          <div
-            className="absolute top-0"
-            style={{ width: W, height: H, transform: `translateX(${-k * colW}px)` }}
-          >
-            <CaraDeHoja
-              pagina={pages[def.frente] ?? null}
-              dorso={false}
-              activa={!pasada}
-              spread={spread}
-              esPrimera={def.frente === 0}
-              onProporcion={onProporcion}
-            />
-          </div>
-        </div>
-        <div
-          className="absolute inset-0 overflow-hidden bg-white"
-          style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
-        >
-          <div
-            className="absolute top-0"
-            style={{
-              width: W,
-              height: H,
-              transform: `translateX(${-(COLS - 1 - k) * colW}px)`,
-            }}
-          >
-            <CaraDeHoja
-              pagina={def.dorso != null ? (pages[def.dorso] ?? null) : null}
-              dorso
-              activa={pasada}
-              spread={spread}
-              esPrimera={false}
-              onProporcion={onProporcion}
-            />
-          </div>
-        </div>
-        {interior}
-      </div>
-    );
-  }
-  return (
-    <div
-      ref={(el) => registraRef(idxHoja, el)}
-      className="absolute top-0"
-      style={{
-        left: spread ? W : 0,
-        width: W,
-        height: H,
-        transformStyle: 'preserve-3d',
-        transformOrigin: 'left center',
-        transform: pasada ? 'rotateY(-180deg)' : 'rotateY(0deg)',
-        zIndex: pasada ? 10 + idxHoja : 30 + (totalHojas - idxHoja),
-      }}
-    >
-      {interior}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// El libro
-// ─────────────────────────────────────────────────────────────────────
 export function LibroDeHojas({
   pages,
   pageIdx,
@@ -223,10 +110,11 @@ export function LibroDeHojas({
   registrarPaso?: (fn: (delta: 1 | -1) => void) => void;
 }) {
   const marcoRef = useRef<HTMLDivElement>(null);
+  const vueloRef = useRef<HTMLDivElement>(null);
   const [medidas, setMedidas] = useState({ ancho: 0, alto: 0 });
-  // Proporción de página: la de la PRIMERA imagen que cargue. Así un menú de
-  // páginas HORIZONTALES abre un libro apaisado — el libro toma el estilo de
-  // la imagen que el negocio subió.
+  // Proporción de página: la de la PRIMERA imagen. Un menú de páginas
+  // HORIZONTALES abre un libro apaisado — el libro toma el estilo de la
+  // imagen que el negocio subió.
   const [proporcion, setProporcion] = useState(3 / 4);
   const reducido = useMemo(
     () =>
@@ -244,12 +132,13 @@ export function LibroDeHojas({
   const [pasadas, setPasadas] = useState(0);
   const pasadasRef = useRef(0);
   pasadasRef.current = pasadas;
+  // La hoja en vuelo: índice + hacia dónde va. null = todo plano.
+  const [vuelo, setVuelo] = useState<{
+    idxHoja: number;
+    /** El vuelo arranca solo (toque/flecha) o lo lleva el dedo. */
+    animar: { haciaPasada: boolean; desdeAngulo: number } | null;
+  } | null>(null);
   const girandoRef = useRef<number | null>(null);
-  const hojaRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const registraRef = useCallback((idx: number, el: HTMLDivElement | null) => {
-    if (el) hojaRefs.current.set(idx, el);
-    else hojaRefs.current.delete(idx);
-  }, []);
 
   useEffect(() => {
     const el = marcoRef.current;
@@ -268,69 +157,81 @@ export function LibroDeHojas({
     Math.min(H * proporcion, (medidas.ancho - 16) / (spread ? 2 : 1)),
   );
 
-  function pintaHoja(el: HTMLElement, angulo: number) {
+  const pintaHoja = useCallback((el: HTMLElement, angulo: number) => {
     const arco = curvaturaEnAngulo(angulo, COLS);
     el.style.transform = `rotateY(${angulo}deg)`;
     el.querySelectorAll<HTMLElement>('.seg-curva').forEach((seg) => {
       seg.style.transform = `rotateY(${arco}deg)`;
     });
-    const vuelo = Math.sin((Math.min(Math.abs(angulo), 180) / 180) * Math.PI);
+    const enVuelo = Math.sin((Math.min(Math.abs(angulo), 180) / 180) * Math.PI);
     el.querySelectorAll<HTMLElement>('.velo-f').forEach((v) => {
-      v.style.background = `linear-gradient(90deg, rgba(0,0,0,${0.22 * vuelo}), transparent 55%)`;
+      v.style.background = `linear-gradient(90deg, rgba(0,0,0,${0.22 * enVuelo}), transparent 55%)`;
     });
     el.querySelectorAll<HTMLElement>('.velo-d').forEach((v) => {
-      v.style.background = `linear-gradient(270deg, rgba(0,0,0,${0.18 * vuelo}), transparent 55%)`;
+      v.style.background = `linear-gradient(270deg, rgba(0,0,0,${0.18 * enVuelo}), transparent 55%)`;
     });
     el.style.filter =
-      vuelo > 0.03
-        ? `drop-shadow(${-10 * vuelo}px ${14 * vuelo}px ${11 * vuelo}px rgba(0,0,0,${0.22 * vuelo}))`
+      enVuelo > 0.03
+        ? `drop-shadow(${-10 * enVuelo}px ${14 * enVuelo}px ${11 * enVuelo}px rgba(0,0,0,${0.22 * enVuelo}))`
         : 'none';
-  }
+  }, []);
 
   const termina = useCallback(
     (nuevasPasadas: number) => {
       girandoRef.current = null;
+      setVuelo(null);
       setPasadas(nuevasPasadas);
       onPageIdx(paginaActiva(hojas, nuevasPasadas, spread));
     },
     [hojas, spread, onPageIdx],
   );
 
-  const vuela = useCallback(
-    (idxHoja: number, haciaPasada: boolean, desdeAngulo?: number) => {
-      const el = hojaRefs.current.get(idxHoja);
+  const anima = useCallback(
+    (idxHoja: number, haciaPasada: boolean, desdeAngulo: number) => {
+      const el = vueloRef.current;
       const destino = haciaPasada ? -180 : 0;
-      const origen = desdeAngulo ?? (haciaPasada ? 0 : -180);
       const nuevas = haciaPasada ? idxHoja + 1 : idxHoja;
       if (!el || reducido) {
         termina(nuevas);
         return;
       }
-      el.style.zIndex = '60';
-      const dur = duracionDelVuelo(origen, destino);
+      const dur = duracionDelVuelo(desdeAngulo, destino);
       const t0 = performance.now();
       const paso = (ahora: number) => {
         const t = Math.min(1, (ahora - t0) / dur);
-        pintaHoja(el, origen + (destino - origen) * suaviza(t));
+        pintaHoja(el, desdeAngulo + (destino - desdeAngulo) * suaviza(t));
         if (t < 1) girandoRef.current = requestAnimationFrame(paso);
         else termina(nuevas);
       };
       girandoRef.current = requestAnimationFrame(paso);
     },
-    [reducido, termina],
+    [reducido, termina, pintaHoja],
   );
+
+  // El vuelo automático arranca cuando la pila 3D ya está montada.
+  useEffect(() => {
+    if (!vuelo?.animar) return;
+    const { haciaPasada, desdeAngulo } = vuelo.animar;
+    const raf = requestAnimationFrame(() =>
+      anima(vuelo.idxHoja, haciaPasada, desdeAngulo),
+    );
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vuelo?.animar]);
 
   /** Una hoja adelante o atrás (flechas del visor, toque seco). */
   const pasaHoja = useCallback(
     (delta: 1 | -1) => {
-      if (girandoRef.current != null) return;
+      if (girandoRef.current != null || vuelo) return;
       const k = pasadasRef.current;
       const idxHoja = delta > 0 ? k : k - 1;
       if (idxHoja < 0 || idxHoja >= hojas.length) return;
-      if (delta > 0 && k === hojas.length) return;
-      vuela(idxHoja, delta > 0);
+      setVuelo({
+        idxHoja,
+        animar: { haciaPasada: delta > 0, desdeAngulo: delta > 0 ? 0 : -180 },
+      });
     },
-    [hojas.length, vuela],
+    [hojas.length, vuelo],
   );
 
   useEffect(() => {
@@ -339,14 +240,17 @@ export function LibroDeHojas({
 
   // ── El visor pide otra página (chips de sección, deep-link) ──────
   useEffect(() => {
-    if (girandoRef.current != null) return;
+    if (girandoRef.current != null || vuelo) return;
     const objetivo = pasadasParaVer(hojas, pageIdx, spread);
     if (objetivo === pasadas) return;
     if (Math.abs(objetivo - pasadas) === 1) {
-      vuela(objetivo > pasadas ? pasadas : pasadas - 1, objetivo > pasadas);
+      const haciaPasada = objetivo > pasadas;
+      setVuelo({
+        idxHoja: haciaPasada ? pasadas : pasadas - 1,
+        animar: { haciaPasada, desdeAngulo: haciaPasada ? 0 : -180 },
+      });
     } else {
-      // Salto largo: directo, como el 'instant' del modo deslizar — animarlo
-      // arrastraría todas las hojas de en medio con sus imágenes.
+      // Salto largo: directo, como el 'instant' del modo deslizar.
       setPasadas(objetivo);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -375,7 +279,7 @@ export function LibroDeHojas({
   }
 
   function onPointerDown(e: React.PointerEvent) {
-    if (girandoRef.current != null || !pages.length) return;
+    if (girandoRef.current != null || vuelo || !pages.length) return;
     const delDerecho = spread ? e.clientX >= lomoX() : true;
     const idxHoja = delDerecho ? pasadas : pasadas - 1;
     if (idxHoja < 0 || idxHoja >= hojas.length) return;
@@ -399,11 +303,14 @@ export function LibroDeHojas({
     a.velocidad = (e.clientX - a.ultimoX) / Math.max(1, ahora - a.t);
     a.ultimoX = e.clientX;
     a.t = ahora;
-    if (!a.movio && Math.abs(e.clientX - a.inicioX) < 6) return;
-    a.movio = true;
-    const el = hojaRefs.current.get(a.idxHoja);
+    if (!a.movio) {
+      if (Math.abs(e.clientX - a.inicioX) < 6) return;
+      a.movio = true;
+      // Recién aquí se monta la pila 3D: un toque seco nunca la necesita.
+      setVuelo({ idxHoja: a.idxHoja, animar: null });
+    }
+    const el = vueloRef.current;
     if (!el) return;
-    el.style.zIndex = '60';
     a.angulo = anguloDesdePuntero(e.clientX, lomoX(), W);
     pintaHoja(el, a.angulo);
   }
@@ -424,7 +331,7 @@ export function LibroDeHojas({
       pasaHoja(a.haciaPasada ? 1 : -1);
       return;
     }
-    vuela(a.idxHoja, decideAlSoltar(a.angulo, a.velocidad), a.angulo);
+    anima(a.idxHoja, decideAlSoltar(a.angulo, a.velocidad), a.angulo);
   }
 
   /** Qué página (índice global) hay bajo un toque, para sus popups. */
@@ -437,18 +344,113 @@ export function LibroDeHojas({
     return izquierda ? (h?.dorso ?? null) : (h?.frente ?? null);
   }
 
-  // Solo se montan las hojas cercanas: en una carta de 105 páginas, montar
-  // las 53 hojas con sus imágenes sería bajarse el libro entero.
-  const ventana: number[] = [];
-  for (
-    let i = Math.max(0, pasadas - 2);
-    i <= Math.min(hojas.length - 1, pasadas + 1);
-    i++
-  ) {
-    ventana.push(i);
-  }
+  // ── Qué se pinta en REPOSO (todo plano) ──────────────────────────
+  // Izquierda: el dorso de la última hoja pasada. Derecha: el frente de la
+  // hoja siguiente. Debajo de cada una, la que aparecería al pasarla (para
+  // que el vuelo revele algo ya cargado y no un hueco blanco).
+  const hojaIzq = pasadas > 0 ? hojas[pasadas - 1] : null;
+  const hojaDer = pasadas < hojas.length ? hojas[pasadas] : null;
+  const hojaIzqPrev = pasadas > 1 ? hojas[pasadas - 2] : null;
+  const hojaDerSig = pasadas + 1 < hojas.length ? hojas[pasadas + 1] : null;
+
+  // Durante un vuelo, la hoja que gira sale del reposo y se pinta como pila
+  // 3D; lo que queda debajo ya está en estas capas planas.
+  const enVueloIdx = vuelo?.idxHoja ?? null;
 
   const despl = desplazamientoDelLibro(hojas, pasadas, spread) * W;
+  const defVuelo = enVueloIdx != null ? hojas[enVueloIdx] : null;
+  const colW = W / COLS;
+
+  // La pila 3D de la hoja en vuelo, construida de adentro hacia afuera: la
+  // columna k vive DENTRO de la k−1, así girar una arrastra a las siguientes
+  // y el papel se curva.
+  let pila: JSX.Element | null = null;
+  if (defVuelo) {
+    for (let k = COLS - 1; k >= 0; k--) {
+      pila = (
+        <div
+          className={k === 0 ? 'seg-raiz' : 'seg-curva'}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: k === 0 ? 0 : colW,
+            width: colW + 0.7,
+            height: H,
+            transformStyle: 'preserve-3d',
+            transformOrigin: 'left center',
+          }}
+        >
+          <div
+            className="absolute inset-0 overflow-hidden bg-white"
+            style={{ backfaceVisibility: 'hidden' }}
+          >
+            <div
+              className="absolute top-0"
+              style={{ width: W, height: H, transform: `translateX(${-k * colW}px)` }}
+            >
+              <ImagenDePagina
+                pagina={pages[defVuelo.frente] ?? null}
+                prioritaria
+                spread={spread}
+              />
+              <div className="velo-f absolute inset-0 pointer-events-none" />
+            </div>
+          </div>
+          <div
+            className="absolute inset-0 overflow-hidden bg-white"
+            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+          >
+            <div
+              className="absolute top-0"
+              style={{
+                width: W,
+                height: H,
+                transform: `translateX(${-(COLS - 1 - k) * colW}px)`,
+              }}
+            >
+              <ImagenDePagina
+                pagina={defVuelo.dorso != null ? (pages[defVuelo.dorso] ?? null) : null}
+                prioritaria
+                spread={spread}
+              />
+              <div className="velo-d absolute inset-0 pointer-events-none" />
+            </div>
+          </div>
+          {pila}
+        </div>
+      );
+    }
+  }
+
+  /** Una página plana de reposo, posicionada por lado. */
+  function plana(
+    def: DefHoja | null,
+    lado: 'izq' | 'der',
+    cara: 'frente' | 'dorso',
+    z: number,
+    prioritaria: boolean,
+  ) {
+    if (!def) return null;
+    const idx = cara === 'frente' ? def.frente : def.dorso;
+    return (
+      <div
+        className="absolute top-0 overflow-hidden bg-white"
+        style={{
+          left: lado === 'der' && spread ? W : 0,
+          width: W,
+          height: H,
+          zIndex: z,
+        }}
+      >
+        <ImagenDePagina
+          pagina={idx != null ? (pages[idx] ?? null) : null}
+          prioritaria={prioritaria}
+          spread={spread}
+          onProporcion={idx === 0 ? setProporcion : undefined}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -483,21 +485,41 @@ export function LibroDeHojas({
               'radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,.20), transparent 70%)',
           }}
         />
-        {ventana.map((i) => (
-          <HojaDelLibro
-            key={hojas[i].frente}
-            def={hojas[i]}
-            idxHoja={i}
-            pasada={i < pasadas}
-            totalHojas={hojas.length}
-            pages={pages}
-            W={W}
-            H={H}
-            spread={spread}
-            registraRef={registraRef}
-            onProporcion={setProporcion}
-          />
-        ))}
+
+        {/* Reposo, todo plano. La hoja en vuelo se excluye de su lado:
+            su imagen la lleva la pila 3D. */}
+        {spread && enVueloIdx !== (pasadas > 1 ? pasadas - 2 : -1) &&
+          plana(hojaIzqPrev, 'izq', 'dorso', 4, false)}
+        {spread && enVueloIdx !== (pasadas > 0 ? pasadas - 1 : -1) &&
+          plana(hojaIzq, 'izq', 'dorso', 6, true)}
+        {enVueloIdx !== (pasadas + 1 < hojas.length ? pasadas + 1 : -1) &&
+          plana(hojaDerSig, 'der', 'frente', 4, false)}
+        {enVueloIdx !== (pasadas < hojas.length ? pasadas : -1) &&
+          plana(hojaDer, 'der', 'frente', 6, true)}
+
+        {/* La hoja en vuelo: la única pila 3D, y solo mientras vuela. */}
+        {defVuelo && (
+          <div
+            ref={vueloRef}
+            className="absolute top-0"
+            style={{
+              left: spread ? W : 0,
+              width: W,
+              height: H,
+              zIndex: 60,
+              transformStyle: 'preserve-3d',
+              transformOrigin: 'left center',
+              transform:
+                vuelo?.animar == null && enVueloIdx != null && enVueloIdx < pasadas
+                  ? 'rotateY(-180deg)'
+                  : vuelo?.animar
+                    ? `rotateY(${vuelo.animar.desdeAngulo}deg)`
+                    : 'rotateY(0deg)',
+            }}
+          >
+            {pila}
+          </div>
+        )}
       </div>
     </div>
   );
