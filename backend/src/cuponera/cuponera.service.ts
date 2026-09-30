@@ -30,6 +30,7 @@ import {
 } from './benefit-limits';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WalletService } from '../wallet/wallet.service';
+import { PREFIJO_GEOFENCE_ALIADO } from '../wallet/orden-de-sedes';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
 /** Slug de la campaña (usado en el marketplace público /cuponera).
@@ -2436,7 +2437,6 @@ export class CuponeraService {
    * crea o se borra según el estado de la sede y del aliado, y los pases ya
    * instalados se refrescan para que el celular reciba el geofence nuevo.
    */
-  static readonly PREFIJO_GEOFENCE_ALIADO = 'aliado:';
 
   /** Sincroniza y refresca los pases si el punto cambió. */
   private async syncAllyGeofence(allyLocationId: string) {
@@ -2460,7 +2460,7 @@ export class CuponeraService {
     });
     if (!sede) return null;
     const tenantId = sede.ally.campaign.tenantId;
-    const externalId = `${CuponeraService.PREFIJO_GEOFENCE_ALIADO}${sede.id}`;
+    const externalId = `${PREFIJO_GEOFENCE_ALIADO}${sede.id}`;
 
     // Solo avisa un aliado APROBADO: uno pendiente o suspendido no está en la
     // cartelera, y un aviso que lleva a un negocio que no te atiende es peor
@@ -2518,7 +2518,7 @@ export class CuponeraService {
     const res = await this.prisma.location.deleteMany({
       where: {
         tenantId,
-        externalId: `${CuponeraService.PREFIJO_GEOFENCE_ALIADO}${allyLocationId}`,
+        externalId: `${PREFIJO_GEOFENCE_ALIADO}${allyLocationId}`,
       },
     });
     return res.count > 0;
@@ -3473,7 +3473,7 @@ export class CuponeraService {
     // El punto de una sede de aliado se maneja desde esa sede. Tocarlo acá lo
     // desincronizaría: la sede seguiría diciendo «Activo» sin punto detrás, o
     // el próximo guardado de la sede lo resucitaría.
-    if (loc.externalId?.startsWith(CuponeraService.PREFIJO_GEOFENCE_ALIADO)) {
+    if (loc.externalId?.startsWith(PREFIJO_GEOFENCE_ALIADO)) {
       throw new BadRequestException(
         'Este punto es de la sede de un aliado: cambialo desde Aliados → Sedes y GeoPush.',
       );

@@ -9,6 +9,7 @@ import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
+import { ordenarSedesParaPase } from './orden-de-sedes';
 
 /**
  * Google Wallet integration end-to-end.
@@ -232,7 +233,9 @@ export class GoogleWalletService {
    * avisen en los mismos sitios y no en unos u otros segun el telefono.
    */
   private sedesParaGoogle(pass: any) {
-    return (pass.tenant?.locations ?? [])
+    // Mismo corte estable a 10 que Apple: propios primero (orden-de-sedes.ts),
+    // para que las dos billeteras avisen en los mismos sitios.
+    return ordenarSedesParaPase<any>(pass.tenant?.locations ?? [])
       .map((l: any) => ({
         latitude: Number(l.latitude),
         longitude: Number(l.longitude),
@@ -671,7 +674,7 @@ export class GoogleWalletService {
         card: true,
         tenant: {
           include: {
-            locations: { where: { isActive: true } },
+            locations: { where: { isActive: true }, orderBy: { createdAt: 'asc' } },
             whiteLabel: { select: { walletAdvanced: true } },
           },
         },
@@ -862,7 +865,7 @@ export class GoogleWalletService {
         card: true,
         tenant: {
           include: {
-            locations: { where: { isActive: true } },
+            locations: { where: { isActive: true }, orderBy: { createdAt: 'asc' } },
             whiteLabel: { select: { walletAdvanced: true } },
           },
         },

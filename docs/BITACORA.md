@@ -818,6 +818,26 @@ toma del servidor: es para planificar, no para esta noche.
   escapado. No los toqué (regla de no revertir lo ajeno). Si son tuyos,
   bórralos tú.
 
+## 2026-09-30 (87) — Cuponeras: orden estable de los 10 puntos del pase y panel que carga por pestañas
+
+**Estado: commiteado y empujado. SIN desplegar. Sin migración.**
+
+- **Los 10 puntos de GeoPush ya no se eligen al azar.** Apple y Google cortan a
+  10 con `slice(0, 10)` y la consulta no tenía orden: con más de 10 puntos, un
+  sitio que ayer avisaba hoy podía dejar de hacerlo solo. Ahora las consultas
+  van con `orderBy createdAt` y `wallet/orden-de-sedes.ts` (compartido por las
+  dos billeteras, con test) pone PRIMERO los puntos propios del negocio o de la
+  cuponera y después las sedes espejo de aliados (`externalId 'aliado:…'`, la
+  constante se movió a ese módulo). Para un negocio normal = por antigüedad.
+- **El panel `/cuponera/admin` carga por pestañas.** Abría con 9 peticiones a
+  la vez (y cada una paga el proxy público de la base); ahora el arranque pide
+  solo `overview` y cada recurso se trae la primera vez que su pestaña lo
+  necesita (`RECURSOS_POR_TAB`). Si una carga falla, la clave se libera y
+  volver a la pestaña reintenta — antes cualquier fallo tumbaba el panel entero.
+
+Queda en pie lo grande: pasar la base al proxy interno de Railway (decisión y
+manos de Javier) y los respaldos, que siguen sin existir.
+
 ## 2026-09-28 (86) — Cuponeras: páginas en HTML, zona/barrio del aliado, claves de administradores
 
 **Estado: commiteado. SIN desplegar. ⚠️ TRAE MIGRACIÓN:**

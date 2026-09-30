@@ -10,6 +10,7 @@ import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
 import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
+import { ordenarSedesParaPase } from './orden-de-sedes';
 import { removeBorderConnectedWhite } from './logo-chroma';
 import { imagenesSinFranjaAjena } from './franja-por-defecto';
 import {
@@ -135,7 +136,7 @@ export class WalletService implements OnModuleDestroy {
       include: {
         card: true,
         customer: true,
-        tenant: { include: { locations: { where: { isActive: true } } } },
+        tenant: { include: { locations: { where: { isActive: true }, orderBy: { createdAt: 'asc' } } } },
       },
     });
     if (!pass) throw new NotFoundException('Pass');
@@ -2453,10 +2454,12 @@ export class WalletService implements OnModuleDestroy {
       longitude: unknown;
       radiusMeters?: number | null;
       walletRelevantText?: string | null;
+      externalId?: string | null;
     }>,
     textoPorDefecto: (l: { walletRelevantText?: string | null }) => string,
   ) {
-    const validas = sedes.filter((l) => {
+    // Corte estable a 10: los puntos propios primero, ver orden-de-sedes.ts.
+    const validas = ordenarSedesParaPase(sedes).filter((l) => {
       const lat = Number(l.latitude);
       const lng = Number(l.longitude);
       return (
@@ -2519,6 +2522,7 @@ export class WalletService implements OnModuleDestroy {
             timezone: true,
             locations: {
               where: { isActive: true },
+              orderBy: { createdAt: 'asc' },
               select: {
                 latitude: true,
                 longitude: true,

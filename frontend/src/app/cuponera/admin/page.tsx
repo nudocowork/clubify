@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, getUser, clearSession } from '@/lib/api';
@@ -141,6 +141,23 @@ type PanelBenefit = {
 
 const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Comunidad', 'Redenciones', 'Tarjeta', 'Configuración'] as const;
 type Tab = (typeof TABS)[number];
+
+// ── Carga por pestañas ────────────────────────────────────────────────────────
+// El panel abría con 9 peticiones a la vez aunque solo se mirara el Dashboard.
+// Cada recurso se pide la primera vez que una pestaña lo necesita; esta tabla
+// dice cuáles usa cada una (los formularios incluidos: el alta de aliado
+// necesita categorías, negocios de la marca y correos de acceso).
+type Recurso = 'allies' | 'members' | 'reds' | 'cats' | 'plans' | 'bens' | 'tenants' | 'logins';
+const RECURSOS_POR_TAB: Record<Tab, Recurso[]> = {
+  Dashboard: [],
+  Aliados: ['allies', 'cats', 'tenants', 'logins'],
+  Beneficiarios: ['members', 'plans'],
+  Beneficios: ['bens'],
+  Comunidad: ['plans', 'allies', 'cats'],
+  Redenciones: ['reds'],
+  Tarjeta: [],
+  Configuración: ['cats', 'plans'],
+};
 
 const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', border: '1px solid #d7dbe0', borderRadius: 9, fontSize: 13.5, outline: 'none', boxSizing: 'border-box' };
 const lbl: React.CSSProperties = { display: 'block', fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 4 };
@@ -1372,7 +1389,34 @@ export default function CuponeraAdminPage() {
 
   const flash = (m: string) => { setAviso(m); setTimeout(() => setAviso(null), 6000); };
 
+  // Qué recursos ya se pidieron. Si una carga falla, la clave se libera para
+  // que volver a entrar a la pestaña reintente en vez de mostrar listas vacías
+  // para siempre.
+  const cargados = useRef<Set<Recurso>>(new Set());
+  const fetchers: Record<Recurso, () => Promise<void>> = {
+    allies: () => api(`/cuponera/panel/allies${qs}`).then((a) => setAllies((a as Ally[]) ?? [])),
+    members: () => api(`/cuponera/panel/members${qs}`).then((m) => setMembers((m as Member[]) ?? [])),
+    reds: () => api(`/cuponera/panel/redemptions${qs}`).then((r) => setReds((r as Redemption[]) ?? [])),
+    cats: () => api(`/cuponera/panel/categories${qs}`).then((c) => setCats((c as Category[]) ?? [])),
+    plans: () => api(`/cuponera/panel/plans${qs}`).then((p) => setPlans((p as Plan[]) ?? [])),
+    bens: () => api(`/cuponera/panel/benefits${qs}`).then((b) => setBens((b as PanelBenefit[]) ?? [])),
+    tenants: () => api(`/cuponera/panel/tenant-options${qs}`).then((t) => setTenants((t as TenantOpt[]) ?? [])),
+    logins: () => api(`/cuponera/panel/ally-logins${qs}`).then((lg) => setLogins((lg as Record<string, string[]>) ?? {})),
+  };
+  const asegurar = (claves: Recurso[]) => {
+    for (const k of claves) {
+      if (cargados.current.has(k)) continue;
+      cargados.current.add(k);
+      void fetchers[k]().catch((e: any) => {
+        cargados.current.delete(k);
+        flash(e?.message || 'No se pudo cargar una parte del panel.');
+      });
+    }
+  };
+  const abrirTab = (t: Tab) => { setTab(t); asegurar(RECURSOS_POR_TAB[t]); };
+
   const recargarConfig = async () => {
+    (['cats', 'plans'] as Recurso[]).forEach((k) => cargados.current.add(k));
     const [ct, pl, o] = await Promise.all([
       api(`/cuponera/panel/categories${qs}`).catch(() => null),
       api(`/cuponera/panel/plans${qs}`).catch(() => null),
@@ -1387,6 +1431,7 @@ export default function CuponeraAdminPage() {
   // Recarga puntual: tras crear o aprobar algo hay que refrescar solo lo que
   // cambió, no la pantalla entera.
   const recargar = async () => {
+    (['allies', 'members', 'bens', 'logins'] as Recurso[]).forEach((k) => cargados.current.add(k));
     const [o, a, m, b, lg] = await Promise.all([
       api(`/cuponera/panel/overview${qs}`).catch(() => null),
       api(`/cuponera/panel/allies${qs}`).catch(() => null),
@@ -1409,35 +1454,16 @@ export default function CuponeraAdminPage() {
       router.replace('/login');
       return;
     }
-    (async () => {
-      try {
-        const [o, a, m, r, ct, pl, bn, tn] = await Promise.all([
-          api(`/cuponera/panel/overview${qs}`),
-          api(`/cuponera/panel/allies${qs}`),
-          api(`/cuponera/panel/members${qs}`),
-          api(`/cuponera/panel/redemptions${qs}`),
-          api(`/cuponera/panel/categories${qs}`).catch(() => null),
-          api(`/cuponera/panel/plans${qs}`).catch(() => null),
-          api(`/cuponera/panel/benefits${qs}`).catch(() => null),
-          api(`/cuponera/panel/tenant-options${qs}`).catch(() => null),
-        ]);
-        api(`/cuponera/panel/ally-logins${qs}`)
-          .then((lg) => setLogins((lg as Record<string, string[]>) ?? {}))
-          .catch(() => null);
-        setOv(o as Overview);
-        // api() devuelve null en respuesta vacía.
-        setAllies(((a as Ally[]) ?? []));
-        setMembers(((m as Member[]) ?? []));
-        setReds(((r as Redemption[]) ?? []));
-        setCats(((ct as Category[]) ?? []));
-        setPlans(((pl as Plan[]) ?? []));
-        setBens(((bn as PanelBenefit[]) ?? []));
-        setTenants(((tn as TenantOpt[]) ?? []));
-      } catch (e: any) {
-        setErr(e?.message || 'No se pudo cargar el panel');
-      } finally { setLoading(false); }
-    })();
+    // Solo el overview bloquea la primera pintura: trae el nombre, el estado y
+    // los números del Dashboard. El resto llega cuando se abre su pestaña.
+    cargados.current = new Set();
+    api(`/cuponera/panel/overview${qs}`)
+      .then((o) => setOv(o as Overview))
+      .catch((e: any) => setErr(e?.message || 'No se pudo cargar el panel'))
+      .finally(() => setLoading(false));
+    asegurar(RECURSOS_POR_TAB[tab]);
     setVerComo(!!campaignId && u.role !== 'CUPONERA_ADMIN');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- asegurar/tab: solo al montar o cambiar de cuponera
   }, [router, qs, campaignId]);
 
   if (loading) return <div style={{ padding: 28, color: '#64748b' }}>Cargando…</div>;
@@ -1481,7 +1507,7 @@ export default function CuponeraAdminPage() {
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)}
+          <button key={t} onClick={() => abrirTab(t)}
             style={{ ...btn(tab === t ? PC : '#eef2f7', tab === t ? '#fff' : '#111827'), padding: '8px 14px' }}>
             {t}
           </button>
