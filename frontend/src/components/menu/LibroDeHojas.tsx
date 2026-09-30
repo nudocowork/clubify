@@ -176,9 +176,13 @@ export function LibroDeHojas({
         : 'none';
   }, []);
 
+  const topeRef = useRef<number | null>(null);
   const termina = useCallback(
     (nuevasPasadas: number) => {
+      if (girandoRef.current != null) cancelAnimationFrame(girandoRef.current);
       girandoRef.current = null;
+      if (topeRef.current != null) window.clearTimeout(topeRef.current);
+      topeRef.current = null;
       setVuelo(null);
       setPasadas(nuevasPasadas);
       onPageIdx(paginaActiva(hojas, nuevasPasadas, spread));
@@ -204,6 +208,13 @@ export function LibroDeHojas({
         else termina(nuevas);
       };
       girandoRef.current = requestAnimationFrame(paso);
+      // Red del vuelo: en una pestaña oculta el navegador PAUSA los frames y
+      // la hoja quedaría a medio girar para siempre (pasó probándolo con el
+      // tab en segundo plano). Si los frames no llegan, el temporizador
+      // asienta la hoja igual — los timers sí corren en background.
+      topeRef.current = window.setTimeout(() => {
+        if (girandoRef.current != null) termina(nuevas);
+      }, dur + 600);
     },
     [reducido, termina, pintaHoja],
   );
