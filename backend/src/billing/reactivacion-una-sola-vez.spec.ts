@@ -52,7 +52,7 @@ function servicio(opts: {
   };
   const prereg: any = { sendInternalAlert: async () => ({ ok: true }) };
 
-  const svc = new BillingService(prisma, {} as any, {} as any, {} as any, audit, prereg);
+  const svc = new BillingService(prisma, {} as any, {} as any, {} as any, audit, prereg, { estaConfigurada: () => false } as any);
   // La alerta interna se espía aquí y no en los 3 SMS: lo que importa es que
   // el equipo se entere, no por qué número sale.
   const original = svc.notifyBillingTeam.bind(svc);

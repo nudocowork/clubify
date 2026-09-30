@@ -50,6 +50,21 @@ export function laPasarelaMandaSobreElNegocio(tenant: {
   return !/^(wl-|comp-|trial-|campaign-|sim-)/i.test(codigo);
 }
 
+/**
+ * ¿Este código es una suscripción REAL de Hotmart, cancelable por su API?
+ *
+ * Excluye los códigos sembrados por el sistema (`manual-`, `wl-`, `comp-`,
+ * `trial-`, `campaign-`, `sim-`) y los de Stripe (`sub_…`): mandarle a la
+ * API de Hotmart un código de esos es un 404 seguro — o peor, un silencio
+ * que alguien lee como «cancelada».
+ */
+export function esCodigoHotmartReal(codigo: string | null | undefined): boolean {
+  const c = (codigo ?? '').trim();
+  if (!c) return false;
+  if (/^sub_/i.test(c)) return false;
+  return !/^(manual-|wl-|comp-|trial-|campaign-|sim-)/i.test(c);
+}
+
 export function desconectaAlCancelar(
   tenant: {
     status?: string | null;

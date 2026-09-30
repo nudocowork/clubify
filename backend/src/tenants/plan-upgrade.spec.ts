@@ -85,6 +85,9 @@ function servicio(opts: Opciones = {}) {
   const svc = Object.create(PlanUpgradeService.prototype) as any;
   svc.logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   svc.audit = { log: vi.fn() };
+  // La API de Hotmart, apagada por defecto: el flujo clásico (checkbox de
+  // confirmación) debe seguir funcionando sin ella.
+  svc.hotmartApi = { estaConfigurada: () => false, cancelarSuscripcion: vi.fn() };
 
   // `any`: el guardián le escribe campos que este molde no declara (los dedup
   // de aviso), y la prueba los comprueba.

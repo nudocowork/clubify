@@ -24,6 +24,8 @@ import {
 import { resolveManualPaymentPeriod } from '../common/manual-payment-period';
 import { mesContable } from '../common/periodo-contable';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
+import { HotmartApiService } from '../billing/hotmart-api.service';
+import { esCodigoHotmartReal } from '../billing/cancelacion';
 import { esDeMontoLibre } from '../referrals/comisiones-de-monto-libre';
 import {
   filasDeComisionDelUpgrade,
@@ -109,6 +111,10 @@ export type CrearUpgradeDto = {
    * viva: ver el bloque «EL COBRO VIEJO» de la cabecera de la clase.
    */
   suscripcionAnteriorCancelada?: boolean;
+  /** Cancela la suscripción vieja por la API de Hotmart, aquí mismo, en vez
+   *  de exigir que alguien la cancele a mano y lo confirme con el checkbox.
+   *  En método PASARELA va implícito: ahí no hay humano que confirme nada. */
+  cancelarEnPasarela?: boolean;
 };
 
 /** El sello de cancelación que se escribe en el acta al crearla. */
@@ -286,6 +292,7 @@ export class PlanUpgradeService {
     private recalc: CommissionRecalcService,
     private excepciones: CommissionExceptionsService,
     private income: IncomeRecordService,
+    private hotmartApi: HotmartApiService,
   ) {}
 
   // ─────────────────────────── Previsualización ───────────────────────────
@@ -494,8 +501,46 @@ export class PlanUpgradeService {
 
     // ── La suscripción vieja: se exige la confirmación ANTES de cobrar ────
     const cancelacion = this.refDeCancelacion(t);
+    // Desde el 2026-09-30 la API de Hotmart existe (credenciales de Jhon en
+    // Railway): si quien crea lo pide —o el método es PASARELA, donde no hay
+    // humano que confirme casillas— la suscripción vieja se cancela AQUÍ,
+    // sin panel de Hotmart. `send_mail: false`: el aviso que reciba el
+    // cliente es el de su marca (y el del upgrade), no el de Hotmart.
+    let canceladaPorApi = false;
     if (
       cancelacion.estado === 'PENDIENTE' &&
+      (dto.metodo === 'PASARELA' || dto.cancelarEnPasarela === true)
+    ) {
+      const puedeApi =
+        esCodigoHotmartReal(cancelacion.ref) && this.hotmartApi.estaConfigurada();
+      if (puedeApi) {
+        const r = await this.hotmartApi.cancelarSuscripcion(cancelacion.ref!, {
+          mandarCorreo: false,
+        });
+        if (r.ok) {
+          canceladaPorApi = true;
+        } else if (dto.cancelarEnPasarela === true) {
+          // Lo pidió explícito y Hotmart dijo que no: eso se cuenta, no se
+          // disimula cayendo a un checkbox que nadie marcó.
+          throw new BadRequestException(
+            `Hotmart no aceptó cancelar la suscripción vieja (${cancelacion.ref}): ${r.motivo}. ` +
+              'Cancélala a mano en su panel y vuelve marcando la confirmación.',
+          );
+        }
+        // Método PASARELA con la API caída: se CAE al flujo clásico de
+        // siempre (la confirmación manual de abajo) en vez de bloquear el
+        // upgrade — la API es una comodidad, no un requisito.
+      } else if (dto.cancelarEnPasarela === true) {
+        throw new BadRequestException(
+          `La suscripción vieja (${cancelacion.ref}) no se puede cancelar automáticamente ` +
+            '(no es una suscripción de Hotmart, o la API no está configurada). ' +
+            'Cancélala a mano en el panel de la pasarela y vuelve marcando la confirmación.',
+        );
+      }
+    }
+    if (
+      cancelacion.estado === 'PENDIENTE' &&
+      !canceladaPorApi &&
       dto.suscripcionAnteriorCancelada !== true
     ) {
       throw new BadRequestException(
@@ -507,7 +552,7 @@ export class PlanUpgradeService {
           `habrá que devolver. ${AVISO_DEL_CORREO_DE_CANCELACION}`,
       );
     }
-    const sello = this.selloDeCancelacion(cancelacion, actorId, ahora);
+    const sello = this.selloDeCancelacion(cancelacion, actorId, ahora, canceladaPorApi);
 
     // ── Lo que se lee, antes de abrir nada ────────────────────────────────
     const standardPriceUsd = await this.recalc.getBundlePrice('ANUAL');
@@ -1424,17 +1469,17 @@ export class PlanUpgradeService {
    * PENDIENTE: o no había nada que cancelar (`NO_APLICA`), o quien lo creó
    * afirmó que ya la canceló (`MANUAL_CONFIRMADA`, con actor y fecha).
    *
-   * Aquí ya no hay hueco para una cancelación automática, y es deliberado: en
-   * Railway solo existe `HOTMART_HOTTOK` (el token con el que se VERIFICAN los
-   * webhooks que llegan), no hay client id/secret para llamar a la API de
-   * Hotmart, y de Stripe no hay clave de plataforma. Una «cancelación
-   * automática» sería mentira, y el guardián (`vigilarCobrosViejos`) cubre el
-   * caso de que la confirmación no fuera cierta.
+   * Desde el 2026-09-30 SÍ existe la cancelación automática (la API de
+   * Hotmart con las credenciales de Jhon): cuando fue el sistema quien
+   * canceló, el sello es `API_CONFIRMADA`. Para Stripe sigue sin haber clave
+   * de plataforma, y el guardián (`vigilarCobrosViejos`) cubre el caso de
+   * que una confirmación manual no fuera cierta.
    */
   private selloDeCancelacion(
     cancelacion: { estado: 'PENDIENTE' | 'NO_APLICA'; ref: string | null },
     actorId: string | null,
     ahora: Date,
+    canceladaPorApi = false,
   ): SelloDeCancelacion {
     if (cancelacion.estado === 'NO_APLICA') {
       return {
@@ -1443,6 +1488,16 @@ export class PlanUpgradeService {
         cancelacionAt: null,
         cancelacionActorId: null,
         cancelacionMotivo: null,
+      };
+    }
+    if (canceladaPorApi) {
+      return {
+        cancelacionEstado: 'API_CONFIRMADA',
+        cancelacionRef: cancelacion.ref,
+        cancelacionAt: ahora,
+        cancelacionActorId: actorId,
+        cancelacionMotivo:
+          'El sistema canceló la suscripción anterior por la API de Hotmart al crear el upgrade (send_mail apagado).',
       };
     }
     return {

@@ -70,6 +70,7 @@ class CrearUpgradeBody {
    * afiliado otra comisión que habrá que devolver.
    */
   @IsOptional() @IsBoolean() suscripcionAnteriorCancelada?: boolean;
+  @IsOptional() @IsBoolean() cancelarEnPasarela?: boolean;
 
   /** Cuándo se cobró (ISO). Default: ahora. Ni futura ni de hace >30 días. */
   @IsOptional() @IsISO8601() effectiveAt?: string;

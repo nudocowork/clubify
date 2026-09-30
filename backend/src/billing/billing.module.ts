@@ -12,6 +12,7 @@ import { StripeWebhookController } from './stripe.controller';
 import { CrossService } from './cross.service';
 import { CrossWebhookController, CrossCheckoutController } from './cross.controller';
 import { SmsTemplatesService } from './sms-templates.service';
+import { HotmartApiService } from './hotmart-api.service';
 import { SmsTemplatesController } from './sms-templates.controller';
 import { PendingActivationService } from './pending-activation.service';
 import { RecordatorioDeActivacionService } from './recordatorio-de-activacion.service';
@@ -46,7 +47,7 @@ import { FinanceModule } from '../finance/finance.module';
     SmsTemplatesController,
     PendingPaymentsController,
   ],
-  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, PendingActivationService, PendingAssignmentService, RecordatorioDeActivacionService],
-  exports: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService],
+  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, HotmartApiService, PendingActivationService, PendingAssignmentService, RecordatorioDeActivacionService],
+  exports: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, HotmartApiService],
 })
 export class BillingModule {}

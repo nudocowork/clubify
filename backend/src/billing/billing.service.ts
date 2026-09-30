@@ -20,7 +20,8 @@ import {
   type RenewalStateResult,
 } from './dunning';
 import { diasDeFechaTardia } from './fecha-de-cobro';
-import { desconectaAlCancelar } from './cancelacion';
+import { desconectaAlCancelar, esCodigoHotmartReal } from './cancelacion';
+import { HotmartApiService } from './hotmart-api.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { horaLocal, fechaLocal } from '../automations/hora-local';
 import {
@@ -138,6 +139,7 @@ export class BillingService {
     private brandEmail: BrandEmailService,
     private audit: AuditService,
     private prereg: PreregAlertsService,
+    private hotmartApi: HotmartApiService,
   ) {}
 
   /**
@@ -470,6 +472,7 @@ export class BillingService {
         trialEndsAt: true,
         currentPeriodEnd: true,
         failedPaymentCount: true,
+        hotmartSubscriberCode: true,
       },
     });
     if (!t) throw new Error('Tenant not found');
@@ -506,7 +509,44 @@ export class BillingService {
           : `Sigue activo hasta ${accessUntil?.toISOString() ?? '—'}.`) +
         ` Motivo: ${reason ?? '—'}`,
     );
-    return { ok: true, accessUntil, suspendedNow: desconectarYa };
+
+    // También en HOTMART (Javier, 2026-09-30). Cancelar solo de nuestro lado
+    // dejaba la suscripción viva allá: Hotmart cobraba el ciclo siguiente y
+    // el webhook re-activaba al negocio como «arrepentido» — el cliente que
+    // canceló seguía pagando. Best-effort A PROPÓSITO: la cancelación local
+    // de arriba ya quedó escrita pase lo que pase con la API; si Hotmart no
+    // responde, se audita y el equipo lo termina a mano.
+    // `send_mail: false`: el correo que ve el cliente es el de SU marca, que
+    // sale por nuestro propio webhook de cancelación.
+    let canceladaEnPasarela = false;
+    if (
+      esCodigoHotmartReal(t.hotmartSubscriberCode) &&
+      this.hotmartApi.estaConfigurada()
+    ) {
+      const r = await this.hotmartApi.cancelarSuscripcion(
+        t.hotmartSubscriberCode!,
+        { mandarCorreo: false },
+      );
+      canceladaEnPasarela = r.ok;
+      this.audit.log({
+        actorId: null,
+        tenantId,
+        action: r.ok
+          ? 'billing.gateway_cancel_ok'
+          : 'billing.gateway_cancel_failed',
+        resource: `tenant:${tenantId}`,
+        metadata: {
+          subscriberCode: t.hotmartSubscriberCode,
+          ...(r.ok ? { status: r.status } : { motivo: r.motivo }),
+        },
+      });
+      if (!r.ok) {
+        this.logger.warn(
+          `Cancelación en Hotmart pendiente para ${t.brandName} (${t.hotmartSubscriberCode}): ${r.motivo}. Hay que cancelarla a mano en el panel de Hotmart.`,
+        );
+      }
+    }
+    return { ok: true, accessUntil, suspendedNow: desconectarYa, canceladaEnPasarela };
   }
 
   /**

@@ -24,6 +24,7 @@ function servicio(tenant: Record<string, unknown> | null) {
   // antes de commitear, no uno de los primeros.
   return new BillingService(
     prisma, {} as any, {} as any, {} as any, {} as any, {} as any,
+    { estaConfigurada: () => false } as any,
   );
 }
 

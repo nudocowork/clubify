@@ -51,6 +51,7 @@ function makeService() {
     {} as any, // brandEmail
     {} as any, // audit
     {} as any, // prereg
+    { estaConfigurada: () => false } as any, // hotmartApi
   );
   return { svc: svc as any, wheres, setVia: (v: string) => (via = v) };
 }

@@ -14,7 +14,10 @@ import { BillingService } from './billing.service';
 
 const AHORA = new Date('2026-09-23T14:08:48.000Z');
 
-function servicio(negocio: Record<string, unknown> | null) {
+function servicio(
+  negocio: Record<string, unknown> | null,
+  hotmartApi?: { estaConfigurada: () => boolean; cancelarSuscripcion: (c: string, o?: unknown) => Promise<unknown> },
+) {
   const escrito: any[] = [];
   const auditado: any[] = [];
   const prisma: any = {
@@ -34,6 +37,7 @@ function servicio(negocio: Record<string, unknown> | null) {
     {} as any,
     audit,
     {} as any,
+    hotmartApi ?? ({ estaConfigurada: () => false } as any),
   );
   vi.setSystemTime(AHORA);
   return { svc, escrito, auditado };
@@ -103,5 +107,62 @@ describe('el dueño cancela y NO le queda nada pagado', () => {
     const { svc, escrito } = servicio({ ...LICORES, currentPeriodEnd: null, trialEndsAt: null });
     await svc.cancelSubscription('t-licores');
     expect(escrito[0].data.status).toBe('SUSPENDED');
+  });
+});
+
+describe('cancelar en el panel TAMBIÉN cancela en Hotmart (Javier, 2026-09-30)', () => {
+  // Sin esto, la suscripción seguía viva allá: Hotmart cobraba el ciclo
+  // siguiente y el webhook re-activaba al negocio como «arrepentido».
+  const hotmartApi = () => {
+    const llamadas: any[] = [];
+    return {
+      llamadas,
+      estaConfigurada: () => true,
+      cancelarSuscripcion: async (code: string, opts?: unknown) => {
+        llamadas.push([code, opts]);
+        return { ok: true, status: 'INACTIVE' };
+      },
+    };
+  };
+
+  it('con código REAL de Hotmart, llama a la API sin el correo de Hotmart', async () => {
+    const api = hotmartApi();
+    const { svc, auditado } = servicio(
+      { ...LICORES, hotmartSubscriberCode: 'UYW0OQ02' },
+      api as any,
+    );
+    const r = await svc.cancelSubscription('t-licores');
+    expect(api.llamadas).toEqual([['UYW0OQ02', { mandarCorreo: false }]]);
+    expect(r.canceladaEnPasarela).toBe(true);
+    expect(auditado.some((a: any) => a.action === 'billing.gateway_cancel_ok')).toBe(true);
+  });
+
+  it('un código sembrado (sim-/wl-/manual-) o de Stripe NO toca la API', async () => {
+    for (const code of ['sim-123', 'wl-abc', 'manual-9', 'sub_stripe1', null]) {
+      const api = hotmartApi();
+      const { svc } = servicio(
+        { ...LICORES, hotmartSubscriberCode: code },
+        api as any,
+      );
+      const r = await svc.cancelSubscription('t-licores');
+      expect(api.llamadas, String(code)).toEqual([]);
+      expect(r.canceladaEnPasarela).toBe(false);
+    }
+  });
+
+  it('si Hotmart falla, la cancelación LOCAL queda igual y se audita el pendiente', async () => {
+    const api = {
+      estaConfigurada: () => true,
+      cancelarSuscripcion: async () => ({ ok: false, motivo: 'HTTP 500' }),
+    };
+    const { svc, escrito, auditado } = servicio(
+      { ...LICORES, hotmartSubscriberCode: 'UYW0OQ02' },
+      api as any,
+    );
+    const r = await svc.cancelSubscription('t-licores');
+    expect(escrito[0].data.canceledAt).toBeInstanceOf(Date);
+    expect(r.ok).toBe(true);
+    expect(r.canceladaEnPasarela).toBe(false);
+    expect(auditado.some((a: any) => a.action === 'billing.gateway_cancel_failed')).toBe(true);
   });
 });

@@ -26,7 +26,7 @@ function servicioQueCaptura() {
       },
     },
   };
-  const svc = new BillingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+  const svc = new BillingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, { estaConfigurada: () => false } as any);
   return { svc: svc as any, consultas };
 }
 
@@ -54,7 +54,7 @@ describe('el teléfono de cobros salta los campos vacíos', () => {
       user: { findFirst: async () => (dueno === undefined ? null : { phone: dueno }) },
       tenant: { findUnique: async () => tenant },
     };
-    return new BillingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+    return new BillingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, { estaConfigurada: () => false } as any) as any;
   }
 
   it('whatsappPhone vacío → usa el phone del negocio (caso Hydor)', async () => {
