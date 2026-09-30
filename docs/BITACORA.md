@@ -8,6 +8,23 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-30 (99) — Menú libro: horizontales sin amputar + demo de efectos de hoja
+
+Commit `d90ae600`. **SIN DESPLEGAR** (`node scripts/desplegar.cjs frontend`);
+la idea es desplegarlo junto con el efecto de hoja que elija Javier.
+
+1. «Solo se pueden subir verticales» — FALSO pero comprensible: la subida y
+   el visor público ya aceptan cualquier proporción (el visor las contiene
+   enteras desde el fix De Godoy del 22-09). Lo roto era la GALERÍA del
+   panel (`menu-book/page.tsx`): celda 3:4 con `object-cover` amputaba las
+   horizontales. Ahora `object-contain`: se ven enteras con bandas.
+2. Demo interactiva con 5 efectos de pasar hoja (Clásica, Revista, Tapa
+   dura, Esquina, Calendario) para que Javier elija cuál(es) implementar en
+   el visor: https://claude.ai/artifact/YEQbCD9URt4igZAHiMrhjn — OJO: el
+   visor real QUITÓ react-pageflip por poco fiable en móvil (comentario en
+   MenuBookViewer.tsx); el efecto elegido se implementará con CSS puro sobre
+   el slider snap actual, no con esa librería.
+
 ## 2026-09-29 (98) — La ficha del cliente también deja editar el teléfono
 
 Commit `ad3ec8e5`. **SIN DESPLEGAR el frontend** (el cambio visible es del
