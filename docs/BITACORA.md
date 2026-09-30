@@ -8,7 +8,7 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
-## 2026-09-30 (97) — El 2FA dejaba a la gente fuera de su cuenta; Panamá y Perú no veían sus pedidos
+## 2026-09-30 (103) — El 2FA dejaba a la gente fuera de su cuenta; Panamá y Perú no veían sus pedidos
 
 **Estado: commiteado (`91ef41e4`). SIN desplegar.** Dos bugs que se sufrían en
 silencio, los dos con la misma forma: una regla pensada para un caso y aplicada
