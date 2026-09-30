@@ -1400,7 +1400,7 @@ original.
 | 3 | Navegadores (Playwright) | ❌ | Hoy solo Chrome. Falta WebKit y Firefox. Ojo: esta máquina va justa de RAM y no compila el frontend, así que esto va en CI o en la otra |
 | 24 | Observabilidad | 🟡 | **Alerta por TASA hecha** el 2026-09-28 y sin desplegar. `VigilanciaDeActividadService`: cada hora compara pedidos, sellos, pases y reservas con la MISMA franja de los 21 días anteriores (mediana, no media). Falta desplegar y ver una semana de avisos |
 | 12 | Roles y permisos | 🔄 | P2-3. Matriz hecha: 898/917 con @Roles; los 19 sin el, revisados y correctos. Ya en el CI. Falta: si cada rol DEBE llegar a lo suyo (AFFILIATE_* tiene 74) |
-| 13 | Autenticación y sesiones | 🔄 | Auditada: **P0-7** (toma de cuenta con solo el telefono), **P0-8** (2FA sin intentos), **P1-10** (MARKETING cruza marcas), **P1-11** (cambiar clave no cierra sesiones). Lo demas, verificado y bien |
+| 13 | Autenticación y sesiones | 🔄 | Auditada: **P0-7** (toma de cuenta con solo el telefono), **P0-8** (2FA sin intentos — CERRADO; y el 2026-09-30 el rebloqueo con un solo fallo tras caducar), **P1-10** (MARKETING cruza marcas), **P1-11** (cambiar clave no cierra sesiones). Lo demas, verificado y bien |
 | 17 | Idempotencia | 🔄 | P1-7. Medido: 18 sitios crean sin nada que corte la carrera, y son los de cobros |
 | 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales. Contados los métodos más charlatanes: `duplicate()` 47 consultas, `metrics.tenant()` 26 y `dashboardMetricsV2()` 22 (los dos últimos ya en `Promise.all`), `orders.createPublic()` 14, `passes.enrollPublic()` 11 |
 | 27 | Disaster recovery | ❌ | Definir RPO y RTO. Hoy no existen |

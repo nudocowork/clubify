@@ -8,6 +8,60 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-30 (97) — El 2FA dejaba a la gente fuera de su cuenta; Panamá y Perú no veían sus pedidos
+
+**Estado: commiteado (`91ef41e4`). SIN desplegar.** Dos bugs que se sufrían en
+silencio, los dos con la misma forma: una regla pensada para un caso y aplicada
+a todos.
+
+### 1. El 2FA rebloqueaba con un solo fallo
+
+`totpFallos` sobrevivía al bloqueo. Quien esperaba sus quince minutos volvía
+con el contador en 5, así que **una** equivocación al teclear daba 6 >= 5 y lo
+rebloqueaba otros quince. A partir del primer bloqueo, cada fallo suelto
+costaba un cuarto de hora — y como no hay ruta de administración para
+desbloquear, el dueño de la cuenta se quedaba fuera dando vueltas.
+
+Ahora, con el bloqueo cumplido, los cinco tiros se devuelven enteros y el
+bloqueo viejo **se limpia** (arrastrarlo haría que el perdón se repitiera para
+siempre y no se volviera a bloquear a nadie).
+
+**La prueba que había esperaba `totpFallos: 6` tras caducar: esa prueba
+codificaba el bug.** Daba por bueno justo el comportamiento que dejaba fuera a
+la gente. Es el segundo caso esta semana (el otro, el doble de
+`cuponera-locations`) de una prueba que pasaba y no protegía.
+
+### 2. Panamá y Perú no veían sus pedidos
+
+La comparación tomaba los últimos **diez** dígitos, que es el largo del móvil
+colombiano. Para un panameño (ocho) esos diez se comían parte del prefijo 507,
+y su número guardado sin prefijo no terminaba en eso nunca; en Perú igual, con
+nueve. **Funcionaba en Colombia por casualidad del largo.** Afectaba al listado
+«Mis pedidos» y al chat del pedido.
+
+Ahora se **busca ancho y se decide fino**: `colaDelTelefono` baja a ocho
+dígitos (el móvil más corto de la región) para traer candidatos, y
+`mismoTelefono` compara la cola COMÚN — hasta diez cuando ambos son largos, sin
+perder nada, y los que haya cuando uno es más corto.
+
+Bajar la búsqueda a ocho **abría una fuga**: el vecino cuyo número comparte los
+últimos ocho dígitos entraba en el LIKE. Lo descarta el filtro fino en memoria,
+con caso propio que lo fija — sin él, la mutación de quitar el filtro pasaba en
+verde.
+
+### Nota para quien toque domicilios
+
+Los dobles de Prisma de `mis-pedidos-telefono.spec.ts` y
+`domicilio-en-oficina.spec.ts` imitaban el `SELECT id` viejo. El real es ahora
+`SELECT id, phone`, porque el filtro fino necesita el teléfono guardado.
+
+### Lo que sigue pendiente de desplegar (acumulado)
+
+El vigilante de respaldos, la vigilancia por tasa, `/health/red`, el 429 en
+español ya está EN producción, y esto. Nada urgente: ninguno corrige algo que
+esté roto ahora mismo en producción, pero el vigilante de respaldos no vigila
+hasta que se despliegue.
+
 ## 2026-09-30 (102) — El libro pasa a StPageFlip: nítido, fluido y con esquina de verdad
 
 El motor casero de la entrada 100 duró horas: Javier pidió el nivel del
