@@ -4,6 +4,7 @@ declare module 'page-flip' {
   export class PageFlip {
     constructor(el: HTMLElement, settings: Record<string, unknown>);
     loadFromImages(urls: string[]): void;
+    loadFromHTML(hojas: NodeListOf<Element> | HTMLElement[]): void;
     flipNext(): void;
     flipPrev(): void;
     flip(n: number): void;

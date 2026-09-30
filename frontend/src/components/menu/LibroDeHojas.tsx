@@ -31,7 +31,7 @@ import { srcSetDelLibro, urlOptimizada } from '@/lib/menu/imagen-del-libro.mjs';
 type Popup = Record<string, unknown>;
 type Pagina = { id: string; imageUrl: string; popup: Popup | null };
 type PageFlipInstancia = {
-  loadFromImages: (urls: string[]) => void;
+  loadFromHTML: (hojas: NodeListOf<Element> | HTMLElement[]) => void;
   flipNext: () => void;
   flipPrev: () => void;
   flip: (n: number) => void;
@@ -41,9 +41,7 @@ type PageFlipInstancia = {
   destroy: () => void;
 };
 
-/** Ancho que se le pide al optimizador para las páginas del libro. */
-const ANCHO_LIBRO = 1080;
-/** Y para la lupa: alta, que el zoom no se pixele. */
+/** Ancho para la lupa: alta, que el zoom no se pixele. */
 const ANCHO_LUPA = 2400;
 
 export function LibroDeHojas({
@@ -70,6 +68,12 @@ export function LibroDeHojas({
   const [lupa, setLupa] = useState(false);
   const pageIdxRef = useRef(pageIdx);
   pageIdxRef.current = pageIdx;
+  /** Último pageIdx que CONTÓ el propio libro (su `on('flip')`). */
+  const notificadoRef = useRef(-1);
+  /** Estado del gesto: user_fold | fold_corner | flipping | read. */
+  const estadoLibroRef = useRef('read');
+  /** Las `<img>` de las hojas, para adelantar su carga por cercanía. */
+  const hojasImgRef = useRef<HTMLImageElement[]>([]);
   const reducido = useMemo(
     () =>
       typeof window !== 'undefined' &&
@@ -110,7 +114,8 @@ export function LibroDeHojas({
       }
     };
     img.onerror = () => viva && setRatio(4 / 3);
-    img.src = urlOptimizada(pages[0].imageUrl, ANCHO_LIBRO);
+    // 640 basta: solo se mide la proporción, la hoja pide después la suya.
+    img.src = urlOptimizada(pages[0].imageUrl, 640);
     return () => {
       viva = false;
     };
@@ -135,13 +140,52 @@ export function LibroDeHojas({
       const w = Math.max(180, Math.floor(porPagina));
       const h = Math.floor(w * ratio);
 
-      instancia = new PageFlip(librePorRef.current, {
+      // HOJAS HTML y no `loadFromImages`: el modo imágenes pinta el libro
+      // en un <canvas> al tamaño CSS SIN devicePixelRatio — en cualquier
+      // pantalla retina la carta salía borrosa («no se logra leer»,
+      // 2026-09-30). Con hojas HTML el navegador pinta cada <img> nítido y
+      // elige él la resolución que necesita vía srcset/sizes.
+      const cont = librePorRef.current;
+      cont.innerHTML = ''; // restos de un remonte anterior
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      hojasImgRef.current = pages.map((p, i) => {
+        const hoja = document.createElement('div');
+        // La portada gira RÍGIDA, como la tapa de un libro de verdad.
+        hoja.dataset.density = i === 0 ? 'hard' : 'soft';
+        hoja.style.background = '#fff';
+        hoja.style.overflow = 'hidden';
+        const img = document.createElement('img');
+        img.src = urlOptimizada(p.imageUrl, w * dpr);
+        const srcset = srcSetDelLibro(p.imageUrl);
+        if (srcset) {
+          img.srcset = srcset;
+          img.sizes = `${w}px`; // el navegador multiplica por su DPR
+        }
+        // Lejos del lector: perezosa. Dentro del libro una hoja oculta
+        // está display:none y un lazy ahí no dispara — la carga la
+        // adelanta el efecto de cercanía según avanza.
+        img.loading = Math.abs(i - pageIdxRef.current) <= 3 ? 'eager' : 'lazy';
+        img.decoding = 'async';
+        img.alt = `Página ${i + 1}`;
+        img.draggable = false;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain'; // una carta no se recorta jamás
+        img.style.pointerEvents = 'none'; // el gesto es del libro, no del <img>
+        hoja.appendChild(img);
+        cont.appendChild(hoja);
+        return img;
+      });
+
+      notificadoRef.current = -1;
+      estadoLibroRef.current = 'read';
+      instancia = new PageFlip(cont, {
         width: w,
         height: h,
         size: 'fixed',
         showCover: true, // la portada va sola y centrada
         usePortrait: esPortrait,
-        flippingTime: reducido ? 80 : 700,
+        flippingTime: reducido ? 80 : 600,
         maxShadowOpacity: 0.5,
         drawShadow: true,
         mobileScrollSupport: false,
@@ -149,11 +193,24 @@ export function LibroDeHojas({
         showPageCorners: true,
         useMouseEvents: true,
       }) as unknown as PageFlipInstancia;
-      instancia.loadFromImages(
-        pages.map((p) => urlOptimizada(p.imageUrl, ANCHO_LIBRO)),
-      );
+      instancia.loadFromHTML(cont.querySelectorAll('[data-density]'));
       instancia.on('flip', (e) => {
-        onPageIdx(Number(e.data));
+        const n = Number(e.data);
+        notificadoRef.current = n;
+        onPageIdx(n);
+      });
+      instancia.on('changeState', (e) => {
+        const estado = String(e.data);
+        estadoLibroRef.current = estado;
+        if (estado !== 'read' || !instancia) return;
+        // Terminó el gesto o la animación: el libro es la verdad. Si la
+        // hoja se soltó a medias y volvió, que el visor refleje dónde
+        // quedó de verdad (y no al revés).
+        const actual = instancia.getCurrentPageIndex();
+        if (actual !== pageIdxRef.current && actual + 1 !== pageIdxRef.current) {
+          notificadoRef.current = actual;
+          onPageIdx(actual);
+        }
       });
       flipRef.current = instancia;
       // Volver a donde estaba (remonte por resize) o al deep-link inicial.
@@ -165,24 +222,50 @@ export function LibroDeHojas({
       vivo = false;
       setListo(false);
       flipRef.current = null;
+      hojasImgRef.current = [];
       try {
         instancia?.destroy();
       } catch {
         /* StPageFlip destroy con el nodo ya desmontado: sin drama */
       }
+      // Las hojas las creamos nosotros a mano: React no las conoce y no
+      // las va a limpiar en el remonte.
+      if (librePorRef.current) librePorRef.current.innerHTML = '';
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages, ratio, medidas.ancho, medidas.alto, reducido]);
 
-  // ── El visor manda (chips de sección, deep-links, flechas) ──────
+  // ── El visor manda (chips de sección, deep-links) — sin pisar el gesto ──
+  // EL BUG DEL ESTRENO VIVÍA AQUÍ (2026-09-30): al soltar una hoja,
+  // `on('flip')` avisa la página nueva ANTES de que la animación termine;
+  // este efecto veía `getCurrentPageIndex()` todavía en la vieja y
+  // «corregía» con flip() en pleno vuelo — la hoja se cortaba a la mitad o
+  // se devolvía. Regla: un pageIdx que nos contó el propio libro jamás
+  // vuelve como orden, y con una hoja en vuelo no se toca el libro (al
+  // llegar a 'read' él mismo realinea al visor).
   useEffect(() => {
     const flip = flipRef.current;
     if (!flip || !listo) return;
+    if (pageIdx === notificadoRef.current) return; // eco del propio libro
+    if (estadoLibroRef.current !== 'read') return; // hoja en vuelo
     const actual = flip.getCurrentPageIndex();
-    if (actual === pageIdx) return;
+    // En doble página el índice del libro es el IZQUIERDO del pliego:
+    // pageIdx puede ser la hoja derecha y ya estar a la vista.
+    if (actual === pageIdx || actual + 1 === pageIdx) return;
     if (Math.abs(actual - pageIdx) <= 2) flip.flip(pageIdx);
     else flip.turnToPage(pageIdx); // salto largo: directo, sin hojear todo
   }, [pageIdx, listo]);
+
+  // ── Adelantar la carga de las hojas cercanas al lector ──────────
+  useEffect(() => {
+    if (!listo) return;
+    const desde = Math.max(0, pageIdx - 2);
+    const hasta = Math.min(pages.length - 1, pageIdx + 3);
+    for (let i = desde; i <= hasta; i++) {
+      const img = hojasImgRef.current[i];
+      if (img && img.loading === 'lazy') img.loading = 'eager';
+    }
+  }, [pageIdx, pages.length, listo]);
 
   const pasaHoja = useCallback((delta: 1 | -1) => {
     if (delta > 0) flipRef.current?.flipNext();
