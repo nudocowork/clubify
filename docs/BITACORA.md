@@ -8,6 +8,37 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-30 (100) — El menú libro HOJEA como un libro: efecto de hoja en producción
+
+Commits `96ed9328` → `a81a6f70` (5, con dos lecciones de rendimiento).
+**DESPLEGADO Y VERIFICADO contra el dominio** (`dpl_DxzKdvCF…`); batería
+funcional contra Degodoy (105 págs): pase adelante/atrás y salto de sección
+con deep-link, todo en verde. Samu avisado por su grupo de tareas.
+
+Qué es: el estilo del flipbook de referencia (La Gloriosa/Heyzine) que
+eligió Javier — portada sola y centrada, interior a DOBLE PÁGINA con la
+página siguiente en el dorso, pase que SIGUE EL DEDO (suelta y decide por
+posición+impulso), una página en el teléfono, y el libro toma la PROPORCIÓN
+de las imágenes (horizontales ⇒ libro apaisado). `?efecto=deslizar` = red
+para volver al slider por negocio; modo VERTICAL sigue en slider; el zoom
+por gesto quedó solo en deslizar (V1).
+
+Dónde vive: `lib/menu/hoja-del-libro.mjs` (matemática pura, 13 casos en
+`scripts/pruebas-libro-hoja.mjs`) + `components/menu/LibroDeHojas.tsx`;
+`MenuBookViewer` conserva TODO su armazón (chips/popups/URL/fullscreen) y
+delega el paso (flechas por hoja vía `registrarPaso`).
+
+Las DOS lecciones (para no repetirlas):
+1. **Plano en reposo, 3D solo en vuelo.** Montar las hojas visibles como
+   pilas 3D permanentes (preserve-3d anidado + perspective fija) ahoga el
+   compositor con cartas grandes. En reposo son imágenes planas; la pila 3D
+   y la perspectiva existen solo mientras UNA hoja gira.
+2. **La pestaña oculta rompe todo lo que dependa de rAF.** El navegador
+   pausa requestAnimationFrame: el vuelo quedaba a medio girar y bloqueaba
+   el libro. Arranque por useLayoutEffect, red por temporizador (sí corre
+   en background), refs siempre-actuales en `termina`, y con la pestaña
+   oculta el pase salta directo sin animar.
+
 ## 2026-09-30 (99) — Menú libro: horizontales sin amputar + demo de efectos de hoja
 
 Commit `d90ae600`. **SIN DESPLEGAR** (`node scripts/desplegar.cjs frontend`);
