@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-30 (102) — El libro pasa a StPageFlip: nítido, fluido y con esquina de verdad
+
+El motor casero de la entrada 100 duró horas: Javier pidió el nivel del
+flipbook de Heyzine (la hoja que se AGARRA de la esquina) para TODOS los
+menú libros. Se integró **StPageFlip** (`page-flip@2.0.7`, vanilla — NO el
+wrapper react-pageflip que se quitó en junio por apilar páginas) y el motor
+casero se borró (`lib/menu/hoja-del-libro.mjs` + sus pruebas).
+
+Commits `a3db41c1` → `1a3f6744` (4). **DESPLEGADO Y VERIFICADO**: el alias
+`app.soyclubify.com` apunta al deployment nuevo (`vercel inspect` del
+dominio, no solo «Ready») y la prueba de humo del script en verde.
+
+Cómo está montado (`components/menu/LibroDeHojas.tsx`): tamaño a mano
+(`size:'fixed'`, nunca stretch), remonte completo al cambiar medidas
+(ResizeObserver con debounce 200 ms **y medida inicial síncrona** — en
+pestaña oculta el RO puede no disparar jamás), portada sola (`showCover`)
+y RÍGIDA (`data-density:'hard'`), una página bajo 720 px. `MenuBookViewer`
+conserva su armazón; `?efecto=deslizar` sigue siendo la red.
+
+Los TRES golpes del estreno en vivo (reportes de Javier, mismo día):
+
+1. **«Se ve borroso, no se logra leer»** — `loadFromImages` pinta el libro
+   en un `<canvas>` al tamaño CSS SIN devicePixelRatio: borroso en toda
+   retina, pidas la resolución que pidas. La salida es el modo HTML
+   (`loadFromHTML`) con `<img srcset/sizes>`: pinta el navegador, nítido.
+   De regalo: carga perezosa por cercanía (la carta de 105 páginas ya no
+   baja entera al abrir).
+
+2. **«La paso completa y se regresa / a la mitad no pasa»** — al soltar
+   una hoja `on('flip')` avisa la página nueva ANTES de acabar la
+   animación; nuestro efecto de sincronía veía `getCurrentPageIndex()`
+   aún en la vieja y «corregía» con `flip()` en pleno vuelo. Reglas: un
+   pageIdx contado por el libro jamás vuelve como orden; con la hoja en
+   vuelo (estado ≠ `'read'`) no se toca el libro; al llegar a `'read'` el
+   libro realinea al visor. Y en doble página el índice del libro es el
+   IZQUIERDO del pliego: la hoja derecha «ya está a la vista».
+
+3. **«Sigue baja la calidad»** — con `sizes` al tamaño de pintado, un
+   monitor DPR 1 pedía el escalón de 640 para una hoja de ~550 px, y una
+   carta es TEXTO. Se pide el DOBLE a propósito (`sizes = 2×`), techo
+   1920 del srcset; las hojas lejanas siguen perezosas.
+
 ## 2026-09-30 (101) — La API de Hotmart: cancelar acá cancela ALLÁ, y el upgrade desconecta el plan viejo
 
 Commit pendiente de deploy al escribir esto (el bloque se cierra con la
