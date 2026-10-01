@@ -1049,6 +1049,35 @@ toma del servidor: es para planificar, no para esta noche.
   escapado. No los toqué (regla de no revertir lo ajeno). Si son tuyos,
   bórralos tú.
 
+## 2026-10-01 (88) — MercadoPago: pestaña «Integraciones» y checkout por cuponera
+
+**Estado: commiteado y empujado. SIN desplegar. Sin migración.**
+
+Pedido: suscripciones de cuponera por MercadoPago («si pagan continúa, si no
+pagan se quita el beneficio») + un apartado de integraciones con pasarelas.
+
+**Casi todo YA EXISTÍA** (cuarta vez que pasa — antes de construir, mirar):
+`mercadopago.service.ts` crea el preapproval («suscripción sin plan asociado,
+con pago pendiente», verificado contra la doc oficial de MP con el navegador),
+el webhook `/api/webhooks/mercadopago/:slug` activa/renueva/da de baja con
+idempotencia y firma, y `assertMembershipUsable` es el candado: membresía
+vencida (3 días de gracia, por los reintentos de cobro de MP) → el escáner
+rechaza y la fila pasa a EXPIRED; si después paga, `renew` la revive. Las
+credenciales por cuponera (cifradas) ya estaban en el panel.
+
+Lo nuevo de hoy:
+- **Pestaña «Integraciones»** en `/cuponera/admin` (el bloque de cobro sale de
+  Configuración, con texto que explica que MP es la pasarela nativa).
+- **`POST /cuponera/public/subscribe` acepta `campaignSlug`**: antes
+  `createSubscription` estaba clavado a Living Card y una cuponera nueva no
+  podía vender por MP aunque tuviera credenciales. Solo vende si está ACTIVE
+  (misma regla que join-free). Sin slug = Living Card, como siempre.
+
+Pendiente consciente: el marketplace público (`/cuponera/unirse`, cartelera)
+sigue siendo solo de Living Card; parametrizarlo por cuponera es un bloque
+aparte. Para desarrollar con MP conviene instalar el plugin oficial
+(`claude.com/es/marketplace/plugins/mercadopago`: 13 skills + MCP).
+
 ## 2026-09-30 (87) — Cuponeras: orden estable de los 10 puntos del pase y panel que carga por pestañas
 
 **Estado: DESPLEGADO el 2026-09-30 (verificado: `/api/health` devuelve `commit 19fdec8`

@@ -107,8 +107,26 @@ export class MercadoPagoService {
     fullName: string;
     phone: string;
     email: string;
+    /** Cuponera que vende. Sin slug cae en Living Card: es el comportamiento
+     *  histórico de /cuponera/unirse y no se puede romper. */
+    campaignSlug?: string;
   }) {
-    const campaign = await this.cuponera.ensureLivingCampaign();
+    let campaign: BenefitCampaign;
+    if (input.campaignSlug) {
+      const c = await this.prisma.benefitCampaign.findUnique({
+        where: { slug: input.campaignSlug },
+      });
+      if (!c) throw new NotFoundException('Cuponera no encontrada');
+      // Misma regla que join-free: una cuponera sin publicar no capta miembros.
+      // Cobrarle a alguien una membresía que el escáner va a rechazar es peor
+      // que no venderle.
+      if (c.status !== 'ACTIVE') {
+        throw new BadRequestException('Esta cuponera todavía no está publicada.');
+      }
+      campaign = c;
+    } else {
+      campaign = await this.cuponera.ensureLivingCampaign();
+    }
     const mp = await this.getMpConfig(campaign);
     if (!mp) throw new BadRequestException('MercadoPago no está configurado todavía.');
 

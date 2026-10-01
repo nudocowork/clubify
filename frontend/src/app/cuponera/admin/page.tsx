@@ -139,7 +139,7 @@ type PanelBenefit = {
   ally: { id: string; name: string } | null;
 };
 
-const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Comunidad', 'Redenciones', 'Tarjeta', 'Configuración'] as const;
+const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Comunidad', 'Redenciones', 'Tarjeta', 'Integraciones', 'Configuración'] as const;
 type Tab = (typeof TABS)[number];
 
 // ── Carga por pestañas ────────────────────────────────────────────────────────
@@ -156,6 +156,8 @@ const RECURSOS_POR_TAB: Record<Tab, Recurso[]> = {
   Comunidad: ['plans', 'allies', 'cats'],
   Redenciones: ['reds'],
   Tarjeta: [],
+  // BloqueCobro trae lo suyo (gateways + MercadoPago) con sus propias llamadas.
+  Integraciones: [],
   Configuración: ['cats', 'plans'],
 };
 
@@ -796,8 +798,6 @@ function TabConfig({
 
       {cfg && <PaginaOficialHtml cfg={cfg} busy={busy} guardar={guardarCfg} campo="officialPageHtml" />}
       {cfg && <PaginaOficialHtml cfg={cfg} busy={busy} guardar={guardarCfg} campo="directoryPageHtml" />}
-
-      <BloqueCobro qs={qs} flash={flash} />
     </>
   );
 }
@@ -1260,10 +1260,13 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
 
   return (
     <div style={card}>
-      <div style={{ fontWeight: 800, fontSize: 15 }}>Cobro</div>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>Integraciones con pasarelas</div>
       <div style={{ fontSize: 12.5, color: '#64748b', margin: '2px 0 14px' }}>
-        Sin esto, los planes pagos no se pueden vender: el pago llegaría y el
-        sistema no sabría a quién agregar como beneficiario.
+        Por dónde cobra esta cuponera. <b>MercadoPago</b> es la pasarela nativa:
+        con sus credenciales, quien compra un plan queda suscrito y se le cobra
+        solo cada período — si el cobro no llega, la tarjeta deja de canjear hasta
+        que pague. Hotmart y Stripe funcionan mapeando cada plan a su producto.
+        Sin ninguna configurada, los planes pagos no se pueden vender.
       </div>
 
       {gw && (
@@ -1724,6 +1727,8 @@ export default function CuponeraAdminPage() {
       )}
 
       {tab === 'Tarjeta' && <TabTarjeta qs={qs} flash={flash} />}
+
+      {tab === 'Integraciones' && <BloqueCobro qs={qs} flash={flash} />}
 
       {tab === 'Configuración' && (
         <TabConfig qs={qs} cats={cats} plans={plans} flash={flash} onCambio={recargarConfig} />

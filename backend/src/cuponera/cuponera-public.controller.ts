@@ -17,6 +17,8 @@ class JoinFreeBody {
 
 class SubscribeBody {
   @IsString() @MaxLength(80) planId!: string;
+  /** Cuponera que vende (su slug). Vacío = Living Card, el comportamiento de siempre. */
+  @IsOptional() @IsString() @MaxLength(80) campaignSlug?: string;
   @IsString() @MaxLength(120) fullName!: string;
   @IsString() @MaxLength(30) phone!: string;
   @IsOptional() @IsString() @MaxLength(160) email?: string;
@@ -57,6 +59,7 @@ export class CuponeraPublicController {
       fullName: body.fullName,
       phone: body.phone,
       email: body.email ?? '',
+      campaignSlug: body.campaignSlug,
     });
   }
 
