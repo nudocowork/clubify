@@ -7,6 +7,7 @@ import { CuponeraPanelController } from './cuponera-panel.controller';
 import { MercadoPagoService } from './mercadopago.service';
 import { MembershipBillingService } from './membership-billing.service';
 import { MercadoPagoController } from './mercadopago.controller';
+import { MercadoPagoOauthController } from './mercadopago-oauth.controller';
 import { CardsModule } from '../cards/cards.module';
 import { PassesModule } from '../passes/passes.module';
 import { LocationsModule } from '../locations/locations.module';
@@ -27,6 +28,7 @@ import { WalletModule } from '../wallet/wallet.module';
     AllyPortalController,
     CuponeraPanelController,
     MercadoPagoController,
+    MercadoPagoOauthController,
   ],
   // MembershipBillingService lo consume BillingModule (webhooks de Hotmart y
   // Stripe). La ida y vuelta Billing↔Cuponera se resuelve con forwardRef allá.

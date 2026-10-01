@@ -1049,6 +1049,41 @@ toma del servidor: es para planificar, no para esta noche.
   escapado. No los toqué (regla de no revertir lo ajeno). Si son tuyos,
   bórralos tú.
 
+## 2026-10-01 (89) — «Conectar con MercadoPago»: OAuth en vez de pegar tokens
+
+**Estado: commiteado y empujado. SIN desplegar. Sin migración.
+⚠️ El botón queda APAGADO hasta registrar la aplicación de MP (abajo).**
+
+Jhon preguntó lo obvio: ¿cómo consigue un cliente cualquiera el Access Token?
+No lo consigue. Ahora hay botón «Conectar con MercadoPago» (OAuth Authorization
+code, verificado contra la doc oficial): inicia sesión en MP, autoriza, y las
+credenciales llegan y se renuevan solas. Sin producto que mapear (la suscripción
+se crea con el precio del plan). El camino manual queda como «avanzado».
+
+- `mp-oauth-state.ts` (+ spec): `state` firmado con HMAC — el callback es
+  público y el state es lo único que ata las credenciales a UNA cuponera.
+- `GET /cuponera/panel/mercadopago/oauth-url` · callback público
+  `GET /api/cuponera/mp/oauth/callback` (redirige SIEMPRE al panel con `?mp=…`)
+  · `DELETE /cuponera/panel/mercadopago` desconecta.
+- Tokens cifrados en `config.mp` (igual que antes: checkout y webhook no
+  cambian). Renovación sola a <30 días del vencimiento (duran 180), con candado
+  blando `refreshingAt` porque el refresh token es de UN uso.
+- Webhook: MP admite UNA URL por aplicación → los avisos de las cuponeras
+  conectadas llegan a `/api/webhooks/mercadopago/oauth` y se enrutan por el
+  `user_id` del vendedor guardado al conectar (filtro JSON path en Prisma).
+
+### Para ENCENDER el botón (una sola vez, manos de Javier/Jhon)
+1. mercadopago.com.co/developers → Tus integraciones → Crear aplicación
+   (pagos online; PKCE **apagado** — el código no manda code_challenge).
+2. En la app: URL de redireccionamiento `https://api.soyclubify.com/api/cuponera/mp/oauth/callback`
+   y URL de webhooks `https://api.soyclubify.com/api/webhooks/mercadopago/oauth`
+   (temas de suscripciones/preapproval) con su clave de firma.
+3. Railway (backend): `MERCADOPAGO_OAUTH_CLIENT_ID`, `MERCADOPAGO_OAUTH_CLIENT_SECRET`
+   y `MERCADOPAGO_WEBHOOK_SECRET` (la clave de firma del paso 2).
+
+Sin esas variables todo sigue como hoy (manual). Living Card puede migrar al
+botón cuando exista la app; mientras, sus credenciales pegadas siguen valiendo.
+
 ## 2026-10-01 (88) — MercadoPago: pestaña «Integraciones» y checkout por cuponera
 
 **Estado: commiteado y empujado. SIN desplegar. Sin migración.**

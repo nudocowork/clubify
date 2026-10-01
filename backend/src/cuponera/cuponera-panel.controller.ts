@@ -585,6 +585,20 @@ export class CuponeraPanelController {
     return this.mp.status(campaign);
   }
 
+  /** URL del botón «Conectar con MercadoPago» (OAuth) de ESTA cuponera. */
+  @Get('mercadopago/oauth-url')
+  async mpOauthUrl(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    const campaign = await this.svc.resolveAdminCampaign(user, campaignId);
+    return this.mp.oauthUrl(campaign);
+  }
+
+  /** Desconecta MercadoPago (borra tokens y credenciales de la cuponera). */
+  @Delete('mercadopago')
+  async mpDisconnect(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    const campaign = await this.svc.resolveAdminCampaign(user, campaignId);
+    return this.mp.clearConfig(campaign);
+  }
+
   @Patch('mercadopago')
   async setMercadopago(
     @CurrentUser() user: AuthUser,

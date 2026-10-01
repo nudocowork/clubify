@@ -10,6 +10,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CuponeraService } from './cuponera.service';
 import { MembershipBillingService } from './membership-billing.service';
 import { decryptSecret, encryptSecret } from '../common/crypto/secret-box';
+import { firmarEstadoOauth, verificarEstadoOauth } from './mp-oauth-state';
 
 const MP_API = 'https://api.mercadopago.com';
 
@@ -39,6 +40,7 @@ export class MercadoPagoService {
   }
 
   private async getMpConfig(campaign: BenefitCampaign): Promise<MpCfg | null> {
+    campaign = await this.refreshOauthIfNeeded(campaign);
     const mp = ((campaign.config as any)?.mp || {}) as Record<string, string | null>;
     let accessToken = '';
     if (mp.accessToken) {
@@ -90,12 +92,202 @@ export class MercadoPagoService {
   /** Estado de MP. `target` viene del panel, ya resuelto por permisos; sin él,
    *  la primera cuponera (el comportamiento del Master Admin de siempre). */
   async status(target?: BenefitCampaign) {
-    const campaign = target ?? (await this.cuponera.ensureLivingCampaign());
+    let campaign = target ?? (await this.cuponera.ensureLivingCampaign());
+    campaign = await this.refreshOauthIfNeeded(campaign);
     const mp = await this.getMpConfig(campaign);
+    const raw = ((campaign.config as any)?.mp || {}) as Record<string, any>;
     return {
       configured: !!mp,
       webhookUrl: `${(process.env.API_PUBLIC_URL || 'https://api.soyclubify.com').replace(/\/+$/, '')}/api/webhooks/mercadopago/${campaign.slug}`,
+      // Cómo quedó conectada: por el botón (OAuth) o pegando credenciales.
+      via: raw.via === 'oauth' ? 'oauth' : mp ? 'manual' : null,
+      userId: raw.via === 'oauth' ? (raw.userId ?? null) : null,
+      expiresAt: raw.via === 'oauth' ? (raw.expiresAt ?? null) : null,
+      // Si la plataforma tiene su aplicación de MP, el panel ofrece el botón.
+      oauthAvailable: !!this.oauthEnv(),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // OAuth: «Conectar con MercadoPago» (flujo Authorization code).
+  //
+  // Pedirle a un comerciante que pegue un Access Token era pedirle demasiado:
+  // con esto inicia sesión en MP, autoriza, y las credenciales llegan solas.
+  // Requiere la APLICACIÓN de MP de la plataforma (una sola, se crea una vez):
+  // MERCADOPAGO_OAUTH_CLIENT_ID + MERCADOPAGO_OAUTH_CLIENT_SECRET en el env.
+  // Sin ellas, el panel sigue ofreciendo el camino manual. PKCE de la app:
+  // apagado — si se enciende allá, acá falta mandar code_challenge/verifier.
+  // ---------------------------------------------------------------------------
+
+  private oauthEnv() {
+    const clientId = process.env.MERCADOPAGO_OAUTH_CLIENT_ID || '';
+    const clientSecret = process.env.MERCADOPAGO_OAUTH_CLIENT_SECRET || '';
+    if (!clientId || !clientSecret) return null;
+    const api = (process.env.API_PUBLIC_URL || 'https://api.soyclubify.com').replace(/\/+$/, '');
+    return {
+      clientId,
+      clientSecret,
+      // Tiene que coincidir EXACTO con «URLs de redireccionamiento» de la app.
+      redirectUri:
+        process.env.MERCADOPAGO_OAUTH_REDIRECT_URI ||
+        `${api}/api/cuponera/mp/oauth/callback`,
+    };
+  }
+
+  private panelUrl(): string {
+    return `${(process.env.APP_URL || 'https://app.soyclubify.com').replace(/\/+$/, '')}/cuponera/admin`;
+  }
+
+  /** URL del botón «Conectar con MercadoPago» para UNA cuponera. */
+  oauthUrl(campaign: BenefitCampaign) {
+    const env = this.oauthEnv();
+    if (!env) {
+      throw new BadRequestException(
+        'La conexión con un clic no está configurada en la plataforma todavía.',
+      );
+    }
+    const q = new URLSearchParams({
+      client_id: env.clientId,
+      response_type: 'code',
+      platform_id: 'mp',
+      state: firmarEstadoOauth(env.clientSecret, campaign.id),
+      redirect_uri: env.redirectUri,
+    });
+    return { url: `https://auth.mercadopago.com/authorization?${q.toString()}` };
+  }
+
+  /**
+   * Callback del OAuth. Devuelve la URL del panel a la que redirigir, siempre:
+   * el navegador del vendedor está esperando una página, no un JSON. El `state`
+   * firmado es lo único que ata este callback público a una cuponera.
+   */
+  async handleOauthCallback(query: Record<string, any>): Promise<string> {
+    const env = this.oauthEnv();
+    if (!env) return `${this.panelUrl()}?mp=sin_configurar`;
+
+    const campaignId = verificarEstadoOauth(env.clientSecret, String(query.state ?? ''));
+    if (!campaignId) return `${this.panelUrl()}?mp=estado_invalido`;
+    const campaign = await this.prisma.benefitCampaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) return `${this.panelUrl()}?mp=estado_invalido`;
+    const volver = `${this.panelUrl()}?campaignId=${encodeURIComponent(campaign.id)}`;
+
+    const code = String(query.code ?? '');
+    if (!code || query.error) return `${volver}&mp=rechazado`;
+
+    const res = await fetch(`${MP_API}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: env.clientId,
+        client_secret: env.clientSecret,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: env.redirectUri,
+      }),
+    });
+    const j: any = await res.json().catch(() => ({}));
+    if (!res.ok || !j.access_token) {
+      this.logger.warn(`MP OAuth: canje de código falló (${res.status}): ${JSON.stringify(j)}`);
+      return `${volver}&mp=error_token`;
+    }
+    await this.saveOauthTokens(campaign.id, j);
+    this.logger.log(
+      `MP OAuth: cuponera "${campaign.slug}" conectada a la cuenta MP ${j.user_id ?? '?'}`,
+    );
+    return `${volver}&mp=conectado`;
+  }
+
+  /** Guarda (cifrados) los tokens que entrega /oauth/token. */
+  private async saveOauthTokens(campaignId: string, j: any) {
+    const campaign = await this.prisma.benefitCampaign.findUnique({
+      where: { id: campaignId },
+    });
+    if (!campaign) return;
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    const prev = (cfg.mp || {}) as Record<string, any>;
+    cfg.mp = {
+      ...prev,
+      accessToken: encryptSecret(String(j.access_token)),
+      // Cada renovación entrega un refresh token NUEVO y el anterior muere:
+      // se guarda en el acto o la próxima renovación no tiene con qué.
+      refreshToken: j.refresh_token ? encryptSecret(String(j.refresh_token)) : null,
+      publicKey: j.public_key ?? prev.publicKey ?? null,
+      userId: j.user_id != null ? String(j.user_id) : (prev.userId ?? null),
+      via: 'oauth',
+      expiresAt: j.expires_in
+        ? new Date(Date.now() + Number(j.expires_in) * 1000).toISOString()
+        : null,
+      connectedAt: prev.connectedAt ?? new Date().toISOString(),
+      refreshingAt: null,
+    };
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaignId },
+      data: { config: cfg as any },
+    });
+  }
+
+  /**
+   * Renueva el token si vence en menos de 30 días. El token de MP dura 180:
+   * como el panel y los webhooks pasan por acá, cualquier actividad en medio
+   * año lo renueva solo. `refreshingAt` es el candado blando: el refresh token
+   * es de UN uso, y dos renovaciones a la vez queman el repuesto.
+   */
+  private async refreshOauthIfNeeded(campaign: BenefitCampaign): Promise<BenefitCampaign> {
+    const env = this.oauthEnv();
+    const mp = ((campaign.config as any)?.mp || {}) as Record<string, any>;
+    if (!env || mp.via !== 'oauth' || !mp.refreshToken || !mp.expiresAt) return campaign;
+    const quedanMs = new Date(mp.expiresAt).getTime() - Date.now();
+    if (!Number.isFinite(quedanMs) || quedanMs > 30 * 24 * 60 * 60 * 1000) return campaign;
+    if (mp.refreshingAt && Date.now() - new Date(mp.refreshingAt).getTime() < 60 * 60 * 1000) {
+      return campaign;
+    }
+
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    cfg.mp = { ...mp, refreshingAt: new Date().toISOString() };
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: { config: cfg as any },
+    });
+
+    try {
+      const res = await fetch(`${MP_API}/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: env.clientId,
+          client_secret: env.clientSecret,
+          grant_type: 'refresh_token',
+          refresh_token: decryptSecret(mp.refreshToken),
+        }),
+      });
+      const j: any = await res.json().catch(() => ({}));
+      if (res.ok && j.access_token) {
+        await this.saveOauthTokens(campaign.id, j);
+        this.logger.log(`MP OAuth: token de "${campaign.slug}" renovado por 180 días más.`);
+      } else {
+        this.logger.warn(
+          `MP OAuth: renovación falló para "${campaign.slug}" (${res.status}): ${JSON.stringify(j)}. ` +
+            `Si el refresh token murió, hay que volver a conectar desde el panel.`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(`MP OAuth: renovación con error de red: ${e?.message ?? e}`);
+    }
+    return (
+      (await this.prisma.benefitCampaign.findUnique({ where: { id: campaign.id } })) ?? campaign
+    );
+  }
+
+  /** Desconecta MercadoPago de la cuponera (borra tokens y credenciales). */
+  async clearConfig(target?: BenefitCampaign) {
+    const campaign = target ?? (await this.cuponera.ensureLivingCampaign());
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    cfg.mp = {};
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: { config: cfg as any },
+    });
+    return { ok: true };
   }
 
   /**
@@ -233,18 +425,29 @@ export class MercadoPagoService {
     headers: Record<string, any>,
     query: Record<string, any>,
   ) {
-    const campaign =
-      (await this.prisma.benefitCampaign.findUnique({ where: { slug } })) ??
-      (await this.cuponera.ensureLivingCampaign());
-    const mp = await this.getMpConfig(campaign);
-    if (!mp) return { ok: true, action: 'not_configured' };
-
     let body: any = {};
     try {
       body = rawBody && rawBody.length ? JSON.parse(rawBody.toString('utf8')) : {};
     } catch {
       body = {};
     }
+
+    let campaign = await this.prisma.benefitCampaign.findUnique({ where: { slug } });
+    if (!campaign) {
+      // Ruta única de la aplicación OAuth. MP solo admite UNA URL de webhooks
+      // por aplicación, así que los avisos de TODAS las cuponeras conectadas
+      // por el botón llegan a /webhooks/mercadopago/oauth; acá se enruta por
+      // el user_id del vendedor, guardado al conectar.
+      const uid = body?.user_id != null ? String(body.user_id) : '';
+      if (uid) {
+        campaign = await this.prisma.benefitCampaign.findFirst({
+          where: { config: { path: ['mp', 'userId'], equals: uid } },
+        });
+      }
+    }
+    if (!campaign) campaign = await this.cuponera.ensureLivingCampaign();
+    const mp = await this.getMpConfig(campaign);
+    if (!mp) return { ok: true, action: 'not_configured' };
 
     const type = String(body.type || query.type || query.topic || '');
     const dataId = String(body?.data?.id || query['data.id'] || query.id || '');

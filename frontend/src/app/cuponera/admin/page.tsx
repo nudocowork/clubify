@@ -1200,7 +1200,23 @@ type GwStatus = {
   mercadopago: { webhookUrl: string; configurado: boolean };
   planes: GwPlan[];
 };
-type MpStatus = { configured: boolean; webhookUrl: string };
+type MpStatus = {
+  configured: boolean; webhookUrl: string;
+  /** 'oauth' = conectado con el botón; 'manual' = credenciales pegadas. */
+  via?: 'oauth' | 'manual' | null;
+  userId?: string | null; expiresAt?: string | null;
+  /** La plataforma tiene su aplicación de MP: el botón se puede ofrecer. */
+  oauthAvailable?: boolean;
+};
+
+/** Mensajes con los que vuelve el callback de «Conectar con MercadoPago». */
+const AVISOS_MP: Record<string, string> = {
+  conectado: 'MercadoPago quedó conectado: esta cuponera ya puede cobrar suscripciones.',
+  rechazado: 'La conexión con MercadoPago se canceló antes de autorizar. Podés intentarlo de nuevo.',
+  estado_invalido: 'El enlace de conexión venció. Tocá «Conectar con MercadoPago» otra vez.',
+  error_token: 'MercadoPago no entregó las credenciales. Intentalo de nuevo en un momento.',
+  sin_configurar: 'La conexión con un clic no está configurada en la plataforma todavía.',
+};
 
 /** Cobro: MercadoPago (propio de la cuponera) + el mapeo a Hotmart y Stripe. */
 function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) {
@@ -1235,6 +1251,24 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
       setEdit((e) => { const n = { ...e }; delete n[p.id]; return n; });
       cargar();
       flash(`Pasarelas de "${p.name}" guardadas`);
+    } finally { setBusy(null); }
+  }
+
+  async function conectarMp() {
+    try {
+      const r = await api<{ url: string }>(`/cuponera/panel/mercadopago/oauth-url${qs}`);
+      if (r?.url) window.location.href = r.url;
+      else flash('No se pudo iniciar la conexión con MercadoPago.');
+    } catch (e: any) { flash(e?.message || 'No se pudo iniciar la conexión con MercadoPago.'); }
+  }
+
+  async function desconectarMp() {
+    if (!confirm('¿Desconectar MercadoPago? Las suscripciones nuevas no se podrán cobrar hasta volver a conectar. Las ya activas siguen cobrándose en MercadoPago, pero los avisos dejarán de procesarse.')) return;
+    setBusy('mp');
+    try {
+      await api(`/cuponera/panel/mercadopago${qs}`, { method: 'DELETE' });
+      cargar();
+      flash('MercadoPago desconectado.');
     } finally { setBusy(null); }
   }
 
@@ -1334,9 +1368,45 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
       {/* MercadoPago */}
       <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 18, paddingTop: 16 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 3 }}>MercadoPago (suscripción recurrente)</div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-          Se guardan cifradas. Dejar un campo vacío lo deja como estaba.
-        </div>
+
+        {mp?.via === 'oauth' ? (
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px', marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ fontSize: 13, color: '#166534' }}>
+              <b>✓ Cuenta de MercadoPago conectada</b>{mp.userId ? ` · nº ${mp.userId}` : ''}
+              <div style={{ fontSize: 11.5, color: '#15803d', marginTop: 2 }}>
+                La conexión se renueva sola{mp.expiresAt ? ` (próximo vencimiento: ${new Date(mp.expiresAt).toLocaleDateString('es-CO')})` : ''}. No hay claves que copiar ni productos que mapear.
+              </div>
+            </div>
+            <button style={{ ...btn('#fee2e2', '#991b1b'), padding: '6px 12px', fontSize: 12 }} disabled={busy === 'mp'} onClick={desconectarMp}>
+              Desconectar
+            </button>
+          </div>
+        ) : mp?.oauthAvailable ? (
+          <div style={{ marginTop: 8 }}>
+            <button onClick={conectarMp}
+              style={{ background: '#009ee3', color: '#fff', border: 'none', padding: '11px 20px', borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
+              Conectar con MercadoPago
+            </button>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+              Te lleva a iniciar sesión en MercadoPago y autorizar. No hay que copiar ninguna clave:
+              las credenciales llegan solas y se renuevan solas.
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', marginTop: 8 }}>
+            El botón «Conectar con MercadoPago» estará disponible cuando la plataforma registre su
+            aplicación de MP. Mientras tanto se puede conectar a mano, abajo.
+          </div>
+        )}
+
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ fontSize: 12.5, color: '#64748b', cursor: 'pointer' }}>
+            Conectar a mano (avanzado)
+          </summary>
+          <div style={{ fontSize: 12, color: '#64748b', margin: '10px 0 12px' }}>
+            Para quien prefiere pegar sus credenciales de MercadoPago. Se guardan cifradas; dejar un
+            campo vacío lo deja como estaba.
+          </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12 }}>
           <Campo label="Access Token">
             <input style={inp} type="password" placeholder="APP_USR-…" value={cred.accessToken}
@@ -1354,6 +1424,7 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
         <button style={{ ...btn(), marginTop: 14 }} disabled={busy === 'mp'} onClick={guardarMp}>
           {busy === 'mp' ? 'Guardando…' : 'Guardar credenciales'}
         </button>
+        </details>
       </div>
     </div>
   );
@@ -1456,6 +1527,13 @@ export default function CuponeraAdminPage() {
     if (!u || !['CUPONERA_ADMIN', 'PLATFORM_OWNER', 'SUPER_ADMIN'].includes(u.role)) {
       router.replace('/login');
       return;
+    }
+    // Al volver del OAuth de MercadoPago, el callback redirige con ?mp=…: se
+    // abre Integraciones y se cuenta cómo terminó.
+    const mpAviso = params.get('mp');
+    if (mpAviso) {
+      setTab('Integraciones');
+      flash(AVISOS_MP[mpAviso] ?? AVISOS_MP.error_token);
     }
     // Solo el overview bloquea la primera pintura: trae el nombre, el estado y
     // los números del Dashboard. El resto llega cuando se abre su pestaña.
