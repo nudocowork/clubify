@@ -1374,7 +1374,7 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
             <div style={{ fontSize: 13, color: '#166534' }}>
               <b>✓ Cuenta de MercadoPago conectada</b>{mp.userId ? ` · nº ${mp.userId}` : ''}
               <div style={{ fontSize: 11.5, color: '#15803d', marginTop: 2 }}>
-                La conexión se renueva sola{mp.expiresAt ? ` (próximo vencimiento: ${new Date(mp.expiresAt).toLocaleDateString('es-CO')})` : ''}. No hay claves que copiar ni productos que mapear.
+                La conexión se renueva sola{mp.expiresAt ? ` (próximo vencimiento: ${new Date(mp.expiresAt).toLocaleDateString('es-CO')})` : ''}. El precio y la frecuencia de cada cobro los pone el plan que el cliente compra (Configuración → Planes).
               </div>
             </div>
             <button style={{ ...btn('#fee2e2', '#991b1b'), padding: '6px 12px', fontSize: 12 }} disabled={busy === 'mp'} onClick={desconectarMp}>
@@ -1388,8 +1388,9 @@ function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) 
               Conectar con MercadoPago
             </button>
             <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
-              Te lleva a iniciar sesión en MercadoPago y autorizar. No hay que copiar ninguna clave:
-              las credenciales llegan solas y se renuevan solas.
+              Te lleva a iniciar sesión en MercadoPago y autorizar. No hay que copiar ninguna clave
+              ni crear ningún producto en MercadoPago: el plan de la cuponera ES el producto — el
+              precio y la frecuencia salen de Configuración → Planes de membresía.
             </div>
           </div>
         ) : (
