@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString,
-  MaxLength, Min, MinLength, ValidateIf, ValidateNested,
+  Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -90,6 +90,12 @@ class PanelMemberBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) planId?: string | null;
 }
 
+class PanelLinkBody {
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
+}
+
 class PanelCategoryBody {
   @IsString() @MaxLength(60) name!: string;
   @IsOptional() @IsString() @MaxLength(8) icon?: string;
@@ -109,6 +115,8 @@ class PanelPlanBody {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsIn(['MONTHLY', 'ANNUAL']) interval?: 'MONTHLY' | 'ANNUAL';
   @IsOptional() @IsInt() @Min(0) level?: number;
+  /** Plan familiar: tarjetas ADICIONALES enlazables (0 = individual). */
+  @IsOptional() @IsInt() @Min(0) @Max(20) maxLinkedMembers?: number;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) benefitsAllowance?: number | null;
   @IsOptional() @IsString() @MaxLength(280) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
@@ -119,6 +127,7 @@ class PanelPlanPatchBody {
   @IsOptional() @IsInt() @Min(0) priceCents?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsIn(['MONTHLY', 'ANNUAL']) interval?: 'MONTHLY' | 'ANNUAL';
+  @IsOptional() @IsInt() @Min(0) @Max(20) maxLinkedMembers?: number;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) benefitsAllowance?: number | null;
   @IsOptional() @IsString() @MaxLength(280) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
@@ -371,6 +380,36 @@ export class CuponeraPanelController {
     @Query('campaignId') campaignId?: string,
   ) {
     return this.svc.panelEnrollMember(user, body, campaignId);
+  }
+
+  // Plan familiar: los enlaces de un beneficiario, desde el panel.
+  @Get('members/:id/links')
+  familyLinks(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelFamilyLinks(user, id, campaignId);
+  }
+
+  @Post('members/:id/links')
+  addFamilyLink(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PanelLinkBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelAddFamilyLink(user, id, body, campaignId);
+  }
+
+  @Delete('members/:id/links/:linkId')
+  removeFamilyLink(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('linkId') linkId: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelRemoveFamilyLink(user, id, linkId, campaignId);
   }
 
   /** Bandeja de aprobación: si la cuponera exige revisión, un beneficio queda

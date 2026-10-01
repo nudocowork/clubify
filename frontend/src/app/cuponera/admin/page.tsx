@@ -34,7 +34,10 @@ type Ally = {
 type Member = {
   id: string; status: string; expiresAt: string | null; passId: string | null;
   customer: { id: string; fullName: string; phone: string | null; email: string | null };
-  plan: { id: string; name: string } | null;
+  plan: { id: string; name: string; maxLinkedMembers?: number } | null;
+  /** Con valor: esta tarjeta es un ENLACE del plan familiar de otro. */
+  primaryMembershipId?: string | null;
+  _count?: { linked: number };
 };
 type Redemption = {
   id: string; createdAt: string;
@@ -59,6 +62,8 @@ type Category = { id: string; name: string; icon: string };
 type Plan = {
   id: string; name: string; priceCents: number; currency: string;
   interval?: 'MONTHLY' | 'ANNUAL'; isActive?: boolean; description?: string;
+  /** Plan familiar: tarjetas ADICIONALES enlazables. 0 = individual. */
+  maxLinkedMembers?: number;
 };
 type Settings = {
   name: string; status: string; welcomeText: string;
@@ -461,6 +466,87 @@ function ClaveAliado({
   );
 }
 
+type VistaFamilia = {
+  max: number; usados: number;
+  titular: { fullName: string; usable: boolean };
+  links: { id: string; fullName: string; phone: string | null; email: string | null; status: string }[];
+};
+
+/**
+ * Plan familiar de un beneficiario: sus tarjetas enlazadas. Cada familiar
+ * recibe SU tarjeta con su propio QR; todas viven y mueren con la suscripción
+ * del titular. Quitar un enlace libera el cupo en el acto.
+ */
+function FamiliaDe({ membershipId, qs, flash }: { membershipId: string; qs: string; flash: (m: string) => void }) {
+  const [v, setV] = useState<VistaFamilia | null>(null);
+  const [f, setF] = useState({ fullName: '', phone: '', email: '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<VistaFamilia>(`/cuponera/panel/members/${membershipId}/links${qs}`).then(setV).catch(() => setV(null));
+  }, [membershipId, qs]);
+
+  async function agregar() {
+    if (!f.fullName.trim()) return flash('El familiar necesita un nombre.');
+    if (!f.phone.trim() && !f.email.trim()) return flash('Dejá un teléfono o un correo: sin eso no hay cómo entregarle la tarjeta.');
+    setBusy(true);
+    try {
+      setV(await api<VistaFamilia>(`/cuponera/panel/members/${membershipId}/links${qs}`, {
+        method: 'POST',
+        body: JSON.stringify({ fullName: f.fullName.trim(), phone: f.phone, email: f.email || undefined }),
+      }));
+      setF({ fullName: '', phone: '', email: '' });
+      flash('Familiar enlazado: su tarjeta ya está emitida.');
+    } catch (e: any) { flash(e?.message || 'No se pudo enlazar.'); }
+    finally { setBusy(false); }
+  }
+
+  async function quitar(l: VistaFamilia['links'][number]) {
+    if (!confirm(`¿Quitar a ${l.fullName} del plan familiar? Su tarjeta deja de canjear y el cupo queda libre.`)) return;
+    try {
+      setV(await api<VistaFamilia>(`/cuponera/panel/members/${membershipId}/links/${l.id}${qs}`, { method: 'DELETE' }));
+      flash('Enlace quitado.');
+    } catch (e: any) { flash(e?.message || 'No se pudo quitar.'); }
+  }
+
+  if (!v) return <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '8px 0' }}>Cargando familia…</div>;
+
+  return (
+    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginTop: 10 }}>
+      <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>
+        Plan familiar · {v.usados} de {v.max} {v.max === 1 ? 'tarjeta enlazada' : 'tarjetas enlazadas'}
+      </div>
+      {v.links.map((l) => (
+        <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #eef2f7', fontSize: 13 }}>
+          <span><b>{l.fullName}</b> <span style={{ color: '#6b7280' }}>· {l.phone || l.email || '—'}</span></span>
+          <button onClick={() => quitar(l)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Quitar</button>
+        </div>
+      ))}
+      {!v.titular.usable ? (
+        <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 10px', marginTop: 8 }}>
+          La membresía del titular no está al día: hasta que renueve no se pueden agregar familiares.
+        </div>
+      ) : v.usados < v.max ? (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 10 }}>
+            <input style={inp} placeholder="Nombre del familiar *" value={f.fullName}
+              onChange={(e) => setF({ ...f, fullName: e.target.value })} />
+            <PhoneInput value={f.phone} onChange={(v2) => setF({ ...f, phone: v2 })} />
+            <input style={inp} placeholder="Email (opcional)" value={f.email}
+              onChange={(e) => setF({ ...f, email: e.target.value })} />
+          </div>
+          <button onClick={agregar} disabled={busy} style={{ ...btn(), marginTop: 10, padding: '7px 13px' }}>
+            {busy ? 'Enlazando…' : 'Enlazar y emitir su tarjeta'}
+          </button>
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>
+          Cupo completo. Para cambiar a alguien, quitá un enlace y agregá al nuevo.
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Alta manual de beneficiario: el que pagó por fuera, o el invitado. */
 function FormMiembro({
   plans, onCreado, onCancelar,
@@ -498,7 +584,11 @@ function FormMiembro({
         <Campo label="Plan">
           <select style={inp} value={f.planId} onChange={(e) => setF({ ...f, planId: e.target.value })}>
             <option value="">Sin plan</option>
-            {plans.map((p) => <option key={p.id} value={p.id}>{p.name} · {money(p.priceCents, p.currency)}</option>)}
+            {plans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {money(p.priceCents, p.currency)}{(p.maxLinkedMembers ?? 0) > 0 ? ` · familiar +${p.maxLinkedMembers}` : ''}
+              </option>
+            ))}
           </select>
         </Campo>
       </div>
@@ -530,12 +620,13 @@ function TabConfig({
 }) {
   const [cfg, setCfg] = useState<Settings | null>(null);
   const [nuevaCat, setNuevaCat] = useState({ name: '', icon: '' });
-  const [nuevoPlan, setNuevoPlan] = useState({ name: '', priceCents: 0, interval: 'MONTHLY' as const });
+  const [nuevoPlan, setNuevoPlan] = useState({ name: '', priceCents: 0, interval: 'MONTHLY' as const, maxLinkedMembers: 0 });
   const [busy, setBusy] = useState(false);
   // Edición en línea: una categoría o un plan a la vez.
   const [catEdit, setCatEdit] = useState<{ id: string; name: string; icon: string } | null>(null);
   const [planEdit, setPlanEdit] = useState<{
     id: string; name: string; priceCents: number; interval: 'MONTHLY' | 'ANNUAL'; description: string;
+    maxLinkedMembers: number;
   } | null>(null);
   const [nombre, setNombre] = useState('');
   useEffect(() => { if (cfg) setNombre(cfg.name); }, [cfg?.name]);
@@ -584,6 +675,7 @@ function TabConfig({
           priceCents: Math.round(Math.max(0, Number(planEdit.priceCents) || 0)),
           interval: planEdit.interval,
           description: planEdit.description,
+          maxLinkedMembers: Math.min(20, Math.max(0, Math.round(Number(planEdit.maxLinkedMembers) || 0))),
         }),
       });
       setPlanEdit(null);
@@ -611,7 +703,7 @@ function TabConfig({
       method: 'POST',
       body: JSON.stringify({ ...nuevoPlan, priceCents: Number(nuevoPlan.priceCents) || 0 }),
     });
-    setNuevoPlan({ name: '', priceCents: 0, interval: 'MONTHLY' });
+    setNuevoPlan({ name: '', priceCents: 0, interval: 'MONTHLY', maxLinkedMembers: 0 });
     await onCambio();
     flash('Plan creado');
   }
@@ -670,6 +762,8 @@ function TabConfig({
         <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Planes de membresía</div>
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
           Un plan de precio <b>0</b> es una cuponera gratuita: la persona se registra y entra.
+          El último campo son los <b>enlaces familiares</b>: cuántas tarjetas más puede
+          enlazar el titular a su suscripción (0 = plan individual).
         </div>
         {plans.map((p) => planEdit?.id === p.id ? (
           <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f3f4f6' }}>
@@ -687,6 +781,10 @@ function TabConfig({
                   <option value="MONTHLY">Mensual</option>
                   <option value="ANNUAL">Anual</option>
                 </select>
+              </Campo>
+              <Campo label="Enlaces familiares (0 = individual)">
+                <input type="number" min={0} max={20} style={inp} value={planEdit.maxLinkedMembers}
+                  onChange={(e) => setPlanEdit({ ...planEdit, maxLinkedMembers: Number(e.target.value) })} />
               </Campo>
               <div style={{ gridColumn: '1 / -1' }}>
                 <Campo label="Descripción">
@@ -710,6 +808,7 @@ function TabConfig({
               <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
                 {p.priceCents > 0 ? money(p.priceCents, p.currency) : 'Gratis'}
                 {p.interval === 'ANNUAL' ? ' / año' : p.priceCents > 0 ? ' / mes' : ''}
+                {(p.maxLinkedMembers ?? 0) > 0 ? ` · familiar: +${p.maxLinkedMembers}` : ''}
                 {p.isActive === false ? ' · inactivo' : ''}
               </span>
             </div>
@@ -718,6 +817,7 @@ function TabConfig({
                 onClick={() => setPlanEdit({
                   id: p.id, name: p.name, priceCents: p.priceCents,
                   interval: p.interval === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY', description: p.description || '',
+                  maxLinkedMembers: p.maxLinkedMembers ?? 0,
                 })}
                 style={{ ...btn('#eef2f7', '#111827'), padding: '5px 11px', fontSize: 12 }}
               >
@@ -740,6 +840,9 @@ function TabConfig({
             <option value="MONTHLY">Mensual</option>
             <option value="ANNUAL">Anual</option>
           </select>
+          <input type="number" min={0} max={20} title="Enlaces familiares (0 = plan individual)"
+            style={{ ...inp, width: 90 }} value={nuevoPlan.maxLinkedMembers}
+            onChange={(e) => setNuevoPlan({ ...nuevoPlan, maxLinkedMembers: Number(e.target.value) })} />
           <button onClick={crearPlan} style={btn()}>Agregar</button>
         </div>
       </div>
@@ -1456,6 +1559,8 @@ export default function CuponeraAdminPage() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [nuevoAliado, setNuevoAliado] = useState(false);
   const [nuevoMiembro, setNuevoMiembro] = useState(false);
+  // Beneficiario con el plan familiar abierto (uno a la vez).
+  const [familiaDe, setFamiliaDe] = useState<string | null>(null);
   // Un aliado abierto a la vez, en sus sedes o en el cambio de contraseña.
   const [abierto, setAbierto] = useState<{ id: string; que: 'sedes' | 'clave' } | null>(null);
   const [logins, setLogins] = useState<Record<string, string[]>>({});
@@ -1743,20 +1848,41 @@ export default function CuponeraAdminPage() {
         <div style={card}>
           {members.length === 0
             ? <div style={{ fontSize: 13, color: '#9ca3af' }}>Todavía no hay beneficiarios registrados.</div>
-            : members.map((m) => (
-              <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
-                <div>
-                  <b style={{ fontSize: 13.5 }}>{m.customer.fullName || 'Sin nombre'}</b>
-                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
-                    {m.customer.phone || m.customer.email || '—'}
-                  </span>
+            : members.map((m) => {
+              const maxFam = m.primaryMembershipId ? 0 : (m.plan?.maxLinkedMembers ?? 0);
+              return (
+              <div key={m.id} style={{ padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                  <div>
+                    <b style={{ fontSize: 13.5 }}>{m.customer.fullName || 'Sin nombre'}</b>
+                    <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
+                      {m.customer.phone || m.customer.email || '—'}
+                    </span>
+                    {m.primaryMembershipId && (
+                      <span style={{ marginLeft: 8, background: '#e0f2fe', color: '#075985', padding: '1px 8px', borderRadius: 999, fontSize: 10.5, fontWeight: 700 }}>
+                        Enlace familiar
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: '#374151' }}>
+                    <span>
+                      {m.plan?.name ?? 'Sin plan'} · <b>{m.status}</b>
+                      {m.passId ? ' · tarjeta emitida' : ' · sin tarjeta'}
+                    </span>
+                    {maxFam > 0 && (
+                      <button onClick={() => setFamiliaDe(familiaDe === m.id ? null : m.id)}
+                        style={{ ...btn(familiaDe === m.id ? PC : '#e0f2fe', familiaDe === m.id ? '#fff' : '#075985'), padding: '5px 11px', fontSize: 12 }}>
+                        Familia {m._count?.linked ?? 0}/{maxFam}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: '#374151' }}>
-                  {m.plan?.name ?? 'Sin plan'} · <b>{m.status}</b>
-                  {m.passId ? ' · tarjeta emitida' : ' · sin tarjeta'}
-                </div>
+                {familiaDe === m.id && maxFam > 0 && (
+                  <FamiliaDe membershipId={m.id} qs={qs} flash={flash} />
+                )}
               </div>
-            ))}
+              );
+            })}
         </div>
         </>
       )}

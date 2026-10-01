@@ -29,6 +29,7 @@ import {
   type BenefitLimitPeriod,
 } from './benefit-limits';
 import { NotificationsService } from '../notifications/notifications.service';
+import { porQueNoSePuedeEnlazar } from './enlaces-familiares';
 import { WalletService } from '../wallet/wallet.service';
 import { PREFIJO_GEOFENCE_ALIADO } from '../wallet/orden-de-sedes';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -67,6 +68,8 @@ type EnrollInput = {
   /** Vencimiento que dicta la pasarela (próxima fecha de cobro). Gana sobre el
    *  calculado a partir del intervalo del plan. */
   expiresAt?: string | Date | null;
+  /** Plan familiar: membresía del titular de la que cuelga esta tarjeta. */
+  primaryMembershipId?: string | null;
 };
 
 /** Sede de un aliado (spec §5 y §9). Ver AllyLocationBody en cuponera.dto.ts. */
@@ -496,7 +499,9 @@ export class CuponeraService {
       where: { campaignId: campaign.id },
       include: {
         customer: { select: { id: true, fullName: true, phone: true, email: true } },
-        plan: { select: { id: true, name: true } },
+        plan: { select: { id: true, name: true, maxLinkedMembers: true } },
+        // Enlaces vivos: el contador «Familia 2/3» de la pestaña.
+        _count: { select: { linked: { where: { status: { not: 'CANCELLED' } } } } },
       },
       orderBy: { createdAt: 'desc' },
       take: 500,
@@ -621,6 +626,224 @@ export class CuponeraService {
       planId: dto.planId ?? null,
       source: 'MANUAL',
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Plan FAMILIAR: titular + N tarjetas enlazadas (enlaces-familiares.ts).
+  // El titular paga; cada familiar recibe SU tarjeta Wallet con su propio QR,
+  // y toda la familia vive y muere con la suscripción del titular.
+  // ---------------------------------------------------------------------------
+
+  /** Membresía con todo lo necesario para decidir y pintar la familia. */
+  private async membresiaConFamilia(campaignId: string, membershipId: string) {
+    const m = await this.prisma.livingMembership.findFirst({
+      where: { id: membershipId, campaignId },
+      include: {
+        plan: true,
+        customer: { select: { id: true, fullName: true, phone: true, email: true } },
+        linked: {
+          include: {
+            customer: { select: { id: true, fullName: true, phone: true, email: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!m) throw new NotFoundException('Beneficiario no encontrado');
+    return m;
+  }
+
+  private vistaFamilia(m: Awaited<ReturnType<CuponeraService['membresiaConFamilia']>>) {
+    const vivos = m.linked.filter((l) => l.status !== 'CANCELLED');
+    return {
+      max: m.plan?.maxLinkedMembers ?? 0,
+      usados: vivos.length,
+      titular: { fullName: m.customer.fullName, usable: this.membershipUsable(m) },
+      links: vivos.map((l) => ({
+        id: l.id,
+        fullName: l.customer.fullName,
+        phone: l.customer.phone,
+        email: l.customer.email,
+        status: l.status,
+        passId: l.passId,
+      })),
+    };
+  }
+
+  private async agregarEnlace(
+    campaign: BenefitCampaign,
+    primary: Awaited<ReturnType<CuponeraService['membresiaConFamilia']>>,
+    dto: { fullName: string; phone?: string; email?: string },
+  ) {
+    const motivo = porQueNoSePuedeEnlazar({
+      titularEsEnlace: !!primary.primaryMembershipId,
+      maxEnlaces: primary.plan?.maxLinkedMembers ?? 0,
+      enlacesActivos: primary.linked.filter((l) => l.status !== 'CANCELLED').length,
+      titularUsable: this.membershipUsable(primary),
+    });
+    if (motivo) throw new BadRequestException(motivo);
+    const fullName = (dto.fullName || '').trim();
+    if (!fullName) throw new BadRequestException('El familiar necesita un nombre');
+
+    // Si esa persona YA tiene membresía propia viva en esta cuponera, no se
+    // convierte en enlace: le pisaría el plan que pagó.
+    const existente = await this.miembroExistente(campaign.tenantId, campaign.id, dto);
+    if (existente?.id === primary.id) {
+      throw new BadRequestException('Ese teléfono o correo es el del titular.');
+    }
+    if (
+      existente &&
+      !existente.primaryMembershipId &&
+      this.membershipUsable(existente)
+    ) {
+      throw new BadRequestException(
+        'Esa persona ya tiene su propia tarjeta activa en esta cuponera.',
+      );
+    }
+
+    const r = await this.enrollMember({
+      campaignId: campaign.id,
+      fullName,
+      phone: dto.phone ?? '',
+      email: dto.email ?? null,
+      planId: primary.planId,
+      source: 'MANUAL',
+      primaryMembershipId: primary.id,
+      // El enlace vive exactamente hasta donde pagó el titular.
+      expiresAt: primary.expiresAt,
+    });
+    return { ...r, fullName };
+  }
+
+  /** Mismo match blando que enrollMember (tel exacto → cola → email), SOLO
+   *  para mirar si ya hay membresía. No crea nada. */
+  private async miembroExistente(
+    tenantId: string,
+    campaignId: string,
+    dto: { phone?: string; email?: string },
+  ) {
+    const phoneNorm = (dto.phone || '').replace(/\s/g, '').trim();
+    const digits = phoneNorm.replace(/\D/g, '');
+    const email = dto.email?.trim().toLowerCase() || null;
+    let customer =
+      digits.length >= 8
+        ? await this.prisma.customer
+            .findUnique({ where: { tenantId_phone: { tenantId, phone: phoneNorm } } })
+            .catch(() => null)
+        : null;
+    if (!customer && digits.length >= 8) {
+      customer = await this.prisma.customer.findFirst({
+        where: { tenantId, phone: { contains: digits.slice(-10) } },
+      });
+    }
+    if (!customer && email) {
+      customer = await this.prisma.customer.findFirst({
+        where: { tenantId, email },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+    if (!customer) return null;
+    return this.prisma.livingMembership.findUnique({
+      where: { campaignId_customerId: { campaignId, customerId: customer.id } },
+    });
+  }
+
+  async panelFamilyLinks(user: AuthUser, membershipId: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.vistaFamilia(await this.membresiaConFamilia(campaign.id, membershipId));
+  }
+
+  async panelAddFamilyLink(
+    user: AuthUser,
+    membershipId: string,
+    dto: { fullName: string; phone?: string; email?: string },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const primary = await this.membresiaConFamilia(campaign.id, membershipId);
+    await this.agregarEnlace(campaign, primary, dto);
+    return this.vistaFamilia(await this.membresiaConFamilia(campaign.id, membershipId));
+  }
+
+  async panelRemoveFamilyLink(
+    user: AuthUser,
+    membershipId: string,
+    linkId: string,
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.membresiaConFamilia(campaign.id, membershipId);
+    // Quitar = cancelar su membresía: la tarjeta deja de canjear en el acto y
+    // el lugar queda libre. El historial de canjes se conserva.
+    const res = await this.prisma.livingMembership.updateMany({
+      where: { id: linkId, primaryMembershipId: membershipId, status: { not: 'CANCELLED' } },
+      data: { status: 'CANCELLED' },
+    });
+    if (res.count === 0) throw new NotFoundException('Enlace no encontrado');
+    return this.vistaFamilia(await this.membresiaConFamilia(campaign.id, membershipId));
+  }
+
+  // --- Público: el titular maneja su familia desde «Mi tarjeta» ---
+
+  /** Titular por teléfono/correo, con las mismas reglas de «Mi tarjeta». */
+  private async titularPorContacto(campaign: BenefitCampaign, qRaw: string) {
+    const q = (qRaw || '').trim();
+    let customerIds: string[] = [];
+    if (q.includes('@')) {
+      const email = q.toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
+      customerIds = (
+        await this.prisma.customer.findMany({
+          where: { tenantId: campaign.tenantId, email },
+          select: { id: true },
+        })
+      ).map((c) => c.id);
+    } else {
+      if (!telefonoBuscable(q)) return null;
+      const candidatos = await this.prisma.customer.findMany({
+        where: { tenantId: campaign.tenantId, phone: { contains: colaParaBuscar(q) } },
+        select: { id: true, phone: true },
+      });
+      customerIds = soloElMismoTelefono(q, candidatos).map((c) => c.id);
+    }
+    if (!customerIds.length) return null;
+    const m = await this.prisma.livingMembership.findFirst({
+      where: {
+        campaignId: campaign.id,
+        customerId: { in: customerIds },
+        primaryMembershipId: null,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!m) return null;
+    return this.membresiaConFamilia(campaign.id, m.id);
+  }
+
+  async publicFamilyStatus(q: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const primary = await this.titularPorContacto(campaign, q);
+    if (!primary) return { enabled: false };
+    const vista = this.vistaFamilia(primary);
+    // Solo se enseña a quien tiene plan familiar: para el resto no existe.
+    if (vista.max <= 0) return { enabled: false };
+    return { enabled: true, ...vista };
+  }
+
+  async publicAddFamilyLink(dto: {
+    q: string;
+    fullName: string;
+    phone?: string;
+    email?: string;
+  }) {
+    const campaign = await this.ensureLivingCampaign();
+    const primary = await this.titularPorContacto(campaign, dto.q);
+    if (!primary) {
+      throw new NotFoundException(
+        'No encontramos tu membresía. Verificá el teléfono o correo del titular.',
+      );
+    }
+    const r = await this.agregarEnlace(campaign, primary, dto);
+    return { ok: true, passId: r.passId, fullName: r.fullName };
   }
 
   async panelCategories(user: AuthUser, campaignId?: string) {
@@ -1321,6 +1544,8 @@ export class CuponeraService {
     stripePriceId?: string | null;
     hotmartCheckoutUrl?: string | null;
     stripeCheckoutUrl?: string | null;
+    /** Plan familiar: tarjetas ADICIONALES enlazables. 0 = individual. */
+    maxLinkedMembers?: number;
   }) {
     const campaign = await this.campaignOrLiving(dto.campaignId);
     return this.prisma.membershipPlan.create({
@@ -1334,6 +1559,7 @@ export class CuponeraService {
         benefitsAllowance: dto.benefitsAllowance ?? null,
         description: dto.description || '',
         sortOrder: dto.sortOrder ?? 0,
+        maxLinkedMembers: Math.max(0, Math.round(dto.maxLinkedMembers ?? 0)),
         ...this.mapeoPasarelas(dto),
         isActive: dto.isActive ?? true,
       },
@@ -1361,6 +1587,10 @@ export class CuponeraService {
         description: dto.description ?? undefined,
         sortOrder: dto.sortOrder ?? undefined,
         isActive: dto.isActive ?? undefined,
+        maxLinkedMembers:
+          dto.maxLinkedMembers != null
+            ? Math.max(0, Math.round(dto.maxLinkedMembers))
+            : undefined,
         ...this.mapeoPasarelas(dto),
       },
     });
@@ -1634,6 +1864,9 @@ export class CuponeraService {
         ...(input.mp?.payerId ? { mpPayerId: input.mp.payerId } : {}),
         ...(input.provider ? { provider: input.provider } : {}),
         ...(input.providerRef ? { providerRef: input.providerRef } : {}),
+        ...(input.primaryMembershipId !== undefined
+          ? { primaryMembershipId: input.primaryMembershipId }
+          : {}),
       },
       create: {
         campaignId: campaign.id,
@@ -1649,6 +1882,7 @@ export class CuponeraService {
         mpPayerId: input.mp?.payerId ?? null,
         provider: input.provider ?? null,
         providerRef: input.providerRef ?? null,
+        primaryMembershipId: input.primaryMembershipId ?? null,
       },
     });
 
@@ -1802,6 +2036,8 @@ export class CuponeraService {
         description: p.description,
         benefitsAllowance: p.benefitsAllowance,
         level: p.level,
+        // El plan familiar se anuncia en la página de venta.
+        maxLinkedMembers: p.maxLinkedMembers,
         // Solo los links de compra, que son públicos por definición. Los ids de
         // producto y de price NO salen acá: son configuración interna.
         checkoutUrl: p.hotmartCheckoutUrl || p.stripeCheckoutUrl || null,
@@ -2944,6 +3180,19 @@ export class CuponeraService {
     });
     if (!membership) {
       throw new BadRequestException('Esta tarjeta no tiene membresía en esta cuponera');
+    }
+    // Plan familiar: un enlace canjea exactamente mientras el titular esté al
+    // día. El vencimiento viaja copiado, pero una baja explícita puede llegar
+    // primero al titular; sin esta mirada su familia seguía canjeando.
+    if (membership.primaryMembershipId) {
+      const titular = await this.prisma.livingMembership.findUnique({
+        where: { id: membership.primaryMembershipId },
+      });
+      if (!this.membershipUsable(titular)) {
+        throw new BadRequestException(
+          'La membresía del titular del plan familiar no está al día.',
+        );
+      }
     }
     if (membership.status === 'ACTIVE' && this.membershipExpired(membership)) {
       await this.prisma.livingMembership

@@ -15,6 +15,14 @@ class JoinFreeBody {
   @IsOptional() @IsString() @MaxLength(80) campaignId?: string;
 }
 
+class FamilyLinkBody {
+  /** Teléfono o correo del TITULAR (la misma búsqueda de «Mi tarjeta»). */
+  @IsString() @MaxLength(160) q!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
+}
+
 class SubscribeBody {
   @IsString() @MaxLength(80) planId!: string;
   /** Cuponera que vende (su slug). Vacío = Living Card, el comportamiento de siempre. */
@@ -70,6 +78,23 @@ export class CuponeraPublicController {
   @Get('card/find')
   cardFind(@Query('q') q: string) {
     return this.svc.findCard(q || '');
+  }
+
+  /** Plan familiar del titular: cuántos enlaces tiene y cuántos le quedan. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('family-links')
+  familyLinks(@Query('q') q: string) {
+    return this.svc.publicFamilyStatus(q || '');
+  }
+
+  /** El titular agrega un familiar: se le emite SU tarjeta en el acto. Tope
+   *  bajo a propósito: cada alta crea una tarjeta que canjea de verdad. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 8 } })
+  @Post('family-link')
+  addFamilyLink(@Body() body: FamilyLinkBody) {
+    return this.svc.publicAddFamilyLink(body);
   }
 
   /** Alta sin pago en una cuponera gratuita (spec §23). El tope por minuto es

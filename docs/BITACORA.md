@@ -1091,6 +1091,40 @@ toma del servidor: es para planificar, no para esta noche.
   escapado. No los toqué (regla de no revertir lo ajeno). Si son tuyos,
   bórralos tú.
 
+## 2026-10-01 (90) — Plan FAMILIAR de cuponera: titular + N tarjetas enlazadas
+
+**Estado: commiteado, SIN empujar hasta aplicar la migración. ⚠️ TRAE MIGRACIÓN:**
+`railway run node scripts/apply-family-plan-migration.cjs` (desde `backend/`)
+**ANTES** de desplegar el backend: agrega `MembershipPlan.maxLinkedMembers`
+(INT 0) y `LivingMembership.primaryMembershipId` (+índice+FK). Sin ella, Prisma
+pide esas columnas en cada consulta y se cae toda la cuponera.
+
+Pedido de Jhon: 4 planes para Living Card — Mensual $30.000, Anual $300.000,
+Familiar Mensual $50.000, Familiar Anual $500.000 — y que el familiar permita
+«máximo 3 enlaces». **Interpretación fijada: titular + hasta 3 tarjetas
+enlazadas (4 personas).** El tope es un campo del plan («enlaces familiares»),
+configurable en el panel; los planes se crean desde Configuración → Planes
+(no hay seed: son datos de producción).
+
+Cómo funciona (reglas en `enlaces-familiares.ts`, puras y con test):
+- El titular paga (MP/Hotmart/Stripe/manual). Cada familiar enlazado recibe SU
+  tarjeta Wallet con su propio QR, sin pagar; hereda el vencimiento del titular.
+- Renueva el titular → renuevan los enlaces (propagado en `renew`). Se cae el
+  titular → enlaces a EXPIRED en el acto (`deactivate`); si vuelve a pagar,
+  reviven. CANCELLED queda solo para el enlace quitado a mano (libera cupo y
+  no resucita). Cinturón en `assertMembershipUsable`: un enlace no canjea si
+  el titular no está al día, pase lo que pase con las fechas.
+- No se encadenan enlaces; una persona con membresía propia ACTIVA no se puede
+  «convertir» en enlace (le pisaría el plan que pagó).
+- Panel → Beneficiarios: botón «Familia x/N» (agregar/quitar). Público: en
+  «Mi tarjeta» el titular agrega familiares (GET/POST
+  `/cuponera/public/family-link(s)`, topes 30 y 8/min). La página de venta
+  anuncia «incluye hasta N tarjetas más».
+
+Crear en el panel al desplegar (Living Card): Mensual 30000 COP/mes (enlaces 0),
+Anual 300000 COP/año (0), Familiar Mensual 50000 COP/mes (**3**), Familiar
+Anual 500000 COP/año (**3**).
+
 ## 2026-10-01 (89) — «Conectar con MercadoPago»: OAuth en vez de pegar tokens
 
 **Estado: commiteado y empujado. SIN desplegar. Sin migración.

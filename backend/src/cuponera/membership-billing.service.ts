@@ -233,6 +233,12 @@ export class MembershipBillingService {
         ...(membership.status !== 'ACTIVE' ? { activatedAt: new Date() } : {}),
       },
     });
+    // Plan familiar: renueva el titular → renuevan sus enlaces, con el MISMO
+    // vencimiento. Los quitados a mano (CANCELLED) no resucitan.
+    await this.prisma.livingMembership.updateMany({
+      where: { primaryMembershipId: membership.id, status: { not: 'CANCELLED' } },
+      data: { status: 'ACTIVE', expiresAt: until },
+    });
 
     if (input.transactionRef) {
       await this.prisma.membershipOrder
@@ -270,6 +276,13 @@ export class MembershipBillingService {
     await this.prisma.livingMembership.update({
       where: { id: membership.id },
       data: { status: 'CANCELLED' },
+    });
+    // Plan familiar: se cae el titular → se caen sus enlaces, en el acto.
+    // EXPIRED y no CANCELLED: si el titular vuelve a pagar, reviven con él;
+    // CANCELLED queda reservado para el enlace quitado a mano.
+    await this.prisma.livingMembership.updateMany({
+      where: { primaryMembershipId: membership.id, status: { not: 'CANCELLED' } },
+      data: { status: 'EXPIRED' },
     });
     this.logger.log(
       `[CUPONERA-PAGOS] baja · miembro=${membership.customerId} pasarela=${input.provider} ` +

@@ -13,6 +13,8 @@ type Plan = {
   interval: 'MONTHLY' | 'ANNUAL';
   description: string;
   benefitsAllowance: number | null;
+  /** Plan familiar: tarjetas ADICIONALES para enlazar. 0 = individual. */
+  maxLinkedMembers?: number;
   /** Link de compra de la pasarela (Hotmart/Stripe). Vacío = se cobra por
    *  MercadoPago con el formulario de acá. */
   checkoutUrl?: string | null;
@@ -159,6 +161,12 @@ export default function UnirsePage() {
                 <div style={{ fontSize: 13, color: '#334155', marginTop: 6 }}>
                   ✓ {selected.benefitsAllowance != null ? `${selected.benefitsAllowance} beneficios` : 'Beneficios ilimitados'}
                 </div>
+                {(selected.maxLinkedMembers ?? 0) > 0 && (
+                  <div style={{ fontSize: 13, color: '#334155', marginTop: 4 }}>
+                    ✓ Incluye hasta <b>{selected.maxLinkedMembers} {selected.maxLinkedMembers === 1 ? 'tarjeta más' : 'tarjetas más'}</b> para
+                    tu familia: las enlazás después desde «Mi tarjeta» y cada uno recibe la suya.
+                  </div>
+                )}
               </div>
             )}
 

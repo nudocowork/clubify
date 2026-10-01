@@ -7107,6 +7107,10 @@ model MembershipPlan {
   interval            MembershipInterval @default(MONTHLY)
   /// Nº de beneficios incluidos. Null = ilimitado.
   benefitsAllowance   Int?
+  /// Plan FAMILIAR: tarjetas ADICIONALES que el titular puede enlazar a su
+  /// suscripción (él + N). 0 = plan individual, sin enlaces.
+  /// Migración: scripts/apply-family-plan-migration.cjs
+  maxLinkedMembers    Int                @default(0)
   description         String             @default("")
   isActive            Boolean            @default(true)
   sortOrder           Int                @default(0)
@@ -7160,6 +7164,13 @@ model LivingMembership {
   /// identificando SOLO esta referencia, sin email ni plan.
   provider        PaymentGateway?
   providerRef     String?
+  /// Plan familiar: membresía del TITULAR de la que cuelga esta tarjeta.
+  /// Null = titular (o plan individual). El pago vive SOLO en el titular; los
+  /// enlaces heredan su vigencia: renueva él, renuevan todos; se cae él, se
+  /// caen todos. Un enlace nunca cuelga de otro enlace.
+  primaryMembershipId String?
+  primary         LivingMembership?  @relation("FamilyLinks", fields: [primaryMembershipId], references: [id], onDelete: SetNull)
+  linked          LivingMembership[] @relation("FamilyLinks")
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -7167,6 +7178,7 @@ model LivingMembership {
   @@index([customerId])
   @@index([status])
   @@index([providerRef])
+  @@index([primaryMembershipId])
 }
 
 /// Categoría de beneficios administrable (Restaurantes, Cafés, Living Kids…).
