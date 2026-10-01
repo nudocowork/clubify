@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-01 (106) — Socio por mes, «Pausar» en el corte, «Pago manual» y Degodoy
+
+Commits `978ac84b` (socio) y `9d130255` (pausa + etiqueta). Encargo de
+Javier en cuatro puntos:
+
+**1. El 10 % del socio cambia de base** (`finance/socio.ts`). Hasta agosto de
+2026: sobre el **bruto** (total de la venta, sin descontar impuesto ni fee).
+Desde septiembre: sobre el **neto** (tras impuesto y fee), pagado a fin de
+mes. Venta a venta por su mes contable (Bogotá), en cascada y gráfica. Deja
+de valer la regla de Sara del 17-sep (10 % de la UTILIDAD): con la nómina de
+mayo daba $0 y jun-ago $22–$84. Con la nueva: may $23,50 · jun $446,83 ·
+jul $493,86 · ago $454,88 · sep $487,12. Egresos, nómina y comisiones ya no
+le bajan la parte. Tomé SEPTIEMBRE como primer mes de la regla nueva (el
+encargo decía «hasta septiembre» y «desde septiembre» a la vez).
+
+**2. «Pausar» en el cierre del corte** (`cutoff.service.pausePerson`). Caso:
+Nicolás Rojas en la quincena 1-15 sep, no se podía cerrar porque el cierre
+exige a todas las personas pagadas. Sus comisiones sin pagar pasan al corte
+siguiente (se crea vacío si no existe; si está cerrado, al próximo), siguen
+APROBADAS, con nota. Un corte que queda sin personas se cierra en $0.
+
+**3. Etiqueta «Pago manual»** junto a «Renovación» en la lista de
+comisiones: sin transacción de Hotmart y a ≤3 días de un `ManualPayment` del
+negocio (`referrals/comision-de-pago-manual.ts`).
+
+**4. Degodoy — las «renovaciones» del 8-sep son FALSAS.** Degodoy pagó UNA
+vez (8-ago, trimestral, HP2400841878) y renueva el 8-nov. El 8-sep a las
+21:46 se REASIGNÓ su referido de Juan Camilo a Santiago Romero (auditoría
+`referral_use.reassigned`) y 70 s después nacieron dos comisiones sin
+transacción, sin fecha de negocio y con periodo 2026-09: Santiago $37,50 y
+Juan Camilo $7,50 — el ciclo de agosto (ya pagado a Juan Camilo el 2-sep)
+cobrado otra vez con la cadena nueva. **PENDIENTE: anularlas.** El modo auto
+bloqueó la escritura en producción. Ids `e695c94a…` y `513fca21…` (corte
+`2805c4a8…`). Se rechazan desde el panel, o con el script del scratchpad
+`degodoy-anular.cjs` (comprueba que sigan sin pagar). Sara NO está avisada
+todavía: se le avisa cuando estén anuladas.
+
+Aparte: el «doble» de la notificación de DEMO no fue un doble envío (una
+fila, un despacho a las 2:00): el iPhone de Javier tiene DOS tarjetas de
+DEMO («Nudo Cowork» y «Café Plan» a nombre de Tomás Guerrero) y Apple avisa
+una vez por tarjeta.
+
 ## 2026-10-01 (105) — Push programados: salen a la hora, para todos
 
 Commit `e4c991e5`. **DESPLEGADO Y VERIFICADO** (`/api/health` → `e4c991e`,
