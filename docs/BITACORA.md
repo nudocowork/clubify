@@ -8,6 +8,40 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-01 (105) — Push programados: salen a la hora, para todos
+
+Commit `e4c991e5`. **DESPLEGADO Y VERIFICADO** (`/api/health` → `e4c991e`,
+2026-10-01 16:21 UTC). Este deploy lleva también el backend de la 104: el
+preview del upgrade ya manda `pasarelaAbierta` (en `false`: la variable
+sigue sin poner). De la 104 faltan la variable y el frontend.
+
+Reporte: «a Aldehir no le llegan las programadas a la
+hora» (sus 3 negocios en Perú: Hacienda Don Antonio, Marea Místika,
+Jamarea). **Medido en producción, no supuesto:**
+
+- El servidor SÍ disparaba: 145 de 145 recurrentes en 14 días.
+- Pero en FILA: «GASEOSA GRATIS» de Hacienda arrancaba 12:04–12:09 los
+  días que Jamarea y Marea también enviaban a las 12:00, y 12:00 en punto
+  los días que no. Cada pase de Google costaba ~2 s (Marea, 98 pases = 4
+  min) porque hacía 4 llamadas en serie: token nuevo + clase + objeto +
+  aviso.
+- A sus clientes les llega a 14 de 51 / 34 de 98 / 51 de 86 porque **el
+  resto nunca guardó la tarjeta en Google Wallet**: en 21 h de logs, 719
+  avisos aceptados, 501 «objeto no existe», CERO fallos de `addMessage`.
+  Eso no es del envío, es de adopción.
+
+Arreglado: recurrentes todas a la vez y pases de 6 en 6; fecha única
+también en paralelo; cliente de Google reutilizado y clase escrita una vez
+por envío (de 4 llamadas por pase a 2); ventana de 30 min para recuperar
+un tick perdido por despliegue; «entregados» = avisos que salieron
+(`notified`). Y la **zona horaria**: el panel nunca mandó zona, todo se
+guardaba en Bogotá. Perú no lo nota; **Oasis, Essentrix y Empanadas La
+Parada (Nueva York) recibían todo una hora tarde** en horario de verano.
+Desde este deploy salen a la hora que escribieron, o sea UNA HORA ANTES
+que hasta ayer. Si alguno había compensado a mano, lo verá adelantado.
+
+Pruebas: `src/notifications/recurrentes-a-tiempo.spec.ts` (13).
+
 ## 2026-10-01 (104) — Upgrade «Por pasarela»: el panel ya lo deja elegir (falta encender)
 
 Commit `8141d3a4`. Javier preguntó por qué seguía «no disponible»: la
