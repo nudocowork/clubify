@@ -29,6 +29,7 @@ import {
   type TipoDeFecha,
 } from './rango-de-fechas';
 import { quedaSinAfiliado } from './sin-afiliado';
+import { esComisionDePagoManual } from './comision-de-pago-manual';
 import {
   NO_ES_DEL_UPGRADE,
   esDeMontoLibre,
@@ -6655,6 +6656,21 @@ export class ReferralsService {
         if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
       }
     }
+    // Pagos manuales de los negocios de la página: una consulta, no una por fila.
+    // Ver `comision-de-pago-manual.ts`.
+    const pagosManualesPorNegocio = new Map<string, Date[]>();
+    if (tenantIdsForDate.length) {
+      const pagos = await this.prisma.manualPayment.findMany({
+        where: { tenantId: { in: tenantIdsForDate } },
+        select: { tenantId: true, paidAt: true },
+      });
+      for (const p of pagos) {
+        const lista = pagosManualesPorNegocio.get(p.tenantId) ?? [];
+        lista.push(p.paidAt);
+        pagosManualesPorNegocio.set(p.tenantId, lista);
+      }
+    }
+
     // Fecha de compra CALCULADA (para las filas sin `businessDate` congelado).
     //
     // La lógica vive en `rango-de-fechas.ts` — el MISMO sitio del que sale el
@@ -6693,6 +6709,13 @@ export class ReferralsService {
       const esRenovacion =
         primeroMs !== undefined &&
         effectiveAvailableAt(c).getTime() > primeroMs;
+      const esPagoManual = tenantIdDeLaFila
+        ? esComisionDePagoManual(
+            c.businessDate ? new Date(c.businessDate) : commissionBusinessDate(c),
+            c.hotmartTransactionId,
+            pagosManualesPorNegocio.get(tenantIdDeLaFila) ?? [],
+          )
+        : false;
       return {
         id: c.id,
         amount,
@@ -6701,6 +6724,7 @@ export class ReferralsService {
         currency: c.currency,
         paymentStatus: c.paymentStatus,
         esRenovacion,
+        esPagoManual,
         status: c.status,
         createdAt: c.createdAt,
         // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la

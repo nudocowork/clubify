@@ -910,6 +910,160 @@ export class CutoffService {
     return { ok: true as const, amountUsd: amount, count: comms.length };
   }
 
+  /**
+   * PAUSAR a una persona en un corte: sus comisiones sin pagar pasan al corte
+   * SIGUIENTE, y este se puede cerrar con lo que sí se pagó.
+   *
+   * Pedido de Javier (2026-10-01): en el corte del 1 al 15 de septiembre a
+   * Nicolás Rojas se le deben unas comisiones que se le pagarán más adelante, y
+   * el cierre exige a TODAS las personas pagadas (`batchPayoutStatus`): la
+   * quincena quedaba abierta sin remedio. Antes no había más salida que pagarle
+   * (mentira en el libro) o dejar el corte abierto (alerta de corte viejo).
+   *
+   * No se toca el estado de la comisión: sigue APROBADA y se paga en el corte
+   * nuevo por el camino de siempre. Queda la nota de dónde venía.
+   */
+  async pausePerson(
+    user: AuthUser,
+    batchId: string,
+    recipientCodeId: string,
+    body: { motivo?: string } = {},
+  ) {
+    this.assertAdmin(user);
+    const batch = await this.prisma.payoutBatch.findUnique({
+      where: { id: batchId },
+      select: { id: true, code: true, status: true, cutoffDate: true },
+    });
+    if (!batch) throw new NotFoundException('Corte no encontrado');
+    if (batch.status === 'CLOSED')
+      throw new ConflictException(`El corte ${batch.code} ya está cerrado.`);
+
+    const comms = await this.prisma.commission.findMany({
+      where: { ...PAYABLE_BASE, payoutBatchId: batchId, recipientCodeId },
+      select: { id: true, amount: true, amountPaid: true, notes: true },
+    });
+    if (!comms.length)
+      throw new BadRequestException(
+        'Esta persona no tiene comisiones pendientes en el corte.',
+      );
+    // Un pago a medias ya es dinero de ESTE corte: moverlo al siguiente haría
+    // que cada corte contara una parte distinta de la misma comisión.
+    if (comms.some((c) => Number(c.amountPaid) > 0)) {
+      throw new BadRequestException(
+        'Esta persona ya tiene un pago parcial en este corte. Termina de pagarle o revierte el pago antes de pausarla.',
+      );
+    }
+
+    const destino = await this.siguienteCorteAbierto(batch.cutoffDate);
+    const stamp = bogotaYmd();
+    const motivo = body.motivo?.trim();
+    const nota = `[${stamp}] ⏸ Pausada en ${batch.code}: pasa a ${destino.code}${motivo ? ` · ${motivo}` : ''}`;
+    const total = round2(comms.reduce((a, c) => a + Number(c.amount), 0));
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const c of comms) {
+        // Condicional: si alguien la pagó mientras tanto, no se mueve.
+        const movida = await tx.commission.updateMany({
+          where: {
+            id: c.id,
+            payoutBatchId: batchId,
+            status: CommissionStatus.APPROVED,
+            amountPaid: 0,
+          },
+          data: {
+            payoutBatchId: destino.id,
+            notes: c.notes ? `${c.notes}\n${nota}` : nota,
+          },
+        });
+        if (movida.count !== 1) {
+          throw new ConflictException(
+            'Otra persona acaba de tocar estas comisiones. Recarga la pantalla y vuelve a intentarlo.',
+          );
+        }
+      }
+      await this.recalcBatchTotal(tx, batchId);
+      await this.recalcBatchTotal(tx, destino.id);
+    });
+
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: recipientCodeId },
+      select: { ownerName: true },
+    });
+    await this.audit.log({
+      actorId: user.id ?? null,
+      action: 'commission.person_paused',
+      resource: `payout_batch:${batchId}`,
+      metadata: {
+        from: batch.code,
+        to: destino.code,
+        recipientCodeId,
+        ownerName: code?.ownerName ?? null,
+        commissionIds: comms.map((c) => c.id),
+        totalUsd: total,
+        motivo: motivo ?? null,
+      },
+    });
+    await this.prereg
+      .sendInternalAlert(
+        CutoffService.PAYOUT_ALERT_PHONE,
+        `⏸ ${this.cutoffLabelFor(batch.code)}: pausado ${code?.ownerName ?? 'afiliado'} · $${total.toFixed(2)} pasa a ${this.cutoffLabelFor(destino.code)}.`,
+      )
+      .catch(() => null);
+
+    return {
+      ok: true as const,
+      count: comms.length,
+      amountUsd: total,
+      toCode: destino.code,
+      toLabel: this.cutoffLabelFor(destino.code),
+    };
+  }
+
+  /**
+   * El primer corte ABIERTO posterior a `despuesDe`. Si todavía no existe se crea
+   * VACÍO (solo la fila, sin enganchar nada): lo que le toque por su ventana lo
+   * engancha el cron en su día, como siempre. Generarlo entero aquí adelantaría
+   * a hoy el enganche de otras comisiones que nadie pidió mover.
+   */
+  private async siguienteCorteAbierto(despuesDe: Date) {
+    let ymd = nextCutoffYmd(addDaysYmd(bogotaYmd(despuesDe), 1));
+    for (let i = 0; i < 12; i++) {
+      const code = cutoffCode(ymd);
+      let b = await this.prisma.payoutBatch.findUnique({
+        where: { code },
+        select: { id: true, code: true, status: true },
+      });
+      if (!b) {
+        const period = cutoffPeriod(ymd);
+        try {
+          b = await this.prisma.payoutBatch.create({
+            data: {
+              code,
+              cutoffDate: bogotaNoonUtc(ymd),
+              periodStart: bogotaNoonUtc(period.start),
+              periodEnd: bogotaNoonUtc(period.end),
+              kind: 'CORTE',
+              status: 'OPEN',
+              generatedAuto: false,
+              paymentDate: null,
+              totalUsd: 0,
+            },
+            select: { id: true, code: true, status: true },
+          });
+        } catch (e: any) {
+          if (e?.code !== 'P2002') throw e;
+          b = await this.prisma.payoutBatch.findUniqueOrThrow({
+            where: { code },
+            select: { id: true, code: true, status: true },
+          });
+        }
+      }
+      if (b.status === 'OPEN') return b;
+      ymd = nextCutoffYmd(addDaysYmd(ymd, 1));
+    }
+    throw new ConflictException('No se encontró un corte abierto posterior.');
+  }
+
   /** Envío de PRUEBA del SMS interno de pagos (antes de activar el flujo). */
   async testPayoutSms(user: AuthUser) {
     this.assertAdmin(user);
@@ -1006,7 +1160,12 @@ export class CutoffService {
       })
       .sort((a, b) => Number(a.paid) - Number(b.paid) || b.amountUsd - a.amountUsd);
 
-    const allPaid = people.length > 0 && people.every((p) => p.paid);
+    // Un corte que se queda SIN personas —porque se pausaron todas las que le
+    // quedaban— se cierra en $0, como los cortes en $0 que genera el cron: no
+    // hay dinero que recibir. Antes exigía al menos una persona y ese corte
+    // quedaba abierto para siempre.
+    const vacio = people.length === 0;
+    const allPaid = people.every((p) => p.paid);
     return {
       batch: {
         id: batch.id,
@@ -1019,7 +1178,7 @@ export class CutoffService {
       },
       people,
       allPaid,
-      canClose: !!batch.receivedAt && allPaid,
+      canClose: (vacio || !!batch.receivedAt) && allPaid,
     };
   }
 

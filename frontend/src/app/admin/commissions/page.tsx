@@ -25,6 +25,8 @@ type CommissionRow = {
   paymentStatus: PaymentStatus;
   /** true = viene de una renovación; false = de la venta inicial del negocio. */
   esRenovacion?: boolean;
+  /** La venta se cobró por fuera (Nequi, efectivo, transferencia). */
+  esPagoManual?: boolean;
   status: string;
   createdAt: string;
   // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª, cobro real para
@@ -1026,6 +1028,11 @@ function AdvancedCommissionsView() {
                           {c.esRenovacion && (
                             <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-ok-soft text-ok-ink">
                               Renovación
+                            </span>
+                          )}
+                          {c.esPagoManual && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-info-soft text-info-ink">
+                              Pago manual
                             </span>
                           )}
                         </div>

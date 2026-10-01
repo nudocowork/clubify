@@ -192,6 +192,11 @@ class PayPersonBody {
   @IsOptional() @IsString() paymentDate?: string;
 }
 
+class PausePersonBody {
+  @IsString() recipientCodeId!: string;
+  @IsOptional() @IsString() @MaxLength(300) motivo?: string;
+}
+
 @Controller('referrals')
 export class ReferralsController {
   constructor(private svc: ReferralsService) {}
@@ -1071,6 +1076,19 @@ export class AdminCommissionsController {
   ) {
     const { recipientCodeId, ...rest } = body;
     return this.cutoff.markPersonPaid(user, id, recipientCodeId, rest);
+  }
+
+  /** Pausar a UNA persona: sus comisiones sin pagar pasan al corte siguiente. */
+  @Roles('SUPER_ADMIN')
+  @Post('payout-batches/:id/pause-person')
+  pausePerson(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PausePersonBody,
+  ) {
+    return this.cutoff.pausePerson(user, id, body.recipientCodeId, {
+      motivo: body.motivo,
+    });
   }
 
   /** Estado del flujo de pago (personas pagadas/pendientes + recibido). */

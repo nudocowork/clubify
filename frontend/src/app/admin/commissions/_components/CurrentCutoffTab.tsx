@@ -970,6 +970,30 @@ export function CloseBatchModal({
     }
   }
 
+  async function pausePerson(codeId: string, ownerName: string) {
+    if (
+      !confirm(
+        `¿Pausar a ${ownerName}?\n\nSus comisiones sin pagar de este corte pasan al corte siguiente y se le pagan allí. Este corte se podrá cerrar sin esa persona.`,
+      )
+    ) {
+      return;
+    }
+    setBusyPay(true);
+    try {
+      const r = await api<{ toLabel: string; amountUsd: number }>(
+        `/admin/commissions/payout-batches/${batch.id}/pause-person`,
+        { method: 'POST', body: JSON.stringify({ recipientCodeId: codeId }) },
+      );
+      toast(`${ownerName}: ${fmtUsd(r.amountUsd)} pasa a ${r.toLabel}`, 'success');
+      setPayingCode(null);
+      await reload();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo pausar', 'error');
+    } finally {
+      setBusyPay(false);
+    }
+  }
+
   async function submitClose() {
     if (!paymentDate) {
       toast(t('errorPaymentDateRequired'), 'error');
@@ -1103,15 +1127,25 @@ export function CloseBatchModal({
                           ✓ Pagado
                         </span>
                       ) : (
-                        <button
-                          onClick={() => {
-                            setPayingCode(p.codeId);
-                            setPersonProof(null);
-                          }}
-                          className="text-[11px] text-brand font-semibold"
-                        >
-                          Marcar pagado
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => pausePerson(p.codeId, p.ownerName)}
+                            disabled={busyPay}
+                            title="Sus comisiones pasan al corte siguiente"
+                            className="text-[11px] text-mute font-semibold hover:text-ink disabled:opacity-50"
+                          >
+                            Pausar
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPayingCode(p.codeId);
+                              setPersonProof(null);
+                            }}
+                            className="text-[11px] text-brand font-semibold"
+                          >
+                            Marcar pagado
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
