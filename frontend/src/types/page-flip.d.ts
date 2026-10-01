@@ -10,6 +10,7 @@ declare module 'page-flip' {
     flip(n: number): void;
     turnToPage(n: number): void;
     getCurrentPageIndex(): number;
+    getPage(n: number): { setDensity(d: 'soft' | 'hard'): void };
     on(ev: string, cb: (e: { data: unknown }) => void): void;
     destroy(): void;
   }

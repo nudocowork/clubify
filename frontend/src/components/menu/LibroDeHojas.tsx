@@ -37,6 +37,7 @@ type PageFlipInstancia = {
   flip: (n: number) => void;
   turnToPage: (n: number) => void;
   getCurrentPageIndex: () => number;
+  getPage: (n: number) => { setDensity: (d: 'soft' | 'hard') => void } | undefined;
   on: (ev: string, cb: (e: { data: unknown }) => void) => void;
   destroy: () => void;
 };
@@ -150,8 +151,7 @@ export function LibroDeHojas({
       const dpr = Math.min(window.devicePixelRatio || 1, 3);
       hojasImgRef.current = pages.map((p, i) => {
         const hoja = document.createElement('div');
-        // La portada gira RÍGIDA, como la tapa de un libro de verdad.
-        hoja.dataset.density = i === 0 ? 'hard' : 'soft';
+        hoja.dataset.density = 'soft';
         hoja.style.background = '#fff';
         hoja.style.overflow = 'hidden';
         const img = document.createElement('img');
@@ -200,6 +200,15 @@ export function LibroDeHojas({
         useMouseEvents: true,
       }) as unknown as PageFlipInstancia;
       instancia.loadFromHTML(cont.querySelectorAll('[data-density]'));
+      // TODAS las hojas blandas, también la portada (Javier, 2026-10-01: la
+      // tapa dura «no me gusta»). Con `showCover`, StPageFlip ENDURECE por su
+      // cuenta la primera página —y la última si queda sola— al armar los
+      // pliegos, ignore lo que diga `data-density`. Solo lo hace al cargar,
+      // así que basta con devolverlas a blandas justo después; `showCover`
+      // se queda porque es lo que deja la portada sola y centrada.
+      for (let i = 0; i < pages.length; i++) {
+        instancia.getPage(i)?.setDensity('soft');
+      }
       instancia.on('flip', (e) => {
         const n = Number(e.data);
         notificadoRef.current = n;
