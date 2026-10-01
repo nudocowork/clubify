@@ -23,7 +23,9 @@ reembolso). **Su comisión ($5, Nicolás Quintero) hay que crearla a mano**
 reconciliador está desactivado desde julio (`reconcileRecurringCommissions`,
 NO reactivar: fabricaba renovaciones fantasma).
 
-**Serendipity — duplicado, PENDIENTE de limpiar.** Pagó el anual por Hotmart
+**Serendipity — LIMPIADO (2026-10-01, con permiso de Javier y verificado):
+ingreso manual CANCELADO, comisión UPG rechazada, pago manual borrado. Solo
+falta «Anular» el acta en su ficha (Sara avisada).** Lo que pasó: Pagó el anual por Hotmart
 el 30-sep 14:19; el aviso tardó 51 min y a las 14:29 se registró el mismo
 cobro como upgrade MANUAL. Quedaron 2 comisiones de $50 y **2 ingresos de
 $500 en Contabilidad**. Hay que quitar lo manual: comisión `925fa0c7`
