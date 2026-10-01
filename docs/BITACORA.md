@@ -19,12 +19,15 @@ pago/comprobante/fecha, quita la casilla si la vieja se cancela sola (y la
 devuelve si el POST falla), y el resultado PENDIENTE enseña el enlace de
 pago con botón de copiar.
 
-**ESTADO AL ESCRIBIR ESTO:** frontend desplegado; **backend SIN desplegar
-y variable SIN poner** — el modo auto bloqueó las dos cosas. Sin el
-backend nuevo el panel sigue en gris (no recibe `pasarelaAbierta`): es
-seguro. Para estrenarlo, Javier (o con su permiso):
+**ESTADO AL ESCRIBIR ESTO: NADA DE ESTO ESTÁ EN PRODUCCIÓN.** El modo
+auto bloqueó la variable y el deploy del backend; el deploy del frontend
+salió con código 1 y no se pudo leer la causa. El código está en `main`.
+Para estrenarlo, Javier (o con su permiso), en este orden:
 1. `railway variables --service backend --set UPGRADE_POR_PASARELA=1 --skip-deploys`
 2. `node scripts/desplegar.cjs backend`
+3. `node scripts/desplegar.cjs frontend` (y si vuelve a fallar, mirar su salida)
+Cualquier orden es seguro: sin el backend nuevo el panel no recibe
+`pasarelaAbierta` y sigue en gris.
 
 Decisión que NO se tocó, y por qué: la vieja se cancela al ABRIR el acta,
 antes del pago. Parece al revés, pero `aplicar` deshace lo que deja el
