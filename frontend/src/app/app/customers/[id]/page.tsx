@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { plural } from '@/lib/plural';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { PhoneInput } from '@/components/PhoneInput';
 
 type Pass = {
   id: string;
@@ -1010,10 +1011,13 @@ const MONTHS_ES = [
  *  si se deja vacío, no se toca la fecha actual. */
 function EditCustomerModal({
   customer,
+  country,
   onClose,
   onSaved,
 }: {
   customer: Customer;
+  /** País del negocio (Tenant.country): la bandera inicial si no hay número. */
+  country?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1051,7 +1055,11 @@ function EditCustomerModal({
       // Pedido de Javier (2026-09-29): el teléfono también se corrige desde
       // aquí. El backend ya lo aceptaba (PATCH /customers) y responde claro si
       // otro cliente del negocio lo tiene.
-      phone: phone.trim() || null,
+      // Sin espacios: `PhoneInput` devuelve «+56 971269502» y los guardados
+      // están como «+56971269502». Con el espacio, la búsqueda por número
+      // seguiría encontrándolo (compara por el final), pero el índice único
+      // del teléfono no vería que es el mismo que otra ficha.
+      phone: phone.replace(/s+/g, '') || null,
     };
     if (day && month) {
       body.birthday = `2000-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
@@ -1101,16 +1109,15 @@ function EditCustomerModal({
         />
 
         <label className="label mt-3">Teléfono</label>
-        <input
-          className="input w-full"
-          type="tel"
+        <PhoneInput
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="+57 300 123 4567 (opcional)"
+          onChange={setPhone}
+          defaultCountry={country}
+          placeholder="Número sin prefijo (opcional)"
         />
         <p className="text-[11px] text-mute mt-1">
-          Con el indicativo del país (+57…) el cliente encuentra su tarjeta
-          buscando por su número.
+          Elige el país y escribe el número sin el prefijo: así el cliente
+          encuentra su tarjeta buscando por su número.
         </p>
 
         <label className="label mt-3">Cumpleaños</label>
@@ -1268,19 +1275,21 @@ export default function CustomerDetail() {
     currency: 'COP',
     currencySymbol: null,
   });
+  const [tenantCountry, setTenantCountry] = useState<string | undefined>();
   const [deleting, setDeleting] = useState(false);
 
   async function load() {
     try {
       setC(await api<Customer>(`/customers/${id}`));
       // Cargar moneda del tenant en paralelo (no bloquea si falla).
-      api<{ currency?: string; currencySymbol?: string | null }>('/tenants/me')
-        .then((t) =>
+      api<{ currency?: string; currencySymbol?: string | null; country?: string }>('/tenants/me')
+        .then((t) => {
           setTenantMoney({
             currency: t.currency ?? 'COP',
             currencySymbol: t.currencySymbol ?? null,
-          }),
-        )
+          });
+          setTenantCountry(t.country || undefined);
+        })
         .catch(() => null);
     } catch (e: any) {
       toast(e.message || t('loadError'), 'error');
@@ -1321,6 +1330,7 @@ export default function CustomerDetail() {
       {editing && (
         <EditCustomerModal
           customer={c}
+          country={tenantCountry}
           onClose={() => setEditing(false)}
           onSaved={load}
         />
