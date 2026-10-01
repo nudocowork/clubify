@@ -8,6 +8,38 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-01 (107) — Wok sin comisión (dos cobros en un mes), Serendipity doble, Primor
+
+Commit `8366aa8d`, **DESPLEGADO Y VERIFICADO** (`/api/health` → `8366aa8`).
+
+**Wok Explosivo — arreglado en el código, falta su comisión.** Mensual; el
+cobro del 26-ago se retrasó al 1-sep y el del 28-sep (HP1073184282) no generó
+comisión: el webhook daba por cobrado el MES si ya tenía una comisión, y la
+UNIQUE usa el mes como `periodKey`. Ahora «mismo cobro» = misma fecha ±3 días
+(`referrals/clave-del-periodo.ts`) y, si el mes ya lo ocupa otro cobro, la
+clave lleva el día (`2026-09-28`). Arqueo de 90 días: solo Wok (Quipao era un
+reembolso). **Su comisión ($5, Nicolás Quintero) hay que crearla a mano**
+(Referidos → cliente → «Agregar comisión»): no hay reproceso de avisos y el
+reconciliador está desactivado desde julio (`reconcileRecurringCommissions`,
+NO reactivar: fabricaba renovaciones fantasma).
+
+**Serendipity — duplicado, PENDIENTE de limpiar.** Pagó el anual por Hotmart
+el 30-sep 14:19; el aviso tardó 51 min y a las 14:29 se registró el mismo
+cobro como upgrade MANUAL. Quedaron 2 comisiones de $50 y **2 ingresos de
+$500 en Contabilidad**. Hay que quitar lo manual: comisión `925fa0c7`
+(UPG-…) → rechazada, ingreso `c8e89f9d` (MANUAL) → CANCELADO, pago manual
+`a77a9d54` → borrado, y «Anular» el acta del upgrade en su ficha. «Anular» por
+sí solo NO toca dinero (ver `plan-upgrade.service.anular`). Script listo y
+con comprobaciones: scratchpad `serendipity-limpiar.cjs`. El modo auto
+bloquea escribir en producción.
+
+**Primor Barber — no se perdió.** Su comisión ($30, Eudes Rincón) está en el
+corte del 30-sep, aprobada. Fue ahí y no al del 15 porque nació el 8-sep (al
+asignarle el afiliado) sin fecha de desbloqueo: el código de entonces contaba
+los 15 días desde la asignación. Se arregló el 15-sep (`ffbab500`). Y **Eudes
+no tiene perfil de pago** (`PaymentProfile` vacío): sin él, el panel no deja
+transferirle.
+
 ## 2026-10-01 (106) — Socio por mes, «Pausar» en el corte, «Pago manual» y Degodoy
 
 Commits `978ac84b` (socio) y `9d130255` (pausa + etiqueta). Encargo de
