@@ -260,6 +260,8 @@ describe('generateCommissionsForPayment · la fecha que le pasan manda', () => {
         })),
       },
       referralUse: { findFirst: vi.fn(async () => ({ id: 'use-1' })) },
+      // Comisiones del referido con la clave del mes (`claveDelPeriodo`): ninguna.
+      commission: { findMany: vi.fn(async () => []) },
       $transaction: vi.fn(async (fn: any) => fn(tx)),
     };
     svc.recalc = { getCommissionBase: vi.fn(async () => 278) };

@@ -118,9 +118,13 @@ export class AccountingService {
     });
     const socioPct = socioRow?.value ? Number(socioRow.value) : 10;
 
-    // periodKey de cada comisión (legacy sin periodKey → mes de createdAt).
-    const pk = (c: (typeof commissions)[number]) =>
-      c.periodKey ?? monthOf(new Date(c.createdAt));
+    // periodKey de cada comisión (legacy sin periodKey → mes de createdAt). La
+    // del SEGUNDO cobro de un mismo mes lleva el día (`2026-09-28`, ver
+    // `claveDelPeriodo`): aquí cuenta como su mes.
+    const pk = (c: (typeof commissions)[number]) => {
+      const k = c.periodKey ?? monthOf(new Date(c.createdAt));
+      return /^\d{4}-\d{2}-\d{2}$/.test(k) ? k.slice(0, 7) : k;
+    };
 
     const entries: JournalEntryView[] = [];
 

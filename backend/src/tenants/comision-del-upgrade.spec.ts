@@ -251,6 +251,8 @@ describe('el motor de siempre sigue calculando igual (no lo tocó el upgrade)', 
         })),
       },
       referralUse: { findFirst: vi.fn(async () => ({ id: 'use-1' })) },
+      // Comisiones del referido con la clave del mes (`claveDelPeriodo`): ninguna.
+      commission: { findMany: vi.fn(async () => []) },
       $transaction: vi.fn(async (fn: any) => fn(tx)),
     };
     // El canónico del anual: 500. El motor lo pide y lo usa aunque el pago

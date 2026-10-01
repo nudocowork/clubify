@@ -30,6 +30,7 @@ import {
 } from './rango-de-fechas';
 import { quedaSinAfiliado } from './sin-afiliado';
 import { esComisionDePagoManual } from './comision-de-pago-manual';
+import { MARGEN_MISMO_COBRO_MS, claveDelPeriodo } from './clave-del-periodo';
 import {
   NO_ES_DEL_UPGRADE,
   esDeMontoLibre,
@@ -5185,14 +5186,18 @@ export class ReferralsService {
     // fecha del cobro real, NO del mes en que corre el webhook. Así cada cobro cae
     // en su propio mes y dos cobros de meses distintos nunca colisionan en la
     // UNIQUE(referralUseId, recipientCodeId, periodKey).
-    const periodKey = monthKey(businessDate);
-    // Ventana del CICLO de este cobro (mes de businessDate) para dedup por ciclo.
-    const cycleStart = new Date(
-      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth(), 1),
+    // Si el mes ya tiene la comisión de OTRO cobro (un cobro retrasado que cayó
+    // en este mes), la clave lleva el día. Ver `clave-del-periodo.ts`.
+    const periodKey = claveDelPeriodo(
+      businessDate,
+      await this.prisma.commission.findMany({
+        where: { referralUseId: use.id, periodKey: monthKey(businessDate) },
+        select: { businessDate: true, createdAt: true },
+      }),
     );
-    const cycleEnd = new Date(
-      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth() + 1, 1),
-    );
+    // Ventana del MISMO COBRO para el dedup: su fecha ± unos días, no su mes.
+    const cycleStart = new Date(businessDate.getTime() - MARGEN_MISMO_COBRO_MS);
+    const cycleEnd = new Date(businessDate.getTime() + MARGEN_MISMO_COBRO_MS);
     try {
       const counts = await this.prisma.$transaction(async (tx) => {
         let g = 0;
@@ -5211,15 +5216,20 @@ export class ReferralsService {
               continue;
             }
           }
-          // Dedup por CICLO: si ya hay una comisión para (use, recipient) cuyo
-          // businessDate cae en el MISMO mes de cobro, es el mismo ciclo → skip.
-          // Cubre filas creadas por reconcileRecurringCommissions (tx=null) que el
-          // check por tx no ve, evitando duplicar el mismo cobro por dos caminos.
+          // Dedup por COBRO: si ya hay una comisión para (use, recipient) con la
+          // fecha de ESTE cobro (± unos días), es el mismo → skip. Cubre las
+          // filas del reconciliador (tx=null), que el check por tx no ve. Antes
+          // la ventana era el MES calendario y se comía el segundo cobro real
+          // de un mes (Wok Explosivo, 28-sep). Una comisión con OTRA
+          // transacción es otro cobro, por cerca que esté.
           const sameCycle = await tx.commission.findFirst({
             where: {
               referralUseId: use.id,
               recipientCodeId: row.recipientCodeId,
-              businessDate: { gte: cycleStart, lt: cycleEnd },
+              businessDate: { gte: cycleStart, lte: cycleEnd },
+              ...(txId
+                ? { OR: [{ hotmartTransactionId: null }, { hotmartTransactionId: txId }] }
+                : {}),
             },
             select: { id: true },
           });
