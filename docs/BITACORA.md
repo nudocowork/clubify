@@ -8,6 +8,31 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-01 (104) — Upgrade «Por pasarela»: el panel ya lo deja elegir (falta encender)
+
+Commit `8141d3a4`. Javier preguntó por qué seguía «no disponible»: la
+tarjeta estaba **escrita fija** en `UpgradeAnual.tsx` — encender
+`UPGRADE_POR_PASARELA` solo no la habría abierto. Ahora el preview manda
+`pasarelaAbierta` (el interruptor) y `automatica` real (código Hotmart +
+API), y el panel deja elegir el método; por pasarela no pide método de
+pago/comprobante/fecha, quita la casilla si la vieja se cancela sola (y la
+devuelve si el POST falla), y el resultado PENDIENTE enseña el enlace de
+pago con botón de copiar.
+
+**ESTADO AL ESCRIBIR ESTO:** frontend desplegado; **backend SIN desplegar
+y variable SIN poner** — el modo auto bloqueó las dos cosas. Sin el
+backend nuevo el panel sigue en gris (no recibe `pasarelaAbierta`): es
+seguro. Para estrenarlo, Javier (o con su permiso):
+1. `railway variables --service backend --set UPGRADE_POR_PASARELA=1 --skip-deploys`
+2. `node scripts/desplegar.cjs backend`
+
+Decisión que NO se tocó, y por qué: la vieja se cancela al ABRIR el acta,
+antes del pago. Parece al revés, pero `aplicar` deshace lo que deja el
+webhook de la cancelación (canceledAt, afiliado CHURNED); si se cancelara
+después del pago, ese aviso llegaría tarde y marcaría como cancelado a un
+negocio recién pasado a anual. Si el cliente no paga, conserva el servicio
+hasta el fin de lo ya pagado: confirmar solo cuando haya aceptado.
+
 ## 2026-09-30 (103) — El 2FA dejaba a la gente fuera de su cuenta; Panamá y Perú no veían sus pedidos
 
 **Estado: commiteado (`91ef41e4`). SIN desplegar.** Dos bugs que se sufrían en
