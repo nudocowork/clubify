@@ -51,7 +51,8 @@ export type Cascada = {
   comisionesPendientesUsd?: number;
   /** Generadas en el período, pagadas o no. */
   comisionesGeneradasUsd?: number;
-  /** Parte del socio: su % del NETO de las ventas de Clubify (no de la utilidad). */
+  /** Parte del socio: su % de las ventas de Clubify — del bruto hasta agosto
+   *  de 2026, del neto desde septiembre. No sale de la utilidad. */
   socioUsd?: number;
   socioPorcentaje?: number;
   utilidadUsd: number;
@@ -128,6 +129,19 @@ function anteriorAlLibro(periodo: string): boolean {
   const m = /^(\d{4})-(\d{2})$/.exec(periodo);
   if (!m) return false; // un trimestre o un año ya solapan con el libro
   return periodo < EMPIEZA_EL_LIBRO;
+}
+
+/**
+ * Sobre qué se calcula el socio, dicho para la etiqueta. La regla vive en el
+ * backend (`finance/socio.ts`): del bruto las ventas hasta agosto de 2026, del
+ * neto desde septiembre. Un rango que cruza septiembre suma las dos.
+ */
+const MES_DESDE_EL_NETO = '2026-09';
+function baseDelSocioTexto(periodo: string): string {
+  if (!/^\d{4}-\d{2}$/.test(periodo)) {
+    return 'de las ventas: bruto hasta agosto, neto desde septiembre';
+  }
+  return periodo < MES_DESDE_EL_NETO ? 'del total de ventas' : 'del neto';
 }
 
 const MES_CORTO = [
@@ -366,12 +380,10 @@ export function PanoramaPeriodo({
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(r.egresosUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(r.nominaUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones pagadas</span><span className="tabular-nums text-red-600">−{money(r.comisionesUsd)}</span></div>
-              {/* Su base es la UTILIDAD, no el neto (Sara, 2026-09-17): todo lo
-                  que está encima —egresos, nómina, comisiones— le baja la
-                  parte. La etiqueta lo dice porque con la anterior («% del
-                  neto») el número de al lado no daba esa cuenta y parecía un
-                  error de la pantalla. */}
-              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Socio ({r.socioPorcentaje ?? 10}% de lo que queda arriba)</span><span className="tabular-nums text-red-600">−{money(socio)}</span></div>
+              {/* La etiqueta dice SOBRE QUÉ se calcula: la línea va debajo de
+                  egresos y nómina pero no sale de ellos, y sin decirlo el
+                  número de al lado parece un error de la pantalla. */}
+              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Socio ({r.socioPorcentaje ?? 10}% {baseDelSocioTexto(datos.period)})</span><span className="tabular-nums text-red-600">−{money(socio)}</span></div>
               <div className="flex justify-between py-2.5 mt-1 border-t-2 border-line2"><span className="font-bold">= UTILIDAD</span><span className={`tabular-nums font-bold text-lg ${r.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(r.utilidadUsd)}</span></div>
               {/* La nómina entra por los PAGOS generados del mes, no por la
                   ficha de cada colaborador: el monto cambia de un mes a otro.

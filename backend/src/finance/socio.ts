@@ -1,22 +1,40 @@
 /**
  * La parte del SOCIO en la cascada de utilidad.
  *
- * Dentro de Clubify hay un socio directo que se lleva un porcentaje. La base la
- * fijó Sara el 2026-09-17: **«el % del socio sale del monto de la utilidad»** —
- * lo que queda tras fee e impuestos, egresos, nómina y comisiones pagadas—. La
- * primera versión (misma mañana) lo calculaba sobre el neto de las ventas, que
- * era lo entendido entonces: con nómina o comisiones de por medio daba bastante
- * más, así que la diferencia importa.
+ * Dentro de Clubify hay un socio directo que se lleva un porcentaje. La base
+ * DEPENDE DEL MES DE LA VENTA (Javier, 2026-10-01):
  *
- * Un mes en pérdida no le genera deuda: su parte es cero, no negativa.
+ *   - Ventas hasta AGOSTO de 2026: el % sobre el BRUTO, el total de la venta
+ *     sin descontar impuesto ni fee de pasarela. Es lo que se le venía dando
+ *     desde mayo.
+ *   - Ventas desde SEPTIEMBRE de 2026: el % sobre el NETO, lo que queda tras
+ *     descontar impuesto y fee. Se le paga a fin de mes, revisado el mes.
  *
- * Es del socio de CLUBIFY: con «todas las marcas» sigue saliendo solo de la
- * utilidad de Clubify —su neto, sus egresos y su nómina—. Ni las ventas ni los
- * costos de una marca blanca son suyos. (Las comisiones de afiliados todavía no
- * se separan por marca: son el costo de la plataforma entera, decisión v1.)
+ * Ninguna de las dos resta egresos, nómina ni comisiones. Entre el 2026-09-17 y
+ * el 2026-10-01 se calculó sobre la UTILIDAD (regla de Sara, que restaba las
+ * tres): con la nómina de mayo ($1.667) le daba $0 ese mes, y junio-agosto
+ * salían a $22–$84 en vez de $447–$494. Si alguien vuelve a pedir «sobre la
+ * utilidad», ese es el precedente.
+ *
+ * Se aplica VENTA A VENTA, según su mes contable: un rango que cruce
+ * septiembre suma bruto de un lado y neto del otro, sin promediar.
+ *
+ * Es del socio de CLUBIFY: con «todas las marcas» sigue saliendo solo de las
+ * ventas de Clubify. Las de una marca blanca no son suyas.
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Primer mes contable (Bogotá) en el que la base del socio es el NETO. */
+export const MES_DESDE_EL_NETO = '2026-09';
+
+/**
+ * La base del socio de UNA venta: su bruto si es de antes de septiembre de
+ * 2026, su neto desde entonces. `mes` es su mes contable, `YYYY-MM`.
+ */
+export function baseDelSocio(mes: string, brutoUsd: number, netoUsd: number): number {
+  return mes < MES_DESDE_EL_NETO ? brutoUsd : netoUsd;
+}
 
 /**
  * Porcentaje: primero el ajuste propio de Contabilidad; si no hay, el del socio
@@ -60,9 +78,9 @@ export async function porcentajeDelSocio(prisma: {
 }
 
 /**
- * Lo que le toca de la utilidad (antes de su propia parte). Con la utilidad en
- * negativo, cero: un mes malo no le genera deuda al socio.
+ * Lo que le toca: el porcentaje de su base (la suma de `baseDelSocio` de las
+ * ventas del período). Nunca negativo.
  */
-export function parteDelSocio(utilidadUsd: number, porcentaje: number): number {
-  return round2((Math.max(utilidadUsd, 0) * porcentaje) / 100);
+export function parteDelSocio(baseUsd: number, porcentaje: number): number {
+  return round2((Math.max(baseUsd, 0) * porcentaje) / 100);
 }

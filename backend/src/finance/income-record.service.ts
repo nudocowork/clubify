@@ -8,6 +8,7 @@ import {
 } from './categorias-de-ingreso';
 import type { PaymentGateway } from '@prisma/client';
 import { alcanceDeMarca, combinar } from './alcance-de-marca';
+import { baseDelSocio } from './socio';
 
 /** Entrada para registrar un ingreso real. `grossUsd` = lo que pagó el cliente. */
 export interface RecordIncomeInput {
@@ -274,6 +275,7 @@ export class IncomeRecordService {
         enRango('saleDate', { from: opts.from, to: opts.to }),
       ),
       select: {
+        saleDate: true,
         grossUsd: true,
         gatewayFeeUsd: true,
         taxUsd: true,
@@ -298,7 +300,8 @@ export class IncomeRecordService {
       fee = 0,
       tax = 0,
       netExp = 0,
-      netRecv = 0;
+      netRecv = 0,
+      baseSocio = 0;
     const porCategoria: Record<string, { count: number; grossUsd: number }> = {};
     for (const r of cobrados) {
       gross += Number(r.grossUsd);
@@ -306,6 +309,11 @@ export class IncomeRecordService {
       tax += Number(r.taxUsd);
       netExp += Number(r.netExpectedUsd);
       if (r.netReceivedUsd != null) netRecv += Number(r.netReceivedUsd);
+      baseSocio += baseDelSocio(
+        mesContable(r.saleDate),
+        Number(r.grossUsd),
+        Number(r.netExpectedUsd),
+      );
       const k = r.category ?? 'SIN_CATEGORIA';
       const c = porCategoria[k] ?? { count: 0, grossUsd: 0 };
       c.count += 1;
@@ -319,6 +327,9 @@ export class IncomeRecordService {
       taxUsd: round2(tax),
       netExpectedUsd: round2(netExp),
       netReceivedUsd: round2(netRecv),
+      /** Sobre lo que se calcula el socio: bruto hasta agosto, neto desde
+       *  septiembre de 2026, venta a venta. Ver `socio.ts`. */
+      baseDelSocioUsd: round2(baseSocio),
       pendingRecon: cobrados.filter((r) => r.reconStatus === 'PENDING').length,
       inReview: cobrados.filter((r) => r.reconStatus === 'REVIEW').length,
       /** Dinero que entró y se devolvió (reembolso o contracargo). */

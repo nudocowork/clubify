@@ -13,8 +13,8 @@ import { IncomeRecordService } from './income-record.service';
 import { ExpenseService } from './expense.service';
 import { enRango, enRangoConRespaldo } from './where-periodo';
 import { SOLO_LO_COBRADO } from './categorias-de-ingreso';
-import { alcanceDeMarca, combinar, marcaClubify } from './alcance-de-marca';
-import { NO_ES_COMISION_DEL_SOCIO, parteDelSocio, porcentajeDelSocio } from './socio';
+import { alcanceDeMarca, combinar } from './alcance-de-marca';
+import { NO_ES_COMISION_DEL_SOCIO, baseDelSocio, parteDelSocio, porcentajeDelSocio } from './socio';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -23,12 +23,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * (Cierres). Cascada de utilidad, DERIVADA en lectura (no persiste nada):
  *
  *   Bruto − (Fee pasarela + Impuestos) = Neto
- *   Neto − Egresos − Nómina − Comisiones PAGADAS = Utilidad antes del socio
- *   Utilidad antes del socio − Socio = UTILIDAD
+ *   Neto − Egresos − Nómina − Comisiones PAGADAS − Socio = UTILIDAD
  *
- * El socio se lleva su porcentaje de la UTILIDAD (Sara, 2026-09-17), no del
- * neto: todo lo que baja la utilidad —egresos, nómina, comisiones— le baja
- * también su parte. Ver `socio.ts`.
+ * El socio se lleva su porcentaje de las VENTAS de Clubify: del bruto hasta
+ * agosto de 2026 y del neto desde septiembre (Javier, 2026-10-01). Egresos,
+ * nómina y comisiones NO le bajan su parte. Ver `socio.ts`.
  *
  * Las comisiones entran por lo PAGADO (fecha de pago), no por lo generado:
  * una comisión aprobada y sin pagar es deuda, no un egreso ya realizado, y
@@ -53,7 +52,8 @@ export interface FinancialSummary {
   comisionesPendientesUsd: number;
   /** Comisiones generadas en el período, pagadas o no. */
   comisionesGeneradasUsd: number;
-  /** Parte del socio: `socioPorcentaje` % de la utilidad de Clubify antes de él. */
+  /** Parte del socio: `socioPorcentaje` % de su base (bruto hasta agosto de
+   *  2026, neto desde septiembre) en las ventas de Clubify. */
   socioUsd: number;
   socioPorcentaje: number;
   utilidadUsd: number;
@@ -81,7 +81,7 @@ export class FinanceReportService {
   ): Promise<FinancialSummary> {
     const wl = await alcanceDeMarca(this.prisma, onlyClubify);
     const rango = { from, to };
-    const [inc, exp, runs, comms, pagadas, socioPorcentaje, ventasClubify, egresosClubify, nominaClubify] =
+    const [inc, exp, runs, comms, pagadas, socioPorcentaje, ventasClubify] =
       await Promise.all([
       this.income.summary({ from, to, onlyClubify }),
       this.expense.summary({ from, to, onlyClubify }),
@@ -111,23 +111,11 @@ export class FinanceReportService {
         select: { amountPaid: true },
       }),
       porcentajeDelSocio(this.prisma),
-      // El socio es de Clubify: con «todas las marcas» su base sigue siendo el
-      // neto de Clubify, no el de las marcas blancas.
+      // El socio es de Clubify: con «todas las marcas» su base sigue siendo la
+      // de las ventas de Clubify, no la de las marcas blancas.
       onlyClubify
         ? Promise.resolve(null)
         : this.income.summary({ from, to, onlyClubify: true }),
-      // Mismo motivo: con «todas las marcas», los egresos y la nómina que
-      // cuentan para el socio son los de Clubify.
-      onlyClubify ? Promise.resolve(null) : this.expense.summary({ from, to, onlyClubify: true }),
-      onlyClubify
-        ? Promise.resolve(null)
-        : this.prisma.payrollRun.findMany({
-            where: combinar(
-              await alcanceDeMarca(this.prisma, true),
-              enRangoConRespaldo('periodEnd', rango),
-            ),
-            select: { totalUsd: true },
-          }),
     ]);
     const nominaUsd = round2(
       runs.reduce((a, r) => a + Number(r.totalUsd), 0),
@@ -147,19 +135,12 @@ export class FinanceReportService {
     const comisionesUsd = round2(
       pagadas.reduce((a, c) => a + Number(c.amountPaid), 0),
     );
-    // La parte del socio sale de la utilidad de CLUBIFY, aunque la pantalla esté
-    // mostrando todas las marcas: las ventas, egresos y nómina de una marca
-    // blanca no son suyos. Las comisiones no se acotan por marca (decisión v1).
-    const nominaClubifyUsd = nominaClubify
-      ? round2(nominaClubify.reduce((a, r) => a + Number(r.totalUsd), 0))
-      : nominaUsd;
-    const utilidadAntesDelSocio = round2(
-      (ventasClubify ?? inc).netExpectedUsd -
-        (egresosClubify ?? exp).totalUsd -
-        nominaClubifyUsd -
-        comisionesUsd,
+    // La parte del socio sale de las ventas de CLUBIFY, aunque la pantalla esté
+    // mostrando todas las marcas: las de una marca blanca no son suyas.
+    const socioUsd = parteDelSocio(
+      (ventasClubify ?? inc).baseDelSocioUsd,
+      socioPorcentaje,
     );
-    const socioUsd = parteDelSocio(utilidadAntesDelSocio, socioPorcentaje);
     const utilidadUsd = round2(
       inc.netExpectedUsd - exp.totalUsd - nominaUsd - comisionesUsd - socioUsd,
     );
@@ -270,7 +251,7 @@ export class FinanceReportService {
     const rango = { from: desde, to: hasta };
     const wl = await alcanceDeMarca(this.prisma, onlyClubify);
 
-    const [ingresos, egresos, cortes, comisiones, socioPorcentaje, ventasClubify, idDeClubify] = await Promise.all([
+    const [ingresos, egresos, cortes, comisiones, socioPorcentaje, ventasClubify] = await Promise.all([
       this.prisma.incomeRecord.findMany({
         where: combinar(wl, SOLO_LO_COBRADO, enRango('saleDate', rango)),
         select: {
@@ -278,17 +259,13 @@ export class FinanceReportService {
           taxUsd: true, netExpectedUsd: true,
         },
       }),
-      // `whiteLabelId` viene en el select porque el socio se calcula sobre la
-      // utilidad de CLUBIFY y estas dos tablas, con «todas las marcas», traen
-      // también las de las marcas blancas. Repartir en memoria evita dos
-      // consultas más por una gráfica.
       this.prisma.expense.findMany({
         where: combinar(wl, enRango('expenseDate', rango)),
-        select: { expenseDate: true, amountUsd: true, whiteLabelId: true },
+        select: { expenseDate: true, amountUsd: true },
       }),
       this.prisma.payrollRun.findMany({
         where: combinar(wl, enRangoConRespaldo('periodEnd', rango)),
-        select: { periodEnd: true, createdAt: true, totalUsd: true, whiteLabelId: true },
+        select: { periodEnd: true, createdAt: true, totalUsd: true },
       }),
       // Por fecha de PAGO y con lo PAGADO, igual que `summary()`. Antes esta
       // consulta repartía por fecha de NEGOCIO y sumaba lo generado: la barra
@@ -312,21 +289,15 @@ export class FinanceReportService {
         : alcanceDeMarca(this.prisma, true).then((clubify) =>
             this.prisma.incomeRecord.findMany({
               where: combinar(clubify, SOLO_LO_COBRADO, enRango('saleDate', rango)),
-              select: { saleDate: true, netExpectedUsd: true },
+              select: { saleDate: true, grossUsd: true, netExpectedUsd: true },
             }),
           ),
-      marcaClubify(this.prisma),
     ]);
-
-    // La misma regla que `alcanceDeMarca`: Clubify es su id MÁS los legacy en
-    // null. Con el alcance Clubify todas las filas ya lo son.
-    const esDeClubify = (id: string | null) =>
-      onlyClubify || id === null || id === idDeClubify;
 
     const vacio = () => ({
       grossUsd: 0, gatewayFeeUsd: 0, taxUsd: 0, netUsd: 0,
       egresosUsd: 0, nominaUsd: 0, comisionesUsd: 0,
-      netoClubifyUsd: 0, egresosClubifyUsd: 0, nominaClubifyUsd: 0,
+      baseSocioUsd: 0,
     });
     const cubos = new Map(meses.map((m) => [m, vacio()]));
     const cubo = (fecha: Date) => cubos.get(mesContable(fecha));
@@ -338,23 +309,29 @@ export class FinanceReportService {
       c.gatewayFeeUsd += Number(i.gatewayFeeUsd);
       c.taxUsd += Number(i.taxUsd);
       c.netUsd += Number(i.netExpectedUsd);
-      if (!ventasClubify) c.netoClubifyUsd += Number(i.netExpectedUsd);
+      if (!ventasClubify) {
+        c.baseSocioUsd += baseDelSocio(
+          mesContable(i.saleDate), Number(i.grossUsd), Number(i.netExpectedUsd),
+        );
+      }
     }
     for (const v of ventasClubify ?? []) {
       const c = cubo(v.saleDate);
-      if (c) c.netoClubifyUsd += Number(v.netExpectedUsd);
+      if (c) {
+        c.baseSocioUsd += baseDelSocio(
+          mesContable(v.saleDate), Number(v.grossUsd), Number(v.netExpectedUsd),
+        );
+      }
     }
     for (const e of egresos) {
       const c = cubo(e.expenseDate);
       if (!c) continue;
       c.egresosUsd += Number(e.amountUsd);
-      if (esDeClubify(e.whiteLabelId)) c.egresosClubifyUsd += Number(e.amountUsd);
     }
     for (const r of cortes) {
       const c = cubo(r.periodEnd ?? r.createdAt);
       if (!c) continue;
       c.nominaUsd += Number(r.totalUsd);
-      if (esDeClubify(r.whiteLabelId)) c.nominaClubifyUsd += Number(r.totalUsd);
     }
     for (const k of comisiones) {
       if (!k.paidAt) continue;
@@ -364,18 +341,10 @@ export class FinanceReportService {
 
     return meses.map((period) => {
       const c = cubos.get(period)!;
-      // Igual que en `summary`, y con los MISMOS componentes: la utilidad de
-      // Clubify. Antes restaba los egresos y la nómina de todas las marcas de
-      // un neto que ya era solo el de Clubify, así que el primer egreso de una
-      // marca blanca habría enseñado dos socios distintos para el mismo mes
-      // (la gráfica y la cascada). Las comisiones no se acotan por marca
-      // (decisión v1), igual que en `summary`.
-      const socioUsd = parteDelSocio(
-        round2(
-          c.netoClubifyUsd - c.egresosClubifyUsd - c.nominaClubifyUsd - c.comisionesUsd,
-        ),
-        socioPorcentaje,
-      );
+      // La MISMA base que `summary` —ventas de Clubify, bruto hasta agosto y
+      // neto desde septiembre—: si la gráfica y la cascada calcularan distinto,
+      // el mismo mes enseñaría dos socios.
+      const socioUsd = parteDelSocio(round2(c.baseSocioUsd), socioPorcentaje);
       const utilidadUsd = round2(
         c.netUsd - c.egresosUsd - c.nominaUsd - c.comisionesUsd - socioUsd,
       );
