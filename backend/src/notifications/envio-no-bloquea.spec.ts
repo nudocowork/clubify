@@ -63,7 +63,7 @@ function servicio(nPases: number, msPorPush = 20) {
       picoEnVuelo = Math.max(picoEnVuelo, enVuelo);
       await new Promise((r) => setTimeout(r, msPorPush));
       enVuelo -= 1;
-      return { sent: 1, google: { ok: true } };
+      return { sent: 1, google: { ok: true, status: 'patched', notified: true } };
     },
   };
 
@@ -158,7 +158,7 @@ describe('envío manual de notificaciones', () => {
     c.srv.wallet.pushPassUpdate = async () => {
       n += 1;
       if (n === 2) throw new Error('APNs caído');
-      return { sent: 1, google: { ok: true } };
+      return { sent: 1, google: { ok: true, status: 'patched', notified: true } };
     };
     await c.srv.send(USUARIO, MENSAJE);
     await vi.waitFor(

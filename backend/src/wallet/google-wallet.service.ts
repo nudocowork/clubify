@@ -27,6 +27,16 @@ import { ordenarSedesParaPase } from './orden-de-sedes';
 export class GoogleWalletService {
   private logger = new Logger(GoogleWalletService.name);
   private cachedSa: { client_email: string; private_key: string } | null = null;
+  /** Cliente de la API reutilizado. Ver `clienteDelPush`. */
+  private clientePush: { email: string; wallet: any } | null = null;
+  /**
+   * Clases ya escritas hace poco, por id → firma del cuerpo y caducidad. Y las
+   * que se están escribiendo AHORA, para que 8 pases en paralelo no las
+   * escriban 8 veces. Ver `asegurarClase`.
+   */
+  private clasesEscritas = new Map<string, { firma: string; hasta: number }>();
+  private clasesEnVuelo = new Map<string, Promise<boolean>>();
+  private static readonly CLASE_VIGENTE_MS = 10 * 60 * 1000;
 
   constructor(
     private prisma: PrismaService,
@@ -578,35 +588,96 @@ export class GoogleWalletService {
    * patchear un objeto contra una clase que no existe devuelve otro 404 que se
    * lee como «el objeto no existe», y ahí se pierde el rastro del problema.
    */
+  /**
+   * El cliente de la API, uno por proceso y no uno por pase.
+   *
+   * Crear un `JWT` nuevo en cada `pushUpdate` era pedirle a Google un token
+   * de acceso NUEVO por cada pase: una ida y vuelta más, en serie, antes de
+   * tocar nada. Un envío a 98 pases tardaba 4 minutos (2026-10-01). El JWT
+   * renueva su token solo cuando caduca, así que reutilizarlo es gratis.
+   */
+  private async clienteDelPush(sa: { client_email: string; private_key: string }) {
+    if (this.clientePush?.email === sa.client_email) return this.clientePush.wallet;
+    const { google } = await import('googleapis');
+    const auth = new google.auth.JWT({
+      email: sa.client_email,
+      key: sa.private_key,
+      scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
+    });
+    const wallet = google.walletobjects({ version: 'v1', auth });
+    this.clientePush = { email: sa.client_email, wallet };
+    return wallet;
+  }
+
+  /**
+   * Escribe (o crea) la clase, salvo que ya se haya escrito IGUAL hace poco.
+   *
+   * La clase es de la TARJETA, no del pase: en un envío a 98 clientes de la
+   * misma tarjeta el cuerpo es idéntico las 98 veces, y se patcheaba 98 veces
+   * en serie. Se compara el cuerpo entero (la «firma»): si cambió el logo o
+   * el color, cambia la firma y se vuelve a escribir en el acto.
+   */
   private async asegurarClase(
     wallet: any,
     classId: string,
     classBody: unknown,
   ): Promise<boolean> {
+    const firma = JSON.stringify(classBody);
+    const ahora = Date.now();
+    const escrita = this.clasesEscritas.get(classId);
+    if (escrita && escrita.firma === firma && escrita.hasta > ahora) return true;
+
+    const clave = `${classId}\u0000${firma}`;
+    const enVuelo = this.clasesEnVuelo.get(clave);
+    if (enVuelo) return enVuelo;
+
+    const promesa = this.escribirClase(wallet, classId, classBody).then((r) => {
+      if (r === 'escrita') {
+        this.clasesEscritas.set(classId, {
+          firma,
+          hasta: Date.now() + GoogleWalletService.CLASE_VIGENTE_MS,
+        });
+      }
+      return r !== 'sin-clase';
+    });
+    this.clasesEnVuelo.set(clave, promesa);
+    try {
+      return await promesa;
+    } finally {
+      this.clasesEnVuelo.delete(clave);
+    }
+  }
+
+  private async escribirClase(
+    wallet: any,
+    classId: string,
+    classBody: unknown,
+  ): Promise<'escrita' | 'fallo-blando' | 'sin-clase'> {
     try {
       await wallet.loyaltyclass.patch({
         resourceId: classId,
         requestBody: classBody as any,
       });
       this.logger.log(`Google Wallet class patched: ${classId}`);
-      return true;
+      return 'escrita';
     } catch (e: any) {
       const code = e?.code ?? e?.response?.status;
       if (code !== 404) {
         this.logger.warn(`Google Wallet class patch failed: ${e?.message ?? e}`);
         // Un fallo que NO es «no existe» (permisos, red) no impide que el
-        // objeto se patchee contra su clase de siempre.
-        return true;
+        // objeto se patchee contra su clase de siempre. Pero no se recuerda
+        // como escrita: el pase siguiente lo vuelve a intentar.
+        return 'fallo-blando';
       }
       try {
         await wallet.loyaltyclass.insert({ requestBody: classBody as any });
         this.logger.log(`Google Wallet class CREADA: ${classId}`);
-        return true;
+        return 'escrita';
       } catch (e2: any) {
         this.logger.error(
           `Google Wallet: no se pudo crear la clase ${classId}: ${e2?.message ?? e2}`,
         );
-        return false;
+        return 'sin-clase';
       }
     }
   }
@@ -886,13 +957,7 @@ export class GoogleWalletService {
     }
 
     try {
-      const { google } = await import('googleapis');
-      const auth = new google.auth.JWT({
-        email: sa.client_email,
-        key: sa.private_key,
-        scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
-      });
-      const wallet = google.walletobjects({ version: 'v1', auth });
+      const wallet = await this.clienteDelPush(sa);
 
       // PATCH de la CLASE: el logo (programLogo), el color de fondo y el
       // nombre del programa viven en el LoyaltyClass, no en el Object. Si no

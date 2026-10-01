@@ -9,6 +9,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { WalletService } from '../wallet/wallet.service';
+import { entregadosDelPush } from './envio-en-tandas';
 
 export type NotificationDto = {
   cardId?: string;
@@ -280,9 +281,7 @@ export class NotificationsService {
           const r = await this.wallet.pushPassUpdate(p.id, {
             message: { header: n.title, body: n.body },
           });
-          // `sent` son los de Apple; Google va aparte y solo cuenta si de verdad
-          // salió (`ok`), no si simplemente se intentó.
-          delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
+          delivered += entregadosDelPush(r);
         } catch (e) {
           this.logger.warn(
             `Push pass ${p.id} (${n.id}) falló: ${(e as Error).message}`,
@@ -468,6 +467,7 @@ export class NotificationsService {
     if (due.length === 0) return;
 
     this.logger.log(`Cron: ${due.length} notificaciones programadas vencidas`);
+    const ganadas: typeof due = [];
     for (const n of due) {
       try {
         // CLAIM ATÓMICO. `sentAt: null` en el WHERE es lo que hace que esto sea
@@ -485,11 +485,21 @@ export class NotificationsService {
           );
           continue;
         }
-        await this.despachar(n);
+        ganadas.push(n);
       } catch (e) {
         await this.recuperarProgramadaFallida(n, e as Error);
       }
     }
+    // Las de negocios distintos a la vez: en fila, la de un negocio pequeño
+    // esperaba a que terminara el envío entero de uno grande programado a la
+    // misma hora. Cada una ya va por tandas por dentro.
+    await Promise.all(
+      ganadas.map((n) =>
+        this.despachar(n).catch((e) =>
+          this.recuperarProgramadaFallida(n, e as Error),
+        ),
+      ),
+    );
   }
 
   /**

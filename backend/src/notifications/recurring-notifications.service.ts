@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { WalletService } from '../wallet/wallet.service';
+import { CONCURRENCIA_DEL_PUSH, enTandas, entregadosDelPush } from './envio-en-tandas';
 
 export type RecurringNotificationDto = {
   cardId?: string | null;
@@ -54,6 +55,15 @@ export class RecurringNotificationsService {
   async create(user: AuthUser, dto: RecurringNotificationDto, override?: string) {
     const tid = this.tid(user, override);
     this.assertValidDto(dto);
+    // La del negocio, no la de Bogotá: el panel no manda zona y el dueño
+    // escribe la hora de su reloj. El cron también la lee del negocio
+    // (`zonaDe`); esto deja la fila coherente con lo que de verdad pasa.
+    const negocio = dto.timezone
+      ? null
+      : await this.prisma.tenant.findUnique({
+          where: { id: tid },
+          select: { timezone: true },
+        });
     return this.prisma.recurringNotification.create({
       data: {
         tenantId: tid,
@@ -63,7 +73,7 @@ export class RecurringNotificationsService {
         segment: dto.segment ?? undefined,
         daysOfWeek: Array.from(new Set(dto.daysOfWeek)).filter((d) => d >= 0 && d <= 6),
         timeOfDay: dto.timeOfDay,
-        timezone: dto.timezone || 'America/Bogota',
+        timezone: dto.timezone || negocio?.timezone || 'America/Bogota',
         isActive: dto.isActive ?? true,
       },
     });
@@ -150,17 +160,20 @@ export class RecurringNotificationsService {
   async dispatchDue() {
     const schedules = await this.prisma.recurringNotification.findMany({
       where: { isActive: true },
+      include: { tenant: { select: { timezone: true } } },
     });
     if (schedules.length === 0) return;
 
     const now = new Date();
+    const reclamadas: typeof schedules = [];
     for (const s of schedules) {
       try {
-        const fire = this.shouldFire(s, now);
+        const tz = this.zonaDe(s);
+        const fire = this.shouldFire({ ...s, timezone: tz }, now);
         if (!fire) continue;
         // Claim atómico: solo actualizamos si lastDispatchedAt NO está
         // dentro del mismo día local (race contra otro pod).
-        const cutoff = this.startOfDayInTz(now, s.timezone);
+        const cutoff = this.startOfDayInTz(now, tz);
         const claim = await this.prisma.recurringNotification.updateMany({
           where: {
             id: s.id,
@@ -172,25 +185,66 @@ export class RecurringNotificationsService {
           data: { lastDispatchedAt: now },
         });
         if (claim.count === 0) continue; // otro pod ganó
-        await this.dispatch(s);
+        reclamadas.push(s);
       } catch (e) {
         this.logger.warn(
-          `RecurringNotification ${s.id} dispatch falló: ${(e as Error).message}`,
+          `RecurringNotification ${s.id} claim falló: ${(e as Error).message}`,
         );
       }
     }
+
+    // TODAS A LA VEZ, no en fila. Antes se despachaban una detrás de otra y el
+    // negocio pequeño esperaba a que acabaran los grandes que tocaban a la
+    // misma hora: «GASEOSA GRATIS» de Hacienda Don Antonio salía a las
+    // 12:04–12:09 los días que Jamarea y Marea Místika también enviaban a las
+    // 12:00, y a las 12:00 en punto los días que no (2026-10-01).
+    await Promise.all(
+      reclamadas.map((s) =>
+        this.dispatch(s).catch((e) =>
+          this.logger.warn(
+            `RecurringNotification ${s.id} dispatch falló: ${(e as Error).message}`,
+          ),
+        ),
+      ),
+    );
   }
 
   /**
+   * La zona en la que se lee «a las 12:00»: la DEL NEGOCIO.
+   *
+   * El panel nunca ha mandado zona, así que todas las recurrencias se
+   * guardaban con la de Bogotá por defecto. Para Perú no se nota (misma hora),
+   * pero a los negocios de Nueva York les llegaba una hora tarde todo el
+   * horario de verano. El dueño escribe la hora de SU reloj.
+   */
+  private zonaDe(s: { timezone: string; tenant?: { timezone: string | null } | null }) {
+    const delNegocio = s.tenant?.timezone?.trim();
+    return delNegocio || s.timezone || 'America/Bogota';
+  }
+
+  /** Cuánto después de la hora todavía se envía si el tick se perdió. */
+  private static readonly VENTANA_MIN = 30;
+
+  /**
    * Determina si la recurrencia debería disparar AHORA mismo:
-   *  - Hoy (en la TZ del schedule) está incluido en daysOfWeek.
-   *  - La hora actual está entre [timeOfDay, timeOfDay + 5min].
+   *  - Hoy (en su zona) está incluido en daysOfWeek.
+   *  - La hora actual está entre [timeOfDay, timeOfDay + VENTANA_MIN].
+   *
+   * La ventana era de 5 minutos, igual que el cron: si se perdía UN tick (un
+   * despliegue, un reinicio), ese envío no salía ese día, ni tarde. Ahora se
+   * recupera dentro de la media hora. No puede salir dos veces: el claim es
+   * por día local.
    *
    * Implementación: usa Intl.DateTimeFormat para obtener weekday + HH:mm
-   * en la TZ del schedule sin depender de date-fns-tz.
+   * en la zona sin depender de date-fns-tz.
    */
   private shouldFire(
-    s: { daysOfWeek: number[]; timeOfDay: string; timezone: string },
+    s: {
+      daysOfWeek: number[];
+      timeOfDay: string;
+      timezone: string;
+      updatedAt?: Date;
+    },
     now: Date,
   ): boolean {
     const fmt = new Intl.DateTimeFormat('en-US', {
@@ -215,8 +269,15 @@ export class RecurringNotificationsService {
     const nowMinutes = hour * 60 + minute;
     const schedMinutes = schH * 60 + schM;
     const delta = nowMinutes - schedMinutes;
-    // Ventana de 5min después de la hora exacta (mismo intervalo que el cron).
-    return delta >= 0 && delta <= 5;
+    if (delta < 0 || delta > RecurringNotificationsService.VENTANA_MIN) return false;
+    if (delta <= 5) return true;
+    // Fuera del tick normal, solo se RECUPERA un envío perdido. Si la
+    // recurrencia se creó o se editó después de la hora de hoy, no hay nada
+    // que recuperar: crear a las 12:10 algo «para las 12:00» no debe salir ya.
+    // (`updatedAt` también lo mueve el propio claim de ayer, que es anterior.)
+    const instanteDeHoy = now.getTime() - (delta * 60 + now.getUTCSeconds()) * 1000;
+    if (s.updatedAt && s.updatedAt.getTime() > instanteDeHoy) return false;
+    return true;
   }
 
   /**
@@ -276,40 +337,47 @@ export class RecurringNotificationsService {
       },
     });
 
+    const inicio = Date.now();
     const passes = await this.prisma.pass.findMany({
       where: {
         tenantId: s.tenantId,
         ...(s.cardId ? { cardId: s.cardId } : {}),
         status: 'ACTIVE',
       },
-      include: { walletDevices: true },
+      select: {
+        id: true,
+        googleObjectId: true,
+        walletDevices: { where: { platform: 'APPLE' }, select: { id: true } },
+      },
     });
-    let targeted = 0;
+    // Apple + Google. Contar solo los dispositivos de Apple decía «0
+    // destinatarios» en un envío que sí salía: el 70% de los pases están en
+    // Google, donde no hay «dispositivos» sino un objeto.
+    const targeted = passes.reduce(
+      (acc, p) => acc + p.walletDevices.length + (p.googleObjectId ? 1 : 0),
+      0,
+    );
+    // Una escritura para todos, no una por pase dentro del bucle.
+    await this.prisma.pass
+      .updateMany({
+        where: { id: { in: passes.map((p) => p.id) } },
+        data: { lastActivityAt: new Date() },
+      })
+      .catch(() => null);
+
     let delivered = 0;
-    for (const p of passes) {
-      // Apple + Google. Contar solo los dispositivos de Apple decía «0
-      // destinatarios» en un envío que sí salía: el 70% de los pases están en
-      // Google, donde no hay «dispositivos» sino un objeto. El arreglo se hizo
-      // en el envío inmediato y se quedó sin aplicar en esta ruta.
-      const tieneGoogle = !!p.googleObjectId;
-      targeted += p.walletDevices.length + (tieneGoogle ? 1 : 0);
+    await enTandas(passes, CONCURRENCIA_DEL_PUSH, async (p) => {
       try {
-        await this.prisma.pass.update({
-          where: { id: p.id },
-          data: { lastActivityAt: new Date() },
-        });
         const r = await this.wallet.pushPassUpdate(p.id, {
           message: { header: s.title, body: s.body },
         });
-        // `sent` son los de Apple; Google va aparte y solo cuenta si de
-        // verdad salió (`ok`), no si simplemente se intentó.
-        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
+        delivered += entregadosDelPush(r);
       } catch (e) {
         this.logger.warn(
           `Push pass ${p.id} (recurring ${s.id}) falló: ${(e as Error).message}`,
         );
       }
-    }
+    });
     await this.prisma.notification.update({
       where: { id: notif.id },
       data: {
@@ -317,7 +385,7 @@ export class RecurringNotificationsService {
       },
     });
     this.logger.log(
-      `Recurring ${s.id} disparado: ${targeted} devices, ${delivered} delivered`,
+      `Recurring ${s.id} disparado: ${targeted} devices, ${delivered} delivered, ${passes.length} pases en ${Math.round((Date.now() - inicio) / 1000)} s`,
     );
   }
 }
