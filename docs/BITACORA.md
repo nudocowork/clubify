@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-02 (110) — Comisión de equipo: Sara Plata, 2 % de las ventas por quincena
+
+Commit `690b382d`, **DESPLEGADO Y VERIFICADO** (`/api/health` → `690b382`).
+`referrals/comision-de-equipo.service.ts` (cron horario, :15): una comisión
+por quincena (`periodKey EQUIPO-<corte>`) = % de TODOS los ingresos PAGADOS
+de Clubify de esa quincena (fuente: Contabilidad), APROBADA sin espera,
+enganchada a su corte, y RECALCULADA mientras no esté pagada (si entra o se
+corrige un ingreso, se ajusta). Ajustes: `comisiones.equipo.codeId`
+(= código MJUBQ8H8 de Sara Plata), `.porcentaje` (2), `.desde` (2026-09-16).
+Configurar/correr a mano: `scripts/comision-de-equipo.ts`.
+
+Hoy: 16–30 sep → $73,86 (ventas $3.692,90), en el corte del 30-sep; 1–15 oct
+→ $5 y subiendo. Excluida del recálculo por % del plan, del arqueo de
+comisiones (lo habría anulado como fantasma) y de la validación diaria.
+
+Además: socio de septiembre verificado sobre el total ($596,04 = 10 % de
+$5.960,43); Grupo Mistika verificado (4 cobros, $150 c/u, a nombre del
+grupo). Los $99,03 (Automatización WhatsApp) y los 2 Stripe de Sellea se
+registran más adelante en otro apartado (Javier): no se tocan.
+
 ## 2026-10-02 (109) — Ajuste integral del dinero: grupos, huérfanos, botón de comisión, validación diaria
 
 Commit `17ff6c48` + ajustes, **DESPLEGADO Y VERIFICADO** (back `17ff6c4`,
