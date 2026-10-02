@@ -8,6 +8,34 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-02 (108) — El PDF de Sara: nómina en USD, Habibi, Oh! Cookies, Degodoy
+
+Commit `b46668d2`, **DESPLEGADO Y VERIFICADO** (back `b46668d`, front
+`k7ghh9696` por alias). Datos corregidos en producción con permiso de Javier
+(scripts del scratchpad, en transacción y con comprobaciones):
+
+- **Degodoy:** las 2 comisiones falsas del 8-sep RECHAZADAS y fuera del corte
+  del 30-sep (total $445,60 → $400,60). La reasignación la hizo Sara.
+- **Nómina de junio** al promedio en USD (Javier 485, Nicolas 342,4, Samuel
+  485, Sara 342,4): $1.734 → $1.654,80, sigue pagada. Sara no podía guardarlo
+  ella: el corte pagado entero rechazaba bajar del abono. Ahora, al CORREGIR
+  un monto de un corte pagado entero, lo pagado baja con el total
+  (`payroll.service.recalcularCorte`). **Julio, agosto y septiembre: Sara no
+  pasó los valores** — se los pido.
+- **Habibi:** la fecha YA era la buena (renueva 16-sep-2027). La alerta diaria
+  comparaba con el «próximo cobro» del mensual CANCELADO (17-oct). Ahora
+  ignora suscripciones canceladas después de su último cobro. Pago manual y
+  acta del upgrade 420 → 432 (Contabilidad ya decía 432).
+- **Historial de pagos en USD con la cifra del libro** (`usdContable`): antes
+  «225.164 COP (71,04 USD)» frente a $68 en Contabilidad.
+- **Oh! Cookies:** su trimestre del 2-sep estaba registrado DOS veces (15 y
+  16-sep), los dos pagos seguían en la base. Borrado el segundo y su fila del
+  libro. Y un pago manual que repite el ciclo de otro ahora se rechaza.
+
+Para Wok: con `8366aa8` desplegado, el botón «Generar comisión ahora» de su
+ficha crea la comisión del 28-sep con su fecha real (mejor que «Agregar
+comisión» a mano).
+
 ## 2026-10-01 (107) — Wok sin comisión (dos cobros en un mes), Serendipity doble, Primor
 
 Commit `8366aa8d`, **DESPLEGADO Y VERIFICADO** (`/api/health` → `8366aa8`).
