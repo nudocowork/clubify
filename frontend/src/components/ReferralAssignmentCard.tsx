@@ -543,33 +543,35 @@ function BackfillCommissionButton({ tenantId }: { tenantId: string }) {
         : `/referrals/tenants/${tenantId}/backfill-commission`;
       const res = await api<{
         ok: boolean;
+        /** Las que creó ESTA llamada. `commissions` trae también las viejas. */
+        creadas: number;
+        motivo: string | null;
         commissions: Array<{ amount: number; status: string }>;
       }>(url, { method: 'POST' });
-      const count = res.commissions?.length ?? 0;
-      if (count === 0) {
-        // Sin ciclo activo y sin force → ofrecer forzar.
-        if (!force) {
+      // Se mira `creadas`, no cuántas comisiones tiene el referido: antes el
+      // aviso decía «generada» con las comisiones de meses anteriores aunque
+      // esta llamada no hubiera escrito nada (Wok Explosivo, 2026-10-02).
+      const creadas = res.creadas ?? 0;
+      if (creadas === 0) {
+        const sinCiclo = /ciclo pagado|ciclo .*venció/.test(res.motivo ?? '');
+        if (!force && sinCiclo) {
           const ok = confirm(
-            'No se generó comisión porque el tenant no tiene un ciclo de pago activo (currentPeriodEnd).\n\n' +
-              '¿Generar igual? Solo confirma si sabes que este tenant efectivamente paga (ej. fue creado manualmente o vino de un canal sin tracking de billing).\n\n' +
-              'La comisión se va a crear como PENDING al influencer/embajador.',
+            `No se generó la comisión: ${res.motivo}\n\n` +
+              '¿Generar igual? Solo confirma si sabes que este negocio efectivamente paga (ej. fue creado manualmente o vino de un canal sin seguimiento de cobros).\n\n' +
+              'La comisión se va a crear como pendiente al influencer/embajador.',
           );
           if (ok) {
             setBusy(false);
             return run(true);
           }
         } else {
-          // Force = true y no creó nada → probablemente ya estaba creada
-          // o tenant suspendido.
-          toast(
-            'No se generó comisión (ya estaba creada recientemente o el tenant está suspendido)',
-            'info',
-          );
+          toast(`No se creó ninguna comisión: ${res.motivo ?? 'sin motivo informado'}`, 'info');
         }
       } else {
-        const total = res.commissions.reduce((s, c) => s + c.amount, 0);
+        const nuevas = res.commissions.slice(0, creadas);
+        const total = nuevas.reduce((s, c) => s + c.amount, 0);
         toast(
-          `Comisión generada: $${total.toFixed(2)} (${count} entrada${count > 1 ? 's' : ''})`,
+          `Comisión creada: $${total.toFixed(2)} (${creadas} entrada${creadas > 1 ? 's' : ''}). Ya aparece en Comisiones.`,
           'success',
         );
       }

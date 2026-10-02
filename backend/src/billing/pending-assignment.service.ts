@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { IncomeRecordService } from '../finance/income-record.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { addPlanPeriod, normalizePlanPeriod } from '../common/plan-period';
 
 export type PendingGateway = 'HOTMART' | 'STRIPE' | 'CROSS';
@@ -25,10 +27,16 @@ export type PendingGateway = 'HOTMART' | 'STRIPE' | 'CROSS';
  * reconoce como RENOVACIÓN), avanza el ciclo por la periodicidad real del
  * plan y limpia los avisos del ciclo viejo.
  *
+ * Y deja el DINERO enlazado (Javier, 2026-10-02 — caso El Regio, pagó con
+ * otro correo y quedó activo sin ingreso con nombre ni comisión): el ingreso
+ * que el conciliador apuntó sin dueño pasa al negocio, y se genera la comisión
+ * del cobro por el mismo camino que «Generar comisión ahora». Antes la
+ * comisión quedaba fuera «por decisión de negocio aparte»; la decisión ya está
+ * tomada: un pago confirmado lleva su comisión.
+ *
  * Qué NO hace, a propósito:
  *  - No envía NINGÚN mensaje al cliente: ya recibió lo que tenía que recibir
  *    (o de más); una «bienvenida» aquí sería otro mensaje equivocado.
- *  - No genera comisiones de afiliado: es una decisión de negocio aparte.
  */
 @Injectable()
 export class PendingAssignmentService {
@@ -37,6 +45,8 @@ export class PendingAssignmentService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private income: IncomeRecordService,
+    private referrals: ReferralsService,
   ) {}
 
   /**
@@ -233,8 +243,17 @@ export class PendingAssignmentService {
         `(${r.tenant.id}); próximo cobro ${r.nextChargeAt.toISOString()}`,
     );
 
+    // El dinero, después de la transacción (un fallo aquí no deshace la
+    // asignación, que ya es correcta) pero ESPERADO y contado en la respuesta:
+    // quien asigna tiene que ver si quedó el ingreso y la comisión.
+    const dinero = await this.enlazarElDinero(gateway, r).catch((e) => ({
+      ingreso: 'error' as const,
+      comision: `error: ${(e as Error).message}`,
+    }));
+
     return {
       ok: true,
+      ...dinero,
       tenantId: r.tenant.id,
       brandName: r.tenant.brandName,
       statusBefore: before.status,
@@ -242,6 +261,50 @@ export class PendingAssignmentService {
       currentPeriodEnd: r.nextChargeAt,
       consumedPendingIds: r.pendingIds,
       gateway,
+    };
+  }
+
+  /**
+   * Ingreso y comisión del pago recién asignado.
+   *
+   * Ingreso: el conciliador ya apuntó ese cobro SIN dueño (llegó sin negocio);
+   * `record` con el negocio lo adopta. Si no hay fila todavía, la crea el
+   * conciliador esta noche: el negocio ya tiene los identificadores con los
+   * que reconocerlo.
+   */
+  private async enlazarElDinero(
+    gateway: PendingGateway,
+    r: { tenant: { id: string; brandName: string }; identifiers: Record<string, string>; lastChargeAt: Date },
+  ): Promise<{ ingreso: 'enlazado' | 'pendiente-del-conciliador' | 'no-aplica'; comision: string }> {
+    let ingreso: 'enlazado' | 'pendiente-del-conciliador' | 'no-aplica' = 'no-aplica';
+    const tx = gateway === 'HOTMART' ? r.identifiers.hotmartTransactionId : undefined;
+    if (tx) {
+      const fila = await this.prisma.incomeRecord.findUnique({
+        where: { gateway_externalTxId: { gateway: 'HOTMART', externalTxId: tx } },
+        select: { grossUsd: true },
+      });
+      if (fila) {
+        await this.income.record({
+          gateway: 'HOTMART',
+          externalTxId: tx,
+          tenantId: r.tenant.id,
+          brandName: r.tenant.brandName,
+          subscriberCode: r.identifiers.hotmartSubscriberCode ?? null,
+          grossUsd: Number(fila.grossUsd),
+          saleDate: r.lastChargeAt,
+        });
+        ingreso = 'enlazado';
+      } else {
+        ingreso = 'pendiente-del-conciliador';
+      }
+    }
+    const c = await this.referrals
+      .backfillCommissionForCurrentAssignment(r.tenant.id, false)
+      .catch((e) => ({ creadas: 0, motivo: (e as Error).message }));
+    const creadas = (c as { creadas?: number }).creadas ?? 0;
+    return {
+      ingreso,
+      comision: creadas > 0 ? `creada (${creadas})` : ((c as { motivo?: string }).motivo ?? 'sin comisión'),
     };
   }
 

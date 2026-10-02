@@ -1918,6 +1918,9 @@ export class HotmartService {
       gateway: 'HOTMART',
       externalTxId: transactionId ?? tenant.hotmartTransactionId,
       tenantId: tenant.id,
+      // Si es el código de un GRUPO, el cobro es del grupo (y con su precio),
+      // no de este negocio. Ver `IncomeRecordService.delGrupo`.
+      subscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode ?? null,
       whiteLabelId: (tenant as { whiteLabelId?: string | null }).whiteLabelId ?? null,
       brandName: tenant.brandName,
       planPeriodicity: periodFromHotmart ?? null,

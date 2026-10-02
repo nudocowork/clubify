@@ -39,6 +39,7 @@ function prismaFalso(datos: {
   negocios?: any[];
   comisiones?: any[];
   ajustes?: Record<string, string>;
+  grupos?: any[];
 }) {
   const ingresos: any[] = [...(datos.ingresos ?? [])];
   const estado = {
@@ -87,6 +88,13 @@ function prismaFalso(datos: {
       groupBy: async () => [],
     },
     hotmartWebhookEvent: { findMany: async () => datos.eventosHotmart ?? [] },
+    businessGroup: {
+      findMany: async () => datos.grupos ?? [],
+      findFirst: async ({ where }: any) =>
+        (datos.grupos ?? []).find((g) =>
+          where.id ? g.id === where.id : g.hotmartSubscriberCode === where.hotmartSubscriberCode,
+        ) ?? null,
+    },
     stripeWebhookEvent: { findMany: async () => [] },
     crossWebhookEvent: { findMany: async () => [] },
     manualPayment: { findMany: async () => [] },
@@ -368,36 +376,36 @@ describe('comisiones en la cascada', () => {
 // ── 4b. El socio ─────────────────────────────────────────────────────────────
 
 /**
- * Javier (2026-10-01): «de mayo hasta agosto el 10 % tomando como base el total
- * de la venta, sin descontar impuesto ni % de la pasarela; de septiembre en
+ * Javier (2026-10-01, corregido el 2026-10-02): de mayo a SEPTIEMBRE el 10 % del
+ * total de la venta, sin descontar impuesto ni % de la pasarela; de OCTUBRE en
  * adelante, el 10 % del residual tras impuesto y % de la pasarela, pagado a fin
- * de mes».
+ * de mes. «Septiembre todavía pertenece a la regla anterior».
  *
  * Sustituye a la regla de Sara del 2026-09-17 (el 10 % de la UTILIDAD): por eso
  * los casos llevan egresos, nómina y comisiones — con la regla vieja le bajaban
  * la parte al socio y con la nueva no deben tocarla.
  */
 describe('la base del socio según el mes de la venta', () => {
-  it('hasta agosto, el bruto; desde septiembre, el neto', () => {
-    expect(MES_DESDE_EL_NETO).toBe('2026-09');
+  it('hasta septiembre, el bruto; desde octubre, el neto', () => {
+    expect(MES_DESDE_EL_NETO).toBe('2026-10');
     expect(baseDelSocio('2026-05', 100, 80)).toBe(100);
-    expect(baseDelSocio('2026-08', 100, 80)).toBe(100);
-    expect(baseDelSocio('2026-09', 100, 80)).toBe(80);
+    expect(baseDelSocio('2026-09', 100, 80)).toBe(100);
     expect(baseDelSocio('2026-10', 100, 80)).toBe(80);
+    expect(baseDelSocio('2026-11', 100, 80)).toBe(80);
   });
 
   it('el libro suma la base venta a venta, por su mes en hora de Bogotá', async () => {
-    // 31-ago a las 23:00 en Bogotá es ya 1-sep en UTC: sigue siendo AGOSTO.
+    // 30-sep a las 23:00 en Bogotá es ya 1-oct en UTC: sigue siendo SEPTIEMBRE.
     const { prisma } = prismaFalso({
       ingresos: [
-        ingreso({ id: 'a', externalTxId: 'A', saleDate: new Date('2026-09-01T04:00:00Z'), grossUsd: 100, netExpectedUsd: 80 }),
-        ingreso({ id: 'b', externalTxId: 'B', saleDate: new Date('2026-09-01T15:00:00Z'), grossUsd: 200, netExpectedUsd: 150 }),
+        ingreso({ id: 'a', externalTxId: 'A', saleDate: new Date('2026-10-01T04:00:00Z'), grossUsd: 100, netExpectedUsd: 80 }),
+        ingreso({ id: 'b', externalTxId: 'B', saleDate: new Date('2026-10-01T15:00:00Z'), grossUsd: 200, netExpectedUsd: 150 }),
         // Devuelto: no es dinero que entró, no le toca nada.
-        ingreso({ id: 'c', externalTxId: 'C', saleDate: new Date('2026-09-02T15:00:00Z'), grossUsd: 500, netExpectedUsd: 400, status: 'REEMBOLSADO' }),
+        ingreso({ id: 'c', externalTxId: 'C', saleDate: new Date('2026-10-02T15:00:00Z'), grossUsd: 500, netExpectedUsd: 400, status: 'REEMBOLSADO' }),
       ],
     });
     const r = await new IncomeRecordService(prisma).summary({ onlyClubify: true });
-    // 100 de bruto (agosto) + 150 de neto (septiembre).
+    // 100 de bruto (septiembre) + 150 de neto (octubre).
     expect(r.baseDelSocioUsd).toBe(250);
   });
 });
@@ -510,17 +518,17 @@ describe('el socio en la cascada', () => {
     expect(r.utilidadUsd).toBe(850);
   });
 
-  it('la serie aplica bruto en agosto y neto en septiembre, como la cascada', async () => {
+  it('la serie aplica bruto en septiembre y neto en octubre, como la cascada', async () => {
     const { svc, prisma } = reporte();
     prisma.incomeRecord.findMany = async () => [
-      { saleDate: new Date('2026-08-20T15:00:00Z'), grossUsd: 1000, gatewayFeeUsd: 80, taxUsd: 120, netExpectedUsd: 800 },
-      { saleDate: new Date('2026-09-10T15:00:00Z'), grossUsd: 500, gatewayFeeUsd: 40, taxUsd: 60, netExpectedUsd: 400 },
+      { saleDate: new Date('2026-09-20T15:00:00Z'), grossUsd: 1000, gatewayFeeUsd: 80, taxUsd: 120, netExpectedUsd: 800 },
+      { saleDate: new Date('2026-10-10T15:00:00Z'), grossUsd: 500, gatewayFeeUsd: 40, taxUsd: 60, netExpectedUsd: 400 },
     ];
-    const [ago, sep] = await svc.serieDeMeses(true, ['2026-08', '2026-09']);
-    expect(ago.socioUsd).toBe(100); // 10 % de 1000 de bruto
-    expect(sep.socioUsd).toBe(40); // 10 % de 400 de neto
-    expect(ago.utilidadUsd).toBe(700);
-    expect(sep.utilidadUsd).toBe(360);
+    const [sep, oct] = await svc.serieDeMeses(true, ['2026-09', '2026-10']);
+    expect(sep.socioUsd).toBe(100); // 10 % de 1000 de bruto: septiembre va sobre el total
+    expect(oct.socioUsd).toBe(40); // 10 % de 400 de neto
+    expect(sep.utilidadUsd).toBe(700);
+    expect(oct.utilidadUsd).toBe(360);
   });
 
   it('con todas las marcas, la serie toma la base de Clubify en una sola consulta más', async () => {
@@ -539,8 +547,9 @@ describe('el socio en la cascada', () => {
     };
     const [sep] = await svc.serieDeMeses(false, ['2026-09']);
     expect(consultas).toBe(2);
-    expect(sep.socioUsd).toBe(50);
-    expect(sep.utilidadUsd).toBe(850);
+    // Septiembre va sobre el TOTAL: 10 % de los 600 de bruto de Clubify.
+    expect(sep.socioUsd).toBe(60);
+    expect(sep.utilidadUsd).toBe(840);
   });
 });
 
@@ -971,5 +980,84 @@ describe('la fuente de verdad', () => {
       new IncomeRecordService(sinPrecio.prisma),
     ).conciliar({ simular: true });
     expect(b.creados[0].grossUsd).toBe(150);
+  });
+});
+
+// ── Grupos empresariales y cobros huérfanos (Javier, 2026-10-02) ─────────────
+
+/**
+ * «Aldehir - Grupo Mistika» paga UNA suscripción de $150 por tres negocios; el
+ * libro la apuntaba a «Cevichería Marea Mística — $68». Y quien paga ANTES de
+ * registrarse (Paicoat, Serviteca, El Regio) quedaba con el cobro apuntado sin
+ * dueño: al activarse, la transacción repetida se ignoraba.
+ */
+describe('cobros de grupo y huérfanos', () => {
+  const GRUPO = {
+    id: 'g-mistika',
+    name: 'Aldehir - Grupo Mistika',
+    whiteLabelId: CLUBIFY,
+    planPeriodicity: 'MENSUAL',
+    priceUsd: 150,
+    hotmartSubscriberCode: 'GER6TVIT',
+  };
+  const cobro = (extra: Partial<any> = {}) => ({
+    gateway: 'HOTMART' as const,
+    externalTxId: 'HP2591990171',
+    currency: 'USD',
+    grossUsd: 68,
+    saleDate: new Date('2026-09-17T13:49:00Z'),
+    ...extra,
+  });
+
+  it('un cobro con el código de un grupo se apunta al GRUPO y con su precio', async () => {
+    const { prisma, estado } = prismaFalso({ grupos: [GRUPO] });
+    await new IncomeRecordService(prisma).record(
+      cobro({ tenantId: 't-marea', brandName: 'Cevichería Marea Mística', subscriberCode: 'GER6TVIT' }),
+    );
+    expect(estado.creados).toHaveLength(1);
+    expect(estado.creados[0]).toMatchObject({
+      tenantId: null,
+      businessGroupId: 'g-mistika',
+      brandName: 'Aldehir - Grupo Mistika (grupo)',
+      grossUsd: 150,
+    });
+  });
+
+  it('una fila ya apuntada al negocio pasa al grupo, con el precio del grupo', async () => {
+    const { prisma, estado } = prismaFalso({
+      grupos: [GRUPO],
+      ingresos: [ingreso({ id: 'r1', externalTxId: 'HP2591990171', tenantId: 't-marea', brandName: 'Cevichería Marea Mística', grossUsd: 68, netExpectedUsd: 49.23 })],
+    });
+    await new IncomeRecordService(prisma).record(cobro({ subscriberCode: 'GER6TVIT' }));
+    expect(estado.creados).toHaveLength(0);
+    expect(estado.ingresos[0]).toMatchObject({ tenantId: null, businessGroupId: 'g-mistika', grossUsd: 150 });
+  });
+
+  it('un cobro huérfano se cuelga a su negocio cuando éste se activa', async () => {
+    const { prisma, estado } = prismaFalso({
+      ingresos: [ingreso({ id: 'h1', externalTxId: 'HP3314964002', tenantId: null, brandName: null, whiteLabelId: null })],
+    });
+    await new IncomeRecordService(prisma).record(
+      cobro({ externalTxId: 'HP3314964002', tenantId: 't-paicoat', brandName: 'Paicoat', whiteLabelId: CLUBIFY }),
+    );
+    expect(estado.creados).toHaveLength(0);
+    expect(estado.ingresos[0]).toMatchObject({ tenantId: 't-paicoat', brandName: 'Paicoat' });
+  });
+
+  it('una fila que ya es de OTRO negocio no se toca', async () => {
+    const { prisma, estado } = prismaFalso({
+      ingresos: [ingreso({ id: 'x1', externalTxId: 'HPX', tenantId: 't-uno', brandName: 'Uno' })],
+    });
+    await new IncomeRecordService(prisma).record(cobro({ externalTxId: 'HPX', tenantId: 't-dos', brandName: 'Dos' }));
+    expect(estado.ingresos[0]).toMatchObject({ tenantId: 't-uno', brandName: 'Uno' });
+    expect(estado.actualizados).toHaveLength(0);
+  });
+
+  it('el mismo aviso dos veces: un solo ingreso', async () => {
+    const { prisma, estado } = prismaFalso({ grupos: [GRUPO] });
+    const svc = new IncomeRecordService(prisma);
+    await svc.record(cobro({ subscriberCode: 'GER6TVIT' }));
+    await svc.record(cobro({ subscriberCode: 'GER6TVIT' }));
+    expect(estado.creados).toHaveLength(1);
   });
 });

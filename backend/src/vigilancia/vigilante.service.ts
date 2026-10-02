@@ -4,6 +4,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { respaldoVencido } from './frescura-del-respaldo';
+import {
+  ETIQUETA,
+  revisarConsistencia,
+  type TipoDeInconsistencia,
+} from '../finance/consistencia-del-dinero';
 
 /** Un problema encontrado. `detalle` es lo que se pega en el aviso. */
 type Hallazgo = {
@@ -59,7 +64,9 @@ export class VigilanteService {
           this.negociosSinTelefono(),
           this.respaldoQueNoExiste(),
         ])
-      ).filter((h): h is Hallazgo => h !== null);
+      )
+        .filter((h): h is Hallazgo => h !== null)
+        .concat(await this.dineroInconsistente());
 
       if (!hallazgos.length) {
         this.logger.log('Vigilancia: todo en orden.');
@@ -79,6 +86,28 @@ export class VigilanteService {
     } catch (e) {
       this.logger.error(`la vigilancia falló: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Cobro, ingreso y comisión que no dicen lo mismo. Ver
+   * `finance/consistencia-del-dinero.ts`: un hallazgo por tipo, para que el
+   * aviso diga qué arreglar y no cuarenta líneas.
+   */
+  private async dineroInconsistente(): Promise<Hallazgo[]> {
+    const lista = await revisarConsistencia(this.prisma).catch((e) => {
+      this.logger.warn(`consistencia del dinero falló: ${(e as Error).message}`);
+      return [];
+    });
+    const porTipo = new Map<TipoDeInconsistencia, string[]>();
+    for (const i of lista) {
+      porTipo.set(i.tipo, [...(porTipo.get(i.tipo) ?? []), `${i.quien} (${i.detalle})`]);
+    }
+    return [...porTipo].map(([tipo, quienes]) => ({
+      titulo: ETIQUETA[tipo].titulo,
+      cuantos: quienes.length,
+      detalle: quienes.slice(0, 4).join(', '),
+      queHacer: ETIQUETA[tipo].queHacer,
+    }));
   }
 
   /**

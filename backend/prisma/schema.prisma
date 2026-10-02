@@ -8180,6 +8180,10 @@ model IncomeRecord {
   /// Stripe invoice/evt, CrossTransaction.providerRef, ManualPayment.id.
   externalTxId     String
   tenantId         String?
+  /// El cobro es de un GRUPO EMPRESARIAL (una suscripción para varios
+  /// negocios), no de un negocio: entonces `tenantId` va en null. Migración
+  /// aditiva: scripts/apply-income-group-migration.cjs.
+  businessGroupId  String?
   whiteLabelId     String?
   /// Snapshot del nombre del negocio y del plan al momento del cobro (para
   /// reportes históricos aunque el negocio cambie o se borre).
@@ -8226,6 +8230,7 @@ model IncomeRecord {
 
   @@unique([gateway, externalTxId])
   @@index([tenantId])
+  @@index([businessGroupId])
   @@index([whiteLabelId, saleDate])
   @@index([periodKey])
   @@index([reconStatus])

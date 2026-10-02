@@ -2832,7 +2832,12 @@ export class ReferralsService {
         'Este tenant no tiene asignación a INFLUENCER o AMBASSADOR',
       );
     }
-    await this.backfillCommissionForAssignment(
+    // Se cuentan las comisiones ANTES y DESPUÉS: la respuesta dice cuántas
+    // creó DE VERDAD. Antes devolvía todas las del referido —también las
+    // viejas— y el panel anunciaba «generada» aunque no se hubiera escrito
+    // nada (Wok Explosivo, 2026-10-02).
+    const antes = await this.prisma.commission.count({ where: { referralUseId: use.id } });
+    const motivo = await this.backfillCommissionForAssignment(
       use.id,
       tenantId,
       use.referralCodeId,
@@ -2842,9 +2847,17 @@ export class ReferralsService {
       where: { referralUseId: use.id },
       orderBy: { createdAt: 'desc' },
     });
+    const creadas = Math.max(0, commissions.length - antes);
     return {
       ok: true,
       referralUseId: use.id,
+      creadas,
+      // Por qué no se creó ninguna. Sin motivo y sin creadas: la fila chocó
+      // con una que ya existía para ese cobro.
+      motivo:
+        creadas > 0
+          ? null
+          : (motivo ?? 'Ese cobro ya tiene su comisión (no se creó otra).'),
       commissions: commissions.map((c) => ({
         id: c.id,
         amount: Number(c.amount),
@@ -2881,7 +2894,7 @@ export class ReferralsService {
     tenantId: string,
     codeId: string,
     force = false,
-  ): Promise<void> {
+  ): Promise<string | null> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: {
@@ -2900,13 +2913,13 @@ export class ReferralsService {
         plan: { select: { priceMonthly: true } },
       },
     });
-    if (!tenant) return;
+    if (!tenant) return 'El negocio no existe.';
     // Si el tenant está suspendido, NO generar comisión incluso con force.
-    if (tenant.suspendedAt) return;
+    if (tenant.suspendedAt) return 'El negocio está suspendido.';
     // Sin force: requerir ciclo de pago vigente (currentPeriodEnd futuro).
     if (!force) {
-      if (!tenant.currentPeriodEnd) return;
-      if (new Date(tenant.currentPeriodEnd) <= new Date()) return;
+      if (!tenant.currentPeriodEnd) return 'El negocio no tiene un ciclo pagado (sin fecha de próximo cobro).';
+      if (new Date(tenant.currentPeriodEnd) <= new Date()) return 'El ciclo pagado del negocio ya venció.';
     }
     // Base = precio REAL pagado en Hotmart si lo tenemos, sino canónico del
     // bundle (68/150/278/500). NO priceMonthly. Fuente única: getCommissionBase.
@@ -2914,19 +2927,19 @@ export class ReferralsService {
       tenant.subscriptionPriceUsd ?? null,
       tenant.planPeriodicity,
     );
-    if (!price || price <= 0) return;
+    if (!price || price <= 0) return 'El plan del negocio no tiene precio del que calcular la comisión.';
 
     const code = await this.prisma.referralCode.findUnique({
       where: { id: codeId },
       include: { parentCode: true },
     });
-    if (!code) return;
+    if (!code) return 'El código del afiliado no existe.';
     if (
       code.role !== 'INFLUENCER' &&
       code.role !== 'AMBASSADOR' &&
       code.role !== 'VENDOR'
     )
-      return;
+      return 'El afiliado no es influencer, embajador ni vendedor.';
 
     // FECHA DEL COBRO que esta comisión paga: la misma verdad que usan el
     // webhook (`generateCommissionsForPayment`) y el reconciliador. Antes esta
@@ -2970,7 +2983,17 @@ export class ReferralsService {
       }
     }
     const businessDate = fechaDelCobro ?? new Date();
-    const periodKey = monthKey(businessDate);
+    // Con el mes ocupado por la comisión de OTRO cobro, la clave lleva el día.
+    // Sin esto el botón «Generar comisión ahora» de Wok Explosivo (cobro del
+    // 28-sep, con el del 1-sep ya en septiembre) chocaba con la UNIQUE, el
+    // P2002 se tragaba como «duplicado» y el panel decía que la había creado.
+    const periodKey = claveDelPeriodo(
+      businessDate,
+      await this.prisma.commission.findMany({
+        where: { referralUseId: useId, periodKey: monthKey(businessDate) },
+        select: { businessDate: true, createdAt: true },
+      }),
+    );
     const availableAt = holdReleaseFrom(fechaDelCobro);
 
     // Defensa contra devengar dos veces el MISMO cobro. La ventana se ancla a la
@@ -3007,7 +3030,7 @@ export class ReferralsService {
           },
       select: { id: true },
     });
-    if (yaCubierto) return;
+    if (yaCubierto) return 'Ese cobro ya tiene su comisión.';
 
     // FIXED_ONCE (EXCLUSIVO Sellea): el backfill de una reasignación/atribución
     // manual también debe pagar MONTO FIJO, UNA sola vez — nunca % ni 3-way.
@@ -3045,7 +3068,7 @@ export class ReferralsService {
       this.logger.log(
         `backfill FIJO/único: ${code.role} ${code.code} $${fixedAmt} (useId=${useId})`,
       );
-      return;
+      return null;
     }
 
     // #3 (2026-06-16): VENDEDOR asignado directo a una empresa. El split
@@ -3070,7 +3093,7 @@ export class ReferralsService {
         // filas del split nacerían en un ciclo cerrado y disponibles al instante.
         businessDate,
       });
-      return;
+      return null;
     }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -3161,6 +3184,7 @@ export class ReferralsService {
           });
       }
     }
+    return null;
   }
 
   /**

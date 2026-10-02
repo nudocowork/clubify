@@ -51,8 +51,8 @@ export type Cascada = {
   comisionesPendientesUsd?: number;
   /** Generadas en el período, pagadas o no. */
   comisionesGeneradasUsd?: number;
-  /** Parte del socio: su % de las ventas de Clubify — del bruto hasta agosto
-   *  de 2026, del neto desde septiembre. No sale de la utilidad. */
+  /** Parte del socio: su % de las ventas de Clubify — del bruto hasta
+   *  septiembre de 2026, del neto desde octubre. No sale de la utilidad. */
   socioUsd?: number;
   socioPorcentaje?: number;
   utilidadUsd: number;
@@ -133,13 +133,13 @@ function anteriorAlLibro(periodo: string): boolean {
 
 /**
  * Sobre qué se calcula el socio, dicho para la etiqueta. La regla vive en el
- * backend (`finance/socio.ts`): del bruto las ventas hasta agosto de 2026, del
- * neto desde septiembre. Un rango que cruza septiembre suma las dos.
+ * backend (`finance/socio.ts`): del bruto las ventas hasta septiembre de 2026,
+ * del neto desde octubre. Un rango que cruza septiembre suma las dos.
  */
-const MES_DESDE_EL_NETO = '2026-09';
+const MES_DESDE_EL_NETO = '2026-10';
 function baseDelSocioTexto(periodo: string): string {
   if (!/^\d{4}-\d{2}$/.test(periodo)) {
-    return 'de las ventas: bruto hasta agosto, neto desde septiembre';
+    return 'de las ventas: bruto hasta septiembre, neto desde octubre';
   }
   return periodo < MES_DESDE_EL_NETO ? 'del total de ventas' : 'del neto';
 }

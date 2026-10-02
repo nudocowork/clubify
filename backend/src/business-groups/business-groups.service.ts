@@ -201,6 +201,17 @@ export class BusinessGroupsService {
       : [];
 
     const pagos = agruparCobrosHotmart(eventos);
+    // El dólar de cada cobro, el del LIBRO: la misma cifra que Contabilidad y
+    // que la base de la comisión del grupo. Ver `PagoDelHistorial.usdContable`.
+    const txs = pagos.map((p) => p.referencia).filter((t): t is string => !!t);
+    if (txs.length) {
+      const libro = await this.prisma.incomeRecord.findMany({
+        where: { gateway: 'HOTMART', externalTxId: { in: txs }, status: 'PAGADO' },
+        select: { externalTxId: true, grossUsd: true },
+      });
+      const usd = new Map(libro.map((r) => [r.externalTxId, Number(r.grossUsd)]));
+      for (const p of pagos) p.usdContable = p.referencia ? (usd.get(p.referencia) ?? null) : null;
+    }
     pagos.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
 
     return {

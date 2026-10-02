@@ -16,6 +16,11 @@ export interface RecordIncomeInput {
   /** Id único de la transacción en la pasarela (dedup). */
   externalTxId: string | null | undefined;
   tenantId?: string | null;
+  /** Cobro de un grupo empresarial. Si no viene, se deduce de `subscriberCode`. */
+  businessGroupId?: string | null;
+  /** Código de suscriptor de la pasarela. Si es el de un GRUPO, el cobro es
+   *  del grupo y no del negocio por el que entró el aviso. */
+  subscriberCode?: string | null;
   whiteLabelId?: string | null;
   brandName?: string | null;
   planId?: string | null;
@@ -97,6 +102,95 @@ export class IncomeRecordService {
    * esto; es una puerta que no debe quedarse abierta para el siguiente camino
    * de cobro que se añada.
    */
+  /**
+   * Si el cobro es de un GRUPO EMPRESARIAL, lo reescribe como del grupo.
+   *
+   * Un grupo paga UNA suscripción por varios negocios y Hotmart la avisa con el
+   * código de suscriptor del grupo, que suele coincidir con el de UNO de sus
+   * negocios (el primero que se dio de alta). El webhook resolvía ese negocio y
+   * apuntaba el cobro a su nombre y con el precio de SU plan: «Aldehir - Grupo
+   * Mistika» pagaba $150 por tres negocios y el libro decía «Cevichería Marea
+   * Mística — $68» (Javier, 2026-10-02), mientras la comisión del grupo sí iba
+   * sobre los $150. Una misma operación, dos cifras.
+   */
+  private async delGrupo(input: RecordIncomeInput): Promise<RecordIncomeInput> {
+    const sub = input.subscriberCode?.trim() || null;
+    if (!input.businessGroupId && !sub) return input;
+    const grupo = await this.prisma.businessGroup
+      .findFirst({
+        where: input.businessGroupId
+          ? { id: input.businessGroupId }
+          : { hotmartSubscriberCode: sub, deletedAt: null },
+        select: { id: true, name: true, whiteLabelId: true, planPeriodicity: true, priceUsd: true },
+      })
+      .catch(() => null);
+    if (!grupo) return input;
+    const precio = grupo.priceUsd != null ? Number(grupo.priceUsd) : null;
+    return {
+      ...input,
+      tenantId: null,
+      businessGroupId: grupo.id,
+      brandName: `${grupo.name} (grupo)`,
+      whiteLabelId: grupo.whiteLabelId ?? input.whiteLabelId ?? null,
+      planPeriodicity: grupo.planPeriodicity ?? input.planPeriodicity ?? null,
+      grossUsd: precio != null && precio > 0 ? precio : input.grossUsd,
+    };
+  }
+
+  /**
+   * La transacción YA está en el libro. Si la fila quedó huérfana —sin negocio
+   * ni grupo— y ahora llega con su dueño, se le cuelga a esa fila.
+   *
+   * Pasaba con todo el que paga ANTES de registrarse (Paicoat, Serviteca
+   * Quinta Avenida, El Regio, 2026-09): el aviso llega sin negocio, el
+   * conciliador apunta el cobro sin dueño, y cuando el negocio se activa con
+   * ese pago el `record` veía la transacción repetida y no hacía nada. El
+   * ingreso existía, pero sin nombre: en Contabilidad no salía «Paicoat».
+   *
+   * Y si la fila era de un negocio pero el cobro es de un GRUPO, pasa al grupo
+   * con su precio. Lo que nunca hace: tocar una fila que ya es de otro negocio,
+   * ni una devuelta o anulada.
+   */
+  private async adoptar(
+    fila: { id: string; tenantId: string | null; businessGroupId: string | null; status: string },
+    input: RecordIncomeInput,
+    gross: number,
+  ) {
+    if (fila.status !== 'PAGADO') return;
+    if (input.businessGroupId && fila.businessGroupId !== input.businessGroupId) {
+      const { fee, tax, netExpected } = await this.desglose(input.gateway, gross, {});
+      await this.prisma.incomeRecord.update({
+        where: { id: fila.id },
+        data: {
+          tenantId: null,
+          businessGroupId: input.businessGroupId,
+          brandName: input.brandName ?? null,
+          whiteLabelId: await this.marcaDelIngreso(input),
+          planPeriodicity: input.planPeriodicity ?? null,
+          grossUsd: gross,
+          gatewayFeeUsd: fee,
+          taxUsd: tax,
+          netExpectedUsd: netExpected,
+        },
+      });
+      this.logger.log(`IncomeRecord ${fila.id}: pasa al grupo ${input.brandName} (${gross})`);
+      return;
+    }
+    if (input.tenantId && !fila.tenantId && !fila.businessGroupId) {
+      await this.prisma.incomeRecord.update({
+        where: { id: fila.id },
+        data: {
+          tenantId: input.tenantId,
+          brandName: input.brandName ?? undefined,
+          whiteLabelId: await this.marcaDelIngreso(input),
+          planId: await this.planDelIngreso(input),
+          ...(input.planPeriodicity ? { planPeriodicity: input.planPeriodicity } : {}),
+        },
+      });
+      this.logger.log(`IncomeRecord ${fila.id}: huérfano adoptado por ${input.brandName ?? input.tenantId}`);
+    }
+  }
+
   private async marcaDelIngreso(input: RecordIncomeInput): Promise<string | null> {
     if (input.whiteLabelId) return input.whiteLabelId;
     if (!input.tenantId) return null;
@@ -174,8 +268,11 @@ export class IncomeRecordService {
    * Registra el ingreso. Best-effort e idempotente. Salta cobros de $0 (ej. el
    * día 0 de una prueba) porque no son ingreso. No lanza: captura sus errores.
    */
-  async record(input: RecordIncomeInput): Promise<void> {
+  async record(entrada: RecordIncomeInput): Promise<void> {
     try {
+      // Un cobro con el código de suscripción de un GRUPO es del grupo: su
+      // nombre, su marca y el precio del grupo. Ver `delGrupo`.
+      const input = await this.delGrupo(entrada);
       const gross = Number(input.grossUsd);
       const txId = (input.externalTxId ?? '').trim();
       if (!txId) return; // sin id de transacción no hay dedup posible
@@ -185,10 +282,13 @@ export class IncomeRecordService {
       const dup = await this.prisma.incomeRecord
         .findUnique({
           where: { gateway_externalTxId: { gateway: input.gateway, externalTxId: txId } },
-          select: { id: true },
+          select: { id: true, tenantId: true, businessGroupId: true, status: true },
         })
         .catch(() => null);
-      if (dup) return;
+      if (dup) {
+        await this.adoptar(dup, input, gross);
+        return;
+      }
 
       const { fee, tax, netExpected } = await this.desglose(input.gateway, gross, {
         gatewayFeeUsd: input.gatewayFeeUsd,
@@ -203,6 +303,7 @@ export class IncomeRecordService {
           gateway: input.gateway,
           externalTxId: txId,
           tenantId: input.tenantId ?? null,
+          businessGroupId: input.businessGroupId ?? null,
           whiteLabelId: await this.marcaDelIngreso(input),
           brandName: input.brandName ?? null,
           planId: await this.planDelIngreso(input),
@@ -327,8 +428,8 @@ export class IncomeRecordService {
       taxUsd: round2(tax),
       netExpectedUsd: round2(netExp),
       netReceivedUsd: round2(netRecv),
-      /** Sobre lo que se calcula el socio: bruto hasta agosto, neto desde
-       *  septiembre de 2026, venta a venta. Ver `socio.ts`. */
+      /** Sobre lo que se calcula el socio: bruto hasta septiembre, neto
+       *  desde octubre de 2026, venta a venta. Ver `socio.ts`. */
       baseDelSocioUsd: round2(baseSocio),
       pendingRecon: cobrados.filter((r) => r.reconStatus === 'PENDING').length,
       inReview: cobrados.filter((r) => r.reconStatus === 'REVIEW').length,

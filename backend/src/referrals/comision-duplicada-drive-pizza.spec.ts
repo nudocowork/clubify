@@ -55,6 +55,7 @@ function servicioReferrals(opts: { rolCodigo: 'VENDOR' | 'INFLUENCER'; txDelTena
     },
     commission: {
       findFirst: vi.fn(async () => null), // no hay comisión reciente
+      findMany: vi.fn(async () => []), // ni ninguna con la clave del mes
       create: vi.fn(async () => ({})),
     },
   };
@@ -126,7 +127,11 @@ describe('atribución manual · deja rastro en el registro de auditoría', () =>
           role: 'VENDOR',
         })),
       },
-      commission: { count: vi.fn(async () => 0), findFirst: vi.fn(async () => null) },
+      commission: {
+        count: vi.fn(async () => 0),
+        findFirst: vi.fn(async () => null),
+        findMany: vi.fn(async () => []),
+      },
     };
     svc.backfillCommissionForAssignment = vi.fn(async () => undefined);
 

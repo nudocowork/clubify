@@ -2,13 +2,16 @@
  * La parte del SOCIO en la cascada de utilidad.
  *
  * Dentro de Clubify hay un socio directo que se lleva un porcentaje. La base
- * DEPENDE DEL MES DE LA VENTA (Javier, 2026-10-01):
+ * DEPENDE DEL MES DE LA VENTA (Javier, 2026-10-01 y 2026-10-02):
  *
- *   - Ventas hasta AGOSTO de 2026: el % sobre el BRUTO, el total de la venta
- *     sin descontar impuesto ni fee de pasarela. Es lo que se le venía dando
- *     desde mayo.
- *   - Ventas desde SEPTIEMBRE de 2026: el % sobre el NETO, lo que queda tras
+ *   - Ventas de MAYO a SEPTIEMBRE de 2026: el % sobre el BRUTO, el total de
+ *     la venta sin descontar impuesto ni fee de pasarela. Es lo que se le venía
+ *     dando desde mayo.
+ *   - Ventas desde OCTUBRE de 2026: el % sobre el NETO, lo que queda tras
  *     descontar impuesto y fee. Se le paga a fin de mes, revisado el mes.
+ *
+ * (El 2026-10-01 se fijó septiembre como primer mes del neto; el 2026-10-02
+ * Javier lo corrigió: «septiembre todavía pertenece a la regla anterior».)
  *
  * Ninguna de las dos resta egresos, nómina ni comisiones. Entre el 2026-09-17 y
  * el 2026-10-01 se calculó sobre la UTILIDAD (regla de Sara, que restaba las
@@ -17,7 +20,7 @@
  * utilidad», ese es el precedente.
  *
  * Se aplica VENTA A VENTA, según su mes contable: un rango que cruce
- * septiembre suma bruto de un lado y neto del otro, sin promediar.
+ * octubre suma bruto de un lado y neto del otro, sin promediar.
  *
  * Es del socio de CLUBIFY: con «todas las marcas» sigue saliendo solo de las
  * ventas de Clubify. Las de una marca blanca no son suyas.
@@ -26,11 +29,11 @@
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Primer mes contable (Bogotá) en el que la base del socio es el NETO. */
-export const MES_DESDE_EL_NETO = '2026-09';
+export const MES_DESDE_EL_NETO = '2026-10';
 
 /**
- * La base del socio de UNA venta: su bruto si es de antes de septiembre de
- * 2026, su neto desde entonces. `mes` es su mes contable, `YYYY-MM`.
+ * La base del socio de UNA venta: su bruto si es de antes de octubre de 2026,
+ * su neto desde entonces. `mes` es su mes contable, `YYYY-MM`.
  */
 export function baseDelSocio(mes: string, brutoUsd: number, netoUsd: number): number {
   return mes < MES_DESDE_EL_NETO ? brutoUsd : netoUsd;

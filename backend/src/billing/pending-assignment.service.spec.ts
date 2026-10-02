@@ -41,6 +41,8 @@ type TenantRow = {
 
 function makeState() {
   const state = {
+    /** Importe del ingreso sin dueño que dejó el conciliador; null = no hay. */
+    ingresoHuerfano: null as number | null,
     hot: [] as HotRow[],
     tenants: [] as TenantRow[],
     /** data del último tenant.update — lo que el test inspecciona. */
@@ -96,17 +98,27 @@ function makeState() {
       },
     },
     crossTransaction: { updateMany: async () => ({ count: 0 }) },
+    // El ingreso que dejó el conciliador sin dueño (ver `enlazarElDinero`).
+    incomeRecord: {
+      findUnique: async () => (state.ingresoHuerfano ? { grossUsd: state.ingresoHuerfano } : null),
+    },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
   };
   return { state, prisma };
 }
 
 const audit = { log: vi.fn(async () => {}) };
+const income = { record: vi.fn(async () => {}) };
+const referrals = {
+  backfillCommissionForCurrentAssignment: vi.fn(async () => ({ creadas: 1, motivo: null })),
+};
 
 function makeService(prisma: unknown) {
   return new PendingAssignmentService(
     prisma as PrismaService,
     audit as unknown as AuditService,
+    income as any,
+    referrals as any,
   );
 }
 

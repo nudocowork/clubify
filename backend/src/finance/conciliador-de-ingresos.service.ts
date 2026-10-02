@@ -78,6 +78,12 @@ export interface InformeDeConciliacion {
   devueltos: Array<{ externalTxId: string; estado: string }>;
   /** Filas de relleno a las que se les puso su referencia real de pasarela. */
   adoptados: Array<{ de: string; a: string; brandName: string | null }>;
+  /**
+   * Cobros que YA estaban en el libro pero sin su dueño correcto: huérfanos
+   * (pagó antes de registrarse) a los que se les cuelga su negocio, y cobros
+   * de un GRUPO apuntados a uno de sus negocios, que pasan al grupo.
+   */
+  reclamados: Array<{ externalTxId: string; a: string | null; motivo: 'huerfano' | 'grupo' }>;
   /** Cobros con una disputa ABIERTA: siguen contando, pero hay que mirarlos. */
   enDisputa: string[];
   sinResolver: SinResolver[];
@@ -158,6 +164,14 @@ export class ConciliadorDeIngresosService {
 
   /** Los cobros que ya constan como devueltos al empezar la pasada. */
   private yaDevueltos = new Set<string>();
+  /** Cobros de Hotmart en el libro SIN negocio ni grupo (y que no son packs). */
+  private huerfanos = new Set<string>();
+  /** Cobros de Hotmart en el libro que ya son de un grupo. */
+  private yaDeGrupo = new Set<string>();
+  /** Códigos de suscriptor de los grupos empresariales vivos. */
+  private codigosDeGrupo = new Set<string>();
+  /** Importe ya apuntado de cada transacción del libro. */
+  private brutoDelLibro = new Map<string, number>();
 
   /** Las filas de relleno vivas durante una pasada (ver `ES_DE_RELLENO`). */
   private deRelleno: Array<{
@@ -269,9 +283,38 @@ export class ConciliadorDeIngresosService {
         saleDate: true,
         brandName: true,
         status: true,
+        businessGroupId: true,
+        category: true,
       },
     });
     const enLibro = new Set(filas.map((r) => `${r.gateway}|${r.externalTxId}`));
+    this.huerfanos = new Set(
+      filas
+        .filter(
+          (r) =>
+            r.gateway === 'HOTMART' &&
+            r.status === 'PAGADO' &&
+            !r.tenantId &&
+            !r.businessGroupId &&
+            // Un pack de créditos es sin negocio A PROPÓSITO (categoría OTRO).
+            // OJO: no vale mirar `productName` — el conciliador también se lo
+            // pone a los huérfanos (el nombre del producto de Hotmart).
+            r.category !== 'OTRO',
+        )
+        .map((r) => r.externalTxId),
+    );
+    this.brutoDelLibro = new Map(filas.map((r) => [r.externalTxId, Number(r.grossUsd)]));
+    this.yaDeGrupo = new Set(
+      filas.filter((r) => r.businessGroupId).map((r) => r.externalTxId),
+    );
+    this.codigosDeGrupo = new Set(
+      (
+        await this.prisma.businessGroup.findMany({
+          where: { deletedAt: null, hotmartSubscriberCode: { not: null } },
+          select: { hotmartSubscriberCode: true },
+        })
+      ).map((g) => g.hotmartSubscriberCode as string),
+    );
     // Los que YA están marcados como devueltos: la simulación no debe volver a
     // contarlos, o el informe promete un cambio que la pasada real no hará.
     this.yaDevueltos = new Set(
@@ -289,6 +332,7 @@ export class ConciliadorDeIngresosService {
       creados: [],
       devueltos: [],
       adoptados: [],
+      reclamados: [],
       enDisputa: [],
       sinResolver: [],
       sinRespaldo: [],
@@ -468,7 +512,10 @@ export class ConciliadorDeIngresosService {
 
       if (!HOTMART_COBRO.test(e.eventType)) continue;
       informe.revisados += 1;
-      if (enLibro.has(`HOTMART|${tx}`)) continue;
+      if (enLibro.has(`HOTMART|${tx}`)) {
+        await this.reclamar(informe, e, tx, p, compra, simular);
+        continue;
+      }
       if (packs.has(tx)) continue;
 
       const tenant = await this.tenantDeHotmart(e.tenantId, tx, p);
@@ -519,6 +566,8 @@ export class ConciliadorDeIngresosService {
         gateway: 'HOTMART',
         externalTxId: tx,
         tenantId: tenant?.id ?? null,
+        // El cobro de un grupo empresarial es del grupo. Ver `delGrupo`.
+        subscriberCode: p?.data?.subscription?.subscriber?.code ?? null,
         whiteLabelId: tenant?.whiteLabelId ?? null,
         brandName: tenant?.brandName ?? null,
         planId: tenant?.planId ?? null,
@@ -538,6 +587,51 @@ export class ConciliadorDeIngresosService {
   }
 
   /** El negocio de una transacción, por los cuatro caminos que hay. */
+  /**
+   * Un cobro que YA está en el libro pero sin su dueño correcto. Lo vuelve a
+   * pasar por `IncomeRecordService.record`, que es quien decide: cuelga el
+   * negocio a un huérfano, o pasa al grupo un cobro de grupo apuntado a uno
+   * de sus negocios. Nunca toca una fila que ya sea de otro negocio.
+   */
+  private async reclamar(
+    informe: InformeDeConciliacion,
+    e: { tenantId: string | null },
+    tx: string,
+    p: any,
+    compra: any,
+    simular: boolean,
+  ) {
+    const sub: string | null = p?.data?.subscription?.subscriber?.code ?? null;
+    const deGrupo = !!sub && this.codigosDeGrupo.has(sub) && !this.yaDeGrupo.has(tx);
+    const huerfano = this.huerfanos.has(tx);
+    if (!deGrupo && !huerfano) return;
+    const tenant = huerfano && !deGrupo ? await this.tenantDeHotmart(e.tenantId, tx, p) : null;
+    if (!deGrupo && !tenant) return; // sigue sin dueño: nada que colgarle todavía
+    informe.reclamados.push({
+      externalTxId: tx,
+      a: deGrupo ? `grupo ${sub}` : (tenant?.brandName ?? null),
+      motivo: deGrupo ? 'grupo' : 'huerfano',
+    });
+    if (simular) return;
+    await this.income.record({
+      gateway: 'HOTMART',
+      externalTxId: tx,
+      tenantId: tenant?.id ?? null,
+      subscriberCode: sub,
+      whiteLabelId: tenant?.whiteLabelId ?? null,
+      brandName: tenant?.brandName ?? null,
+      planId: tenant?.planId ?? null,
+      planPeriodicity: tenant?.planPeriodicity ?? null,
+      currency: 'USD',
+      // El ya apuntado. Al pasar al grupo manda el precio del GRUPO si lo
+      // tiene; al adoptar un huérfano el importe no se toca.
+      grossUsd: this.brutoDelLibro.get(tx) ?? null,
+      saleDate: compra?.approved_date ? new Date(compra.approved_date) : new Date(),
+    });
+    if (deGrupo) this.yaDeGrupo.add(tx);
+    this.huerfanos.delete(tx);
+  }
+
   private async tenantDeHotmart(
     tenantIdDelEvento: string | null,
     tx: string,

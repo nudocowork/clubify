@@ -118,6 +118,8 @@ function servicio(opts: {
     },
     commission: {
       findFirst: vi.fn(async ({ where }: any) => filas.find((f) => coincide(f, where)) ?? null),
+      // Las del referido con la clave del mes (`claveDelPeriodo`).
+      findMany: vi.fn(async () => []),
       create: vi.fn(async () => ({})),
     },
     setting: { findUnique: vi.fn(async () => ({ value: '5' })) },
@@ -460,5 +462,39 @@ describe('backfill de atribución · no devenga dos veces el mismo cobro', () =>
     expect(nuevas).toHaveLength(1);
     expect(nuevas[0].periodKey).toBe('2026-10');
     expect(nuevas[0].amount).toBe(30);
+  });
+});
+
+describe('«Generar comisión ahora» · Wok Explosivo (2026-10-02)', () => {
+  // Plan mensual: el cobro del 26-ago se retrasó al 1-sep y el siguiente entró
+  // el 28-sep. El botón creaba la comisión del 28 con la clave «2026-09», ya
+  // ocupada por la del 1-sep: chocaba con la UNIQUE, el P2002 se tragaba como
+  // duplicado y el panel anunciaba la comisión igual.
+  const COBRO_28_SEP = new Date('2026-09-28T13:37:00.000Z');
+
+  it('con el mes ocupado por OTRO cobro, la clave lleva el día y se crea', async () => {
+    const svc = servicio({
+      lastChargeAt: COBRO_28_SEP,
+      currentPeriodEnd: new Date('2026-10-26T12:00:00.000Z'),
+      planPeriodicity: 'MENSUAL',
+    });
+    // En «2026-09» ya está la comisión del cobro del 1-sep.
+    svc.prisma.commission.findMany = vi.fn(async () => [
+      { businessDate: new Date('2026-09-01T23:42:00.000Z'), createdAt: new Date('2026-09-01T23:44:00.000Z') },
+    ]);
+
+    const motivo = await svc.backfillCommissionForAssignment('use-wok', 'wok', 'rojas');
+
+    expect(motivo).toBeNull();
+    const [c] = creadas(svc);
+    expect(c.periodKey).toBe('2026-09-28');
+    expect(c.businessDate).toEqual(COBRO_28_SEP);
+  });
+
+  it('si no crea nada, dice por qué', async () => {
+    const svc = servicio({ lastChargeAt: COBRO_28_SEP, currentPeriodEnd: null });
+    const motivo = await svc.backfillCommissionForAssignment('use-wok', 'wok', 'rojas');
+    expect(motivo).toMatch(/ciclo pagado/);
+    expect(creadas(svc)).toHaveLength(0);
   });
 });

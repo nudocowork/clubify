@@ -57,6 +57,10 @@ function makeService(opts: {
       ),
     },
     hotmartWebhookEvent: { findMany: findManyEventos },
+    // El libro: el cobro del grupo de septiembre, apuntado al grupo por $150.
+    incomeRecord: {
+      findMany: vi.fn(async () => [{ externalTxId: 'HP2591990171', grossUsd: 150 }]),
+    },
   };
   const svc = new BusinessGroupsService(prisma as any, {} as any);
   return { svc, findManyEventos };

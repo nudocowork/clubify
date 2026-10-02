@@ -26,7 +26,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  *   Neto − Egresos − Nómina − Comisiones PAGADAS − Socio = UTILIDAD
  *
  * El socio se lleva su porcentaje de las VENTAS de Clubify: del bruto hasta
- * agosto de 2026 y del neto desde septiembre (Javier, 2026-10-01). Egresos,
+ * septiembre de 2026 y del neto desde octubre (Javier, 2026-10-02). Egresos,
  * nómina y comisiones NO le bajan su parte. Ver `socio.ts`.
  *
  * Las comisiones entran por lo PAGADO (fecha de pago), no por lo generado:
@@ -52,8 +52,8 @@ export interface FinancialSummary {
   comisionesPendientesUsd: number;
   /** Comisiones generadas en el período, pagadas o no. */
   comisionesGeneradasUsd: number;
-  /** Parte del socio: `socioPorcentaje` % de su base (bruto hasta agosto de
-   *  2026, neto desde septiembre) en las ventas de Clubify. */
+  /** Parte del socio: `socioPorcentaje` % de su base (bruto hasta septiembre
+   *  de 2026, neto desde octubre) en las ventas de Clubify. */
   socioUsd: number;
   socioPorcentaje: number;
   utilidadUsd: number;
@@ -341,8 +341,8 @@ export class FinanceReportService {
 
     return meses.map((period) => {
       const c = cubos.get(period)!;
-      // La MISMA base que `summary` —ventas de Clubify, bruto hasta agosto y
-      // neto desde septiembre—: si la gráfica y la cascada calcularan distinto,
+      // La MISMA base que `summary` —ventas de Clubify, bruto hasta septiembre
+      // y neto desde octubre—: si la gráfica y la cascada calcularan distinto,
       // el mismo mes enseñaría dos socios.
       const socioUsd = parteDelSocio(round2(c.baseSocioUsd), socioPorcentaje);
       const utilidadUsd = round2(
