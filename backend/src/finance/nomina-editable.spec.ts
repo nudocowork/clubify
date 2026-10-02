@@ -185,13 +185,22 @@ describe('el monto de cada mes', () => {
     expect(cortes[0].paidAt).toBeNull();
   });
 
-  it('bajar un corte ya abonado por debajo de lo pagado se rechaza y no cambia nada', async () => {
-    const { svc, cortes, items } = base();
-    await expect(svc.updateRunItem('c1', 'i1', { baseUsd: 100 })).rejects.toThrow(/ya se le abonaron/);
-    // Nada quedó a medias: la transacción real se revierte; aquí el total no se recalculó.
-    expect(cortes[0].totalUsd).toBe(500);
+  it('corregir a la baja un corte PAGADO ENTERO ajusta lo pagado y sigue pagado', async () => {
+    // Sara (2026-10-02): la nómina de junio se pagó en pesos y se apuntó en USD;
+    // al pasarla al promedio en dólares el total baja. Es el mismo pago contado
+    // de otra forma, no dinero devuelto. Antes esto se rechazaba y la
+    // corrección no se podía guardar.
+    const { svc, cortes } = base();
+    await svc.updateRunItem('c1', 'i1', { baseUsd: 100 }); // 300 → 100; el otro, 200
+    expect(cortes[0].totalUsd).toBe(300);
+    expect(cortes[0].amountPaidUsd).toBe(300);
     expect(cortes[0].status).toBe('PAID');
-    expect(items.find((it) => it.id === 'i1').totalUsd).toBeLessThanOrEqual(300);
+  });
+
+  it('con un abono PARCIAL, bajar por debajo de lo abonado sigue rechazándose', async () => {
+    const { svc, cortes } = base();
+    Object.assign(cortes[1], { amountPaidUsd: 250, status: 'PARTIAL', paidAt: null });
+    await expect(svc.updateRunItem('c2', 'i3', { baseUsd: 100 })).rejects.toThrow(/ya se le abonaron/);
   });
 
   it('quitar a alguien de un corte pagado por completo también se rechaza', async () => {

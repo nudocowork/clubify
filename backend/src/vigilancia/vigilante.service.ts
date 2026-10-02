@@ -159,10 +159,31 @@ export class VigilanteService {
     });
 
     const fechaHotmart = new Map<string, Date>();
+    const cobradoEl = new Map<string, Date>();
     for (const e of eventos) {
       if (fechaHotmart.has(e.tenantId!)) continue;
       const ms = (e.payload as any)?.data?.purchase?.date_next_charge;
-      if (typeof ms === 'number') fechaHotmart.set(e.tenantId!, new Date(ms));
+      if (typeof ms === 'number') {
+        fechaHotmart.set(e.tenantId!, new Date(ms));
+        cobradoEl.set(e.tenantId!, e.processedAt);
+      }
+    }
+
+    // Una suscripción CANCELADA después de su último cobro no vuelve a cobrar:
+    // su «próximo cobro» es una fecha muerta. Pasó con Habibi Bar Cantina
+    // (2026-10-02): pasó del mensual al anual por fuera de Hotmart, el mensual
+    // se canceló, y la alerta comparaba su renovación de 2027 con el 17-oct del
+    // mensual cancelado — y avisaba de una fecha «equivocada» que era la buena.
+    const cancelaciones = await this.prisma.hotmartWebhookEvent.findMany({
+      where: {
+        tenantId: { in: [...cobradoEl.keys()] },
+        eventType: 'SUBSCRIPTION_CANCELLATION',
+      },
+      select: { tenantId: true, processedAt: true },
+    });
+    for (const c of cancelaciones) {
+      const cobro = cobradoEl.get(c.tenantId!);
+      if (cobro && c.processedAt > cobro) fechaHotmart.delete(c.tenantId!);
     }
 
     // Dos días de margen: las horas y los husos no tienen por qué cuadrar al

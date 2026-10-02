@@ -32,6 +32,8 @@ type PagoHistorial = {
   monto: number | null;
   moneda: string | null;
   montoUsd: number | null;
+  /** Lo que Contabilidad tiene apuntado de este cobro, en USD. Manda. */
+  usdContable: number | null;
   metodo: string | null;
   motivo: string | null;
   referencia: string | null;
@@ -74,6 +76,18 @@ function importe(monto: number | null, moneda: string | null) {
     maximumFractionDigits: 2,
   });
   return moneda ? `${n} ${moneda}` : n;
+}
+
+/**
+ * El monto en dólares que se enseña: el de Contabilidad si el cobro está en el
+ * libro, y si no, el que traiga el propio pago en USD. Todo en dólares (Sara,
+ * 2026-10-02): el historial decía «225.164 COP» y Contabilidad «$68» del
+ * mismo cobro.
+ */
+function enDolares(p: { usdContable: number | null; monto: number | null; moneda: string | null; montoUsd: number | null }) {
+  if (p.usdContable != null) return p.usdContable;
+  if (p.moneda === 'USD') return p.monto;
+  return p.montoUsd;
 }
 
 export function PaymentHistoryCard({
@@ -216,11 +230,12 @@ export function PaymentHistoryCard({
                       {ESTADO[p.estado].label}
                     </span>
                     <span className="text-sm font-semibold text-ink tabular-nums">
-                      {importe(p.monto, p.moneda) ?? '—'}
+                      {importe(enDolares(p), 'USD') ?? importe(p.monto, p.moneda) ?? '—'}
                     </span>
-                    {p.montoUsd != null && p.moneda !== 'USD' && (
+                    {/* La moneda en que pagó el cliente, solo como referencia. */}
+                    {enDolares(p) != null && p.moneda && p.moneda !== 'USD' && p.monto != null && (
                       <span className="text-[11px] text-mute">
-                        ({importe(p.montoUsd, 'USD')})
+                        (pagó {importe(p.monto, p.moneda)})
                       </span>
                     )}
                     <span className="text-[11px] text-mute">

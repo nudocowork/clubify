@@ -316,7 +316,10 @@ export class PayrollService {
         where: { id: itemId },
         data: { baseUsd: base, bonusUsd: bonus, deductionUsd: ded, totalUsd: round2(base + bonus - ded) },
       });
-      return { ok: true as const, ...(await this.recalcularCorte(tx, runId)) };
+      return {
+        ok: true as const,
+        ...(await this.recalcularCorte(tx, runId, { corrigeElMonto: true })),
+      };
     });
   }
 
@@ -340,20 +343,35 @@ export class PayrollService {
     return { ok: r.count === 1 };
   }
 
-  private async recalcularCorte(tx: any, runId: string) {
+  private async recalcularCorte(
+    tx: any,
+    runId: string,
+    opts: { corrigeElMonto?: boolean } = {},
+  ) {
     const items: Array<{ totalUsd: unknown }> = await tx.payrollItem.findMany({
       where: { runId },
       select: { totalUsd: true },
     });
     const run = await tx.payrollRun.findUnique({
       where: { id: runId },
-      select: { amountPaidUsd: true, paidAt: true },
+      // `totalUsd` es todavía el de ANTES: la línea se acaba de editar, el corte no.
+      select: { amountPaidUsd: true, paidAt: true, totalUsd: true },
     });
     const total = round2(items.reduce((a, it) => a + Number(it.totalUsd), 0));
-    const pagado = Number(run?.amountPaidUsd ?? 0);
+    let pagado = Number(run?.amountPaidUsd ?? 0);
+    // Un corte PAGADO ENTERO que se corrige a la baja es el mismo pago contado
+    // en dólares de otra forma: la nómina se paga en pesos y se apunta en USD,
+    // y corregir la conversión (Sara, 2026-10-02: «tomar el valor promedio en
+    // dólares») no es devolver dinero. Lo pagado baja con el total y el corte
+    // sigue pagado. Antes esto lanzaba y la corrección no se podía guardar.
+    // Solo al CORREGIR un monto: quitar a alguien de un corte pagado no es una
+    // conversión, es decir que esa persona no cobró — eso sigue rechazándose.
+    const pagadoEntero = pagado > 0 && pagado >= Number(run?.totalUsd ?? 0) - 0.01;
+    if (opts.corrigeElMonto && pagadoEntero && total < pagado) pagado = total;
     // Un corte no puede quedar por debajo de lo que ya se le abonó: quedaba con
     // saldo negativo y ese negativo le restaba «pendiente» a los demás cortes del
     // mes. Lanzar deshace la transacción entera (revisión de Fable, 2026-09-17).
+    // Sigue valiendo para los pagos PARCIALES.
     if (total < pagado - 0.01) {
       throw new BadRequestException(
         `A este pago ya se le abonaron $${pagado.toFixed(2)}: el total no puede quedar por debajo.`,
@@ -364,6 +382,7 @@ export class PayrollService {
       where: { id: runId },
       data: {
         totalUsd: total,
+        amountPaidUsd: pagado,
         status,
         // Con fecha si pasa a pagado ahora; sin ella si deja de estarlo.
         ...(status !== 'PAID' ? { paidAt: null } : run?.paidAt ? {} : { paidAt: new Date() }),

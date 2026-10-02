@@ -46,6 +46,14 @@ export type PagoDelHistorial = {
    *  comparar cobros hechos en monedas distintas. NO es una conversión
    *  nuestra: es el dato de Hotmart. */
   montoUsd: number | null;
+  /**
+   * Lo que Contabilidad tiene apuntado de ESTE cobro, en dólares. Es la cifra
+   * que manda en el panel: Sara (2026-10-02) — «toda esta información, en
+   * cualquier apartado que la vaya a mirar, debe ser la misma». El historial
+   * enseñaba los pesos del aviso de Hotmart y Contabilidad el precio del plan.
+   * Null si el cobro no está en el libro.
+   */
+  usdContable: number | null;
   metodo: string | null;
   /** Por qué se rechazó ("Saldo insuficiente."). Solo en RECHAZADO. */
   motivo: string | null;
@@ -173,6 +181,7 @@ export function agruparCobrosHotmart(
           : compra.full_price?.currency_value === 'USD'
             ? numero(compra.full_price?.value)
             : null,
+      usdContable: null, // lo pone `listPaymentHistory` desde el libro
       metodo: metodoLegible(compra.payment?.type),
       motivo:
         estado === 'RECHAZADO'

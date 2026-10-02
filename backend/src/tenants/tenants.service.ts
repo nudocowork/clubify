@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   UnauthorizedException,
   Inject,
   forwardRef,
@@ -1658,6 +1659,28 @@ export class TenantsService {
       t.currentPeriodEnd,
       t.planPeriodicity,
     );
+    // El MISMO pago dos veces. Oh! Cookies (2026-09-15 y 16): su trimestre del
+    // 2-sep se registró dos veces y Contabilidad contó $300 por un cobro de
+    // $150. Un pago manual que cubre el mismo ciclo que otro ya registrado es
+    // un duplicado: se rechaza antes de tocar nada.
+    const DIA_MS = 24 * 60 * 60 * 1000;
+    const repetido = await this.prisma.manualPayment.findFirst({
+      where: {
+        tenantId: t.id,
+        periodStart: {
+          gte: new Date(period.periodStart.getTime() - DIA_MS),
+          lte: new Date(period.periodStart.getTime() + DIA_MS),
+        },
+      },
+      select: { paidAt: true, amount: true, currency: true },
+    });
+    if (repetido) {
+      throw new ConflictException(
+        `Ya hay un pago registrado para este ciclo (pagado el ${repetido.paidAt
+          .toISOString()
+          .slice(0, 10)}${repetido.amount != null ? `, ${Number(repetido.amount)} ${repetido.currency ?? ''}`.trimEnd() : ''}). Si es otro pago, revisa la fecha: este cubriría el mismo período.`,
+      );
+    }
     // Marca blanca: si esto ACTIVA el negocio consume el crédito del ciclo
     // (no-op si ya estaba ACTIVE, o si la marca es Clubify/ilimitada).
     const credit = await this.chargeBrandCreditForActivation(t, 'pago manual');
@@ -1879,6 +1902,7 @@ export class TenantsService {
         moneda: m.currency ?? null,
         montoUsd:
           m.currency === 'USD' && m.amount != null ? Number(m.amount) : null,
+        usdContable: null,
         metodo: metodoLegible(m.method),
         motivo: null,
         referencia: m.reference ?? null,
@@ -1898,6 +1922,7 @@ export class TenantsService {
         monto: null,
         moneda: null,
         montoUsd: null,
+        usdContable: null,
         metodo: `${Math.abs(Number(c.amount))} crédito(s)`,
         motivo: null,
         referencia: null,
@@ -1947,6 +1972,7 @@ export class TenantsService {
             Number.isFinite(centavos)
               ? centavos / 100
               : null,
+          usdContable: null,
           metodo: 'Stripe',
           motivo: null,
           referencia: o.number ?? clave,
@@ -1956,6 +1982,26 @@ export class TenantsService {
           nota: null,
         });
       }
+    }
+
+    // El dólar de cada cobro sale del LIBRO de Contabilidad, no del aviso: así
+    // el historial y Contabilidad enseñan la misma cifra. El aviso de Hotmart
+    // trae los pesos del cliente y una conversión suya (71,04 USD en Habibi)
+    // mientras el libro apunta el precio del plan ($68). La clave es la misma
+    // que usa el libro: (pasarela, transacción) — en un pago manual, su id.
+    const libro = await this.prisma.incomeRecord.findMany({
+      where: { tenantId: id, status: 'PAGADO' },
+      select: { gateway: true, externalTxId: true, grossUsd: true },
+    });
+    const usdDelLibro = new Map(
+      libro.map((r) => [`${r.gateway}:${r.externalTxId}`, Number(r.grossUsd)]),
+    );
+    for (const p of pagos) {
+      const clave =
+        p.origen === 'MANUAL'
+          ? `MANUAL:${p.id.replace(/^manual:/, '')}`
+          : `${p.origen}:${p.referencia}`;
+      p.usdContable = usdDelLibro.get(clave) ?? null;
     }
 
     pagos.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
