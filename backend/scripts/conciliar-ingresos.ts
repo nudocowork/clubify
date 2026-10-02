@@ -54,6 +54,12 @@ async function main() {
   }
 
   console.log(
+    `\nRECLAMADOS (huérfanos a su negocio, cobros de grupo al grupo): ${informe.reclamados.length}`,
+  );
+  for (const r of informe.reclamados) {
+    console.log(`  ${r.externalTxId} → ${r.a ?? '-'} (${r.motivo})`);
+  }
+  console.log(
     `\nEN DISPUTA (siguen contando, hay que mirarlos): ${informe.enDisputa.length}`,
   );
   for (const t of informe.enDisputa) console.log(`  ${t}`);

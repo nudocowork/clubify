@@ -612,6 +612,10 @@ export class ConciliadorDeIngresosService {
       a: deGrupo ? `grupo ${sub}` : (tenant?.brandName ?? null),
       motivo: deGrupo ? 'grupo' : 'huerfano',
     });
+    // Antes del `simular`: APPROVED y COMPLETE del mismo cobro son dos avisos y
+    // el informe no debe contarlo dos veces.
+    if (deGrupo) this.yaDeGrupo.add(tx);
+    this.huerfanos.delete(tx);
     if (simular) return;
     await this.income.record({
       gateway: 'HOTMART',
@@ -628,8 +632,6 @@ export class ConciliadorDeIngresosService {
       grossUsd: this.brutoDelLibro.get(tx) ?? null,
       saleDate: compra?.approved_date ? new Date(compra.approved_date) : new Date(),
     });
-    if (deGrupo) this.yaDeGrupo.add(tx);
-    this.huerfanos.delete(tx);
   }
 
   private async tenantDeHotmart(

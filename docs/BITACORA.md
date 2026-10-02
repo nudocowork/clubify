@@ -8,6 +8,40 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-02 (109) — Ajuste integral del dinero: grupos, huérfanos, botón de comisión, validación diaria
+
+Commit `17ff6c48` + ajustes, **DESPLEGADO Y VERIFICADO** (back `17ff6c4`,
+front `9oszcbj5g`). Migración aditiva aplicada:
+`IncomeRecord.businessGroupId` (`scripts/apply-income-group-migration.cjs`).
+
+Causas raíz (todas estructurales, ningún `if negocio = …`):
+1. **Grupos:** el libro solo apuntaba cobros a negocios. El de Grupo Mistika
+   ($150, 3 negocios) quedaba a nombre de Cevichería Marea Mística y con el
+   precio de SU plan ($68). `IncomeRecordService.record()` reconoce el código
+   de suscripción del grupo y apunta al grupo con su precio.
+2. **Huérfanos:** quien paga ANTES de registrarse queda con el cobro sin
+   dueño, y al activarse la tx repetida se ignoraba. `record()` adopta la
+   fila; el conciliador reclama huérfanos y cobros de grupo mal apuntados.
+   Huérfano = sin negocio/grupo y categoría ≠ OTRO (`productName` NO sirve:
+   el conciliador se lo pone a los huérfanos).
+3. **Asignar un pago pendiente** (pagó con otro correo) ahora enlaza ingreso
+   y genera comisión, y lo dice en la respuesta.
+4. **«Generar comisión ahora»:** para un influencer creaba con la clave del
+   MES; con el mes ocupado (Wok, 1 y 28-sep) chocaba con la UNIQUE, el P2002
+   se tragaba y el panel decía «generada» listando comisiones VIEJAS. Ahora
+   `claveDelPeriodo`, cuenta lo creado y devuelve el motivo.
+5. **Validación diaria** (`finance/consistencia-del-dinero.ts`, en la
+   revisión de las 8 am; a mano: `scripts/consistencia-del-dinero.ts`).
+6. **Socio:** septiembre sobre el TOTAL; el neto desde octubre.
+
+Datos corregidos con el código real (conciliador y
+`scripts/enlazar-pago-y-comision.ts`): 4 cobros de Mistika (jun-sep) → grupo
+$150; Paicoat, Serviteca y Rapidos y Fabulosos Gourmet (no reportado) →
+adoptados; El Regio → pago enlazado (próx. cobro 16-dic), ingreso y comisión;
+Wok → comisión $5 del 28-sep (repetir el botón: 0 creadas, con motivo).
+Validación: 10 hallazgos → 3, que necesitan decisión humana: HP2209512687
+$99,03 («Automatización de WhatsApp», otro producto), y dos Stripe de $80.
+
 ## 2026-10-02 (108) — El PDF de Sara: nómina en USD, Habibi, Oh! Cookies, Degodoy
 
 Commit `b46668d2`, **DESPLEGADO Y VERIFICADO** (back `b46668d`, front
