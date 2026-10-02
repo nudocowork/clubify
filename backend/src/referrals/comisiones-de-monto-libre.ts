@@ -31,7 +31,9 @@
  */
 
 /** Prefijos de `periodKey` cuya base NO es el precio del plan. */
-const MONTO_LIBRE = /^(UPG|IMPL)-/;
+// EQUIPO-: la comisión de equipo es un % de las ventas de la quincena, no del
+// plan de un negocio (ver `comision-de-equipo.service.ts`).
+const MONTO_LIBRE = /^(UPG|IMPL|EQUIPO)-/;
 
 /** ¿Esta comisión se calculó sobre un monto pactado aparte? */
 export const esDeMontoLibre = (periodKey: string | null | undefined): boolean =>
@@ -50,8 +52,20 @@ export const esDelUpgrade = (periodKey: string | null | undefined): boolean =>
  * columna es NULL. O sea que dejaría fuera del recálculo TODAS las comisiones
  * legacy sin `periodKey`… que son justo las que hay que recalcular.
  */
-export const NO_ES_DEL_UPGRADE: {
-  OR: Array<{ periodKey: null } | { NOT: { periodKey: { startsWith: string } } }>;
-} = {
-  OR: [{ periodKey: null }, { NOT: { periodKey: { startsWith: 'UPG-' } } }],
+export const NO_ES_DEL_UPGRADE = {
+  OR: [
+    { periodKey: null },
+    // Tampoco la de EQUIPO (un % de las ventas de la quincena): el recálculo
+    // la reescribiría como «base del plan × % del código», que no es su regla.
+    { AND: [{ NOT: { periodKey: { startsWith: 'UPG-' } } }, { NOT: { periodKey: { startsWith: 'EQUIPO-' } } }] },
+  ],
+};
+
+/**
+ * Filtro Prisma para «esta comisión NO es la de equipo». Para el arqueo de
+ * comisiones: la de equipo no tiene negocio ni referido detrás, y sin esto
+ * salía como fantasma «sin negocio» y «Corregir todo» la anulaba.
+ */
+export const NO_ES_DE_EQUIPO = {
+  OR: [{ periodKey: null }, { NOT: { periodKey: { startsWith: 'EQUIPO-' } } }],
 };

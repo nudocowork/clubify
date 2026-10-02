@@ -141,8 +141,8 @@ export async function revisarConsistencia(
 
   // A + D: cada comisión, contra el ingreso de SU cobro.
   for (const c of comisiones) {
-    // Las de implementación y upgrade tienen su propio dinero (no un cobro de plan).
-    if (c.periodKey && /^(UPG|IMPL|ONCE)/.test(c.periodKey)) continue;
+    // Implementación, upgrade y equipo tienen su propio dinero (no un cobro de plan).
+    if (c.periodKey && /^(UPG|IMPL|ONCE|EQUIPO)/.test(c.periodKey)) continue;
     const fecha = c.businessDate ?? c.createdAt;
     const quien = c.businessGroup?.name ?? c.referralUse?.tenant?.brandName ?? '—';
     const porTx = c.hotmartTransactionId ? ingresoPorTx.get(c.hotmartTransactionId) : undefined;

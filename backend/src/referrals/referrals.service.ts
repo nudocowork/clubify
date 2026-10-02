@@ -33,6 +33,7 @@ import { esComisionDePagoManual } from './comision-de-pago-manual';
 import { MARGEN_MISMO_COBRO_MS, claveDelPeriodo } from './clave-del-periodo';
 import {
   NO_ES_DEL_UPGRADE,
+  NO_ES_DE_EQUIPO,
   esDeMontoLibre,
   esDelUpgrade,
 } from './comisiones-de-monto-libre';
@@ -5432,6 +5433,8 @@ export class ReferralsService {
         // Punto 2: las comisiones de GRUPO no son por-tenant → se excluyen de
         // este arqueo (sino saldrían como PHANTOM "sin-tenant").
         businessGroupId: null,
+        // Ni la de EQUIPO, por lo mismo: no tiene negocio detrás.
+        AND: [NO_ES_DE_EQUIPO],
         ...(user.whiteLabelId
           ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
           : {}),
