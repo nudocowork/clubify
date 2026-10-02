@@ -1,4 +1,5 @@
 import { CommissionStatus } from '@prisma/client';
+import { alcanceDeMarca, combinar, marcaClubify } from './alcance-de-marca';
 
 /**
  * CONSISTENCIA DEL DINERO: una misma operación debe decir lo mismo en todos
@@ -18,6 +19,11 @@ import { CommissionStatus } from '@prisma/client';
  *
  * Mira solo lo reciente y desde septiembre de 2026: lo anterior es la época de
  * las reconstrucciones a mano y dispararía avisos sin arreglo posible.
+ *
+ * Y solo CLUBIFY (su marca y los registros sin marca), como la vista por
+ * defecto de Contabilidad: las ventas de una marca blanca —Sellea cobra por
+ * Stripe— son de esa marca, no de Clubify (Javier, 2026-10-02). Sus comisiones
+ * son además terreno de Jhon.
  */
 
 export type TipoDeInconsistencia =
@@ -60,6 +66,23 @@ const MARGEN = 5 * DIA;
 
 type Db = any;
 
+/** Comisiones de negocios o grupos de Clubify (su marca o sin marca). */
+async function soloDeClubify(prisma: Db) {
+  const id = await marcaClubify(prisma);
+  const marcas = id ? [id, null] : [null];
+  const deMarca = (m: string | null) => ({ whiteLabelId: m });
+  return {
+    AND: [
+      {
+        OR: [
+          { referralUse: { is: { tenant: { is: { OR: marcas.map(deMarca) } } } } },
+          { businessGroup: { is: { OR: marcas.map(deMarca) } } },
+        ],
+      },
+    ],
+  };
+}
+
 export async function revisarConsistencia(
   prisma: Db,
   ahora = new Date(),
@@ -79,7 +102,10 @@ export async function revisarConsistencia(
     saleDate: Date;
     category: string | null;
   }> = await prisma.incomeRecord.findMany({
-    where: { status: 'PAGADO', saleDate: { gte: new Date(desde.getTime() - MARGEN), lte: ahora } },
+    where: combinar(
+      { status: 'PAGADO', saleDate: { gte: new Date(desde.getTime() - MARGEN), lte: ahora } },
+      await alcanceDeMarca(prisma, true),
+    ),
     select: {
       externalTxId: true, tenantId: true, businessGroupId: true, brandName: true,
       grossUsd: true, saleDate: true, category: true,
@@ -100,6 +126,7 @@ export async function revisarConsistencia(
   }> = await prisma.commission.findMany({
     where: {
       status: { not: CommissionStatus.REJECTED },
+      ...(await soloDeClubify(prisma)),
       OR: [{ businessDate: { gte: desde, lte: hasta } }, { businessDate: null, createdAt: { gte: desde, lte: hasta } }],
     },
     select: {
