@@ -8,6 +8,23 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-03 (114) — Los 9 cobros «sin marca»: identificados y asignados
+
+ (idempotente). Ninguno era
+dinero perdido; cada uno identificado por el comprador de Hotmart:
+- **HP2339903546 56,72 = Fusion sushi** (Kimberlyn Gómez, mismo teléfono,
+  Chile). El equipo creó el negocio con kimberlyn@soyclubify.com y código
+  : su renovación NO se habría reconocido. Ahora: código real
+   y próximo cobro desde la COMPRA (8-oct, antes 13-nov).
+- 4 «Servicios adicionales» (~0) → su negocio: Chillin, Segundo Piso,
+  BLIC, Paicoat. 2 sin negocio (Alejandro Montoya, Mauren Castillo) → Clubify.
+- **HP0243420764 56,72, David Moreno** (dmoreno758@unab.edu.co, tel. que
+  acaba en 167530434, COP): pagó el TRIMESTRAL el 17-jul y NO tiene negocio
+  (no es Ricuras: otro teléfono). **Hay que contactarlo.**
+- HP0667367408 2,24 (Angelica Barrantes): reembolsado.
+Lección: un negocio dado de alta a mano para alguien que pagó por Hotmart
+debe llevar SU código de suscripción, o la renovación queda huérfana.
+
 ## 2026-10-03 (113) — PDF (10) de Sara: comisión de equipo, Café Macondo, nombre del dueño, Marcas blancas
 
 Commits `9549c771`, `f4d515c2`, `0e946691`. **Migración aplicada:**
