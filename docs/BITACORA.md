@@ -8,6 +8,24 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-03 (112) — Contabilidad ocultaba los cobros de grupo a los admins de Clubify
+
+Commit `2a51396a` (solo backend). Sara: «en Comisiones aparece, pero no en
+Contabilidad». El libro estaba bien; lo ocultaba el middleware: Sara, Javier
+y Jhon son SUPER_ADMIN con `whiteLabelId` = Clubify (modo marca) y el libro se
+acotaba a `tenantId IN (negocios de la marca)`. Los cobros SIN negocio (grupo
+empresarial, packs, pagos previos al registro) desaparecían de la lista y de
+los TOTALES ($150–$820/mes). Javier: «el grupo debe verse como un negocio».
+`IncomeRecord` se acota ahora como `User`: sus negocios ∪ las filas sin
+negocio de la MISMA marca (prueba: `common/prisma/filas-de-la-marca.spec.ts`).
+
+**Queda fuera (el clasificador lo bloqueó como «Security Weaken», decide
+Javier):** 12 cobros sin negocio y SIN marca guardada (backfills viejos de
+Hotmart, jul–sep, ~$740; p. ej. los $20 de packs) siguen sin verse en modo
+marca. Son de Clubify por convención. Antes de «arreglar» un descuadre de
+Contabilidad: un script sin contexto HTTP NO ve lo que ve un admin en modo
+marca.
+
 ## 2026-10-03 (111) — Pagos por fuera: formulario de cada closer + «Pendientes de aprobación»
 
 Commit `1a7b51eb`, **DESPLEGADO Y VERIFICADO** por Javier el 2026-10-03
