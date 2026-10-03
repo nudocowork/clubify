@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-03 (115) — Respuestas de Sara (PDF 11)
+
+Commit `499faeb4` (back + front, **despliega Javier**; también lleva el
+`a36d827e` del menú en memoria si no se desplegó antes). Datos YA aplicados
+(`scripts/respuestas-de-sara-2026-10-03.cjs --aplicar`, idempotente).
+
+- **«Marcas blancas» no abría:** el middleware trata `/admin/<x>` como el
+  panel de la marca blanca `<x>` salvo que esté en `RESERVED_ADMIN_ROUTES`.
+  Faltaban `marcas-blancas` y `upgrades`. **Toda carpeta nueva en
+  `src/app/admin` va a esa lista.**
+- **2 % de Sara sin marcas blancas** (`payerWhiteLabelId: null` en el
+  cálculo) hasta que se decida. Se recalcula sola tras desplegar.
+- **Café Macondo → MENSUAL**, precio pactado $52,24 (su plan del 17-sep);
+  libro HP3836714159 $150 → $52,24; su comisión $15 → $5,22 (sin pagar).
+  Próximo cobro 17-oct, código `D99G58Q2`.
+- **Grupo Mística, comisión del 17-jul creada:** $15 para Nicolás Quintero,
+  periodKey `2026-07-17`, en el corte del 30-sep (abierto).
+- **6 «Servicios adicionales» (~$20) → estado `EN_REVISION`:** siguen en el
+  libro, fuera de todos los totales, hasta que se decida qué son.
+
 ## 2026-10-03 (114) — Los 9 cobros «sin marca»: identificados y asignados
 
 `scripts/asignar-cobros-sin-marca.cjs --aplicar` (idempotente). Ninguno era
