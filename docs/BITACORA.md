@@ -10,8 +10,8 @@
 
 ## 2026-10-03 (111) — Pagos por fuera: formulario de cada closer + «Pendientes de aprobación»
 
-Commit `1a7b51eb`, **SIN DESPLEGAR** (el clasificador bloqueó el deploy; lo
-corre Javier: `node scripts/desplegar.cjs backend` y después `frontend`).
+Commit `1a7b51eb`, **DESPLEGADO Y VERIFICADO** por Javier el 2026-10-03
+(`/api/health` → `189460c`; enlace real de Sara abre el formulario).
 **Migración YA aplicada** en producción: tabla `ManualPaymentRequest`
 (`scripts/apply-manual-payment-request-migration.cjs`, aditiva, 27 columnas).
 
