@@ -8,6 +8,46 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-03 (111) — Pagos por fuera: formulario de cada closer + «Pendientes de aprobación»
+
+Commit `1a7b51eb`, **SIN DESPLEGAR** (el clasificador bloqueó el deploy; lo
+corre Javier: `node scripts/desplegar.cjs backend` y después `frontend`).
+**Migración YA aplicada** en producción: tabla `ManualPaymentRequest`
+(`scripts/apply-manual-payment-request-migration.cjs`, aditiva, 27 columnas).
+
+Pedido de Sara (PDF «Software Clubify (9)»):
+- Cada closer tiene un enlace firmado `/registro-pago/<CÓDIGO>-<firma hex>`
+  (HMAC con `JWT_SECRET`; `REGISTRO_PAGO_SECRET` si existe). Formulario =
+  alta del negocio + pago + comprobante (foto/PDF a R2, carpeta
+  `comprobantes`). El afiliado sale del ENLACE, no de un selector. Sin
+  contraseña: se genera al aprobar y se muestra a quien aprueba.
+- Enviar NO activa nada. Bandeja en `/admin/tenants/pendientes` (botón
+  «Pendientes de aprobación» con contador en Negocios), detalle con
+  comprobante, «Aprobar pago manual» y «Rechazar» (con motivo). Ahí mismo,
+  «Enlaces de los closers» para copiarlos. El afiliado ve el suyo en su panel.
+- Aprobar = `tenants.create` → precio pactado = monto USD aprobado →
+  `registerManualPayment` (activa, ciclo, Contabilidad) → `setTenantAssignment`
+  (comisión). Reclamo atómico PENDIENTE→APROBANDO; si un paso falla vuelve a
+  PENDIENTE con `lastError` y el reintento retoma el negocio ya creado.
+- Pago en COP u otra moneda: a Contabilidad entra el precio del plan en USD
+  (editable al aprobar), igual que la regla de Hotmart.
+
+Arreglo de paso: `backfillCommissionForCurrentAssignment` ignoraba a los
+VENDEDORES → todo pago manual de un negocio vendido por un vendedor quedaba
+sin comisión, en silencio. Ya los incluye.
+
+**Grupo Mística:** NO faltaba ningún cobro. Los 4 (jun–sep, $150 c/u) están
+en el libro a nombre de «Aldehir - Grupo Mistika (grupo)» desde el arreglo de
+ayer. No se veían porque Contabilidad abre en el mes en curso (octubre; su
+cobro es el 17) y el buscador no encontraba «Místika»/«Marea». Ahora la lista
+trae los negocios del grupo y busca sin tildes. Dato corregido: el cobro de
+junio (HP2030431923, recurrencia 1) pasó de RENOVACION a NUEVA.
+**Pendiente de decisión:** 4 cobros y 3 comisiones del grupo. La primera
+(creada el 1-jul al asignar el afiliado, clave `2026-07`) cubre el cobro del
+17-jun; el del **17-jul quedó sin comisión** porque su mes ya estaba ocupado
+(el fallo de «dos cobros en un mes», arreglado el 2026-10-02 para lo que
+venga). Decidir si se le genera (comisiones = terreno de Jhon).
+
 ## 2026-10-02 (110) — Comisión de equipo: Sara Plata, 2 % de las ventas por quincena
 
 Commit `690b382d`, **DESPLEGADO Y VERIFICADO** (`/api/health` → `690b382`).
