@@ -28,6 +28,7 @@ import {
   ResolvedBrand,
 } from '../whitelabel/whitelabel-brand.service';
 import { Public } from '../common/decorators/public.decorator';
+import { MemoPublico } from './memo-publico';
 import { resolveMainSectionLabel } from '../common/business-categories';
 import {
   CUSTOMER_PAYMENT_METHODS,
@@ -73,6 +74,9 @@ type PublicPromotion = {
 
 @Controller('public/m')
 export class PublicMenuController {
+  /** Respuestas ya armadas del negocio y la carta. Ver `memo-publico.ts`. */
+  private memo = new MemoPublico();
+
   constructor(
     private prisma: PrismaService,
     private translation: TranslationService,
@@ -82,13 +86,21 @@ export class PublicMenuController {
   @Public()
   @Header('Cache-Control', PUBLIC_CACHE)
   @Get(':slug')
-  async storefront(
+  storefront(
     @Param('slug') slug: string,
     @Query('locale') localeRaw?: string,
     // Id de la carta de la OFICINA del enlace (`/d/<slug>?oficina=<id>`).
     // Sin él, la respuesta es la de siempre con `oficina: null`.
     @Query('oficina') oficinaRaw?: string,
+    // La vista previa del panel: el dueño acaba de editar y debe verlo ya.
+    @Query('fresco') fresco?: string,
   ) {
+    const armar = () => this.armarStorefront(slug, localeRaw, oficinaRaw);
+    if (fresco) return armar();
+    return this.memo.obtener(`negocio|${slug}|${localeRaw ?? ''}|${oficinaRaw ?? ''}`, armar);
+  }
+
+  private async armarStorefront(slug: string, localeRaw?: string, oficinaRaw?: string) {
     const locale = normalizeLocale(localeRaw);
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
@@ -487,7 +499,7 @@ export class PublicMenuController {
   @Public()
   @Header('Cache-Control', PUBLIC_CACHE)
   @Get(':slug/menu')
-  async menu(
+  menu(
     @Param('slug') slug: string,
     @Query('locale') localeRaw?: string,
     @Query('mode') modeRaw?: string,
@@ -495,7 +507,14 @@ export class PublicMenuController {
     // carta; sin este parametro se sirve el menu principal, que es lo que
     // pasa hoy en todos los negocios.
     @Query('sede') sedeRaw?: string,
+    @Query('fresco') fresco?: string,
   ) {
+    const armar = () => this.armarMenu(slug, localeRaw, modeRaw, sedeRaw);
+    if (fresco) return armar();
+    return this.memo.obtener(`carta|${slug}|${localeRaw ?? ''}|${modeRaw ?? ''}|${sedeRaw ?? ''}`, armar);
+  }
+
+  private async armarMenu(slug: string, localeRaw?: string, modeRaw?: string, sedeRaw?: string) {
     const locale = normalizeLocale(localeRaw);
     // 'mesa' (default) o 'delivery' — filtra productos por flag de visibilidad.
     // Cualquier valor desconocido cae al default mesa.
