@@ -197,6 +197,21 @@ function mergeWhereAndInUser(
 }
 
 /**
+ * Tablas donde una fila puede ser de la MARCA sin ser de ningún negocio, y que
+ * en modo marca se acotan con `mergeWhereAndInUser` (sus negocios ∪ las filas
+ * sin negocio de la propia marca) en vez de solo por negocio.
+ *
+ * - `User`: el admin o marketing de una marca (PDF245).
+ * - `IncomeRecord`: los cobros de un GRUPO empresarial —un cliente que paga
+ *   una sola vez aunque ocupe varios negocios—, los packs de créditos y lo que
+ *   se paga antes de registrarse. Sin esto, el admin de Clubify (que trabaja
+ *   dentro de la marca) no los veía en Contabilidad ni en sus totales: Grupo
+ *   Mística desaparecía y faltaban $150–$820 al mes (Sara, 2026-10-03). La
+ *   otra marca sigue sin verlos: el filtro exige `whiteLabelId` de la activa.
+ */
+const MODELOS_CON_FILAS_DE_LA_MARCA = new Set(['User', 'IncomeRecord']);
+
+/**
  * Modo marca blanca, escrituras (decisión A): no hay un tenantId único que
  * inyectar. Permitimos solo escrituras con `data.tenantId` EXPLÍCITO que
  * pertenezca a la marca; las escrituras ambiguas (sin tenantId) se bloquean
@@ -324,7 +339,7 @@ export function tenantMiddleware(): Prisma.Middleware {
         params.args =
           scope.kind === 'tenant'
             ? mergeWhereAnd(params.args, scope.tenantId, model)
-            : model === 'User'
+            : MODELOS_CON_FILAS_DE_LA_MARCA.has(model)
               ? mergeWhereAndInUser(
                   params.args,
                   scope.tenantIds,
