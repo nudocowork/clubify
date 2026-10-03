@@ -142,6 +142,42 @@ describe('comisión de equipo (2 % de las ventas de la quincena)', () => {
     expect(comisiones).toHaveLength(0);
   });
 
+  it('la quincena EN CURSO queda en espera y fuera de todo corte hasta su día', async () => {
+    // Sara (2026-10-03): la del 1–15 de octubre apareció en el corte del 30-sep.
+    const { svc, comisiones } = base({
+      ingresos: [{ saleDate: new Date('2026-10-01T15:00:00Z'), grossUsd: 368 }],
+    });
+    await svc.recalcular(HOY);
+    const oct = comisiones.find((c) => c.periodKey === 'EQUIPO-2026-10-15');
+    expect(oct).toMatchObject({ status: 'PENDING', amount: 7.36 });
+    expect(oct.payoutBatchId).toBeUndefined();
+  });
+
+  it('si ya estaba metida en un corte ajeno, la saca y ese corte recalcula su total', async () => {
+    const { svc, comisiones, lotes } = base({
+      ingresos: [{ saleDate: new Date('2026-10-01T15:00:00Z'), grossUsd: 368 }],
+    });
+    comisiones.push({
+      id: 'vieja', recipientCodeId: SARA, periodKey: 'EQUIPO-2026-10-15', amount: 7.36,
+      status: 'APPROVED', paymentStatus: 'PENDING', amountPaid: 0, payoutBatchId: 'b-sep30',
+    });
+    lotes[0].totalUsd = 7.36;
+    await svc.recalcular(HOY);
+    const oct = comisiones.find((c) => c.id === 'vieja');
+    expect(oct).toMatchObject({ status: 'PENDING', payoutBatchId: null });
+    expect(lotes[0].totalUsd).toBe(0);
+  });
+
+  it('el día de su corte se aprueba y entra a ESE corte', async () => {
+    const { svc, comisiones } = base({
+      lotes: [{ id: 'b-oct15', code: 'CORTE-2026-10-15', status: 'OPEN', totalUsd: 0 }],
+      ingresos: [{ saleDate: new Date('2026-10-01T15:00:00Z'), grossUsd: 368 }],
+    });
+    await svc.recalcular(new Date('2026-10-15T15:00:00Z'));
+    const oct = comisiones.find((c) => c.periodKey === 'EQUIPO-2026-10-15');
+    expect(oct).toMatchObject({ status: 'APPROVED', payoutBatchId: 'b-oct15' });
+  });
+
   it('el porcentaje es un ajuste', async () => {
     const { svc, comisiones } = base({
       ajustes: { 'comisiones.equipo.porcentaje': '3' },

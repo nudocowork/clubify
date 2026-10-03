@@ -107,10 +107,18 @@ export class ComisionDeEquipoService {
         where: { code: cutoffCode(corte) },
         select: { id: true, status: true },
       });
+      // La quincena EN CURSO todavía no se paga: queda en espera hasta el día
+      // de su corte. Nacía aprobada con disponibilidad futura, y el repaso
+      // nocturno de cortes pasados la tomaba por «habilitada a mano» y la metía
+      // en el corte anterior: la del 1–15 de octubre apareció en el del 30 de
+      // septiembre (Sara, 2026-10-03). Desde el día del corte: aprobada, sin
+      // los 15 días de espera de las comisiones de venta.
+      const cerrada = hoy >= corte;
+      const estado = cerrada ? CommissionStatus.APPROVED : CommissionStatus.PENDING;
 
       const existente = await this.prisma.commission.findFirst({
         where: { recipientCodeId: code.id, periodKey },
-        select: { id: true, amount: true, paymentStatus: true, amountPaid: true, payoutBatchId: true },
+        select: { id: true, amount: true, status: true, paymentStatus: true, amountPaid: true, payoutBatchId: true },
       });
       if (existente) {
         // Pagada (o con un abono): el dinero salió, no se reescribe.
@@ -119,8 +127,12 @@ export class ComisionDeEquipoService {
           continue;
         }
         const cambia = Math.abs(Number(existente.amount) - monto) >= 0.01;
-        const sinCorte = !existente.payoutBatchId && lote?.status === 'OPEN';
-        if (!cambia && !sinCorte) {
+        const sinCorte = cerrada && !existente.payoutBatchId && lote?.status === 'OPEN';
+        // En un corte que no es el suyo (o antes de que su quincena cierre).
+        const corteAjeno = !!existente.payoutBatchId && (!cerrada || existente.payoutBatchId !== lote?.id);
+        const cambiaEstado = existente.status !== estado;
+        const corteAnterior = existente.payoutBatchId;
+        if (!cambia && !sinCorte && !corteAjeno && !cambiaEstado) {
           quincenas.push({ corte, ventasUsd: ventas, comisionUsd: monto, accion: 'al día' });
           continue;
         }
@@ -132,12 +144,20 @@ export class ComisionDeEquipoService {
             baseAmountUsd: ventas,
             appliedPercent: porcentaje,
             notes: nota,
+            status: estado,
             ...(sinCorte ? { payoutBatchId: lote!.id } : {}),
+            ...(corteAjeno ? { payoutBatchId: cerrada && lote?.status === 'OPEN' ? lote.id : null } : {}),
           },
         });
-        const batchId = sinCorte ? lote!.id : existente.payoutBatchId;
-        if (batchId) await recalcBatchTotal(this.prisma, batchId);
-        quincenas.push({ corte, ventasUsd: ventas, comisionUsd: monto, accion: cambia ? 'recalculada' : 'enganchada al corte' });
+        // Los dos cortes tocados recalculan su total: el que la soltó y el que la tomó.
+        const tocados = new Set([corteAnterior, sinCorte || (corteAjeno && cerrada) ? lote?.id : null]);
+        for (const id of tocados) if (id) await recalcBatchTotal(this.prisma, id);
+        quincenas.push({
+          corte,
+          ventasUsd: ventas,
+          comisionUsd: monto,
+          accion: corteAjeno ? 'sacada de un corte ajeno' : cambia ? 'recalculada' : sinCorte ? 'enganchada al corte' : 'estado al día',
+        });
         continue;
       }
       if (monto <= 0) {
@@ -150,8 +170,8 @@ export class ComisionDeEquipoService {
           referralUseId: null,
           amount: monto,
           currency: 'USD',
-          // Sin espera de 15 días: disponible al cierre de su quincena.
-          status: CommissionStatus.APPROVED,
+          // Sin espera de 15 días: disponible el día de su corte.
+          status: estado,
           paymentStatus: 'PENDING',
           amountPaid: 0,
           periodKey,
@@ -160,13 +180,13 @@ export class ComisionDeEquipoService {
           baseAmountUsd: ventas,
           appliedPercent: porcentaje,
           notes: nota,
-          ...(lote?.status === 'OPEN' ? { payoutBatchId: lote.id } : {}),
+          ...(cerrada && lote?.status === 'OPEN' ? { payoutBatchId: lote.id } : {}),
         },
       });
-      if (lote?.status === 'OPEN') await recalcBatchTotal(this.prisma, lote.id);
+      if (cerrada && lote?.status === 'OPEN') await recalcBatchTotal(this.prisma, lote.id);
       quincenas.push({ corte, ventasUsd: ventas, comisionUsd: monto, accion: 'creada' });
     }
-    if (quincenas.some((q) => q.accion === 'creada' || q.accion === 'recalculada')) {
+    if (quincenas.some((q) => q.accion !== 'al día' && q.accion !== 'pagada, sin tocar' && q.accion !== 'sin ventas')) {
       this.logger.log(
         `Comisión de equipo (${code.ownerName}): ` +
           quincenas.map((q) => `${q.corte} $${q.comisionUsd} (${q.accion})`).join(' · '),
