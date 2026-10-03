@@ -8,6 +8,39 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-03 (113) — PDF (10) de Sara: comisión de equipo, Café Macondo, nombre del dueño, Marcas blancas
+
+Commits `9549c771`, `f4d515c2`, `0e946691`. **Migración aplicada:**
+`IncomeRecord.payerWhiteLabelId` (`scripts/apply-income-payer-migration.cjs`).
+**Datos corregidos** (`scripts/asignar-ingresos-de-marcas.cjs --aplicar`).
+Despliegue de back y front: lo corre Javier.
+
+1. **Comisión de equipo de Sara:** la de 1–15 oct ($7,36) estaba en el corte
+   del 30-sep. Nacía APROBADA con `availableAt` futuro y el repaso nocturno
+   de cortes pasados (`generateCutoff` con `absorbeAdelantadas`) la tomaba por
+   «habilitada a mano». Ahora queda PENDING hasta el día de su corte; se
+   corrige sola en el primer tick tras desplegar.
+2. **Café Macondo — NO se suspendió:** su trimestral de junio (`JSLQIK9H`)
+   sí quedó en mora el 16-sep, PERO el 17-sep compró otro plan
+   («Clubify - Tarjeta de fidelización», `D99G58Q2`, $52,24, mensual, próximo
+   cobro 17-oct). Está pagado. Mal: el libro lo apuntó como $150 RENOVACION
+   (precio de la periodicidad vieja del negocio, TRIMESTRAL). **Decisión de
+   Javier:** pasarlo a mensual con su precio real. Revisión de los 71
+   negocios activos con Hotmart: 65 cuadran con Hotmart; Piatto-Prestto en
+   gracia (se suspende solo el 5-oct); el resto explicado.
+3. **Nombre y apellido del dueño:** /activar e InfoLink los piden por
+   separado; botón «Nombre del dueño» en la ficha (PATCH
+   `/tenants/:id/owner-name`). 56 de 186 dueños tenían un solo nombre.
+4. **Marcas blancas** (`/admin/marcas-blancas`, debajo de Negocios): lo que
+   cada marca paga a Clubify por concepto y cuál ingresa más. Mismo libro.
+   Los packs de créditos se guardaban a nombre de la marca compradora y NO
+   contaban para Clubify; ahora `whiteLabelId` = Clubify y
+   `payerWhiteLabelId` = la marca. Los $99,03 de Humberto = servicio
+   «Automatización de WhatsApp» de Sellea. Total pasado: $633,37.
+   OJO: suma también a la base del socio y a la comisión de equipo (son
+   ventas de Clubify). Rebranding: no hay ninguno registrado; se registra a
+   mano desde el apartado.
+
 ## 2026-10-03 (112) — Contabilidad ocultaba los cobros de grupo a los admins de Clubify
 
 Commit `2a51396a` (solo backend). Sara: «en Comisiones aparece, pero no en
