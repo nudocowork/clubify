@@ -107,6 +107,10 @@ export default function TenantsPage() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [duplicateTarget, setDuplicateTarget] = useState<any | null>(null);
   const [showRanking, setShowRanking] = useState(false); // #11
+  // Pagos por fuera que registraron los closers y esperan que alguien
+  // compruebe la transferencia. El número va en el botón para que no se queden
+  // olvidados ahí dentro.
+  const [porAprobar, setPorAprobar] = useState(0);
   const [trialTarget, setTrialTarget] = useState<any | null>(null);
   const me = getUser();
   const isMarketing = me?.role === 'MARKETING';
@@ -114,6 +118,12 @@ export default function TenantsPage() {
   // marca) por el VENCIMIENTO del servicio. El panel /admin está aislado por
   // marca, así que todas las filas comparten whiteLabelSlug.
   const isSellea = list.some((x: any) => x?.whiteLabelSlug === 'sellea');
+
+  useEffect(() => {
+    api<{ pendientes: number }>('/admin/pagos-por-aprobar/contador')
+      .then((r) => setPorAprobar(r?.pendientes ?? 0))
+      .catch(() => setPorAprobar(0));
+  }, []);
 
   // Debounce 150ms para evitar re-renders por keystroke en listas grandes.
   useEffect(() => {
@@ -306,6 +316,16 @@ export default function TenantsPage() {
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
+          {!isMarketing && (
+            <Link className="btn-ghost relative" href="/admin/tenants/pendientes">
+              {t('pendingApproval')}
+              {porAprobar > 0 && (
+                <span className="ml-1.5 inline-flex min-w-[20px] h-5 px-1.5 items-center justify-center rounded-full bg-brand text-white text-[11px] font-bold tabular-nums">
+                  {porAprobar}
+                </span>
+              )}
+            </Link>
+          )}
           <button
             type="button"
             className="btn-ghost"

@@ -352,6 +352,23 @@ export class IncomeRecordService {
       orderBy: { saleDate: 'desc' },
       take: Math.min(opts.limit ?? 200, 1000),
     });
+    // Los negocios de cada grupo. Un cobro de grupo se apunta a nombre del
+    // GRUPO («Aldehir - Grupo Mistika (grupo)»), y quien lo busca suele
+    // escribir el de un negocio («Marea Místika»): sin esto no lo encuentra y
+    // cree que el pago no se registró (Sara, 2026-10-03).
+    const idsDeGrupo = [...new Set(rows.map((r) => r.businessGroupId).filter((x): x is string => !!x))];
+    const negociosDelGrupo = new Map<string, string[]>();
+    if (idsDeGrupo.length) {
+      const negocios = await this.prisma.tenant.findMany({
+        where: { businessGroupId: { in: idsDeGrupo }, deletedAt: null },
+        select: { businessGroupId: true, brandName: true },
+        orderBy: { brandName: 'asc' },
+      });
+      for (const n of negocios) {
+        if (!n.businessGroupId) continue;
+        negociosDelGrupo.set(n.businessGroupId, [...(negociosDelGrupo.get(n.businessGroupId) ?? []), n.brandName]);
+      }
+    }
     return rows.map((r) => {
       const netRecv = r.netReceivedUsd == null ? null : Number(r.netReceivedUsd);
       const netExp = Number(r.netExpectedUsd);
@@ -364,6 +381,7 @@ export class IncomeRecordService {
         netExpectedUsd: netExp,
         netReceivedUsd: netRecv,
         differenceUsd: netRecv == null ? null : round2(netRecv - netExp),
+        negociosDelGrupo: r.businessGroupId ? (negociosDelGrupo.get(r.businessGroupId) ?? []) : [],
       };
     });
   }

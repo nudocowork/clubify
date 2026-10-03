@@ -2821,16 +2821,20 @@ export class ReferralsService {
     tenantId: string,
     force = false,
   ) {
+    // VENDOR también: `backfillCommissionForAssignment` ya sabe repartir su
+    // comisión (y la del embajador). Sin él aquí, todo pago manual de un
+    // negocio vendido por un vendedor —la mayoría de los closers— fallaba en
+    // silencio y el closer se quedaba sin comisión (Sara, 2026-10-03).
     const use = await this.prisma.referralUse.findFirst({
       where: {
         tenantId,
-        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
       },
       orderBy: { createdAt: 'desc' },
     });
     if (!use) {
       throw new NotFoundException(
-        'Este tenant no tiene asignación a INFLUENCER o AMBASSADOR',
+        'Este negocio no tiene un afiliado asignado (influencer, embajador o vendedor)',
       );
     }
     // Se cuentan las comisiones ANTES y DESPUÉS: la respuesta dice cuántas

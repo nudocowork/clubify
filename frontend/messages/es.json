@@ -4840,6 +4840,7 @@
     "crumbRecords": "/ {count} registros",
     "ranking": "Ranking",
     "newBusiness": "Nuevo negocio",
+    "pendingApproval": "Pendientes de aprobación",
     "searchPlaceholder": "Buscar negocio, cliente, correo, teléfono…",
     "clearSearch": "Limpiar búsqueda",
     "statusAll": "Estado: Todos",

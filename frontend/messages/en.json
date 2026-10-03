@@ -4840,6 +4840,7 @@
     "crumbRecords": "/ {count} records",
     "ranking": "Ranking",
     "newBusiness": "New business",
+    "pendingApproval": "Pending approval",
     "searchPlaceholder": "Search business, customer, email, phone…",
     "clearSearch": "Clear search",
     "statusAll": "Status: All",

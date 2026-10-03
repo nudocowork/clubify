@@ -19,6 +19,7 @@ import { StampsModule } from './stamps/stamps.module';
 import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { PagosPorAprobarModule } from './pagos-por-aprobar/pagos-por-aprobar.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { FinanceModule } from './finance/finance.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
@@ -102,6 +103,7 @@ import { VigilanciaModule } from './vigilancia/vigilancia.module';
     LocationsModule,
     NotificationsModule,
     ReferralsModule,
+    PagosPorAprobarModule,
     AccountingModule,
     FinanceModule,
     CampaignsModule,

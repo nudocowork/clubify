@@ -34,7 +34,12 @@ type Row = {
   reconStatus: 'PENDING' | 'RECONCILED' | 'REVIEW'; saleDate: string; note?: string | null;
   category: string | null; status: string; refundedAt: string | null;
   planPeriodicity: string | null; productName: string | null; tenantId: string | null;
+  /** Negocios del grupo cuando el cobro es de un grupo empresarial. */
+  negociosDelGrupo?: string[];
 };
+/** Para buscar sin que importen mayúsculas ni tildes. */
+const sinTildes = (t: string) => t.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+
 type Resumen = {
   count: number; grossUsd: number; gatewayFeeUsd: number; taxUsd: number;
   netExpectedUsd: number; netReceivedUsd: number; pendingRecon: number; inReview: number;
@@ -334,16 +339,17 @@ export default function ContabilidadPage() {
 
   // Los ingresos que pasan los filtros de la pestaña.
   const ingresosVisibles = useMemo(() => {
-    const q = buscaIngreso.trim().toLowerCase();
+    const q = sinTildes(buscaIngreso.trim());
     return rows.filter((r) => {
       if (filtroCat && (r.category ?? '') !== filtroCat) return false;
       if (filtroGw && r.gateway !== filtroGw) return false;
       if (filtroEstado && (r.status || 'PAGADO') !== filtroEstado) return false;
       if (!q) return true;
-      return (
-        (r.brandName ?? '').toLowerCase().includes(q) ||
-        (r.productName ?? '').toLowerCase().includes(q) ||
-        r.externalTxId.toLowerCase().includes(q)
+      // Un cobro de grupo va a nombre del grupo: también se encuentra por el
+      // de cualquiera de sus negocios, y con o sin tildes («Mistika» halla
+      // «Místika»). Sin esto Sara buscó a Grupo Mística y no lo vio.
+      return [r.brandName, r.productName, r.externalTxId, ...(r.negociosDelGrupo ?? [])].some((t) =>
+        sinTildes(t ?? '').includes(q),
       );
     });
   }, [rows, filtroCat, filtroGw, filtroEstado, buscaIngreso]);
@@ -484,7 +490,12 @@ export default function ContabilidadPage() {
                 return (
                   <tr key={r.id} className={`border-t border-line2 hover:bg-bg2/40 ${devuelto ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-3">{fmtDate(r.saleDate)}</td>
-                    <td className="px-4 py-3 font-semibold">{r.brandName ?? r.productName ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold">{r.brandName ?? r.productName ?? '—'}</div>
+                      {!!r.negociosDelGrupo?.length && (
+                        <div className="text-[11px] text-mute font-normal">{r.negociosDelGrupo.join(' · ')}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.label}</span></td>
                     <td className="px-4 py-3 text-mute text-xs">{r.planPeriodicity ?? '—'}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${GATEWAY_BDG[r.gateway] ?? 'bg-slate-100 text-slate-700'}`}>{r.gateway}</span></td>

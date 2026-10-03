@@ -426,6 +426,8 @@ export async function middleware(req: NextRequest) {
     // línea caería al resolutor de dominios y haría dos consultas por carga
     // para decidir un reescrito que aquí no toca.
     url.pathname.startsWith('/agenda/') ||
+    // El formulario de pago de cada closer: pública, por enlace firmado.
+    url.pathname.startsWith('/registro-pago/') ||
     url.pathname.startsWith('/affiliate') ||
     url.pathname.startsWith('/domicilios') ||
     url.pathname.startsWith('/cuponera') ||

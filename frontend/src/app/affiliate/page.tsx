@@ -375,6 +375,7 @@ export default function AffiliatePanel() {
                   ✂️ Acortar mi link
                 </button>
                 {me.myCode && <EnlacesDePagoDirecto codigo={me.myCode.code} marcaSlug={me.brand?.slug ?? null} />}
+                {me.myCode && <MiFormularioDePagos />}
               </div>
             )}
           </div>
@@ -3423,6 +3424,48 @@ function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * El enlace al formulario de pagos por fuera de ESTE afiliado. Lo que registra
+ * ahí sale ya a su nombre y espera la aprobación del equipo: así no hay que
+ * pedirle a nadie que se acuerde de asignarle la venta.
+ */
+function MiFormularioDePagos() {
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => {
+    api<{ token: string | null }>('/affiliate/registro-pago')
+      .then((r) => setToken(r?.token ?? null))
+      .catch(() => setToken(null));
+  }, []);
+  if (!token) return null;
+  const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/registro-pago/${token}`;
+  return (
+    <div className="mt-3 rounded-lg border border-line bg-bg2/60 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+        Registrar un pago por fuera
+      </div>
+      <p className="text-[11px] text-mute mt-0.5">
+        Si tu cliente pagó por Nequi, transferencia o efectivo, regístralo aquí con el comprobante. Al aprobarlo se
+        activa el negocio y tu comisión queda registrada.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2 mt-2">
+        <a href={url} target="_blank" rel="noreferrer" className="btn-primary text-xs min-h-[40px] justify-center">
+          Abrir formulario
+        </a>
+        <button
+          type="button"
+          onClick={async () => {
+            await navigator.clipboard.writeText(url);
+            toast('Enlace del formulario copiado', 'success');
+          }}
+          className="btn-ghost text-xs min-h-[40px] justify-center"
+        >
+          📋 Copiar enlace
+        </button>
       </div>
     </div>
   );

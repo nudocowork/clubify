@@ -8451,3 +8451,51 @@ model DeviceToken {
 
   @@index([userId])
 }
+
+/// Pago por fuera que registra un CLOSER desde su enlace único y que un admin
+/// aprueba (Sara, 2026-10-03). Antes el pago manual lo escribía el admin a mano
+/// y se olvidaba el afiliado: el negocio quedaba sin comisión y nadie lo veía.
+/// Aquí el closer sale del enlace —no de un selector— y nada se activa hasta
+/// que alguien compruebe que la transferencia llegó y pulse «Aprobar».
+///
+/// Sin `tenantId` a propósito: el middleware filtra por negocio a todo modelo
+/// con ese campo, y una solicitud todavía no es de ningún negocio. El negocio
+/// que nace al aprobar queda en `createdTenantId`.
+model ManualPaymentRequest {
+  id                   String    @id @default(uuid())
+  /// Closer que la envió. Sin FK: el histórico sobrevive al borrado del código.
+  referralCodeId       String
+  closerName           String
+  whiteLabelId         String?
+  /// PENDIENTE | APROBANDO | APROBADO | RECHAZADO
+  status               String    @default("PENDIENTE")
+  brandName            String
+  ownerEmail           String
+  ownerPhone           String?
+  ownerFullName        String
+  planPeriodicity      String
+  businessType         String    @default("FULL")
+  businessCategorySlug String?
+  /// NEQUI | TRANSFERENCIA | EFECTIVO | OTRO
+  method               String
+  amount               Decimal   @db.Decimal(12, 2)
+  currency             String    @default("USD")
+  paidAt               DateTime
+  reference            String?
+  proofUrl             String
+  note                 String?   @db.Text
+  /// Lo que entra a Contabilidad, en USD. Lo fija quien aprueba.
+  amountUsd            Decimal?  @db.Decimal(10, 2)
+  createdTenantId      String?
+  reviewedById         String?
+  reviewedAt           DateTime?
+  rejectReason         String?   @db.Text
+  /// Por qué falló el último intento de aprobar (se puede reintentar).
+  lastError            String?   @db.Text
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([referralCodeId])
+  @@index([whiteLabelId])
+}
