@@ -13,7 +13,10 @@
 Commits `9549c771`, `f4d515c2`, `0e946691`. **Migración aplicada:**
 `IncomeRecord.payerWhiteLabelId` (`scripts/apply-income-payer-migration.cjs`).
 **Datos corregidos** (`scripts/asignar-ingresos-de-marcas.cjs --aplicar`).
-Despliegue de back y front: lo corre Javier.
+**DESPLEGADO** back y front (`3b695e9`, Javier). La comisión de octubre de Sara
+se sacó del corte del 30-sep corriendo `scripts/comision-de-equipo.ts`. La prueba de
+humo del front falló por lentitud (caché fría + backend lento por el proxy de la
+base), no por estos cambios.
 
 1. **Comisión de equipo de Sara:** la de 1–15 oct ($7,36) estaba en el corte
    del 30-sep. Nacía APROBADA con `availableAt` futuro y el repaso nocturno
