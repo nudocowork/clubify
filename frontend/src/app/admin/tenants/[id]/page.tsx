@@ -48,6 +48,7 @@ export default function TenantDetail() {
   // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
   const [sfDomain, setSfDomain] = useState<string | null>(null);
   const [showPwdModal, setShowPwdModal] = useState(false);
+  const [showNombreDuenio, setShowNombreDuenio] = useState(false);
   // Un upgrade a anual cambia el plan Y crea una fila de historial: hay que
   // recargar las dos cosas, y el historial vive en otra tarjeta.
   const [upgradesRefresh, setUpgradesRefresh] = useState(0);
@@ -461,6 +462,16 @@ export default function TenantDetail() {
                 title="Setear una nueva contraseña para el dueño sin necesitar la actual"
               >
                 🔑 Cambiar contraseña del dueño
+              </button>
+            )}
+            {isSuperAdmin && (
+              <button
+                className="btn-ghost text-sm"
+                disabled={actioning}
+                onClick={() => setShowNombreDuenio(true)}
+                title="Nombre y apellido de quien es dueño del negocio"
+              >
+                👤 Nombre del dueño
               </button>
             )}
             {isSuperAdmin && t.status === 'TRIAL' && (
@@ -1027,6 +1038,100 @@ export default function TenantDetail() {
           onClose={() => setShowPwdModal(false)}
         />
       )}
+      {showNombreDuenio && (
+        <OwnerNameModal tenantId={t.id} brandName={t.brandName} onClose={() => setShowNombreDuenio(false)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Nombre y apellido del dueño, para los negocios que se registraron sin ellos
+ * (Sara, 2026-10-03): el registro pedía un solo «Tu nombre» y quedaron dueños
+ * llamados como su negocio o como quien los dio de alta.
+ */
+function OwnerNameModal({ tenantId, brandName, onClose }: { tenantId: string; brandName?: string; onClose: () => void }) {
+  const [actual, setActual] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [sinDuenio, setSinDuenio] = useState(false);
+  const [nombre, setNombre] = useState('');
+  const [apellido, setApellido] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  useEffect(() => {
+    api<{ owner: { fullName?: string | null } | null }>(`/tenants/${tenantId}/owner`)
+      .then((r) => {
+        if (!r?.owner) return setSinDuenio(true);
+        const completo = (r.owner.fullName ?? '').trim();
+        setActual(completo || null);
+        // Propuesta para editar: primera palabra al nombre, el resto al apellido.
+        const [n = '', ...resto] = completo.split(/\s+/);
+        setNombre(n);
+        setApellido(resto.join(' '));
+      })
+      .catch(() => setSinDuenio(true))
+      .finally(() => setCargando(false));
+  }, [tenantId]);
+  const valido = nombre.trim().length >= 2 && apellido.trim().length >= 2;
+
+  const guardar = async () => {
+    if (!valido || guardando) return;
+    setGuardando(true);
+    try {
+      const r = await api<{ fullName: string }>(`/tenants/${tenantId}/owner-name`, {
+        method: 'PATCH',
+        body: JSON.stringify({ nombre: nombre.trim(), apellido: apellido.trim() }),
+      });
+      toast(`Dueño: ${r.fullName}`, 'success');
+      onClose();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo guardar', 'error');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold">Nombre del dueño</h3>
+        <p className="mt-1 text-sm text-mute">
+          De <b>{brandName || 'este negocio'}</b>. Queda registrado en auditoría.
+        </p>
+        {cargando ? (
+          <div className="mt-4 h-5 w-40 animate-shimmer rounded" />
+        ) : sinDuenio ? (
+          <div className="mt-4 text-sm text-bad-ink">Este negocio no tiene un dueño activo.</div>
+        ) : (
+          <>
+            <div className="mt-4 text-xs text-mute">
+              Ahora: <b className="text-ink">{actual ?? 'sin nombre'}</b>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Nombre</label>
+                <input className="input w-full" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus />
+              </div>
+              <div>
+                <label className="label">Apellido</label>
+                <input
+                  className="input w-full"
+                  value={apellido}
+                  onChange={(e) => setApellido(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && guardar()}
+                />
+              </div>
+            </div>
+          </>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-ghost text-sm" onClick={onClose} disabled={guardando}>
+            Cancelar
+          </button>
+          <button className="btn-primary text-sm" onClick={guardar} disabled={!valido || guardando || sinDuenio}>
+            {guardando ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

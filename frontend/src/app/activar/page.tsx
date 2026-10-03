@@ -88,8 +88,12 @@ function ActivarInner() {
     'idle' | 'checking' | 'found' | 'not-found'
   >('idle');
 
+  // Nombre y apellido POR SEPARADO (Sara, 2026-10-03): con un solo campo
+  // «Tu nombre» quedaban dueños llamados «samuel» o como su negocio, y 56 de
+  // 186 no tenían apellido. Al servidor sigue llegando `fullName`.
   const [form, setForm] = useState({
-    fullName: '',
+    nombre: '',
+    apellido: '',
     brandName: '',
     email: '',
     whatsappPhone: '',
@@ -132,7 +136,14 @@ function ActivarInner() {
         setForm((f) => ({
           ...f,
           email: emailParam,
-          fullName: f.fullName || d.buyerName || '',
+          // El nombre del comprador en Hotmart, repartido: primera palabra al
+          // nombre y el resto al apellido. Lo puede corregir.
+          ...(!f.nombre && !f.apellido && typeof d.buyerName === 'string'
+            ? (() => {
+                const [n = '', ...resto] = d.buyerName.trim().split(/\s+/);
+                return { nombre: n, apellido: resto.join(' ') };
+              })()
+            : {}),
           whatsappPhone: f.whatsappPhone || d.buyerPhone || '',
         }));
         if (d.periodicity) {
@@ -359,7 +370,7 @@ function ActivarInner() {
         body: JSON.stringify({
           email: form.email,
           password: form.password,
-          fullName: form.fullName,
+          fullName: `${form.nombre.trim()} ${form.apellido.trim()}`,
           brandName: form.brandName,
           whatsappPhone: form.whatsappPhone || undefined,
           businessCategorySlug: form.businessCategorySlug,
@@ -395,7 +406,8 @@ function ActivarInner() {
   }
 
   const valid =
-    form.fullName.trim().length >= 2 &&
+    form.nombre.trim().length >= 2 &&
+    form.apellido.trim().length >= 2 &&
     form.brandName.trim().length >= 2 &&
     /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email) &&
     form.password.length >= 8;
@@ -488,16 +500,29 @@ function ActivarInner() {
             </p>
 
             <form onSubmit={submit} className="mt-8 space-y-4">
-              <div>
-                <label className="label">Tu nombre</label>
-                <input
-                  className="input"
-                  placeholder="Ej: Juan Pérez"
-                  value={form.fullName}
-                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                  autoComplete="name"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Nombre del dueño</label>
+                  <input
+                    className="input"
+                    placeholder="Ej: Juan"
+                    value={form.nombre}
+                    onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                    autoComplete="given-name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Apellido del dueño</label>
+                  <input
+                    className="input"
+                    placeholder="Ej: Pérez"
+                    value={form.apellido}
+                    onChange={(e) => setForm({ ...form, apellido: e.target.value })}
+                    autoComplete="family-name"
+                    required
+                  />
+                </div>
               </div>
               <div>
                 <label className="label">Nombre del negocio</label>

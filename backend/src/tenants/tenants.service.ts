@@ -539,6 +539,42 @@ export class TenantsService {
   }
 
   /**
+   * Nombre y apellido del dueño. 56 de 186 dueños tenían un solo nombre, el
+   * del negocio o el de quien lo dio de alta («samuel») porque el registro no
+   * los pedía por separado (Sara, 2026-10-03). Mismo dueño que el resto del
+   * soporte: el TENANT_OWNER activo más antiguo.
+   */
+  async changeOwnerNameAdmin(
+    tenantId: string,
+    nombre: string,
+    apellido: string,
+    actorId: string,
+  ) {
+    const limpio = (t: string) => (t ?? '').trim().replace(/\s+/g, ' ');
+    const n = limpio(nombre);
+    const a = limpio(apellido);
+    if (!n || !a) {
+      throw new BadRequestException('Escribe el nombre y el apellido del dueño.');
+    }
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, fullName: true },
+    });
+    if (!owner) throw new BadRequestException('Este negocio no tiene un dueño activo.');
+    const fullName = `${n} ${a}`;
+    await this.prisma.user.update({ where: { id: owner.id }, data: { fullName } });
+    this.audit.log({
+      actorId,
+      tenantId,
+      action: 'tenant.owner.name_change',
+      resource: `user:${owner.id}`,
+      metadata: { antes: owner.fullName, despues: fullName },
+    });
+    return { ok: true, fullName };
+  }
+
+  /**
    * El dueño activo del negocio: el mismo que elegiría `setOwnerPassword`
    * (TENANT_OWNER activo, el más antiguo). Se expone para que el panel de
    * soporte muestre A QUÉ correo le va a cambiar la contraseña ANTES de

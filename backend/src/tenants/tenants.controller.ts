@@ -79,6 +79,12 @@ class ChangeOwnerPasswordBody {
   @IsString() @MinLength(8) @MaxLength(128) newPassword!: string;
 }
 
+/** Nombre y apellido del dueño, por separado: los dos son obligatorios. */
+class ChangeOwnerNameBody {
+  @IsString() @MinLength(1) @MaxLength(60) nombre!: string;
+  @IsString() @MinLength(1) @MaxLength(60) apellido!: string;
+}
+
 /** Ajuste de trial (suma o resta). days != 0, hasta ±3650. observation
  *  opcional (texto libre que aparece en el historial). */
 class AdjustTrialBody {
@@ -465,6 +471,18 @@ export class TenantsController {
   @Roles('SUPER_ADMIN')
   owner(@Param('id') id: string) {
     return this.svc.ownerOfTenant(id);
+  }
+
+  /** El nombre y apellido del dueño, para los negocios que se registraron sin
+   *  ellos (Sara, 2026-10-03). Solo SUPER_ADMIN, auditado. */
+  @Patch(':id/owner-name')
+  @Roles('SUPER_ADMIN')
+  changeOwnerName(
+    @Param('id') id: string,
+    @Body() body: ChangeOwnerNameBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.changeOwnerNameAdmin(id, body.nombre, body.apellido, user.id);
   }
 
   /** Soporte: cambiar la contraseña del dueño del negocio SIN saber la actual.

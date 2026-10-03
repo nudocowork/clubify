@@ -41,7 +41,7 @@ export function SignupForm({
 
   const [brand, setBrand] = useState<Brand | null>(initialBrand);
   const [notFound, setNotFound] = useState(false);
-  const [form, setForm] = useState({ brandName: '', fullName: '', email: '', password: '', phone: '' });
+  const [form, setForm] = useState({ brandName: '', nombre: '', apellido: '', email: '', password: '', phone: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ blocked: boolean } | null>(null);
@@ -69,7 +69,8 @@ export function SignupForm({
     // cuando el número está vacío, así que este trim también valida el teléfono.
     if (
       !form.brandName.trim() ||
-      !form.fullName.trim() ||
+      !form.nombre.trim() ||
+      !form.apellido.trim() ||
       !form.email.trim() ||
       !form.phone.trim() ||
       form.password.length < 6
@@ -89,7 +90,8 @@ export function SignupForm({
         body: JSON.stringify({
           brandSlug,
           brandName: form.brandName.trim(),
-          fullName: form.fullName.trim(),
+          // Nombre y apellido por separado (Sara, 2026-10-03); el servidor recibe uno.
+          fullName: `${form.nombre.trim()} ${form.apellido.trim()}`,
           email: form.email.trim(),
           password: form.password,
           phone: form.phone.trim(),
@@ -170,7 +172,8 @@ export function SignupForm({
             )}
             {[
               { k: 'brandName', label: 'Nombre de tu negocio', type: 'text', ph: 'Ej: Café del Centro' },
-              { k: 'fullName', label: 'Tu nombre', type: 'text', ph: 'Nombre y apellido' },
+              { k: 'nombre', label: 'Nombre del dueño', type: 'text', ph: 'Ej: Juan' },
+              { k: 'apellido', label: 'Apellido del dueño', type: 'text', ph: 'Ej: Pérez' },
               { k: 'email', label: 'Email', type: 'email', ph: 'tucorreo@ejemplo.com' },
             ].map((f) => (
               <label key={f.k} style={{ display: 'block', marginBottom: 12 }}>
