@@ -476,6 +476,8 @@ export default function AppShell({
       '/admin/pagos-manuales',
       // Upgrades a anual: los endpoints son SUPER_ADMIN-only, igual que arriba.
       '/admin/upgrades',
+      // Lo que pagan las marcas blancas: dinero de la plataforma.
+      '/admin/marcas-blancas',
       // ALTO #8 (2026-06-12): payouts (gestión de pagos a afiliados) es
       // dato financiero sensible. Estaba oculto en el sidebar pero el
       // route guard no lo bloqueaba — MARKETING podía entrar por URL

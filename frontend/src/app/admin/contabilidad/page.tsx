@@ -81,6 +81,7 @@ const ESTADO_BDG: Record<string, { cls: string; label: string }> = {
   PAGADO: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' },
   REEMBOLSADO: { cls: 'bg-red-100 text-red-700', label: 'Reembolsado' },
   CANCELADO: { cls: 'bg-slate-200 text-slate-600', label: 'Cancelado' },
+  EN_REVISION: { cls: 'bg-amber-100 text-amber-800', label: 'En revisión' },
 };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 

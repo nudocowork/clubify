@@ -13,7 +13,7 @@ const HOY = new Date('2026-10-02T15:00:00Z');
 
 function base(opts: {
   ajustes?: Record<string, string>;
-  ingresos?: Array<{ saleDate: Date; grossUsd: number; status?: string }>;
+  ingresos?: Array<{ saleDate: Date; grossUsd: number; status?: string; payerWhiteLabelId?: string }>;
   lotes?: any[];
 } = {}) {
   const ajustes = { 'comisiones.equipo.codeId': SARA, ...(opts.ajustes ?? {}) };
@@ -42,6 +42,7 @@ function base(opts: {
         const rango = partes.find((p) => p.saleDate)?.saleDate;
         const suma = ingresos
           .filter((i) => (i.status ?? 'PAGADO') === 'PAGADO' && enRango(i.saleDate, rango))
+          .filter((i) => !partes.some((p) => p.payerWhiteLabelId === null) || !i.payerWhiteLabelId)
           .reduce((a, i) => a + i.grossUsd, 0);
         return { _sum: { grossUsd: suma } };
       },
@@ -176,6 +177,17 @@ describe('comisión de equipo (2 % de las ventas de la quincena)', () => {
     await svc.recalcular(new Date('2026-10-15T15:00:00Z'));
     const oct = comisiones.find((c) => c.periodKey === 'EQUIPO-2026-10-15');
     expect(oct).toMatchObject({ status: 'APPROVED', payoutBatchId: 'b-oct15' });
+  });
+
+  it('lo que paga una marca blanca (créditos de Sellea) no cuenta para el 2 %', async () => {
+    const { svc, comisiones } = base({
+      ingresos: [
+        { saleDate: new Date('2026-09-20T15:00:00Z'), grossUsd: 500 },
+        { saleDate: new Date('2026-09-22T15:00:00Z'), grossUsd: 158.45, payerWhiteLabelId: 'sellea' },
+      ],
+    });
+    await svc.recalcular(HOY);
+    expect(comisiones.find((c) => c.periodKey === 'EQUIPO-2026-09-30')).toMatchObject({ amount: 10, baseAmountUsd: 500 });
   });
 
   it('el porcentaje es un ajuste', async () => {

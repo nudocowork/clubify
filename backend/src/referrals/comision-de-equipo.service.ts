@@ -94,7 +94,14 @@ export class ComisionDeEquipoService {
       const agg = await this.prisma.incomeRecord.aggregate({
         where: combinar(
           // `bogotaDayEndUtc` es la medianoche SIGUIENTE: ya no es de la quincena.
-          { status: 'PAGADO', saleDate: { gte: bogotaDayStartUtc(inicio), lt: bogotaDayEndUtc(end) } },
+          // Sin lo que pagan las marcas blancas (créditos, rebranding): Sara
+          // (2026-10-03) no tiene decidido si su 2 % los incluye; se verá en el
+          // apartado de Marcas blancas.
+          {
+            status: 'PAGADO',
+            payerWhiteLabelId: null,
+            saleDate: { gte: bogotaDayStartUtc(inicio), lt: bogotaDayEndUtc(end) },
+          },
           marca,
         ),
         _sum: { grossUsd: true },

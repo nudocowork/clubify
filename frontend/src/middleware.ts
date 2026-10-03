@@ -27,6 +27,10 @@ const CLUBIFY_ROOTS = ['soyclubify.com', 'clubify.app'];
 // segmento tras /admin es una de estas, NO es un slug de marca → no se
 // reescribe. Cualquier otro primer segmento se trata como slug de marca
 // blanca: /admin/sellea sirve el mismo panel con la URL por marca.
+// TODA carpeta nueva en `src/app/admin` va aquí. Sin ella, `/admin/<carpeta>`
+// se lee como «el panel de la marca blanca <carpeta>» y se reescribe a /admin:
+// la página nueva nunca abre. Pasó con «Marcas blancas» (Sara, 2026-10-03) y
+// con «Upgrades a anual», que llevaba semanas así.
 const RESERVED_ADMIN_ROUTES = new Set([
   'academia',
   'accounting',
@@ -46,6 +50,7 @@ const RESERVED_ADMIN_ROUTES = new Set([
   'lab',
   'maintenance',
   'map',
+  'marcas-blancas',
   'mensajes',
   'pagos-manuales',
   'payouts',
@@ -58,6 +63,7 @@ const RESERVED_ADMIN_ROUTES = new Set([
   'support-materials',
   'tenants',
   'trials',
+  'upgrades',
   'users',
   'ventas',
 ]);

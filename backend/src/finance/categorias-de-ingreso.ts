@@ -21,6 +21,9 @@ export const ESTADOS_DE_INGRESO = {
   PAGADO: 'Pagado',
   REEMBOLSADO: 'Reembolsado',
   CANCELADO: 'Cancelado',
+  /** Cobro real, apartado mientras se decide qué es (no suma en ningún total).
+   *  Sara, 2026-10-03: los «Servicios adicionales» de ~$20. */
+  EN_REVISION: 'En revisión',
 } as const;
 
 export type EstadoDeIngreso = keyof typeof ESTADOS_DE_INGRESO;
