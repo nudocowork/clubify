@@ -74,6 +74,7 @@ const CAT_BDG: Record<string, { cls: string; label: string }> = {
   RENOVACION: { cls: 'bg-blue-100 text-blue-700', label: 'Renovación' },
   UPGRADE: { cls: 'bg-amber-100 text-amber-800', label: 'Upgrade' },
   OTRO: { cls: 'bg-slate-100 text-slate-700', label: 'Otro ingreso' },
+  MARCA_BLANCA: { cls: 'bg-marca-blanca-soft text-marca-blanca-ink', label: 'Marca blanca' },
 };
 /** Estado del dinero. Solo PAGADO suma; el resto se ve pero no cuenta. */
 const ESTADO_BDG: Record<string, { cls: string; label: string }> = {

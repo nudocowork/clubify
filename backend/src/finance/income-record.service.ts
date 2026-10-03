@@ -22,6 +22,8 @@ export interface RecordIncomeInput {
    *  del grupo y no del negocio por el que entró el aviso. */
   subscriberCode?: string | null;
   whiteLabelId?: string | null;
+  /** Marca blanca que pagó el ingreso (créditos, rebranding). Ver el schema. */
+  payerWhiteLabelId?: string | null;
   brandName?: string | null;
   planId?: string | null;
   planPeriodicity?: string | null;
@@ -305,6 +307,7 @@ export class IncomeRecordService {
           tenantId: input.tenantId ?? null,
           businessGroupId: input.businessGroupId ?? null,
           whiteLabelId: await this.marcaDelIngreso(input),
+          payerWhiteLabelId: input.payerWhiteLabelId ?? null,
           brandName: input.brandName ?? null,
           planId: await this.planDelIngreso(input),
           category: categoriaDeIngreso(input),

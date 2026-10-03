@@ -11,6 +11,8 @@ export const CATEGORIAS_DE_INGRESO = {
   RENOVACION: 'Renovación',
   UPGRADE: 'Upgrade',
   OTRO: 'Otro ingreso',
+  /** Lo que una marca blanca le paga a la plataforma (rebranding, servicios). */
+  MARCA_BLANCA: 'Marca blanca',
 } as const;
 
 export type CategoriaDeIngreso = keyof typeof CATEGORIAS_DE_INGRESO;

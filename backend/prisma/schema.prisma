@@ -8185,6 +8185,11 @@ model IncomeRecord {
   /// aditiva: scripts/apply-income-group-migration.cjs.
   businessGroupId  String?
   whiteLabelId     String?
+  /// MARCA BLANCA que le pagó esto a la plataforma: rebranding, créditos o un
+  /// servicio (Sara, 2026-10-03). `whiteLabelId` dice de quién es el ingreso
+  /// (Clubify); esto, quién lo pagó. Null = no lo pagó una marca blanca.
+  /// Migración aditiva: scripts/apply-income-payer-migration.cjs.
+  payerWhiteLabelId String?
   /// Snapshot del nombre del negocio y del plan al momento del cobro (para
   /// reportes históricos aunque el negocio cambie o se borre).
   brandName        String?
@@ -8231,6 +8236,7 @@ model IncomeRecord {
   @@unique([gateway, externalTxId])
   @@index([tenantId])
   @@index([businessGroupId])
+  @@index([payerWhiteLabelId])
   @@index([whiteLabelId, saleDate])
   @@index([periodKey])
   @@index([reconStatus])

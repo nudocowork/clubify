@@ -285,6 +285,7 @@ export class ConciliadorDeIngresosService {
         status: true,
         businessGroupId: true,
         category: true,
+        payerWhiteLabelId: true,
       },
     });
     const enLibro = new Set(filas.map((r) => `${r.gateway}|${r.externalTxId}`));
@@ -299,7 +300,9 @@ export class ConciliadorDeIngresosService {
             // Un pack de créditos es sin negocio A PROPÓSITO (categoría OTRO).
             // OJO: no vale mirar `productName` — el conciliador también se lo
             // pone a los huérfanos (el nombre del producto de Hotmart).
-            r.category !== 'OTRO',
+            r.category !== 'OTRO' &&
+            // Lo que pagó una marca blanca: su dueño es la marca, no un negocio.
+            !r.payerWhiteLabelId,
         )
         .map((r) => r.externalTxId),
     );

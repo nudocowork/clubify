@@ -10,6 +10,8 @@ import { MovementsService } from './movements.service';
 import { MovementsController } from './movements.controller';
 import { FinanceReportService } from './finance-report.service';
 import { ConciliadorDeIngresosService } from './conciliador-de-ingresos.service';
+import { IngresosDeMarcasService } from './ingresos-de-marcas.service';
+import { IngresosDeMarcasController } from './ingresos-de-marcas.controller';
 
 /**
  * CONTABILIDAD — Fase 1. Módulo de finanzas: captura del ingreso REAL por
@@ -30,8 +32,9 @@ import { ConciliadorDeIngresosService } from './conciliador-de-ingresos.service'
     MovementsService,
     FinanceReportService,
     ConciliadorDeIngresosService,
+    IngresosDeMarcasService,
   ],
-  controllers: [FinanceController, ExpensesController, PayrollController, MovementsController],
+  controllers: [FinanceController, ExpensesController, PayrollController, MovementsController, IngresosDeMarcasController],
   exports: [IncomeRecordService, ExpenseService, PayrollService],
 })
 export class FinanceModule {}

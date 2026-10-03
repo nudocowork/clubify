@@ -101,6 +101,7 @@ export async function revisarConsistencia(
     grossUsd: unknown;
     saleDate: Date;
     category: string | null;
+    payerWhiteLabelId?: string | null;
   }> = await prisma.incomeRecord.findMany({
     where: combinar(
       { status: 'PAGADO', saleDate: { gte: new Date(desde.getTime() - MARGEN), lte: ahora } },
@@ -108,7 +109,7 @@ export async function revisarConsistencia(
     ),
     select: {
       externalTxId: true, tenantId: true, businessGroupId: true, brandName: true,
-      grossUsd: true, saleDate: true, category: true,
+      grossUsd: true, saleDate: true, category: true, payerWhiteLabelId: true,
     },
   });
   const ingresoPorTx = new Map(ingresos.map((i) => [i.externalTxId, i]));
@@ -183,9 +184,10 @@ export async function revisarConsistencia(
   }
 
   // C: cobros apuntados SIN dueño (ni negocio ni grupo). Un pack de créditos
-  // es sin negocio a propósito: va con categoría OTRO.
+  // es sin negocio a propósito: va con categoría OTRO. Lo que paga una marca
+  // blanca (rebranding, servicios) tampoco es de un negocio: su dueño es ella.
   for (const i of ingresos) {
-    if (i.tenantId || i.businessGroupId || i.category === 'OTRO') continue;
+    if (i.tenantId || i.businessGroupId || i.category === 'OTRO' || i.payerWhiteLabelId) continue;
     if (i.saleDate < desde || i.saleDate > hasta) continue;
     out.push({ tipo: 'PAGO_SIN_NEGOCIO', quien: i.externalTxId, detalle: `$${Number(i.grossUsd)} del ${i.saleDate.toISOString().slice(0, 10)}` });
   }

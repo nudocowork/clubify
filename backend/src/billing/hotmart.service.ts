@@ -47,6 +47,7 @@ import {
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { fmtSmsDate } from './sms-templates';
 import { IncomeRecordService } from '../finance/income-record.service';
+import { marcaClubify } from '../finance/alcance-de-marca';
 import { desconectaAlCancelar } from './cancelacion';
 import { decryptSecret } from '../common/crypto/secret-box';
 
@@ -858,7 +859,7 @@ export class HotmartService {
    * Best-effort, como el resto de la contabilidad: si falla, el webhook sigue
    * acreditando los créditos igual. Idempotente por transactionId.
    */
-  private registrarIngresoDePack(args: {
+  private async registrarIngresoDePack(args: {
     transactionId: string;
     payload: HotmartWebhookPayload;
     pack?: { price?: unknown; currency?: string | null } | null;
@@ -875,12 +876,19 @@ export class HotmartService {
       return;
     }
     const aprobado = compra?.approved_date;
+    // El dinero lo COBRA la plataforma; la marca que compró es quien lo PAGÓ.
+    // Antes se guardaba a nombre de la marca compradora y los créditos de
+    // Sellea no contaban como ingreso de Clubify (Sara, 2026-10-03: «la compra
+    // de créditos suma a los ingresos de Clubify»).
+    const clubify = await marcaClubify(this.prisma);
+    const pagadora = args.whiteLabelId && args.whiteLabelId !== clubify ? args.whiteLabelId : null;
     void this.incomeRecord.record({
       gateway: 'HOTMART',
       externalTxId: args.transactionId,
       // Sin negocio a propósito: nadie se da de alta con esta compra.
       tenantId: null,
-      whiteLabelId: args.whiteLabelId,
+      whiteLabelId: clubify ?? args.whiteLabelId,
+      payerWhiteLabelId: pagadora,
       productName: args.etiqueta,
       currency: 'USD',
       grossUsd: precio.usd,
@@ -950,7 +958,7 @@ export class HotmartService {
         // del histórico son de una oferta sin link ("Descuento de
         // Implementación") y caen justo aquí. Sin esto, la contabilidad se
         // perdería el grueso de este producto.
-        this.registrarIngresoDePack({
+        void this.registrarIngresoDePack({
           transactionId,
           payload,
           whiteLabelId: null,
@@ -1088,7 +1096,7 @@ export class HotmartService {
       );
       // Sin marca, pero con dinero: el ingreso se registra sin atribuir. Cuenta
       // en el total de la plataforma y en ninguna marca — que es la verdad.
-      this.registrarIngresoDePack({
+      void this.registrarIngresoDePack({
         transactionId,
         payload,
         pack: creditLink,
@@ -1119,7 +1127,7 @@ export class HotmartService {
         `Hotmart credit purchase ${transactionId}: marca ${whiteLabelId} es ilimitada, compra registrada sin incrementar`,
       );
       // Ilimitada no quiere decir gratis: pagó igual y el ingreso es real.
-      this.registrarIngresoDePack({
+      void this.registrarIngresoDePack({
         transactionId,
         payload,
         pack: creditLink,
@@ -1169,7 +1177,7 @@ export class HotmartService {
       `[CREDITOS] ✅ ACREDITADO · tx=${transactionId} · ${creditLink.credits} créditos → marca ${whiteLabelId} · ` +
         `CRÉDITOS DESPUÉS=${updatedWl.creditsAvailable}`,
     );
-    this.registrarIngresoDePack({
+    void this.registrarIngresoDePack({
       transactionId,
       payload,
       pack: creditLink,

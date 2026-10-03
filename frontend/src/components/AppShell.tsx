@@ -694,6 +694,10 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: tNav('dashboard'), icon: 'grid' },
                 { href: '/admin/tenants', label: tNav('businesses'), icon: 'store' },
+                // Lo que las marcas blancas le pagan a la plataforma (rebranding,
+                // créditos, servicios) y cuál ingresa más. Dinero de la
+                // plataforma: solo dentro de Clubify, como Contabilidad.
+                { href: '/admin/marcas-blancas', label: tNav('whiteLabelIncome'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
                 // Exclusivo Sellea: lista SOLO los negocios "Solo InfoLink"
                 // (Gratis y PRO), definidos por su plan. Freemium Sellea.
                 { href: '/admin/infolinks', label: tNav('infoLink'), icon: 'spark', selleaOnly: true },
