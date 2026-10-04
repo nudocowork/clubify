@@ -23,6 +23,13 @@ Google Wallet respondían 200. Dos fallos del vigilante
    (`CASUALIDAD_MAXIMA`). 0 donde lo normal es ≥5 sigue avisando.
 Vale para las 4 señales (pedidos, sellos, tarjetas, reservas).
 
+**Y además, commit `9202bc47`: ya NO se manda ningún aviso** de actividad
+(Javier: «no son necesarios, que se los quede el sistema»). Cada cambio de
+estado queda en el Setting `vigilancia:actividad:historial` (JSON, últimos
+200, más nuevo primero: señal, estado, actual, esperado, franja UTC, motivo) y
+en el log. Si un día se quiere usar (revisión diaria, panel), está ahí. Los
+avisos de cobros y respaldos del vigilante NO cambian.
+
 ## 2026-10-03 (116) — Vercel ya no bloquea la carga de páginas a ninguna IP
 
 Konys (`soyclubify.com/house`) y Café 1550 no cargaban **desde el wifi del
