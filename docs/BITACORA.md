@@ -8,6 +8,33 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-04 (118) — Revisión del menú: 20 KB en vez de 367 y adiós al «Cargando» eterno
+
+Commit `6126d15e` (solo frontend, **despliega Javier**). Probado en local
+(`next dev` contra la API de producción) en menú, domicilio, carrito, InfoLink
+y menú libro: todo se pinta, sin claves sueltas ni errores.
+
+1. **Peso:** 342 de los 367 KB del HTML de cada menú eran los textos de TODA
+   la app. `/m`, `/d`, `/i`, `/book` usan solo `menu_book_viewer` y
+   `phone_input` (`src/i18n/textos-publicos.ts`, sacado recorriendo sus
+   imports). HTML 367 → 20 KB. **Si un componente público empieza a usar otro
+   namespace de next-intl, hay que añadirlo a esa lista.** El middleware marca
+   la página (`x-pagina-publica`) y borra la cabecera si viene de fuera.
+2. **«📋 Cargando menú digital · por favor espere» era el estado de CARTA
+   VACÍA**: el cliente esperaba para siempre. Ahora hay tres estados:
+   cargando, «Menú no disponible por ahora» (+ WhatsApp) y «No pudimos cargar
+   el menú» + Reintentar.
+3. **Carta vacía + menú libro → `/book`.** Les pasaba a Habibi, Donde Jeank,
+   Limorada, Drive Pizza y Oasispty_ (digital y libro encendidos).
+4. Visor del libro importado en `/m` sin usarse (quitado) y JsBarcode bajo
+   demanda.
+
+**Pendiente de negocio (no de código):** 37 negocios activos sin carta ni
+libro, varios restaurantes: El Arrayán, Burrata, Ricardo's Smokehouse, Monet,
+Cucuruccio, Oh! Cookies, La Parada Bar Truck, El Regio, Haus Art Cafe,
+Chillin, Habemus Pizza, Rápidos y Fabulosos, Roma pizzería, Yummy Sushi,
+Taquería La Adelita, El Establo, Master Sushi La Ligua…
+
 ## 2026-10-04 (117) — El vigilante ya no avisa de horas flojas
 
 Commit `f12b9b6a` (solo backend, **despliega Javier**). Saltó «🔴 TARJETAS
