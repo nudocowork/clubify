@@ -8,6 +8,25 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-03 (116) — Vercel ya no bloquea la carga de páginas a ninguna IP
+
+Konys (`soyclubify.com/house`) y Café 1550 no cargaban **desde el wifi del
+local** y sí con datos móviles; desde fuera, todo 200 y rápido, sin errores
+en Railway ni en Vercel. Mismo cuadro que Wok Explosivo (entrada 20): la
+mitigación automática de Vercel castiga la IP de un local donde decenas de
+clientes escanean el QR a la vez (cada visita al menú son ~25–30 peticiones
+al borde; Konys hizo ~560 en 13 min un sábado a las 7 pm).
+
+Javier (2026-10-03): «no dejes que Vercel haga esas cosas con ninguna IP».
+Regla publicada por él en el panel (el clasificador me bloqueó crearla):
+**«Lecturas sin mitigacion automatica»: Method = GET → Bypass.** Verificada
+por CLI (live, activa). POST y demás siguen con la protección de siempre; el
+DDoS de red de Vercel no se toca. Si hay un ataque real: Attack Mode.
+
+Consultar el cortafuegos: `npx vercel --global-config ~/.vercel-clubify
+--scope jhonarias888-1963s-projects firewall overview` (mi sesión normal de
+Vercel está caducada; la aislada del script de despliegue sí funciona).
+
 ## 2026-10-03 (115) — Respuestas de Sara (PDF 11)
 
 Commit `499faeb4` (back + front, **despliega Javier**; también lleva el
