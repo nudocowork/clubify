@@ -116,7 +116,14 @@ export class VigilanciaDeActividadService {
       hasta,
       hora,
     );
+    // Cada día de la ventana empieza en 0. El `GROUP BY` solo devuelve los días
+    // que tuvieron algo, y sin esto los días en cero desaparecían del histórico:
+    // «lo normal» salía inflado (3,5 tarjetas en vez de 2) y cualquier noche
+    // tranquila parecía una caída (2026-10-03).
     const m = new Map<string, number>();
+    for (let t = hasta.getTime() - 3600_000; t >= desde.getTime(); t -= 86_400_000) {
+      m.set(new Date(t).toISOString().slice(0, 10), 0);
+    }
     for (const f of filas) {
       const clave = new Date(f.dia).toISOString().slice(0, 10);
       m.set(clave, Number(f.n));

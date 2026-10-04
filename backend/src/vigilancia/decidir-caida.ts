@@ -37,6 +37,30 @@ export function mediana(xs: number[]): number {
 }
 
 /**
+ * Qué probabilidad hay de ver `actual` o menos POR PURA CASUALIDAD en una hora
+ * donde lo normal es `esperado` (Poisson: llegadas sueltas e independientes,
+ * que es lo que son las tarjetas, los pedidos o los sellos de una hora).
+ *
+ * Por qué (2026-10-03): saltó «0 tarjetas cuando lo normal son 3,5» un sábado a
+ * las 10 de la noche. Con 3,5 esperadas, una hora en cero pasa por casualidad
+ * el 3 % de las veces — en 24 franjas y 4 señales, varias veces por semana. Una
+ * caída de verdad no es «poco», es «demasiado poco para ser suerte».
+ */
+export function probabilidadDeTanPoco(actual: number, esperado: number): number {
+  if (esperado <= 0) return 1;
+  let termino = Math.exp(-esperado);
+  let acumulado = termino;
+  for (let k = 1; k <= actual; k++) {
+    termino *= esperado / k;
+    acumulado += termino;
+  }
+  return Math.min(1, acumulado);
+}
+
+/** Por debajo de esto, la hora floja ya no se explica por casualidad: es una caída. */
+export const CASUALIDAD_MAXIMA = 0.01;
+
+/**
  * Decide sobre una señal.
  *
  * @param actual        cuántas hubo en la hora que acaba de cerrar
@@ -69,6 +93,14 @@ export function decidirCaida(
     };
   }
 
+  // Poco, pero de lo que pasa por casualidad: una hora floja, no una avería.
+  const azar = probabilidadDeTanPoco(actual, esperado);
+  if ((actual === 0 || actual < esperado * 0.25) && azar >= CASUALIDAD_MAXIMA) {
+    return {
+      estado: 'sano',
+      motivo: `${actual} cuando lo normal a esta hora son ${esperado}: pasa por casualidad el ${Math.round(azar * 100)} % de las veces`,
+    };
+  }
   if (actual === 0) {
     return {
       estado: 'caida',

@@ -86,3 +86,23 @@ describe('el estado se sella solo si el aviso salió', () => {
     expect(setting.upsert).not.toHaveBeenCalled();
   });
 });
+
+describe('lo normal cuenta los días en cero (2026-10-03)', () => {
+  it('un día sin actividad entra al histórico como 0, no desaparece', async () => {
+    const { svc, prisma } = make();
+    // La base solo devuelve los días que tuvieron algo.
+    prisma.$queryRawUnsafe.mockResolvedValue([{ dia: new Date('2026-10-01T00:00:00Z'), n: 4 }]);
+    const hasta = new Date('2026-10-04T04:00:00Z');
+    const desde = new Date(hasta.getTime() - 21 * 86_400_000);
+    const m: Map<string, number> = await (svc as any).conteoPorDia(
+      { nombre: 'tarjetas emitidas', tabla: 'Pass', campo: 'issuedAt', minimoUtil: 2 },
+      desde,
+      hasta,
+      3,
+    );
+    expect(m.size).toBe(21);
+    expect(m.get('2026-10-01')).toBe(4);
+    expect(m.get('2026-10-02')).toBe(0);
+    expect(m.get('2026-10-04')).toBe(0);
+  });
+});

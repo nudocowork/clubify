@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decidirCaida, mediana } from './decidir-caida';
+import { CASUALIDAD_MAXIMA, decidirCaida, mediana, probabilidadDeTanPoco } from './decidir-caida';
 
 /**
  * Lo que se prueba acá no es «detecta caídas»: eso es lo fácil. Es que NO
@@ -77,5 +77,30 @@ describe('decidirCaida — lo que SÍ debe sonar', () => {
     // trae con qué decidir si es grave sin abrir el panel.
     expect(v.motivo).toContain('0');
     expect(v.motivo).toContain('40');
+  });
+});
+
+describe('una hora floja no es una caída (2026-10-03)', () => {
+  it('el caso real: 0 tarjetas un sábado a las 10 pm, cuando lo normal son 2', () => {
+    // 21 noches de esa franja, CONTANDO las que tuvieron 0.
+    const historia = [1, 1, 2, 4, 0, 2, 3, 7, 5, 2, 0, 2, 4, 4, 4, 0, 1, 0, 4, 2, 6];
+    const v = decidirCaida(0, historia, 2);
+    expect(v.estado).toBe('sano');
+    expect(v.motivo).toMatch(/casualidad/);
+  });
+
+  it('aunque lo normal fuera 3,5: un cero así pasa por casualidad, no avisa', () => {
+    expect(decidirCaida(0, [3, 4, 3, 4, 3, 4], 2).estado).toBe('sano');
+  });
+
+  it('pero cero donde lo normal son 10 ya no es suerte: avisa', () => {
+    const v = decidirCaida(0, [10, 10, 10, 10, 10, 10], 2);
+    expect(v.estado).toBe('caida');
+  });
+
+  it('la probabilidad: con 2 esperadas, 0 pasa el 14 % de las veces; con 10, casi nunca', () => {
+    expect(probabilidadDeTanPoco(0, 2)).toBeCloseTo(0.135, 2);
+    expect(probabilidadDeTanPoco(0, 10)).toBeLessThan(0.0001);
+    expect(probabilidadDeTanPoco(1, 12)).toBeLessThan(CASUALIDAD_MAXIMA);
   });
 });
