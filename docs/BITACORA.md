@@ -23,6 +23,13 @@ Regla publicada por él en el panel (el clasificador me bloqueó crearla):
 por CLI (live, activa). POST y demás siguen con la protección de siempre; el
 DDoS de red de Vercel no se toca. Si hay un ataque real: Attack Mode.
 
+**Sondeo tras la regla** (2026-10-03, 7:55 pm): 114 negocios activos/prueba
+y 134 InfoLinks; 702 pruebas (datos del negocio y de la carta, página del
+menú, datos y página de cada InfoLink, enlace corto `soyclubify.com/<raíz>`):
+**702 bien, 0 fallos, mediana 0,3 s, máx 1,2 s.** 42 negocios tienen la carta
+vacía (barberías, uñas, farmacias…): no es fallo. Script:
+scratchpad `sondeo.mjs` (lista desde la base con `railway run`).
+
 Consultar el cortafuegos: `npx vercel --global-config ~/.vercel-clubify
 --scope jhonarias888-1963s-projects firewall overview` (mi sesión normal de
 Vercel está caducada; la aislada del script de despliegue sí funciona).
