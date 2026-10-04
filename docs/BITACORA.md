@@ -8,6 +8,21 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-04 (117) — El vigilante ya no avisa de horas flojas
+
+Commit `f12b9b6a` (solo backend, **despliega Javier**). Saltó «🔴 TARJETAS
+EMITIDAS: 0 cuando lo normal son 3,5 · franja 3:00–4:00 UTC» (sábado 10 pm
+Bogotá). No había nada roto: 13 tarjetas la hora anterior, 3 personas abrieron
+el formulario y no lo enviaron, los sellos bajaron igual (20 → 6 → 3), Apple y
+Google Wallet respondían 200. Dos fallos del vigilante
+(`vigilancia/vigilancia-de-actividad.service.ts`, `decidir-caida.ts`):
+1. El `GROUP BY` omitía los días con 0: «lo normal» inflado (3,5 en vez de 2).
+   Ahora cada día de la ventana empieza en 0.
+2. Un 0 donde lo normal es 3 pasa por azar el 3–14 % de las horas. Ahora solo
+   es caída si la probabilidad de verlo por casualidad (Poisson) es < 1 %
+   (`CASUALIDAD_MAXIMA`). 0 donde lo normal es ≥5 sigue avisando.
+Vale para las 4 señales (pedidos, sellos, tarjetas, reservas).
+
 ## 2026-10-03 (116) — Vercel ya no bloquea la carga de páginas a ninguna IP
 
 Konys (`soyclubify.com/house`) y Café 1550 no cargaban **desde el wifi del
