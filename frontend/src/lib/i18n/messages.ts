@@ -41,6 +41,12 @@ export const messages = {
     'storefront.menu_empty_title': 'Cargando menú digital',
     'storefront.menu_empty_sub':
       'Por favor, espere mientras se carga el menú.',
+    'storefront.menu_unavailable_title': 'Menú no disponible por ahora',
+    'storefront.menu_unavailable_sub':
+      'Este negocio todavía no ha publicado su menú. Escríbele para hacer tu pedido.',
+    'storefront.menu_error_title': 'No pudimos cargar el menú',
+    'storefront.menu_error_sub': 'Revisa tu conexión e inténtalo otra vez.',
+    'storefront.menu_retry': 'Reintentar',
     'storefront.menu_chat_wa': 'Hablar por WhatsApp →',
     'storefront.promos_empty_title': 'No hay promos activas',
     'storefront.promos_empty_sub':
@@ -289,6 +295,12 @@ export const messages = {
     'storefront.menu_empty_title': 'Digital Menu Loading',
     'storefront.menu_empty_sub':
       'Kindly wait while the Menu loads.',
+    'storefront.menu_unavailable_title': 'Menu not available yet',
+    'storefront.menu_unavailable_sub':
+      'This business has not published its menu yet. Message them to place your order.',
+    'storefront.menu_error_title': 'We could not load the menu',
+    'storefront.menu_error_sub': 'Check your connection and try again.',
+    'storefront.menu_retry': 'Try again',
     'storefront.menu_chat_wa': 'Chat on WhatsApp →',
     'storefront.promos_empty_title': 'No active promotions',
     'storefront.promos_empty_sub':
@@ -531,6 +543,12 @@ export const messages = {
     'storefront.menu_empty_title': 'Carregando menu digital',
     'storefront.menu_empty_sub':
       'Por favor, aguarde enquanto o menu carrega.',
+    'storefront.menu_unavailable_title': 'Menu ainda não disponível',
+    'storefront.menu_unavailable_sub':
+      'Este negócio ainda não publicou o menu. Envie uma mensagem para fazer o seu pedido.',
+    'storefront.menu_error_title': 'Não conseguimos carregar o menu',
+    'storefront.menu_error_sub': 'Verifique a sua conexão e tente novamente.',
+    'storefront.menu_retry': 'Tentar novamente',
     'storefront.menu_chat_wa': 'Falar no WhatsApp →',
     'storefront.promos_empty_title': 'Sem promoções ativas',
     'storefront.promos_empty_sub':
@@ -773,6 +791,12 @@ export const messages = {
     'storefront.menu_empty_title': 'Caricamento menu digitale',
     'storefront.menu_empty_sub':
       'Attendi mentre il menu si carica.',
+    'storefront.menu_unavailable_title': 'Menu non ancora disponibile',
+    'storefront.menu_unavailable_sub':
+      'Questo locale non ha ancora pubblicato il menu. Scrivigli per ordinare.',
+    'storefront.menu_error_title': 'Non siamo riusciti a caricare il menu',
+    'storefront.menu_error_sub': 'Controlla la connessione e riprova.',
+    'storefront.menu_retry': 'Riprova',
     'storefront.menu_chat_wa': 'Scrivi su WhatsApp →',
     'storefront.promos_empty_title': 'Nessuna promozione attiva',
     'storefront.promos_empty_sub':

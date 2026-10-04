@@ -21,7 +21,10 @@ import {
   clearCart,
 } from '@/lib/cart';
 import { Icon } from '@/components/Icon';
-import { Barcode } from '@/components/Barcode';
+import dynamic from 'next/dynamic';
+// JsBarcode pesa ~60 KB y solo hace falta al mostrar el código de una tarjeta:
+// no viaja en cada visita al menú.
+const Barcode = dynamic(() => import('@/components/Barcode').then((m) => m.Barcode), { ssr: false });
 import { PhoneInput } from '@/components/PhoneInput';
 import {
   ProductBadge,
@@ -54,7 +57,6 @@ import {
   eventoDelNegocio,
 } from '@/lib/pixel-del-negocio';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
-import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
 import {
   CategoryPopupController,
   CategoryPopupBadge,
@@ -472,6 +474,12 @@ function StorefrontPublicInner() {
   const frescoDelPanel = (searchParams?.get('fresco') ?? '').trim();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
+  // Si la carta YA llegó. Antes el estado «cargando» y el de «carta vacía»
+  // eran el mismo (`menu.length === 0`), con el texto «Cargando menú digital,
+  // espere»: un negocio con la carta vacía dejaba al cliente esperando para
+  // siempre — la queja de «el menú no carga» (2026-10-04).
+  const [estadoCarta, setEstadoCarta] = useState<'cargando' | 'lista' | 'fallo'>('cargando');
+  const [reintento, setReintento] = useState(0);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   /** Promo abierta en PromoModal — muestra imagen/descripción/precio.
@@ -579,12 +587,20 @@ function StorefrontPublicInner() {
       // La carta de la oficina se sirve por el mismo `sede`, que ya acepta el
       // id de una carta. Si llegaran los dos, manda la sede.
       fetch(urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel }))
-        .then(async (r) => (r.ok ? r.json() : []))
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
         .then((data) => {
-          if (!cancelled) setMenu(data);
+          if (!cancelled) {
+            setMenu(Array.isArray(data) ? data : []);
+            setEstadoCarta('lista');
+          }
         })
         .catch(() => {
-          if (!cancelled) setMenu([]);
+          // Sin red o con el servidor caído: no es «carta vacía». Se ofrece
+          // reintentar en vez de decirle al cliente que no hay menú.
+          if (!cancelled) setEstadoCarta((e) => (e === 'lista' ? e : 'fallo'));
         }),
     ]).finally(finish);
 
@@ -592,7 +608,7 @@ function StorefrontPublicInner() {
       cancelled = true;
       if (debounceId) clearTimeout(debounceId);
     };
-  }, [slug, locale, mode, frescoDelPanel]);
+  }, [slug, locale, mode, frescoDelPanel, reintento]);
 
   // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
   // para que el banner sobreviva navegaciones. El código se PRESENTA al
@@ -735,9 +751,13 @@ function StorefrontPublicInner() {
   // F5.2). También cubre el caso legacy menuLayout=FLIPBOOK pre-migration:
   // si todavía vemos FLIPBOOK como layout (no migrado), redirigimos igual
   // para que no quede una pantalla rota.
+  // Y si la carta llegó VACÍA pero hay libro: Habibi tenía los dos encendidos
+  // y la carta sin productos, y el cliente se quedaba en «Cargando menú
+  // digital» con el libro publicado en /book (2026-10-04).
   const shouldRedirectToBook =
     s.menuLayout === 'FLIPBOOK' ||
-    (s.bookMenuEnabled === true && s.digitalMenuEnabled === false);
+    (s.bookMenuEnabled === true && s.digitalMenuEnabled === false) ||
+    (s.bookMenuEnabled === true && estadoCarta === 'lista' && menu.length === 0);
   if (shouldRedirectToBook) {
     if (typeof window !== 'undefined') {
       // El menú libro no distingue mesa/delivery — comparte una sola vista
@@ -942,14 +962,35 @@ function StorefrontPublicInner() {
             <div className="text-center py-16 animate-in fade-in duration-300">
               <div className="text-5xl mb-3">📋</div>
               <div className="font-semibold text-lg">
-                {s.mainSectionLabel && s.mainSectionLabel !== 'Menú'
-                  ? `${s.mainSectionLabel} próximamente`
-                  : tt('storefront.menu_empty_title')}
+                {estadoCarta === 'cargando'
+                  ? tt('storefront.menu_empty_title')
+                  : estadoCarta === 'fallo'
+                    ? tt('storefront.menu_error_title')
+                    : s.mainSectionLabel && s.mainSectionLabel !== 'Menú'
+                      ? `${s.mainSectionLabel} próximamente`
+                      : tt('storefront.menu_unavailable_title')}
               </div>
               <div className={`text-sm mt-1 max-w-xs mx-auto ${isCluvi ? 'text-white/70' : 'text-mute'}`}>
-                {tt('storefront.menu_empty_sub')}
+                {estadoCarta === 'cargando'
+                  ? tt('storefront.menu_empty_sub')
+                  : estadoCarta === 'fallo'
+                    ? tt('storefront.menu_error_sub')
+                    : tt('storefront.menu_unavailable_sub')}
               </div>
-              {showWhatsappButton && (
+              {estadoCarta === 'fallo' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEstadoCarta('cargando');
+                    setReintento((n) => n + 1);
+                  }}
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-pill text-white font-semibold text-sm hover:opacity-90 active:scale-95 transition"
+                  style={{ background: primary }}
+                >
+                  {tt('storefront.menu_retry')}
+                </button>
+              )}
+              {estadoCarta !== 'cargando' && showWhatsappButton && (
                 <a
                   href={`https://wa.me/${s.whatsappPhone!.replace(/\D/g, '')}`}
                   target="_blank"

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CABECERA_PAGINA_PUBLICA, esRutaPublica } from '@/i18n/textos-publicos';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -413,6 +414,8 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/onboarding') ||
     url.pathname === '/maintenance' ||
     url.pathname.startsWith('/m/') ||
+    // El menú libro: misma página pública que /m/, sin sitio de negocio detrás.
+    url.pathname.startsWith('/book/') ||
     url.pathname.startsWith('/i/') ||
     url.pathname.startsWith('/o/') ||
     url.pathname.startsWith('/w/') ||
@@ -443,7 +446,13 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/favicon') ||
     url.pathname.startsWith('/sw.js')
   ) {
-    return NextResponse.next();
+    // Menú, domicilio e InfoLink: el layout les manda solo los textos que usan
+    // (ver `textos-publicos.ts`). La cabecera se pone SIEMPRE aquí, también
+    // en falso, para que nadie la pueda inyectar desde fuera.
+    const reqHeaders = new Headers(req.headers);
+    if (esRutaPublica(url.pathname)) reqHeaders.set(CABECERA_PAGINA_PUBLICA, '1');
+    else reqHeaders.delete(CABECERA_PAGINA_PUBLICA);
+    return NextResponse.next({ request: { headers: reqHeaders } });
   }
 
   // 1. Subdominios de Clubify: <slug>.soyclubify.com → /m/<slug>

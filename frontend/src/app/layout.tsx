@@ -16,6 +16,8 @@ import {
   resolveBrandFromHeadersOrSlug,
 } from '@/lib/server-brand';
 import MetaPixel from '@/components/MetaPixel';
+import { RecargaConTextosCompletos } from '@/components/RecargaConTextosCompletos';
+import { CABECERA_PAGINA_PUBLICA, textosPublicos } from '@/i18n/textos-publicos';
 // Del lib y NO del componente: `MetaPixel.tsx` es `'use client'`, y sus
 // exports llegan aquí como referencias, no como funciones. Llamarlas desde el
 // servidor devuelve 500 en TODAS las páginas — pasó el 2026-09-10.
@@ -448,7 +450,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // (cookie NEXT_LOCALE → Accept-Language → x-vercel-ip-country → 'es').
   // Las messages se importan dinámicamente desde frontend/messages/.
   const locale = await getLocale();
-  const messages = await getMessages();
+  const todos = await getMessages();
+  // Las páginas públicas (menú, domicilio, InfoLink) solo reciben los textos
+  // que usan: el diccionario entero eran 342 de los 367 KB de cada menú.
+  const paginaPublica = headers().get(CABECERA_PAGINA_PUBLICA) === '1';
+  const messages = paginaPublica ? textosPublicos(todos) : todos;
   // Marca de auth resuelta en el SERVIDOR → se siembra en el árbol para que las
   // pantallas de login/registro rendericen el logo de la marca desde el primer
   // HTML (sin parpadeo de Clubify). null en Clubify/dev.
@@ -514,6 +520,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ChunkReloadGuard />
         <DynamicFavicon />
         <NextIntlClientProvider locale={locale} messages={messages}>
+          {paginaPublica && <RecargaConTextosCompletos />}
           <ToastProvider>
             <AuthBrandProvider initialBrand={authBrand}>
               {children}
