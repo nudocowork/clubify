@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { decidirCaida, mediana, Veredicto } from './decidir-caida';
 
 /**
@@ -39,6 +38,10 @@ const SEÑALES: Señal[] = [
   { nombre: 'reservas', tabla: 'Reservation', campo: 'createdAt', minimoUtil: 2 },
 ];
 
+/** Donde quedan los cambios de estado (los más nuevos primero). */
+export const CLAVE_HISTORIAL = 'vigilancia:actividad:historial';
+const MAXIMO_HISTORIAL = 200;
+
 /** Cuántos días atrás se mira para saber qué es normal a esta hora. */
 const DIAS_DE_HISTORIA = 21;
 
@@ -48,7 +51,6 @@ export class VigilanciaDeActividadService {
 
   constructor(
     private prisma: PrismaService,
-    private alerts: PreregAlertsService,
   ) {}
 
   /**
@@ -86,7 +88,7 @@ export class VigilanciaDeActividadService {
 
       const v = decidirCaida(actual, historico, s.minimoUtil);
       resultados.push({ señal: s.nombre, actual, esperado: mediana(historico), v });
-      await this.avisarSiCambio(s, actual, mediana(historico), v, hora);
+      await this.registrarSiCambio(s, actual, mediana(historico), v, hora);
     }
     return resultados;
   }
@@ -132,21 +134,12 @@ export class VigilanciaDeActividadService {
   }
 
   /**
-   * Avisa solo cuando el estado CAMBIA, y también cuando se recupera.
-   *
-   * Sin esto el aviso saldría cada hora mientras dure la caída: a la tercera
-   * nadie lo lee, y entonces la alarma ya no sirve. Y la recuperación se avisa
-   * a propósito — quien recibió «los pedidos están a cero» necesita saber que
-   * volvieron sin tener que ir a mirar.
-   *
-   * Leer el estado y luego escribirlo NO es atómico: con dos instancias del
-   * backend, las dos podrían leer «sano» y avisar. Se deja así a conciencia
-   * porque `sendTeamAlert` ya corta las alertas idénticas seguidas, y porque
-   * el coste de equivocarse es un SMS repetido, no un dato perdido. Si algún
-   * día hay más de un pod y molesta, el arreglo es un `updateMany` condicional
-   * mirando el `count`, como en el resto del repo.
+   * Registra los CAMBIOS de estado (caída y recuperación), no cada hora: el
+   * historial dice cuándo empezó y cuándo terminó cada bajón, sin repetirse.
+   * Leer y luego escribir no es atómico; con dos instancias del backend podría
+   * quedar un evento repetido en el historial, que no cuesta nada.
    */
-  private async avisarSiCambio(
+  private async registrarSiCambio(
     s: Señal,
     actual: number,
     esperado: number,
@@ -166,29 +159,35 @@ export class VigilanciaDeActividadService {
     }
     if (ahora === previo) return;
 
-    const texto =
-      ahora === 'caida'
-        ? `🔴 ${s.nombre.toUpperCase()}: ${v.motivo}. Franja ${hora}:00-${hora + 1}:00 UTC. ` +
-          `Todo puede estar respondiendo 200 y aun así estar roto: mira los cron y la pasarela.`
-        : `🟢 ${s.nombre.toUpperCase()}: vuelven a entrar (${actual}, normal a esta hora ${esperado}).`;
-
-    const aviso = await this.alerts.sendTeamAlert(texto, 'actividad');
-
-    // El estado se sella DESPUÉS y solo si el aviso salió. Al revés, un envío
-    // fallido dejaría la caída marcada como «ya avisada» y no se reintentaría
-    // nunca — el mismo fallo que ya se arregló en la alerta de capacidad.
-    if (!aviso.ok) {
-      this.log.warn(
-        `Aviso de ${s.nombre} (${ahora}) NO salió: ${aviso.sent} de ${aviso.total}. ` +
-          `Se reintenta en la próxima pasada.`,
-      );
-      return;
-    }
+    // NO se manda a nadie (Javier, 2026-10-04: «no son necesarios, que se los
+    // quede el sistema»). Por WhatsApp llegaban seguidos y sin decir qué hacer,
+    // y la mayoría eran picos normales —un domingo no es un martes—. Quedan en
+    // el historial para que los use el propio sistema (la revisión diaria, un
+    // panel) y en el log del servidor.
+    const evento = {
+      at: new Date().toISOString(),
+      señal: s.nombre,
+      estado: ahora,
+      actual,
+      esperado,
+      franjaUtc: `${hora}:00-${hora + 1}:00`,
+      motivo: v.motivo,
+    };
+    const previos = await this.prisma.setting
+      .findUnique({ where: { key: CLAVE_HISTORIAL } })
+      .then((r) => (r?.value ? (JSON.parse(r.value) as unknown[]) : []))
+      .catch(() => [] as unknown[]);
+    const historial = JSON.stringify([evento, ...previos].slice(0, MAXIMO_HISTORIAL));
+    await this.prisma.setting.upsert({
+      where: { key: CLAVE_HISTORIAL },
+      update: { value: historial },
+      create: { key: CLAVE_HISTORIAL, value: historial },
+    });
     await this.prisma.setting.upsert({
       where: { key: clave },
       update: { value: ahora },
       create: { key: clave, value: ahora },
     });
-    this.log.warn(`${s.nombre}: ${ahora} — avisado a ${aviso.sent} persona(s).`);
+    this.log.warn(`${s.nombre}: ${ahora} — ${v.motivo} (franja ${evento.franjaUtc} UTC)`);
   }
 }
