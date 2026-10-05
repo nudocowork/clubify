@@ -10,7 +10,9 @@
 
 ## 2026-10-04 (118) — Revisión del menú: 20 KB en vez de 367 y adiós al «Cargando» eterno
 
-Commit `6126d15e` (solo frontend, **despliega Javier**). Probado en local
+Commit `6126d15e`, **DESPLEGADO Y VERIFICADO** 2026-10-04 (back `709f352`): /m, /d, /i y
+/book pesan 23–25 KB, /login sigue completo; Habibi va al libro, Habemus dice
+«Menú no disponible». Sara avisada con la lista de negocios sin carta. Probado en local
 (`next dev` contra la API de producción) en menú, domicilio, carrito, InfoLink
 y menú libro: todo se pinta, sin claves sueltas ni errores.
 
