@@ -12,6 +12,18 @@
 
 Revisión de ingeniería pedida por Javier, sistema por sistema, contra producción:
 
+**Barrido RENDERIZADO en navegador (2026-10-05):** las 198 páginas públicas de
+los 114 negocios cargadas una a una en Chrome (iframes same-origin, resultados
+en localStorage; tandas de ~33 con recarga entre tandas — 198 seguidas
+congelan el Chrome de esta máquina por RAM): **0 errores, 0 pantallas rotas,
+0 imágenes rotas**. Hallazgo y arreglo de datos: **Café y Gracia** tenía
+`menuLayout=FLIPBOOK` (legacy) con el libro apagado y sin páginas → sus
+clientes veían «la carta se está preparando» para siempre; pasado a CLASSIC
+(`scripts/arreglar-flipbook-sin-libro.cjs --aplicar`, idempotente; ningún
+otro negocio en ese estado). Además, fix de TRADUCCIÓN en tandas de 40
+(commit `2a1a6ed8`) **pendiente de desplegar backend** junto con el sellado
+del techo (`2bad5edf`).
+
 - **Menús:** sondeo de los 114 negocios y 134 InfoLinks (702 pruebas): 0 fallos
   reales; los únicos 404 son Piatto-Prestto, suspendido SOLO por el cron de
   mora el 10-04 (correcto). Café 1550: 4 páginas aligeradas; sus «95 → 59
