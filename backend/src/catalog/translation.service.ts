@@ -159,13 +159,38 @@ export class TranslationService {
       }
     }
 
-    // 2. Llamar a Claude para los misses.
+    // 2. Llamar a Claude para los misses, EN TANDAS que quepan en el timeout.
+    //
+    // Antes iba el menú entero en una llamada con el timeout duro de 8 s:
+    // un menú grande (Konys, ~95 productos × 2 campos) no cabía, la llamada
+    // fallaba entera, no se cacheaba NADA y la siguiente visita repetía el
+    // mismo timeout — para siempre. Son los «Claude batch failed: Request
+    // timed out» de todos los días. En tandas, cada una que termina se
+    // cachea: aunque alguna falle, el menú queda traducido en pocas visitas.
     if (toTranslate.length > 0 && this.client) {
       try {
-        const translations = await this.callClaudeBatch(
-          toTranslate.map((x) => ({ key: x.key, text: x.text })),
-          locale,
-        );
+        const TANDA = 40;
+        const translations: Array<{ key: string; text: string }> = [];
+        let fallos = 0;
+        for (let i = 0; i < toTranslate.length; i += TANDA) {
+          try {
+            translations.push(
+              ...(await this.callClaudeBatch(
+                toTranslate.slice(i, i + TANDA).map((x) => ({ key: x.key, text: x.text })),
+                locale,
+              )),
+            );
+          } catch (e: any) {
+            // Esta tanda cae al español; las demás siguen.
+            fallos++;
+            this.logger.warn(
+              `Claude batch parcial (tenant=${tenantId}, locale=${locale}, tanda ${i / TANDA + 1}): ${e?.message}`,
+            );
+            // Dos tandas seguidas fallando = Anthropic está lento o caído:
+            // no vale la pena seguir reteniendo la respuesta del menú.
+            if (fallos >= 2) break;
+          }
+        }
         // 3. Persistir + completar el result map. Limitamos concurrencia
         //    para no saturar el pool de Prisma (default 10 conexiones):
         //    si un tenant grande genera 200 misses, los 200 upserts
