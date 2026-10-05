@@ -8,6 +8,34 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-05 (119) — Chequeo general del producto (todo verde) + techo de aislamiento sellado
+
+Revisión de ingeniería pedida por Javier, sistema por sistema, contra producción:
+
+- **Menús:** sondeo de los 114 negocios y 134 InfoLinks (702 pruebas): 0 fallos
+  reales; los únicos 404 son Piatto-Prestto, suspendido SOLO por el cron de
+  mora el 10-04 (correcto). Café 1550: 4 páginas aligeradas; sus «95 → 59
+  productos» son disponibilidad que gestiona el dueño, no datos perdidos. La
+  caché en memoria del menú trabaja (1ª petición 3,5 s, siguientes 0,4 s).
+- **Dinero:** `consistencia-del-dinero` → **0 inconsistencias** (ya ni el
+  $99,03, asignado a Sellea). Ingresos en 0 las últimas 24 h = Hotmart no
+  cobró nada (último APPROVED 10-03 15:08 = último IncomeRecord). Conciliador
+  corrió a las 4 UTC: 0 recuperados, 2 sin respaldo (los conocidos).
+- **Wallets:** alta → sellos → push Google en ~6 s, verificado en vivo
+  («Sellos: 2/10»). Clases de Google (donde vive el geo) parchean bien. APNs
+  sin dispositivos para ese pase (cliente Android), correcto.
+- **Notificaciones:** 0 programadas vencidas sin enviar; las 12 recurrentes
+  salen a su hora LOCAL y las que no salieron el domingo es por `daysOfWeek`.
+  El historial nuevo del vigilante ya registra sin mandar SMS.
+- **Respaldo:** verde 3 días seguidos (GH Actions ~09:30 UTC).
+- **CI:** el paso «Aislamiento multi-tenant» estaba rojo por MIS 4 consultas
+  nuevas de la semana (revisadas una a una, inofensivas) → techo sellado en
+  `2bad5edf`. Queda rojo SOLO npm audit (el CRITICAL de next 14 sin parche,
+  conocido).
+- **Amarillos que quedan:** timeouts del traductor de menús a inglés (el
+  visitante ve español mientras); 37 negocios sin carta (entrada 118);
+  `DATABASE_URL` por el proxy público sigue pendiente de Javier.
+
 ## 2026-10-04 (118) — Revisión del menú: 20 KB en vez de 367 y adiós al «Cargando» eterno
 
 Commit `6126d15e`, **DESPLEGADO Y VERIFICADO** 2026-10-04 (back `709f352`): /m, /d, /i y
