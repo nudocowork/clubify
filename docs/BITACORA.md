@@ -31,6 +31,13 @@ Hoy no afecta al cliente (todo pasa por `/_next/image`), pero un dominio
 propio para el bucket sigue recomendado. **Pendiente a mano:** banner PDF de
 Descomunal (36,5 MB) y 2 productos PDF de Degodoy.
 
+**Aplicado también (Javier):** `servicios-de-marca-intermediados.cjs --aplicar`:
+los 3 «Servicio: Automatización de WhatsApp» de Sellea (HP1533963514,
+HP2465358744, HP2209512687, $99,03 c/u) pasan a INTERMEDIADO. Sellea queda
+con $336,28 de ingreso (solo créditos); julio–septiembre bajan $99,03 cada
+uno en Contabilidad. Sara avisada. Siguen esperando a Sara: nómina (¿por
+persona?, septiembre) y la venta de Fideliso.
+
 ## 2026-10-07 (122) — DESPLEGADO: marcas blancas, menús, libro y política de archivos
 
 `main` = `f2e2a3cb` (PR #321 política de archivos + #322 menú libro, que traen
