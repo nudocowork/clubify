@@ -142,7 +142,9 @@ export class IngresosDeMarcasService {
    */
   private async ventas() {
     const [acuerdos, pagos] = await Promise.all([
-      this.prisma.whiteLabelSale.findMany(),
+      // Si se despliega antes de correr la migración, la tabla no existe: el
+      // módulo sigue mostrando los ingresos, solo sin la venta.
+      this.prisma.whiteLabelSale.findMany().catch(() => []),
       this.ingresos(undefined),
     ]);
     const pagadoPor = new Map<string, number[]>();

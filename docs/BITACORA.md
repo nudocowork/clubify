@@ -8,6 +8,72 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-07 (120) — PDF 12 de Sara: marcas blancas, Mística, nómina, Degodoy, zoom
+
+Commits en `main`: `7adeb84f`, `4dd4a627`, `80c4070f`. **Nada desplegado aún**:
+falta `node scripts/desplegar.cjs backend` y `frontend` (incluye también
+`2a1a6ed8` traducción y `2bad5edf` del día 119).
+
+**Hecho (código):**
+- **«Registrar pago» de Sellea** fallaba con «Escritura en IncomeRecord
+  bloqueada en modo marca-blanca sin tenantId explícito». El middleware ahora
+  deja crear un IncomeRecord sin negocio cuando su `whiteLabelId` es la marca
+  activa (igual que ya se podía leer).
+- **Historial de Grupo Mística vacío** en Grupos empresariales: los eventos de
+  Hotmart de grupo no tienen `tenantId` y el filtro por negocio los escondía.
+  `paymentHistory` los lee con `TenantContext.runWithoutTenant`. **Trampa:** el
+  `await` va DENTRO del callback; una consulta de Prisma no se ejecuta hasta que
+  se espera y fuera del bloque vuelve a llevar el filtro (primer intento: 0
+  pagos). Verificado: 4 pagos de USD 150.
+- **El botón «Marcas blancas» abría el admin de OTRA marca**: tres listas a
+  mano de secciones del admin (middleware, AppShell, brand-from-path) y a dos
+  les faltaba `marcas-blancas` → lo leían como slug de marca. Ahora una sola
+  lista, `frontend/src/lib/secciones-admin.ts`, con candado de CI
+  (`scripts/arqueo-secciones-admin.cjs`, probado en rojo). **Carpeta nueva en
+  `src/app/admin` → va a esa lista o el CI falla.**
+- **Ingresos de marcas blancas (Sara):** solo cuentan la **compra de la marca
+  blanca** (antes «Rebranding»; las filas viejas siguen reconociéndose) y los
+  **créditos**. Tabla nueva `WhiteLabelSale` (valor de venta, cuotas,
+  frecuencia, primera cuota, estado ACTIVA/PAUSADA/PAGADA/CANCELADA, nota): el
+  módulo muestra pagado / falta / próxima cuota (vencida en rojo). El valor
+  puede quedar vacío (Fideliso: pagó una parte y se pausó; lo pagado cuenta).
+- **Servicios = INTERMEDIADO**: nuevo estado de IncomeRecord. La
+  automatización de WhatsApp se guarda pero NO suma en ningún total (todo filtra
+  `status='PAGADO'`, así que tampoco entra al socio ni al 2 %). Se ve aparte
+  como «Servicios adicionales (automatizaciones)» en Marcas blancas y en
+  Contabilidad. Registrar un servicio desde el despliegue ya lo guarda así.
+- **QR de Degodoy lento:** `soyclubify.com/degodoy` → redirección que pedía el
+  InfoLink ENTERO sin caché: 1,6–1,8 s en cada escaneo, y luego otra consulta
+  de 1–1,5 s del InfoLink. Ahora `/public/info-link-by-root/:slug/destino`
+  (solo el destino, de memoria, sin contar visita; el frontend lo cachea 60 s
+  y cae al endpoint viejo si el backend no lo tiene) y `getPublic` sale de
+  `MemoPublico` (la visita se cuenta igual en cada apertura; editar la vacía).
+- **/app/notifications con zoom 125–150 %:** tres columnas solo desde 1440 px;
+  «Recurrente» y las plantillas ya no se salen.
+
+**Pendiente de correr en producción (el clasificador bloquea escribir/leer la
+base desde aquí):**
+1. `railway run --service Postgres-Nq8w node scripts/apply-white-label-sale-migration.cjs`
+   antes o justo después de desplegar el backend (sin la tabla, Marcas blancas
+   muestra los ingresos pero no deja guardar la venta).
+2. `node scripts/servicios-de-marca-intermediados.cjs` (simula; `--aplicar`)
+   — pasa los 3 × $99,03 de Humberto a INTERMEDIADO y lista lo pagado por marca.
+3. `node scripts/nomina-usd-sara-2026-10-06.cjs` (simula; `--aplicar`) —
+   mayo 228,5 / junio 242,5 / julio 260 / agosto 271,5, **tomado como monto
+   mensual POR PERSONA** (Samuel Navarro y Javier Montiel). Solo toca meses
+   con una línea por persona; septiembre no (Sara no dio monto). Un corte
+   pagado entero sigue pagado entero. **Confirmar con Sara que es por persona.**
+4. Configurar la venta de Fideliso (valor total y primer pago, por definir con
+   Sara) desde Marcas blancas → abrir la marca → «Configurar venta».
+
+**TeamClubify** (otro repo, rama `feat/automations-engine-audit`, commits
+`c0b75bd` y `fd6d54b`, sin desplegar): Instagram del formulario como enlace y
+verificado al agendar; aviso al closer con los datos del negocio. Verificar
+que el usuario existe **casi nunca bloquea** sin `IG_SESSIONID` en Vercel
+(Instagram responde igual a usuarios reales e inventados sin sesión). Hay dos
+archivos sin commitear de la otra máquina en team-clubify
+(`TeamFollowups.tsx`, `scripts/diag-roles-equipo.cjs`) que impiden desplegar.
+
 ## 2026-10-05 (119) — Chequeo general del producto (todo verde) + techo de aislamiento sellado
 
 Revisión de ingeniería pedida por Javier, sistema por sistema, contra producción:
