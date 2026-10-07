@@ -814,9 +814,13 @@ function StorefrontPublicInner() {
       }}
     >
       {fotoDeFondo && (
+        // -z-[5] y no -z-10: el degradado de la cabecera va en -z-10 y antes
+        // lo tapaba el fondo opaco del contenedor. Por encima de él (y por
+        // debajo del contenido) se ve EXACTAMENTE como antes — comprobado
+        // en la página real de Konys el 2026-10-07.
         <div
           aria-hidden
-          className="fixed inset-0 -z-10 pointer-events-none"
+          className="fixed inset-0 -z-[5] pointer-events-none"
           style={{ background: `${fotoDeFondo} center/cover no-repeat ${defaultBgColor}` }}
         />
       )}
