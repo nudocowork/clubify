@@ -1,3 +1,4 @@
+import { fondoDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 /**
  * Configuración extendida del InfoLink — vive bajo `link.theme.background`
  * y `link.theme.popup` (no requiere migración Prisma porque `theme` ya es
@@ -123,10 +124,10 @@ export function backgroundCss(
     if (overlay > 0) {
       return (
         `linear-gradient(rgba(0,0,0,${overlay}), rgba(0,0,0,${overlay})),` +
-        ` url("${bg.imageUrl}") center/cover no-repeat`
+        ` ${fondoDelInfolink(bg.imageUrl) || `url("${bg.imageUrl}")`} center/cover no-repeat`
       );
     }
-    return `url("${bg.imageUrl}") center/cover no-repeat`;
+    return `${fondoDelInfolink(bg.imageUrl) || `url("${bg.imageUrl}")`} center/cover no-repeat`;
   }
   if (bg.type === 'GRADIENT') {
     const angle =

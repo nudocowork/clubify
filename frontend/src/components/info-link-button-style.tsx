@@ -12,6 +12,7 @@
  *  actual exacto en cada shell. Cero migración, cero cambio visual.
  * =================================================================== */
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import { iconoDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 import { renderInfoLinkIcon } from './info-link-icons';
 
 export type ButtonShape =
@@ -213,7 +214,7 @@ export function StyledButtonLink({
     if (iconType === 'image' && b.customIconUrl) {
       content = (
         <img
-          src={b.customIconUrl}
+          src={iconoDelInfolink(b.customIconUrl)}
           alt=""
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />

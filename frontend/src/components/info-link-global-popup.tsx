@@ -8,6 +8,7 @@
  * el primero matchable (enabled + schedule + sin "visto" en sesión).
  */
 import { useEffect, useState } from 'react';
+import { AVISO_DEL_INFOLINK, imagenDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 import { avisoYaVisto, marcarAvisoVisto } from '@/lib/popup-visto';
 import {
   combineInfoLinkPopups,
@@ -112,7 +113,7 @@ export function InfoLinkGlobalPopup({
           // Imagen COMPLETA (sin recorte): h-auto respeta la proporción real.
           // Si queda muy alta, el modal scrollea (max-h-[90vh] overflow-y-auto).
           <img
-            src={popup.imageUrl}
+            {...imagenDelInfolink(popup.imageUrl, AVISO_DEL_INFOLINK)}
             alt={popup.title ?? ''}
             className="block w-full h-auto"
             style={{ background: 'rgba(0,0,0,0.04)' }}

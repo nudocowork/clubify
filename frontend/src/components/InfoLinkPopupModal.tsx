@@ -10,6 +10,7 @@
  */
 
 import { useEffect } from 'react';
+import { AVISO_DEL_INFOLINK, imagenDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 import type { PopupConfig } from '@/lib/info-link-popup';
 import { popupMaxWidthPx, popupShadowCss } from '@/lib/info-link-popup';
 
@@ -121,7 +122,7 @@ export function InfoLinkPopupModal({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={popup.imageUrl}
+              {...imagenDelInfolink(popup.imageUrl, AVISO_DEL_INFOLINK)}
               alt=""
               className="block w-full h-auto"
               style={{ objectFit: 'contain' }}

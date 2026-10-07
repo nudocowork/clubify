@@ -4,6 +4,7 @@ import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { Icon } from '@/components/Icon';
+import { historiaDelInfolink, logoDelInfolink, miniaturaDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 import {
   colorDeIconos,
   iconosSociales,
@@ -175,7 +176,7 @@ function ShellLogoCard({
   return (
     <div style={style} className={className}>
       <img
-        src={tenant.logoUrl}
+        src={logoDelInfolink(tenant.logoUrl)}
         alt={tenant.brandName}
         style={getLogoImgStyle(config)}
       />
@@ -387,7 +388,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
               tenant.logoUrl ? (
                 <div className="bg-white rounded-full shadow-2xl ring-1 ring-white/30 w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none">
                   <img
-                    src={tenant.logoUrl}
+                    src={logoDelInfolink(tenant.logoUrl)}
                     alt={tenant.brandName}
                     className="max-w-full max-h-full w-auto h-auto object-contain block"
                   />
@@ -502,7 +503,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
               tenant.logoUrl ? (
                 <div className="bg-white rounded-full shadow-md ring-1 ring-black/5 w-24 h-24 p-3.5 flex items-center justify-center overflow-hidden flex-none">
                   <img
-                    src={tenant.logoUrl}
+                    src={logoDelInfolink(tenant.logoUrl)}
                     alt={tenant.brandName}
                     className="max-w-full max-h-full w-auto h-auto object-contain block"
                   />
@@ -666,7 +667,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                 tenant.logoUrl ? (
                   <div className="bg-white rounded-full ring-4 ring-white shadow-xl w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none">
                     <img
-                      src={tenant.logoUrl}
+                      src={logoDelInfolink(tenant.logoUrl)}
                       alt={tenant.brandName}
                       className="max-w-full max-h-full w-auto h-auto object-contain block"
                     />
@@ -706,7 +707,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                 <div
                   key={i}
                   className="aspect-square rounded-xl bg-cover bg-center shadow-sm"
-                  style={{ backgroundImage: `url(${url})` }}
+                  style={{ backgroundImage: `url("${miniaturaDelInfolink(url)}")` }}
                 />
               ))}
             </div>
@@ -824,7 +825,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
                 tenant.logoUrl ? (
                   <div className="bg-white rounded-full ring-2 ring-pink-400 shadow-sm w-16 h-16 p-2 flex items-center justify-center overflow-hidden flex-none">
                     <img
-                      src={tenant.logoUrl}
+                      src={logoDelInfolink(tenant.logoUrl)}
                       alt={tenant.brandName}
                       className="max-w-full max-h-full w-auto h-auto object-contain block"
                     />
@@ -917,7 +918,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
                   <div className="w-full h-full rounded-full bg-white p-0.5">
                     <div
                       className="w-full h-full rounded-full bg-cover bg-center"
-                      style={{ backgroundImage: `url(${url})` }}
+                      style={{ backgroundImage: `url("${historiaDelInfolink(url)}")` }}
                     />
                   </div>
                 </div>
@@ -967,7 +968,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
                   style={{ boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30` }}
                 >
                   <img
-                    src={tenant.logoUrl}
+                    src={logoDelInfolink(tenant.logoUrl)}
                     alt={tenant.brandName}
                     className="max-w-full max-h-full w-auto h-auto object-contain block"
                   />

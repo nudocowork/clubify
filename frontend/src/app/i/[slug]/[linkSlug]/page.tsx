@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { IMAGEN_DEL_INFOLINK, iconoDelInfolink, imagenDelInfolink, miniaturaDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 import { useParams } from 'next/navigation';
 import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
 import {
@@ -437,7 +438,7 @@ export default function PublicInfoLink() {
             return (
               <figure key={i}>
                 <img
-                  src={s.url}
+                  {...imagenDelInfolink(s.url, IMAGEN_DEL_INFOLINK)}
                   alt={s.caption ?? ''}
                   loading="lazy"
                   decoding="async"
@@ -456,7 +457,7 @@ export default function PublicInfoLink() {
                 {s.images.map((url: string, j: number) => (
                   <img
                     key={j}
-                    src={url}
+                    src={miniaturaDelInfolink(url)}
                     alt=""
                     loading="lazy"
                     decoding="async"
@@ -593,7 +594,7 @@ export default function PublicInfoLink() {
             // para que el logo lea sobre el fondo oscuro de la tarjeta.
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={(data.brand.iconUrl || data.brand.logoUrl) as string}
+              src={iconoDelInfolink((data.brand.iconUrl || data.brand.logoUrl) as string)}
               alt={data.brand?.name ?? 'Sellea'}
               style={{ width: 32, height: 32, borderRadius: 9, objectFit: 'contain', background: '#fff', padding: 2, flex: 'none' }}
             />
