@@ -372,9 +372,13 @@ export default function NotificationsPage() {
         onChange={savePushLogo}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px_1.2fr] gap-5">
+      {/* Las columnas dependen del ANCHO REAL, no del dispositivo: con el zoom
+          del navegador al 125-150 % una laptop queda en ~900 px y las tres
+          columnas apretaban «Recurrente» y las plantillas fuera de su caja
+          (Sara, 2026-10-06). Tres columnas solo cuando caben. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] min-[1440px]:grid-cols-[minmax(0,1fr)_300px_minmax(0,1.2fr)] gap-5">
         {/* Composer */}
-        <form onSubmit={send} className="card card-pad self-start">
+        <form onSubmit={send} className="card card-pad self-start min-w-0">
           <h2 className="text-base font-semibold m-0">{t('newNotification')}</h2>
           <div className="mt-4">
             <label className="label">{t('cardOptional')}</label>
@@ -448,7 +452,7 @@ export default function NotificationsPage() {
                     key={opt.v}
                     type="button"
                     onClick={() => changeScheduleMode(opt.v)}
-                    className={`text-xs font-semibold py-2 px-2 rounded-md transition ${
+                    className={`min-w-0 text-xs font-semibold leading-tight break-words py-2 px-1.5 rounded-md transition ${
                       active ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
                     }`}
                   >
@@ -586,8 +590,8 @@ export default function NotificationsPage() {
         </div>
 
         {/* Plantillas */}
-        <div className="card card-pad">
-          <div className="flex items-baseline justify-between mb-3">
+        <div className="card card-pad min-w-0 lg:col-span-2 min-[1440px]:col-span-1">
+          <div className="flex items-baseline justify-between gap-x-3 gap-y-1 flex-wrap mb-3">
             <h2 className="text-base font-semibold m-0">{t('templates')}</h2>
             <span className="text-[11px] text-mute">
               {t('clickLoadsComposer')}
@@ -663,14 +667,14 @@ export default function NotificationsPage() {
                     : t('groupRemarketingDesc')}
                 </p>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,190px),1fr))] gap-2">
                 {TEMPLATE_GROUPS.find((g) => g.id === activeGroup)?.items.map(
                   (id) => (
                     <button
                       key={id}
                       type="button"
                       onClick={() => applyTemplate(id)}
-                      className="text-left rounded-input border border-line bg-white hover:border-brand/40 hover:bg-brand-soft/40 p-3 transition"
+                      className="min-w-0 break-words text-left rounded-input border border-line bg-white hover:border-brand/40 hover:bg-brand-soft/40 p-3 transition"
                     >
                       <div className="font-semibold text-sm leading-tight">
                         {t(`tpl_${id}_title` as any)}

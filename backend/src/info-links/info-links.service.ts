@@ -15,6 +15,7 @@ import {
 } from '../catalog/translation.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { infolinkCapabilities, type InfolinkCapabilities } from '../common/infolink-tier';
+import { MemoPublico } from '../catalog/memo-publico';
 
 function slugify(s: string) {
   return (
@@ -115,6 +116,15 @@ export type InfoLinkDto = {
 
 @Injectable()
 export class InfoLinksService {
+  /**
+   * Las respuestas PÚBLICAS del InfoLink, ya armadas (Degodoy, 2026-10-06: «al
+   * escanear el QR está demasiado lenta la carga»). El QR pasa por dos
+   * consultas al backend —resolver el enlace corto y traer el InfoLink— y cada
+   * una tardaba 1–2 s yendo a la base por el proxy público. Igual que el menú
+   * (`catalog/memo-publico.ts`). Editar un InfoLink la vacía.
+   */
+  private memo = new MemoPublico();
+
   constructor(
     private prisma: PrismaService,
     private translator: TranslationService,
@@ -274,6 +284,7 @@ export class InfoLinksService {
       }
     }
 
+    this.memo.vaciar();
     return this.prisma.infoLink.update({
       where: { id },
       data: {
@@ -296,6 +307,7 @@ export class InfoLinksService {
   async remove(user: AuthUser, id: string) {
     await this.get(user, id);
     await this.prisma.infoLink.delete({ where: { id } });
+    this.memo.vaciar();
     return { ok: true };
   }
 
@@ -462,7 +474,35 @@ export class InfoLinksService {
     return gated as T;
   }
 
-  async getPublic(tenantSlug: string, linkSlug: string, localeRaw?: string) {
+  /**
+   * El InfoLink público. La respuesta sale de memoria si es reciente; la VISITA
+   * se cuenta siempre, fuera de la caché: cachear no puede comerse visitas.
+   */
+  async getPublic(
+    tenantSlug: string,
+    linkSlug: string,
+    localeRaw?: string,
+    opts: { fresco?: boolean; contarVisita?: boolean } = {},
+  ) {
+    const armar = () => this.armarPublico(tenantSlug, linkSlug, localeRaw);
+    const r = opts.fresco
+      ? await armar()
+      : await this.memo.obtener(`i|${tenantSlug}|${linkSlug}|${normalizeLocale(localeRaw)}`, armar);
+    if (opts.contarVisita !== false) this.contarVisita(r.link.id);
+    return r;
+  }
+
+  private contarVisita(linkId: string) {
+    // Best-effort: no bloquea la respuesta.
+    this.prisma.infoLink
+      .update({ where: { id: linkId }, data: { views: { increment: 1 } } })
+      .catch(() => null);
+    this.prisma.infoLinkEvent
+      .create({ data: { infoLinkId: linkId, type: 'view' } })
+      .catch(() => null);
+  }
+
+  private async armarPublico(tenantSlug: string, linkSlug: string, localeRaw?: string) {
     const locale = normalizeLocale(localeRaw);
     const tenant = await this.prisma.tenant.findUnique({
       where: { slug: tenantSlug },
@@ -512,14 +552,6 @@ export class InfoLinksService {
       link,
       infolinkCapabilities((tenant as any).businessType, (tenant as any).infolinkTier),
     );
-
-    // Incrementa views (best-effort, no bloquea respuesta)
-    this.prisma.infoLink
-      .update({ where: { id: link.id }, data: { views: { increment: 1 } } })
-      .catch(() => null);
-    this.prisma.infoLinkEvent
-      .create({ data: { infoLinkId: link.id, type: 'view' } })
-      .catch(() => null);
 
     // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
     // defecto: legacy sin marca cae al row real `clubify`.
@@ -608,6 +640,39 @@ export class InfoLinksService {
    * Devuelve la misma shape que getPublic (tenant + link) para que el
    * frontend pueda renderearlo igual sin lógica diferenciada.
    */
+  /**
+   * Solo A DÓNDE lleva `soyclubify.com/<slug>`: lo que necesita la redirección
+   * del QR. Antes la redirección pedía el InfoLink entero (y contaba una visita
+   * de más: la cuenta la página al abrirse). De memoria, sin contar visita.
+   */
+  async destinoPorRaiz(rootSlug: string): Promise<{ tenant: { slug: string }; link: { slug: string } }> {
+    const clean = (rootSlug || '').toLowerCase().trim().slice(0, 60);
+    if (!clean) throw new NotFoundException('No disponible');
+    return this.memo.obtener(`destino|${clean}`, async () => {
+      const link = await this.prisma.infoLink.findUnique({
+        where: { rootSlug: clean },
+        select: { slug: true, isActive: true, tenant: { select: { slug: true, status: true } } },
+      });
+      if (link?.isActive && link.tenant && link.tenant.status !== 'SUSPENDED') {
+        return { tenant: { slug: link.tenant.slug }, link: { slug: link.slug } };
+      }
+      // El slug del negocio lleva a su InfoLink más antiguo (ver getPublicByRoot).
+      const porNegocio = await this.prisma.tenant.findUnique({
+        where: { slug: clean },
+        select: {
+          slug: true,
+          status: true,
+          infoLinks: { where: { isActive: true }, orderBy: { createdAt: 'asc' }, take: 1, select: { slug: true } },
+        },
+      });
+      const principal = porNegocio?.infoLinks?.[0];
+      if (porNegocio && porNegocio.status !== 'SUSPENDED' && principal) {
+        return { tenant: { slug: porNegocio.slug }, link: { slug: principal.slug } };
+      }
+      throw new NotFoundException('No disponible');
+    });
+  }
+
   async getPublicByRoot(rootSlug: string, localeRaw?: string) {
     const clean = (rootSlug || '').toLowerCase().trim().slice(0, 60);
     if (!clean) throw new NotFoundException('No disponible');

@@ -18,8 +18,10 @@ export class PublicInfoLinksController {
     @Param('tenantSlug') tenantSlug: string,
     @Param('linkSlug') linkSlug: string,
     @Query('locale') locale?: string,
+    // La vista previa del panel: el dueño acaba de editar y debe verlo ya.
+    @Query('fresco') fresco?: string,
   ) {
-    return this.svc.getPublic(tenantSlug, linkSlug, locale);
+    return this.svc.getPublic(tenantSlug, linkSlug, locale, { fresco: !!fresco });
   }
 
   @Public()
@@ -39,6 +41,14 @@ export class PublicInfoLinksController {
 @Controller('public/info-link-by-root')
 export class PublicInfoLinkByRootController {
   constructor(private svc: InfoLinksService) {}
+
+  /** Solo el destino de la redirección del QR (ver `destinoPorRaiz`). */
+  @Public()
+  @Header('Cache-Control', PUBLIC_CACHE)
+  @Get(':slug/destino')
+  destino(@Param('slug') slug: string) {
+    return this.svc.destinoPorRaiz(slug);
+  }
 
   @Public()
   @Get(':slug')

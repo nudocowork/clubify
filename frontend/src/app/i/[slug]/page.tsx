@@ -39,10 +39,13 @@ export default async function InfolinkSinEnlacePage({
 
   let resolved: ResolvedResponse | null = null;
   try {
-    const r = await fetch(
-      `${API}/api/public/info-link-by-root/${encodeURIComponent(slug)}`,
-      { cache: 'no-store' },
-    );
+    // Solo el destino, cacheado 60 s (Degodoy, 2026-10-06: el salto del QR
+    // tardaba 1,6–1,8 s en CADA escaneo, sin caché, pidiendo el InfoLink
+    // entero solo para redirigir). Si el backend aún no tiene `/destino`
+    // (se desplegó antes el frontend), cae al de siempre.
+    const base = `${API}/api/public/info-link-by-root/${encodeURIComponent(slug)}`;
+    let r = await fetch(`${base}/destino`, { next: { revalidate: 60 } });
+    if (!r.ok) r = await fetch(base, { cache: 'no-store' });
     if (r.ok) {
       resolved = (await r.json()) as ResolvedResponse;
     }

@@ -58,6 +58,11 @@ export class MemoPublico {
     return p;
   }
 
+  /** Lo olvida todo: el dueño acaba de editar y su cambio debe verse ya. */
+  vaciar() {
+    this.entradas.clear();
+  }
+
   /** Cuántas respuestas hay guardadas (para pruebas y diagnóstico). */
   get tamano() {
     return this.entradas.size;
