@@ -186,9 +186,11 @@ export function PhoneInput({
     trigger: dark
       ? 'flex items-center gap-1.5 w-[120px] flex-none rounded-xl border border-white/15 bg-white/[.06] px-3 py-2.5 text-sm text-slate-100 hover:border-emerald-400/40 disabled:opacity-50 transition'
       : 'input flex items-center gap-1.5 w-[120px] flex-none disabled:opacity-50 hover:border-brand/40 transition',
+    // min-w-0: sin él, el número no baja de su ancho intrínseco (~170 px) y
+    // con el selector de 120 px el campo se salía de una columna estrecha.
     num: dark
-      ? 'flex-1 rounded-xl border border-white/15 bg-white/[.06] px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-emerald-500/30'
-      : 'input flex-1',
+      ? 'flex-1 min-w-0 rounded-xl border border-white/15 bg-white/[.06] px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-emerald-500/30'
+      : 'input flex-1 min-w-0',
     pop: dark
       ? 'absolute z-30 left-0 right-0 mt-1 bg-slate-900 border border-white/10 rounded-xl shadow-2xl max-h-72 overflow-hidden flex flex-col'
       : 'absolute z-30 left-0 right-0 mt-1 bg-white border border-line rounded-input shadow-lg max-h-72 overflow-hidden flex flex-col',

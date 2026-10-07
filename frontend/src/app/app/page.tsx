@@ -399,12 +399,15 @@ export default function TenantDashboard() {
       <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
         {t('today')}
       </h2>
+      {/* Cuatro columnas solo desde xl: entre md y xl (laptop con el zoom al
+          125-150 %, o iPad) cada KPI quedaba en ~170 px y un monto como
+          «$1.234.567» en text-3xl se salía de la tarjeta. */}
       {!m ? (
-        <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
+        <div className="grid gap-3.5 grid-cols-2 xl:grid-cols-4 mb-6">
           {Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />)}
         </div>
       ) : (
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
+      <div className="grid gap-3.5 grid-cols-2 xl:grid-cols-4 mb-6">
         <KPI
           label={t('ordersToday')}
           value={m?.ordersToday ?? '–'}
@@ -440,7 +443,7 @@ export default function TenantDashboard() {
       <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
         {t('customersAndLoyalty')}
       </h2>
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-3 lg:grid-cols-6 mb-6">
+      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-3 min-[1440px]:grid-cols-6 mb-6">
         <KPI
           label={t('customers')}
           value={m?.customers ?? '–'}

@@ -443,7 +443,7 @@ function BadgeEditModal({
     >
       <form
         onSubmit={save}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 space-y-3"
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-1">

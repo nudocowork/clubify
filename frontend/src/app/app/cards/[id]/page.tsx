@@ -351,7 +351,7 @@ export default function CardDetail() {
           </Link>{' '}
           <span className="page-crumb">/ {card.name}</span>
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span
             className={`badge ${card.isActive ? 'badge-ok' : 'badge-mute'}`}
           >
@@ -632,8 +632,10 @@ export default function CardDetail() {
                   <>Este cliente <b>no tiene teléfono</b> en su ficha: cópiale el mensaje y házselo llegar — la tarjeta solo aparece en su teléfono si él la instala.</>
                 )}
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">
+              {/* flex-wrap: en celular los tres botones (sin salto de línea)
+                  empujaban la fila fuera de la caja. */}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <code className="flex-1 min-w-[10rem] text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">
                   {issuedPass.entrega?.whatsapp?.texto ??
                     `${typeof window !== 'undefined' ? window.location.origin : ''}/w/${issuedPass.id}`}
                 </code>
@@ -1885,7 +1887,7 @@ function EditCardModal({
               {t('activeLinks')}
             </div>
             {form.activeLinks.map((link, i) => (
-              <div key={i} className="grid grid-cols-[100px_1fr_1fr_24px] gap-2 mb-2 items-center">
+              <div key={i} className="grid grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_24px] gap-2 mb-2 items-center">
                 <select
                   className="input"
                   value={link.type}
@@ -2063,7 +2065,7 @@ function UtmManager({
           </button>
         </div>
       ))}
-      <div className="grid grid-cols-[1fr_70px_70px_auto] gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_70px_70px_auto] gap-2">
         <input
           className="input"
           placeholder={t('utmSourcePlaceholder')}
@@ -2394,7 +2396,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
       {data.byType.cashback && (
         <div className="card card-pad">
           <h3 className="text-sm font-semibold m-0 mb-3">💰 {t('cashback')}</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Kpi2
               label={t('totalIssued')}
               value={`$${data.byType.cashback.totalAdded.toLocaleString('es-CO')}`}
@@ -2417,7 +2419,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
       {data.byType.points && (
         <div className="card card-pad">
           <h3 className="text-sm font-semibold m-0 mb-3">⭐ {t('points')}</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Kpi2 label={t('issued')} value={data.byType.points.totalAdded} />
             <Kpi2
               label={t('redeemedPlural')}
@@ -2587,11 +2589,11 @@ function Kpi2({
     warn: 'text-rose-500',
   };
   return (
-    <div className="card p-4">
+    <div className="card p-4 min-w-0">
       <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
         {label}
       </div>
-      <div className={`text-xl font-bold mt-1 ${accent ? cls[accent] : ''}`}>
+      <div className={`text-xl font-bold mt-1 break-words ${accent ? cls[accent] : ''}`}>
         {value}
       </div>
       {sub && <div className="text-[11px] text-mute mt-1">{sub}</div>}

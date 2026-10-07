@@ -92,15 +92,16 @@
     @apply p-5;
   }
   .card-h {
-    @apply px-5 py-4 border-b border-line2 flex items-center justify-between gap-2;
+    @apply px-5 py-4 border-b border-line2 flex flex-wrap items-center justify-between gap-2;
   }
   .card-h h3 {
     @apply m-0 text-[15px] font-semibold;
   }
 
-  /* KPI */
+  /* KPI. min-w-0 + break-words: dentro de una rejilla, un monto largo
+   * empujaba la tarjeta fuera de su columna en vez de partirse. */
   .kpi {
-    @apply bg-white border border-line rounded-card p-5 shadow-sm2 relative;
+    @apply bg-white border border-line rounded-card p-5 shadow-sm2 relative min-w-0;
   }
   .kpi-top {
     @apply flex items-center justify-between mb-2.5;
@@ -109,7 +110,7 @@
     @apply flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-mute;
   }
   .kpi-val {
-    @apply text-3xl font-bold tracking-tight leading-none;
+    @apply text-3xl font-bold tracking-tight leading-none break-words;
   }
   .kpi-sub {
     @apply text-xs text-mute mt-1.5;

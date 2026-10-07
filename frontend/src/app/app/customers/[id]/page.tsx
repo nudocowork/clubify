@@ -1086,7 +1086,7 @@ function EditCustomerModal({
       onClick={onClose}
     >
       <div
-        className="card card-pad w-full max-w-md"
+        className="card card-pad w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="font-semibold text-lg mb-4">Editar datos del cliente</div>
@@ -1123,7 +1123,7 @@ function EditCustomerModal({
         <label className="label mt-3">Cumpleaños</label>
         <div className="flex gap-2">
           <select
-            className="input flex-1"
+            className="input flex-1 min-w-0"
             value={day}
             onChange={(e) => setDay(e.target.value)}
           >
@@ -1210,7 +1210,7 @@ function PushModal({
       <form
         onSubmit={send}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 space-y-3"
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-3"
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-base m-0">🔔 {t('pushHeading')}</h3>
@@ -1349,7 +1349,7 @@ export default function CustomerDetail() {
           </Link>{' '}
           <span className="page-crumb">/ {c.fullName}</span>
         </h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {c.phone && (
             <a
               className="btn-primary"
@@ -1386,7 +1386,10 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+      {/* minmax(0,…): con 1fr a secas, una tabla o un texto largo de la
+          columna derecha ensanchaba la rejilla y se salía con el sidebar
+          abierto (~730 px útiles en lg, o laptop con zoom). */}
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] gap-4">
         {/* Sidebar perfil */}
         <div className="space-y-4">
           <div className="card card-pad text-center">
@@ -1397,7 +1400,7 @@ export default function CustomerDetail() {
             </div>
             <div className="font-semibold text-lg mt-3">{c.fullName}</div>
             {c.phone && <div className="text-sm text-mute">{c.phone}</div>}
-            {c.email && <div className="text-xs text-mute">{c.email}</div>}
+            {c.email && <div className="text-xs text-mute break-all">{c.email}</div>}
             <div className="flex gap-1 justify-center flex-wrap mt-3">
               {c.whatsappVerified && (
                 <span className="badge badge-ok text-[10px]">{t('waVerified')}</span>
@@ -1484,8 +1487,9 @@ export default function CustomerDetail() {
             </div>
           )}
 
-          {/* Pedidos */}
-          <div className="card overflow-hidden">
+          {/* Pedidos. overflow-x-auto y no hidden: en celular la tabla de 6
+              columnas quedaba cortada sin forma de verla entera. */}
+          <div className="card overflow-x-auto">
             <div className="card-h">
               <h3>{t('orderHistory', { count: c.orders.length })}</h3>
             </div>

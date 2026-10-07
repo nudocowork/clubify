@@ -1238,7 +1238,7 @@ function NewOrderModal({
             </label>
             <div className="flex items-center gap-2">
               <input
-                className="input flex-1"
+                className="input flex-1 min-w-0"
                 type="number"
                 min="0"
                 step="0.01"

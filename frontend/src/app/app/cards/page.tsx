@@ -406,7 +406,7 @@ export default function CardsList() {
           onClick={() => setShowLogoModal(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5"
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between mb-3">

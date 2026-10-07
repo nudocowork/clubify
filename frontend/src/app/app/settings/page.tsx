@@ -1187,7 +1187,7 @@ export default function SettingsPage() {
                       type="button"
                       key={opt.v}
                       onClick={() => setSectionMode(opt.v)}
-                      className={`text-left rounded-input border-2 p-2.5 transition ${
+                      className={`min-w-0 break-words text-left rounded-input border-2 p-2.5 transition ${
                         active
                           ? 'border-brand bg-brand-soft'
                           : 'border-line bg-white hover:border-brand/40'

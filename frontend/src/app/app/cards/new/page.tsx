@@ -347,7 +347,7 @@ function WizardHeader({
     <div className="page-head flex-wrap gap-3">
       <div className="flex-1 min-w-[260px]">
         <h1 className="page-title m-0">{cardName}</h1>
-        <div className="flex items-center gap-1.5 mt-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1.5 text-xs">
           {steps.map((s, i) => (
             <span key={s.n} className="flex items-center gap-1.5">
               <span
@@ -370,7 +370,7 @@ function WizardHeader({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button className="btn-ghost" onClick={onCancel}>
           {t('cancel')}
         </button>
@@ -1533,7 +1533,7 @@ function Step5Information({
           {form.activeLinks.map((link, i) => (
             <div
               key={i}
-              className="grid grid-cols-[110px_1fr_1fr_28px] gap-2 mb-2 items-center"
+              className="grid grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_28px] gap-2 mb-2 items-center"
             >
               <select
                 className="input"
@@ -1715,7 +1715,7 @@ function ActivateConfirmModal({
       onClick={onCancel}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 relative"
+        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -1850,7 +1850,7 @@ function TiersEditor({
         <div key={i} className="p-3 rounded-lg border border-line bg-bg2/30 space-y-2">
           <div className="flex items-center gap-2">
             <input
-              className="input flex-1"
+              className="input flex-1 min-w-0"
               placeholder={t('tierNamePlaceholder')}
               value={tier.name}
               onChange={(e) => patch(i, { name: e.target.value })}

@@ -309,7 +309,7 @@ export default function LocationsPage() {
             <label className="label">{t('walletPushText')}</label>
             <div className="flex items-stretch gap-2">
               <input
-                className="input flex-1"
+                className="input flex-1 min-w-0"
                 placeholder={t('walletPushPlaceholder')}
                 value={form.walletRelevantText}
                 onChange={(e) =>
@@ -416,7 +416,7 @@ function LocationCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setOpen((v) => !v)}
             className="btn-ghost text-xs"

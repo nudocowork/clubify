@@ -567,7 +567,10 @@ export default function InfoLinkEditor() {
         </a>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5">
+      {/* La vista previa (iPhone de 260 px) cabe en 300 px. Con 400 px fijos en
+          lg, el editor quedaba en ~300 px y los 5 estilos se salían de su caja
+          (sidebar abierto o laptop con el zoom al 125-150 %). */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_400px] gap-5">
         {/* Editor */}
         <div className="space-y-5">
           {/* Estilo */}
@@ -583,7 +586,7 @@ export default function InfoLinkEditor() {
                 {t('view5StylesArrow')}
               </a>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
               {INFO_LINK_TEMPLATES.map((opt) => {
                 const active = resolveTemplate(link.theme) === opt.id;
                 return (
@@ -593,7 +596,7 @@ export default function InfoLinkEditor() {
                     onClick={() =>
                       update('theme', { ...link.theme, template: opt.id })
                     }
-                    className={`text-left rounded-input border-2 p-2.5 transition ${
+                    className={`min-w-0 break-words text-left rounded-input border-2 p-2.5 transition ${
                       active
                         ? 'border-brand bg-brand-soft'
                         : 'border-line bg-white hover:border-brand/40'
@@ -643,7 +646,7 @@ export default function InfoLinkEditor() {
                   {shareHost}/
                 </span>
                 <input
-                  className="input flex-1"
+                  className="input flex-1 min-w-0"
                   value={link.rootSlug ?? ''}
                   placeholder={t('myBrandPlaceholder')}
                   onChange={(e) => {
@@ -1139,7 +1142,7 @@ export default function InfoLinkEditor() {
                       <div className="flex gap-2 items-center">
                         <span className="text-mute text-sm font-semibold">@</span>
                         <input
-                          className="input flex-1"
+                          className="input flex-1 min-w-0"
                           placeholder="nudocowork"
                           value={b.igHandle ?? ''}
                           onChange={(e) =>
@@ -2362,7 +2365,7 @@ function MultiPopupPanel({
           <div className="flex items-center justify-between gap-2 mb-2">
             <input
               type="text"
-              className="input flex-1"
+              className="input flex-1 min-w-0"
               maxLength={40}
               value={p.name ?? ''}
               onChange={(e) => updateAt(i, { ...p, name: e.target.value })}
@@ -2926,7 +2929,7 @@ function LogoContainerPanel({
       )}
 
       {enabled && (
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-5">
           <div className="space-y-4">
             {/* Presets */}
             <div>
@@ -3212,7 +3215,7 @@ function BannerPanel({
       )}
 
       {enabled && (
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px] gap-5">
           <div className="space-y-4">
             {/* Presets */}
             <div>
@@ -3323,7 +3326,7 @@ function BannerPanel({
 
             {/* Overlay controls */}
             {cfg.overlay.type === 'solid' && (
-              <div className="grid grid-cols-[120px_1fr] gap-3 items-end">
+              <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 items-end">
                 <div>
                   <label className="label text-xs">{t('overlayColor')}</label>
                   <input
@@ -3474,7 +3477,7 @@ function PopupEditor({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px] gap-5">
         <div className="space-y-3">
           <div>
             <label className="label text-xs">{t('title')}</label>

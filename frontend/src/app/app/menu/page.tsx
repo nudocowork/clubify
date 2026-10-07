@@ -1131,7 +1131,7 @@ export default function MenuEditor() {
       {showCatForm && (
         <form onSubmit={createCategory} className="card card-pad mb-4 flex gap-2">
           <input
-            className="input flex-1"
+            className="input flex-1 min-w-0"
             placeholder={t('categoryNamePlaceholder')}
             value={newCatName}
             onChange={(e) => setNewCatName(e.target.value)}
@@ -1647,7 +1647,7 @@ export default function MenuEditor() {
           tiene una sola carta, o el producto está desenganchado, no molesta. */}
       {preguntaAlcance && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="p-5 border-b border-line">
               <h2 className="font-bold text-lg m-0">
                 {t('scopeTitle', { n: preguntaAlcance.cartas.length })}
@@ -2424,7 +2424,7 @@ function AdicionalesModal({
 
         <form onSubmit={submit} className="px-5 py-3 border-b border-line flex gap-2">
           <input
-            className="input flex-1"
+            className="input flex-1 min-w-0"
             placeholder={t('addonNamePlaceholder')}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -3191,7 +3191,7 @@ function ProductDrawer({
             {(form.variants ?? []).map((v, i) => (
               <div key={i} className="flex gap-2 mb-2">
                 <input
-                  className="input flex-1"
+                  className="input flex-1 min-w-0"
                   placeholder={t('variantNamePlaceholder')}
                   value={v.name}
                   onChange={(e) => {
@@ -3335,7 +3335,7 @@ function ProductDrawer({
             {(form.extras ?? []).map((e, i) => (
               <div key={i} className="flex gap-2 mb-2">
                 <input
-                  className="input flex-1"
+                  className="input flex-1 min-w-0"
                   placeholder={t('extraNamePlaceholder')}
                   value={e.name}
                   onChange={(ev) => {

@@ -403,7 +403,7 @@ export default function CustomersPage() {
           <AcademyButton moduleKey="clientes" />
           {locations.length > 0 && (
             <select
-              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
+              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm max-w-full"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
               title={t('filterByLocation')}
@@ -418,7 +418,7 @@ export default function CustomersPage() {
           )}
           {staff.length > 0 && (
             <select
-              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
+              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm max-w-full"
               value={operatorId}
               onChange={(e) => setOperatorId(e.target.value)}
               title={t('filterByScanner')}
@@ -432,7 +432,7 @@ export default function CustomersPage() {
             </select>
           )}
           <select
-            className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
+            className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm max-w-full"
             value={sinceDays}
             onChange={(e) => setSinceDays(e.target.value)}
             title={t('filterByActivity')}
