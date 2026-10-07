@@ -66,9 +66,16 @@ import { urlDelMenu, urlDelNegocio } from '@/lib/api-publica.mjs';
 import {
   IMAGEN_DEL_AVISO,
   IMAGEN_DEL_LOGO,
+  IMAGEN_DE_FONDO,
   IMAGEN_DE_PORTADA,
+  fondoDelMenu,
   imagenDelMenu,
 } from '@/lib/menu/imagen-del-menu.mjs';
+import { pedirConLimite } from '@/lib/menu/pedir-con-limite.mjs';
+
+/** `loadError` cuando no hubo respuesta (red o tiempo límite): se ofrece
+ *  reintentar, no «este negocio no existe». */
+const SIN_RED = '__sin_red__';
 
 // Solo para lo que NO se puede cachear en el borde (pedidos, búsqueda por
 // teléfono, sedes). Los GET del negocio y de la carta van por la ruta
@@ -544,7 +551,7 @@ function StorefrontPublicInner() {
     Promise.all([
       // Ruta relativa, no `${API}`: así pasa por la caché del borde de Vercel
       // en vez de ir directo a Railway (ver `api-publica.mjs`).
-      fetch(urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel }))
+      pedirConLimite(urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel }))
         .then(async (r) => {
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
@@ -582,11 +589,14 @@ function StorefrontPublicInner() {
           }
         })
         .catch((e: Error) => {
-          if (!cancelled) setLoadError(e.message || 'No disponible');
+          // Sin red o sin respuesta en el tiempo límite NO es «el negocio no
+          // existe»: la pantalla ofrece reintentar (ver SIN_RED abajo). Antes
+          // una petición colgada dejaba el esqueleto de carga para siempre.
+          if (!cancelled) setLoadError(e?.name === 'SinRed' ? SIN_RED : e.message || 'No disponible');
         }),
       // La carta de la oficina se sirve por el mismo `sede`, que ya acepta el
       // id de una carta. Si llegaran los dos, manda la sede.
-      fetch(urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel }))
+      pedirConLimite(urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel }))
         .then(async (r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
@@ -651,6 +661,27 @@ function StorefrontPublicInner() {
     });
   }, [menu, tt]);
 
+  if (loadError === SIN_RED) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
+        <div className="text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <h1 className="text-xl font-bold">{tt('storefront.menu_error_title')}</h1>
+          <p className="text-mute mt-2 text-sm leading-relaxed">{tt('storefront.menu_error_sub')}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoadError(null);
+              setEstadoCarta('cargando');
+              setReintento((n) => n + 1);
+            }}
+            className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-pill bg-ink text-white font-semibold text-sm hover:opacity-90 active:scale-95 transition"
+          >
+            {tt('storefront.menu_retry')}
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (loadError) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
@@ -730,10 +761,18 @@ function StorefrontPublicInner() {
   const defaultBgColor = isCluvi ? '#0a0a0a' : '#FAFBFC';
   const bgType = (s.pageBackgroundType ?? 'SOLID').toUpperCase();
   let pageBg: string;
+  // La foto de fondo va en su PROPIA capa fija (abajo) y no como
+  // `background-attachment: fixed`: con `fixed`, Chrome en Android repinta
+  // la foto entera en cada cuadro del desplazamiento — en un teléfono de gama
+  // baja eso es el menú «pesado» al hacer scroll. iOS ni siquiera lo respeta.
+  let fotoDeFondo: string | null = null;
   if (bgType === 'GRADIENT' && s.pageBackgroundGradient) {
     pageBg = s.pageBackgroundGradient;
   } else if (bgType === 'IMAGE' && s.pageBackgroundImageUrl) {
-    pageBg = `url("${s.pageBackgroundImageUrl}") center/cover no-repeat fixed ${defaultBgColor}`;
+    fotoDeFondo = fondoDelMenu(s.pageBackgroundImageUrl, IMAGEN_DE_FONDO) || null;
+    // Transparente: la capa fija va DEBAJO (z negativo) y un fondo opaco
+    // aquí la taparía. El color de respaldo lo lleva la propia capa.
+    pageBg = fotoDeFondo ? 'transparent' : defaultBgColor;
   } else {
     pageBg = s.pageBackgroundColor || defaultBgColor;
   }
@@ -774,6 +813,17 @@ function StorefrontPublicInner() {
         background: pageBg,
       }}
     >
+      {fotoDeFondo && (
+        // -z-[5] y no -z-10: el degradado de la cabecera va en -z-10 y antes
+        // lo tapaba el fondo opaco del contenedor. Por encima de él (y por
+        // debajo del contenido) se ve EXACTAMENTE como antes — comprobado
+        // en la página real de Konys el 2026-10-07.
+        <div
+          aria-hidden
+          className="fixed inset-0 -z-[5] pointer-events-none"
+          style={{ background: `${fotoDeFondo} center/cover no-repeat ${defaultBgColor}` }}
+        />
+      )}
       {/* Indicador "traduciendo…" — pill fija arriba con spinner.
           Aparece solo si el fetch >250ms (debounce en el useEffect).
           Para cache hits no se ve. */}
@@ -797,8 +847,8 @@ function StorefrontPublicInner() {
           style={{
             background: s.heroImageUrl
               ? isCluvi
-                ? `linear-gradient(180deg, rgba(0,0,0,.2) 0%, rgba(10,10,10,.85) 70%, #0a0a0a 100%), url(${s.heroImageUrl}) center/cover`
-                : `linear-gradient(180deg, rgba(0,0,0,.05) 0%, rgba(255,255,255,.95) 70%, #FAFBFC 100%), url(${s.heroImageUrl}) center/cover`
+                ? `linear-gradient(180deg, rgba(0,0,0,.2) 0%, rgba(10,10,10,.85) 70%, #0a0a0a 100%), ${fondoDelMenu(s.heroImageUrl, IMAGEN_DE_FONDO)} center/cover`
+                : `linear-gradient(180deg, rgba(0,0,0,.05) 0%, rgba(255,255,255,.95) 70%, #FAFBFC 100%), ${fondoDelMenu(s.heroImageUrl, IMAGEN_DE_FONDO)} center/cover`
               : `linear-gradient(135deg, ${primary}15, ${s.secondaryColor}15, transparent)`,
           }}
         />
@@ -3936,7 +3986,7 @@ function LayoutSections({
               animation: `slideUp 0.35s ease-out ${idx * 60}ms both`,
             }}
           >
-            <SectionBanner cat={m} primary={primary} />
+            <SectionBanner cat={m} primary={primary} primera={idx < 2} />
           </button>
         ))}
         <style jsx>{`
@@ -4081,9 +4131,12 @@ function LayoutSections({
 function SectionBanner({
   cat,
   primary,
+  primera = false,
 }: {
   cat: Category;
   primary: string;
+  /** Una de las primeras de la lista: se ve sin desplazar, no va perezosa. */
+  primera?: boolean;
 }) {
   // Si tiene coverConfig, usamos el preview. Sino fallback simple:
   // imageUrl como bg + nombre centrado.
@@ -4093,6 +4146,7 @@ function SectionBanner({
         config={cat.coverConfig}
         title={cat.name}
         tagline={cat.tagline}
+        primera={primera}
       />
     );
   }
@@ -4117,7 +4171,8 @@ function SectionBanner({
             {...imagen}
             alt=""
             aria-hidden
-            loading="lazy"
+            loading={primera ? 'eager' : 'lazy'}
+            fetchPriority={primera ? 'high' : undefined}
             decoding="async"
             draggable={false}
             className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none"

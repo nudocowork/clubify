@@ -13,6 +13,8 @@
  *  - "pill":   pastilla blanca con sombra (fondos oscuros / imagen / gradient).
  *  - "auto":   decide por `dark`.
  */
+import { urlDeIcono } from '@/lib/imagen-optimizada.mjs';
+
 export type BrandBadgeBrand = {
   name: string;
   // Slug de la marca blanca (ej. 'sellea'). Lo usan pantallas que cambian
@@ -69,7 +71,9 @@ export function BrandBadge({
   const markImg = brand.iconUrl || brand.logoUrl || null;
   const Mark = markImg ? (
     <img
-      src={markImg}
+      // Por el optimizador: el icono original de la marca es un PNG de
+      // 220 KB y aquí se pinta a 14 px, en TODOS los menús.
+      src={urlDeIcono(markImg, 64) || markImg}
       alt=""
       loading="lazy"
       decoding="async"

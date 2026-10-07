@@ -38,6 +38,7 @@ export function SectionCoverPreview({
   badgeText,
   scale = 1,
   className,
+  primera = false,
 }: {
   config: unknown;
   title: string;
@@ -45,6 +46,10 @@ export function SectionCoverPreview({
   badgeText?: string | null;
   scale?: number;
   className?: string;
+  /** Portada visible sin desplazar (las primeras del menú): carga inmediata
+   *  y con prioridad. Es el elemento más grande de la pantalla (LCP): con
+   *  `loading="lazy"` el navegador la pedía tarde. */
+  primera?: boolean;
 }) {
   const cfg = useMemo(() => normalizeCoverConfig(config), [config]);
 
@@ -131,7 +136,8 @@ export function SectionCoverPreview({
           {...imagen}
           alt=""
           aria-hidden
-          loading="lazy"
+          loading={primera ? 'eager' : 'lazy'}
+          fetchPriority={primera ? 'high' : undefined}
           decoding="async"
           draggable={false}
           style={bgImageStyle}

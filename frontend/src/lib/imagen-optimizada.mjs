@@ -31,6 +31,9 @@
  */
 export const ANCHOS_PERMITIDOS = [640, 750, 828, 1080, 1200, 1920, 2048, 3840];
 
+/** `imageSizes` por defecto de Next (no se tocan en `next.config.js`). */
+export const ANCHOS_DE_ICONO = [32, 48, 64, 96, 128];
+
 /**
  * Lo que `next.config.js` declara en `images.remotePatterns`, con protocolo y
  * ruta: el optimizador compara las TRES cosas, no solo el host. Hay una prueba
@@ -146,6 +149,25 @@ export function anchoPermitido(ancho) {
  * @param {number} [calidad]
  * @returns {string}
  */
+/**
+ * URL optimizada para un ICONO (el sello «Hecho con…», 14 px): con los
+ * `imageSizes` por defecto de Next, que el optimizador también acepta. Va
+ * aparte de `urlOptimizada` a propósito: esa nunca baja de 640 y así lo
+ * prueban `pruebas-libro-imagenes.mjs`; esta solo la usa quien la pide.
+ *
+ * @param {unknown} url
+ * @param {number} ancho
+ * @param {number} [calidad]
+ * @returns {string}
+ */
+export function urlDeIcono(url, ancho, calidad = 85) {
+  if (!esOptimizable(url)) return typeof url === 'string' ? url : '';
+  const n = Number(ancho) || ANCHOS_DE_ICONO[0];
+  const w = ANCHOS_DE_ICONO.reduce((mejor, a) => (Math.abs(a - n) < Math.abs(mejor - n) ? a : mejor));
+  const q = Math.min(100, Math.max(1, Math.round(Number(calidad) || 85)));
+  return `/_next/image?url=${encodeURIComponent(String(url).trim())}&w=${w}&q=${q}`;
+}
+
 export function urlOptimizada(url, ancho, calidad = 75) {
   if (!esOptimizable(url)) return typeof url === 'string' ? url : '';
   const w = anchoPermitido(ancho);

@@ -8,6 +8,51 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-07 (121) — Política única de archivos por uso + migración de imágenes (rama, sin desplegar)
+
+Rama `feat/politica-archivos-2026-10-07` (sale de `perf/menu-auditoria-2026-10-07`).
+**Nada desplegado ni ejecutado contra producción.** Para llevarlo a producción
+hay que mergear a `main` primero esta base (`perf/menu-auditoria`) y luego esta rama.
+
+**Hecho (código):**
+- `backend/src/media/politica-de-archivos.ts`: reglas por USO (producto,
+  portada, banner, fondo, logo, icono, sello, página/miniatura del libro, PDF
+  del menú, aviso, InfoLink, promoción, tarjeta wallet, correo, diapositiva,
+  cartel QR, adjunto). MB **decimales**. `?folder=` se traduce a uso, así el
+  frontend viejo queda bajo la política durante el despliegue. Espejo en
+  `frontend/src/lib/politica-de-archivos.mjs` con candado
+  `node scripts/pruebas-politica-de-archivos.mjs` (probado en rojo).
+- `POST media/upload`: formato real por magic bytes (rechaza PDF/HTML/HEIC con
+  extensión de imagen), `limitInputPixels`, orientación EXIF, sin metadatos,
+  no amplía, alfa REAL (el opaco se quita), verifica lo generado. **Ya no sube
+  el original si sharp falla**: error en español y nada publicado. Claves por
+  hash del contenido (`<hash20>.webp`).
+- `POST media/importar-pdf`: PDF del menú libro → una página optimizada por
+  página (20 MB, 40 páginas, 150 s, una importación a la vez). El PDF no se guarda.
+- Páginas del libro: miniaturas GUARDADAS `<hash>.w80.webp` y `.w160.webp`
+  (≤ 15 KB). **Para el visor** (rama `perf/libro-imagenes`):
+  `miniaturaGuardada(url, 160)` de `lib/politica-de-archivos.mjs` devuelve la
+  miniatura si la URL es de la política nueva, o `null` (seguir con el
+  optimizador). No toqué el visor.
+- Navegador: `lib/subir-archivo.ts` es la única subida (valida peso antes de
+  transmitir, progreso, «optimizando»). ImageUploader, FileUploader,
+  MenuBookPagesUploader (acepta PDF), portadas y correos pasan por ahí.
+- InfoLink público por el optimizador (`lib/infolink/imagen-del-infolink.mjs`).
+- Migración: `backend/scripts/optimizar-imagenes-existentes.cjs` (por defecto
+  `--simular`; `--aplicar`; `--revertir --lote X`) + tabla aditiva
+  `scripts/apply-imagen-migrada-migration.cjs`. Simulación local con el
+  inventario: top-20 72 MB → 5,8 MB; Konys+Nudo+Degodoy 168 MB → 45 MB.
+
+**Pendiente / para revisar:**
+- Correr en este orden: SQL de `ImagenMigrada` → desplegar backend y frontend
+  con `desplegar.cjs` → `--simular --desde-la-base` → revisar `comparacion.html`
+  → `--aplicar` por lotes de negocio.
+- Revisión manual: banner de descomunal (PDF de 36,5 MB como .jpg) y 2
+  productos de degodoy-sas (PDF).
+- Onboarding (otro repo) sube a su Supabase sin validar tipo y con hasta 50 MB:
+  ver el informe de la rama.
+- El cartel QR sigue guardando imágenes como data URL en su config.
+
 ## 2026-10-07 (120) — PDF 12 de Sara: marcas blancas, Mística, nómina, Degodoy, zoom
 
 Commits en `main`: `7adeb84f`, `4dd4a627`, `80c4070f`. **Nada desplegado aún**:

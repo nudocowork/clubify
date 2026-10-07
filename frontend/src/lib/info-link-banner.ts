@@ -1,3 +1,4 @@
+import { fondoDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 /**
  * Config visual del banner (hero image) del InfoLink.
  *
@@ -169,7 +170,8 @@ export function getBannerBackgroundStyle(
   // por ej. 'auto' + ajustamos via 'background-size' explícito como pct.
   const sizePct = Math.round(cfg.scale * 100);
   const style: CSSProperties = {
-    backgroundImage: `url("${imageUrl}")`,
+    // Por el optimizador (828 q70): era la original cruda, p50 467 KB.
+    backgroundImage: fondoDelInfolink(imageUrl) || `url("${imageUrl}")`,
     backgroundSize: cfg.scale === 1 ? 'cover' : `${sizePct}% auto`,
     backgroundPosition: positionToCss(cfg),
     backgroundRepeat: 'no-repeat',

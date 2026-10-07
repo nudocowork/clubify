@@ -1,40 +1,16 @@
 /**
- * Helper para subir imágenes de portada de sección a R2 via el
- * endpoint /api/media/upload. Mismo flow que ImageUploader pero con
- * API funcional para usar como `onUpload` del SectionCoverEditor.
+ * Sube la imagen de portada de una sección (o de un evento de reservas) y
+ * devuelve la URL pública. Es el `onUpload` del SectionCoverEditor.
+ *
+ * Pasa por `subirArchivo`: el peso y el formato se comprueban con la política
+ * de PORTADA antes de transmitir, y el servidor publica el maestro optimizado
+ * (antes el tope era «15 MB» binarios y el error llegaba como JSON crudo).
  */
+import { subirArchivo } from '@/lib/subir-archivo';
 
-// Usa el getToken canónico (lib/api): prioriza el overlay de impersonación
-// por pestaña sobre la cookie base. Antes esto tenía su propia copia que leía
-// SOLO la cookie clubify_token → al entrar a un negocio ajeno ("Entrar al
-// negocio") mandaba el token viejo/ausente y /media/upload devolvía 401.
-import { getToken } from '@/lib/api';
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
-
-/** Sube un File a R2 y devuelve la URL pública. Throws si falla. */
+/** Sube un File y devuelve la URL pública. Lanza un Error con el motivo en español. */
 export async function uploadCoverImage(file: File, folder = 'sections'): Promise<string> {
-  if (!file.type.startsWith('image/')) {
-    throw new Error('Solo imágenes (JPG/PNG/WebP)');
-  }
-  if (file.size > 15 * 1024 * 1024) {
-    throw new Error('Máximo 15 MB');
-  }
-  const fd = new FormData();
-  fd.append('file', file, file.name);
-  const headers: HeadersInit = {};
-  const token = getToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API}/api/media/upload?folder=${encodeURIComponent(folder)}`, {
-    method: 'POST',
-    headers,
-    body: fd,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  const data: { url: string } = await res.json();
-  if (!data.url) throw new Error('Respuesta sin URL');
-  return data.url;
+  const r = await subirArchivo(file, { uso: 'PORTADA', folder });
+  if (!r.url) throw new Error('El servidor no devolvió la URL de la imagen.');
+  return r.url;
 }

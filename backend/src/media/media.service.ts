@@ -2,103 +2,87 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  PayloadTooLargeException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { createHash } from 'node:crypto';
+import { categoriaDeFormato, detectarFormato } from './detectar-formato';
+import { importarPdf } from './importar-pdf';
+import {
+  ArchivoRechazado,
+  claveDeVariante,
+  procesarImagen,
+  type ResultadoDeProcesar,
+} from './procesar-imagen';
+import {
+  CARPETA_POR_USO,
+  MAX_BYTES_TRANSMISION,
+  mensajeDePesoExcedido,
+  POLITICA,
+  politicaDe,
+  resolverUso,
+  type PoliticaDeImagen,
+  type PoliticaDePdf,
+  type Uso,
+} from './politica-de-archivos';
 import { nanoid } from 'nanoid';
-import sharp from 'sharp';
 
-const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const ALLOWED_AUDIO = [
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/x-wav',
-  'audio/wave',
-  'audio/mp4',
-  'audio/m4a',
-  'audio/x-m4a',
-  'audio/aac',
-  'audio/ogg',
-  'audio/webm',
-];
-const ALLOWED_VIDEO = [
-  'video/mp4',
-  'video/quicktime',
-  'video/webm',
-  'video/x-m4v',
-];
-const ALLOWED_DOCUMENT = [
-  'application/pdf',
-];
-const MAX_SIZE = 15 * 1024 * 1024; // 15 MB default — sharp pipeline reencode/resize a 2560px+webp
-// Folders que aceptan archivos más grandes (menús-imagen de alta resolución
-// vienen del diseñador en PDF→PNG y suelen pesar >15 MB sin optimizar).
-// Backend igual los reduce a OPT_MAX_DIMENSION=2560 y WebP 90q antes de
-// subir al bucket, así el archivo final servido es liviano.
-const MAX_SIZE_LARGE = 25 * 1024 * 1024;
-const MAX_SIZE_AUDIO = 50 * 1024 * 1024; // 50 MB — audios largos para secuencias CRM
-const MAX_SIZE_VIDEO = 100 * 1024 * 1024; // 100 MB — videos cortos vertical
-const MAX_SIZE_DOCUMENT = 30 * 1024 * 1024; // 30 MB — PDFs/catálogos
-const LARGE_FOLDERS = new Set(['menu-book', 'menu-book-popup']);
-
-/** Multer limit global tope (cubre el archivo más pesado: video 100MB). */
-export const MEDIA_MULTER_LIMIT_BYTES = MAX_SIZE_VIDEO;
+/**
+ * Límite de multer: el mayor tope de transmisión de la política (video de
+ * adjunto, 100 MB). La validación fina por USO corre en el servicio para
+ * devolver el motivo en español. Sin un `limits` explícito multer trunca en
+ * silencio los archivos grandes.
+ */
+export const MEDIA_MULTER_LIMIT_BYTES = MAX_BYTES_TRANSMISION;
 
 type MediaCategory = 'image' | 'audio' | 'video' | 'document';
 
-function categorize(mimetype: string): MediaCategory | null {
-  if (ALLOWED_IMAGE.includes(mimetype)) return 'image';
-  if (ALLOWED_AUDIO.includes(mimetype)) return 'audio';
-  if (ALLOWED_VIDEO.includes(mimetype)) return 'video';
-  if (ALLOWED_DOCUMENT.includes(mimetype)) return 'document';
-  return null;
+/**
+ * Procesamientos de imagen simultáneos por instancia. Decodificar una foto de
+ * 50 MP son ~200 MB de RAM; sin tope, una carta de 30 páginas subida de a 3 por
+ * dos negocios a la vez se come la memoria del contenedor.
+ */
+const PROCESOS_DE_IMAGEN_SIMULTANEOS = 2;
+
+export interface ResultadoDeSubida {
+  url: string;
+  key: string;
+  size: number;
+  contentType: string;
+  category: MediaCategory;
+  uso: Uso;
+  ancho?: number;
+  alto?: number;
+  bytesOriginal: number;
+  /** Variantes guardadas en el bucket, por ancho («160» → URL). */
+  variantes: Record<string, string>;
 }
 
-/**
- * Deriva extensión del archivo para non-images. Preferimos la del originalname
- * sanitizada (preserva m4a/wav/mov etc). Fallback al mimetype default por
- * categoría si el originalname no trae extensión usable.
- */
-function extForCategory(
-  file: Express.Multer.File,
-  category: MediaCategory,
-): string {
-  const fromName = (file.originalname.split('.').pop() ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .slice(0, 8);
+function extDeAdjunto(file: Express.Multer.File, category: MediaCategory): string {
+  const partes = (file.originalname ?? '').split('.');
+  const fromName =
+    partes.length > 1
+      ? (partes.pop() ?? '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .slice(0, 8)
+      : '';
   if (fromName) return fromName;
-  if (category === 'audio') {
-    if (file.mimetype.includes('wav')) return 'wav';
-    if (file.mimetype.includes('m4a') || file.mimetype.includes('mp4'))
-      return 'm4a';
-    if (file.mimetype.includes('aac')) return 'aac';
-    if (file.mimetype.includes('ogg')) return 'ogg';
-    if (file.mimetype.includes('webm')) return 'webm';
-    return 'mp3';
-  }
-  if (category === 'video') {
-    if (file.mimetype.includes('quicktime')) return 'mov';
-    if (file.mimetype.includes('webm')) return 'webm';
-    return 'mp4';
-  }
+  if (category === 'audio') return 'mp3';
+  if (category === 'video') return 'mp4';
   if (category === 'document') return 'pdf';
   return 'bin';
 }
 
-// Umbrales de optimización. Imágenes grandes se resize-an a 2560px max y
-// se reencodean a webp (excepto GIF que conserva animation y PNG con alpha
-// que mantenemos para evitar bordes feos).
-//
-// 2560×1440 cubre desktop 2K nítido (común en pantallas Retina y monitores
-// QHD modernos). Antes era 2000 lo que dejaba slides full-screen con
-// upscaling visible en pantallas grandes. WebP 90 (era 85) reduce
-// artefactos de doble compresión cuando el frontend ya pre-comprime el
-// crop a JPEG 95.
-const OPT_MAX_DIMENSION = 2560;
-const OPT_SIZE_TRIGGER = 1024 * 1024; // 1 MB
-const OPT_WEBP_QUALITY = 90;
+/** `?folder=` va dentro de la clave del bucket: nada de `..` ni rutas absolutas. */
+function carpetaSegura(folder: string): string {
+  const f = folder.trim();
+  if (!/^[a-z0-9][a-z0-9_-]*(\/[a-z0-9][a-z0-9_-]*){0,3}$/i.test(f)) {
+    throw new BadRequestException('Carpeta de destino inválida.');
+  }
+  return f;
+}
 
 /**
  * Provee storage S3-compatible (Cloudflare R2 en prod, MinIO en dev).
@@ -159,109 +143,231 @@ export class MediaService {
     return this.publicUrl.replace(/\/$/, '');
   }
 
+  /**
+   * Sube UN archivo según la política de su USO (`politica-de-archivos.ts`).
+   *
+   * Todo o nada: si el archivo no pasa (peso, formato real, decodificación,
+   * dimensiones) o no se puede procesar, se responde el motivo en español y no
+   * se publica NADA. Ya no existe el «subiendo original» de antes.
+   *
+   * `uso` manda; si no viene, se deduce de `folder` (los clientes de siempre),
+   * así que todo entra bajo la política aunque el frontend sea el viejo.
+   */
   async upload(opts: {
     tenantId?: string;
     folder?: string;
+    uso?: string;
     file: Express.Multer.File;
-  }): Promise<{
-    url: string;
-    key: string;
-    size: number;
-    contentType: string;
-    category: MediaCategory;
-  }> {
-    if (!opts.file) throw new BadRequestException('No file provided');
-    const folder = opts.folder ?? 'products';
+  }): Promise<ResultadoDeSubida> {
+    if (!opts.file?.buffer) throw new BadRequestException('No llegó ningún archivo.');
+    const uso = resolverUso({ uso: opts.uso, folder: opts.folder });
+    if (!uso) throw new BadRequestException(`Uso de archivo desconocido: «${opts.uso}».`);
+    const politica = politicaDe(uso);
+    if (politica.tipo === 'pdf') {
+      throw new BadRequestException('Los PDF del menú se importan con «Importar PDF», no como imagen.');
+    }
+    const folder = carpetaSegura(opts.folder ?? CARPETA_POR_USO[uso]);
+    this.exigirAlmacenamiento();
+    const base = `${opts.tenantId ? `${opts.tenantId}/` : ''}${folder}/`;
 
-    const category = categorize(opts.file.mimetype);
-    if (!category) {
-      throw new BadRequestException(`Tipo no permitido: ${opts.file.mimetype}`);
+    if (politica.tipo === 'imagen') {
+      const r = await this.procesar(opts.file.buffer, politica);
+      return this.publicarImagen(base, uso, r);
     }
 
-    const maxSize =
-      category === 'audio'
-        ? MAX_SIZE_AUDIO
-        : category === 'video'
-          ? MAX_SIZE_VIDEO
-          : category === 'document'
-            ? MAX_SIZE_DOCUMENT
-            : LARGE_FOLDERS.has(folder)
-              ? MAX_SIZE_LARGE
-              : MAX_SIZE;
-    if (opts.file.size > maxSize) {
+    // ADJUNTO: imagen (con las reglas de GENERAL, pero el tope del adjunto),
+    // PDF, audio o video. El tipo se decide por el CONTENIDO.
+    const formato = detectarFormato(opts.file.buffer);
+    const categoria = categoriaDeFormato(formato);
+    const declarada = categoriaDeclarada(opts.file.mimetype);
+    if (!categoria || !compatibles(categoria, declarada)) {
       throw new BadRequestException(
-        `Archivo muy grande (max ${maxSize / 1024 / 1024}MB)`,
+        formato === 'heic'
+          ? 'Esta foto está en formato HEIC (el de los iPhone). Expórtala como JPG y vuelve a subirla.'
+          : 'El archivo no es una imagen, PDF, audio o video válido (su contenido no coincide con su extensión).',
       );
     }
-    if (!this.configured && process.env.NODE_ENV === 'production') {
+    // Un .m4a se detecta como contenedor MP4: si lo declararon audio, es audio.
+    const cat: MediaCategory = categoria === 'video' && declarada === 'audio' ? 'audio' : categoria;
+    if (cat === 'image') {
+      const r = await this.procesar(opts.file.buffer, {
+        ...(POLITICA.GENERAL as PoliticaDeImagen),
+        maxBytesOriginal: politica.maxBytesImagen,
+      });
+      return this.publicarImagen(base, uso, r);
+    }
+    const max =
+      cat === 'audio'
+        ? politica.maxBytesAudio
+        : cat === 'video'
+          ? politica.maxBytesVideo
+          : politica.maxBytesDocumento;
+    if (opts.file.buffer.length > max) {
+      throw new PayloadTooLargeException(
+        mensajeDePesoExcedido({
+          bytes: opts.file.buffer.length,
+          maximo: max,
+          etiqueta: 'adjuntos',
+          esImagen: false,
+        }),
+      );
+    }
+    // Audio, video y PDF van sin re-codificar: comprimirlos pide ffmpeg/qpdf,
+    // que el contenedor no tiene. Al menos ya se sabe que SON lo que dicen.
+    const hash = createHash('sha256').update(opts.file.buffer).digest('hex').slice(0, 20);
+    const key = `${base}${hash}.${extDeAdjunto(opts.file, cat)}`;
+    const contentType =
+      cat === 'document'
+        ? 'application/pdf'
+        : declarada === cat
+          ? opts.file.mimetype
+          : `${cat}/${formato}`;
+    await this.put(key, opts.file.buffer, contentType);
+    this.logger.log(`Uploaded ${key} (${opts.file.buffer.length} bytes, ${contentType}, uso=${uso})`);
+    return {
+      url: this.urlDe(key),
+      key,
+      size: opts.file.buffer.length,
+      contentType,
+      category: cat,
+      uso,
+      bytesOriginal: opts.file.buffer.length,
+      variantes: {},
+    };
+  }
+
+  /**
+   * Importa un PDF de menú libro: devuelve UNA página publicada por cada
+   * página del PDF (maestro + miniaturas). El PDF no se guarda.
+   */
+  async importarPdfDelMenu(opts: {
+    tenantId?: string;
+    file: Express.Multer.File;
+  }): Promise<{ total: number; paginas: ResultadoDeSubida[] }> {
+    if (!opts.file?.buffer) throw new BadRequestException('No llegó ningún archivo.');
+    const politica = POLITICA.PDF_MENU as PoliticaDePdf;
+    if (this.importacionesEnCurso >= politica.concurrencia) {
       throw new ServiceUnavailableException(
-        'Storage no configurado. Contacta al administrador.',
+        'Ya hay otra importación de PDF en curso. Inténtalo de nuevo en un minuto.',
       );
     }
-
-    const tenantPart = opts.tenantId ? `${opts.tenantId}/` : '';
-
-    // Para imágenes: pipeline sharp con resize/re-encode. Para audio/video/PDF:
-    // upload directo sin tocar (sharp no aplica y comprimirlos de otra forma
-    // requiere ffmpeg/qpdf que no tenemos en el container).
-    let bodyBuffer: Buffer;
-    let outContentType: string;
-    let outExt: string;
-
-    if (category === 'image') {
-      const optimized = await this.maybeOptimize(opts.file);
-      bodyBuffer = optimized.buffer;
-      outContentType = optimized.contentType;
-      outExt = optimized.ext;
-    } else {
-      bodyBuffer = opts.file.buffer;
-      outContentType = opts.file.mimetype;
-      outExt = extForCategory(opts.file, category);
+    this.exigirAlmacenamiento();
+    this.importacionesEnCurso++;
+    try {
+      const { paginas, total } = await importarPdf(opts.file.buffer, { politica }).catch((e) => {
+        throw aHttp(e);
+      });
+      const base = `${opts.tenantId ? `${opts.tenantId}/` : ''}${CARPETA_POR_USO.PAGINA_LIBRO}/`;
+      const publicadas: ResultadoDeSubida[] = [];
+      for (const p of paginas) {
+        publicadas.push(await this.publicarImagen(base, 'PAGINA_LIBRO', p.resultado));
+      }
+      this.logger.log(`PDF importado: ${total} páginas (${opts.file.buffer.length} bytes)`);
+      return { total, paginas: publicadas };
+    } finally {
+      this.importacionesEnCurso--;
     }
+  }
 
-    const key = `${tenantPart}${folder}/${nanoid(16)}.${outExt}`;
+  private importacionesEnCurso = 0;
+  private procesosDeImagen = 0;
+  private colaDeImagen: Array<() => void> = [];
 
+  private async procesar(buffer: Buffer, politica: PoliticaDeImagen): Promise<ResultadoDeProcesar> {
+    while (this.procesosDeImagen >= PROCESOS_DE_IMAGEN_SIMULTANEOS) {
+      await new Promise<void>((res) => this.colaDeImagen.push(res));
+    }
+    this.procesosDeImagen++;
+    try {
+      return await procesarImagen(buffer, politica);
+    } catch (e) {
+      throw aHttp(e);
+    } finally {
+      this.procesosDeImagen--;
+      this.colaDeImagen.shift()?.();
+    }
+  }
+
+  /**
+   * Sube variantes y después el maestro, con el HASH del maestro como nombre:
+   * reemplazar una imagen da otra URL (la caché de un año del optimizador y del
+   * navegador no sirve la vieja), y subir dos veces la misma no duplica nada.
+   *
+   * Si una subida falla no se borra lo ya subido, a propósito: la clave es por
+   * contenido y puede ser la de una imagen idéntica que ya usa otro registro.
+   * Lo subido queda huérfano pero NO publicado: no se devuelve ninguna URL.
+   */
+  private async publicarImagen(
+    base: string,
+    uso: Uso,
+    r: ResultadoDeProcesar,
+  ): Promise<ResultadoDeSubida> {
+    const key = `${base}${r.maestro.hash}.${r.maestro.ext}`;
+    const variantes: Record<string, string> = {};
+    for (const v of r.variantes) {
+      const kv = claveDeVariante(key, v.ancho);
+      await this.put(kv, v.buffer, v.contentType);
+      variantes[String(v.ancho)] = this.urlDe(kv);
+    }
+    await this.put(key, r.maestro.buffer, r.maestro.contentType);
+    const ahorro =
+      r.original.bytes > r.maestro.buffer.length
+        ? ` -${Math.round((1 - r.maestro.buffer.length / r.original.bytes) * 100)}%`
+        : '';
+    this.logger.log(
+      `Uploaded ${key} (${r.maestro.buffer.length} bytes, was ${r.original.bytes}${ahorro}, ` +
+        `${r.maestro.ancho}x${r.maestro.alto}, uso=${uso}, variantes=${r.variantes.length})`,
+    );
+    return {
+      url: this.urlDe(key),
+      key,
+      size: r.maestro.buffer.length,
+      contentType: r.maestro.contentType,
+      category: 'image',
+      uso,
+      ancho: r.maestro.ancho,
+      alto: r.maestro.alto,
+      bytesOriginal: r.original.bytes,
+      variantes,
+    };
+  }
+
+  private exigirAlmacenamiento() {
+    if (!this.configured && process.env.NODE_ENV === 'production') {
+      throw new ServiceUnavailableException('Storage no configurado. Contacta al administrador.');
+    }
+  }
+
+  private urlDe(key: string): string {
+    return `${this.publicUrl.replace(/\/$/, '')}/${key}`;
+  }
+
+  private async put(key: string, body: Buffer, contentType: string) {
     try {
       await this.s3.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
-          Body: bodyBuffer,
-          ContentType: outContentType,
-          // Imágenes: immutable (nombre incluye hash random, nunca cambia).
-          // Non-images: igual immutable porque el key tiene nanoid único.
+          Body: body,
+          ContentType: contentType,
+          // La clave lleva el hash del contenido: nunca cambia → immutable.
           CacheControl: 'public, max-age=31536000, immutable',
         }),
       );
     } catch (e: any) {
       this.logger.error(`Upload failed: ${e?.name} ${e?.message}`);
       throw new ServiceUnavailableException(
-        `Storage error: ${e?.name ?? 'unknown'} — verifica las credenciales R2.`,
+        'No pudimos guardar el archivo en el almacenamiento. No se publicó nada; inténtalo de nuevo.',
       );
     }
-
-    const url = `${this.publicUrl.replace(/\/$/, '')}/${key}`;
-    const savings =
-      category === 'image' && opts.file.size > bodyBuffer.length
-        ? ` -${Math.round((1 - bodyBuffer.length / opts.file.size) * 100)}%`
-        : '';
-    this.logger.log(
-      `Uploaded ${key} (${bodyBuffer.length} bytes,` +
-        ` was ${opts.file.size}${savings}, ${outContentType}, cat=${category})`,
-    );
-    return {
-      url,
-      key,
-      size: bodyBuffer.length,
-      contentType: outContentType,
-      category,
-    };
   }
 
   /**
    * Upload genérico para archivos NO-imagen (PDFs, DOCX, etc.). Sin
    * validación de MIME por whitelist — el caller decide. Sin optimización.
-   * Tope 25MB (vs 5MB de imágenes).
+   * Solo lo usan pantallas de la PLATAFORMA (materiales de soporte, base de
+   * conocimiento de la IA), nunca un negocio: por eso queda fuera de la
+   * política por uso. Tope 25 MB decimales, como el resto.
    *
    * Devuelve URL pública del bucket.
    */
@@ -271,10 +377,15 @@ export class MediaService {
     buffer: Buffer;
     contentType: string;
   }): Promise<{ url: string; key: string; size: number }> {
-    const RAW_MAX = 25 * 1024 * 1024; // 25 MB
+    const RAW_MAX = 25_000_000;
     if (opts.buffer.length > RAW_MAX) {
-      throw new BadRequestException(
-        `Archivo muy grande (max ${RAW_MAX / 1024 / 1024}MB)`,
+      throw new PayloadTooLargeException(
+        mensajeDePesoExcedido({
+          bytes: opts.buffer.length,
+          maximo: RAW_MAX,
+          etiqueta: 'documentos',
+          esImagen: false,
+        }),
       );
     }
     if (!this.configured && process.env.NODE_ENV === 'production') {
@@ -305,66 +416,34 @@ export class MediaService {
     const url = `${this.publicUrl.replace(/\/$/, '')}/${key}`;
     return { url, key, size: opts.buffer.length };
   }
+}
 
-  /**
-   * Si el upload es grande, reduce dimensiones a 2000px max y re-encodea
-   * a webp. PNG con alpha → mantiene PNG (webp pierde transparency en
-   * algunos clients). GIF → no se toca (sharp puede romper animation).
-   */
-  private async maybeOptimize(file: Express.Multer.File): Promise<{
-    buffer: Buffer;
-    contentType: string;
-    ext: string;
-  }> {
-    const fallbackExt =
-      file.originalname.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const fallback = {
-      buffer: file.buffer,
-      contentType: file.mimetype,
-      ext: fallbackExt,
-    };
+function categoriaDeclarada(mime: string | undefined): MediaCategory | null {
+  const m = (mime ?? '').toLowerCase();
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('audio/')) return 'audio';
+  if (m.startsWith('video/')) return 'video';
+  if (m === 'application/pdf') return 'document';
+  return null;
+}
 
-    // GIF: preservar tal cual (anim).
-    if (file.mimetype === 'image/gif') return fallback;
-    // Pequeñas: no vale la pena el costo CPU.
-    if (file.size < OPT_SIZE_TRIGGER) {
-      // Pero igual chequeamos dimensiones; alguien podría subir un PNG
-      // 4000x4000 que pesa <1MB y rompe layouts del frontend.
-    }
+/**
+ * Lo detectado y lo declarado tienen que casar. Contenedores como MP4/WebM/OGG
+ * sirven igual para audio que para video (un .m4a es un MP4), así que ahí se
+ * acepta cualquiera de los dos. Sin tipo declarado (`octet-stream`) manda lo
+ * detectado.
+ */
+function compatibles(detectada: MediaCategory, declarada: MediaCategory | null): boolean {
+  if (!declarada || detectada === declarada) return true;
+  const av = new Set<MediaCategory>(['audio', 'video']);
+  return av.has(detectada) && av.has(declarada);
+}
 
-    try {
-      const pipeline = sharp(file.buffer, { failOn: 'none' });
-      const meta = await pipeline.metadata();
-      const needsResize =
-        (meta.width ?? 0) > OPT_MAX_DIMENSION ||
-        (meta.height ?? 0) > OPT_MAX_DIMENSION;
-      const needsReencode = file.size >= OPT_SIZE_TRIGGER;
-
-      if (!needsResize && !needsReencode) return fallback;
-
-      let out = pipeline;
-      if (needsResize) {
-        out = out.resize({
-          width: OPT_MAX_DIMENSION,
-          height: OPT_MAX_DIMENSION,
-          fit: 'inside',
-          withoutEnlargement: true,
-        });
-      }
-
-      // PNG con alpha → mantener PNG con compresión. Sino → webp (mejor ratio).
-      const hasAlpha = meta.hasAlpha === true;
-      if (file.mimetype === 'image/png' && hasAlpha) {
-        const buf = await out.png({ compressionLevel: 9 }).toBuffer();
-        return { buffer: buf, contentType: 'image/png', ext: 'png' };
-      }
-      const buf = await out.webp({ quality: OPT_WEBP_QUALITY }).toBuffer();
-      return { buffer: buf, contentType: 'image/webp', ext: 'webp' };
-    } catch (e: any) {
-      this.logger.warn(
-        `sharp optimize failed (${e?.message ?? e}) — subiendo original`,
-      );
-      return fallback;
-    }
+function aHttp(e: unknown): unknown {
+  if (e instanceof ArchivoRechazado) {
+    return e.motivo === 'peso'
+      ? new PayloadTooLargeException(e.message)
+      : new BadRequestException(e.message);
   }
+  return e;
 }
