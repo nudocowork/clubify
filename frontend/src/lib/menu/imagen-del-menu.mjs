@@ -68,6 +68,33 @@ export const IMAGEN_DEL_LOGO = Object.freeze({
 });
 
 /**
+ * Banner de la cabecera y foto de fondo de la página. Van como fondo CSS
+ * (`background`), que no admite `srcset`: un solo ancho. Iban con la URL
+ * CRUDA del bucket: el banner de Nudo Cowork era un PNG de 1,97 MB y era lo
+ * más grande de la pantalla (LCP de 16–20 s en 4G lento, auditoría
+ * 2026-10-07); el fondo de Konys, un JPEG de 364 KB. 1080 cubre un teléfono a
+ * 2,6x; detrás hay un degradado o el contenido encima, así que 70.
+ */
+export const IMAGEN_DE_FONDO = Object.freeze({
+  ancho: 1080,
+  calidad: 70,
+});
+
+/**
+ * `url("…")` para un fondo CSS, por el optimizador si se puede. Entre
+ * comillas a propósito: `encodeURIComponent` no escapa los paréntesis y un
+ * `url(...)` sin comillas se cortaría en el primero.
+ *
+ * @param {unknown} url
+ * @param {{ ancho?: number, calidad: number }} uso
+ * @returns {string}
+ */
+export function fondoDelMenu(url, uso) {
+  const { src } = imagenDelMenu(url, uso);
+  return src ? `url("${src.replace(/"/g, '%22')}")` : '';
+}
+
+/**
  * Props para un `<img>`: `{ src, srcSet, sizes }`, o solo `{ src }` cuando la
  * URL no se puede optimizar (se queda cruda: pesa más, pero se ve) o cuando el
  * uso es de un solo ancho.
