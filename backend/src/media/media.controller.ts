@@ -11,6 +11,7 @@ import {
 import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MediaService, MEDIA_MULTER_LIMIT_BYTES } from './media.service';
+import { POLITICA } from './politica-de-archivos';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -49,13 +50,18 @@ export class MediaController {
     return { configured: this.svc.isConfigured() };
   }
 
+  /**
+   * `?uso=` decide las reglas (ver `politica-de-archivos.ts`). `?folder=` sigue
+   * aceptándose: decide la carpeta del bucket y, si no viene `uso`, también el
+   * uso —así el frontend viejo, durante el despliegue, queda bajo la política—.
+   * Sin ninguno de los dos se asume PRODUCTO, como siempre.
+   */
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      // Tope global multer = max video 100 MB. La validación fina por
-      // categoría (imagen 15/25, audio 50, video 100, pdf 30) corre dentro
-      // del service para devolver mensaje claro. Sin este limit explícito
-      // multer trunca silencioso archivos grandes.
+      // Tope de multer = el mayor de la política (video de adjunto). El tope
+      // fino por uso lo aplica el servicio, con el mensaje en español. Sin
+      // `limits` explícito multer trunca en silencio los archivos grandes.
       limits: { fileSize: MEDIA_MULTER_LIMIT_BYTES },
     }),
   )
@@ -63,12 +69,30 @@ export class MediaController {
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File,
     @Query('folder') folder?: string,
+    @Query('uso') uso?: string,
   ) {
     return this.svc.upload({
       tenantId: user.tenantId ?? undefined,
-      folder: folder ?? 'products',
+      folder: folder ?? (uso ? undefined : 'products'),
+      uso,
       file,
     });
+  }
+
+  /**
+   * Importa el PDF de un menú libro: responde las páginas ya optimizadas
+   * (maestro + miniaturas), una por página del PDF, para que el panel las dé de
+   * alta EN ORDEN. El PDF no se guarda en el bucket.
+   */
+  @Post('importar-pdf')
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'PLATFORM_OWNER')
+  @UseInterceptors(
+    // El doble del tope: así quien se pasa recibe el mensaje en español del
+    // servicio y no el «File too large» en inglés de multer.
+    FileInterceptor('file', { limits: { fileSize: POLITICA.PDF_MENU.maxBytesOriginal * 2 } }),
+  )
+  importarPdf(@CurrentUser() user: AuthUser, @UploadedFile() file: Express.Multer.File) {
+    return this.svc.importarPdfDelMenu({ tenantId: user.tenantId ?? undefined, file });
   }
 
   /**
