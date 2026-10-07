@@ -1,12 +1,10 @@
 'use client';
 import { useRef, useState } from 'react';
 import { Icon } from './Icon';
-// getToken canónico: prioriza el overlay de impersonación por pestaña sobre la
-// cookie base. La copia cookie-only de antes daba 401 en /media/upload al subir
-// desde "Entrar al negocio" (el token válido está en sessionStorage, no en la cookie).
-import { getToken } from '@/lib/api';
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+// La subida (token canónico, progreso, mensajes en español, tope por uso)
+// vive en `@/lib/subir-archivo`, la misma para todo el panel.
+import { pesoLegible } from '@/lib/politica-de-archivos.mjs';
+import { subirArchivo, type EstadoDeSubida } from '@/lib/subir-archivo';
 
 export type FileKind =
   | 'audio'
@@ -35,22 +33,17 @@ const ACCEPT_BY_KIND: Record<FileKind, string> = {
   any: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp3,audio/wav,audio/m4a,audio/aac,audio/ogg,audio/webm,video/mp4,video/quicktime,video/webm,application/pdf',
 };
 
+// Mismos topes que `POLITICA.ADJUNTO` (MB decimales). El de cada archivo lo
+// aplica `validarArchivo` según su tipo; esto es lo que se ANUNCIA junto al
+// campo.
 const MAX_MB_BY_KIND: Record<FileKind, number> = {
   audio: 50,
   video: 100,
   document: 30,
   image: 15,
-  // Tope del PDF (30). El backend igual aplica el suyo por categoría: una
-  // imagen de más de 15 MB la rechaza él con su propio mensaje.
   imageOrPdf: 30,
   any: 100,
 };
-
-function prettyBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function fileNameFromUrl(url: string): string {
   try {
@@ -97,6 +90,7 @@ export function FileUploader({
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [estado, setEstado] = useState<EstadoDeSubida | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -107,12 +101,14 @@ export function FileUploader({
     if (accept) {
       const allowed = accept.split(',').map((s) => s.trim());
       if (!allowed.includes(file.type)) {
-        setErr(`Tipo no permitido: ${file.type || 'desconocido'}`);
+        setErr(`Tipo de archivo no permitido aquí: ${file.type || 'desconocido'}.`);
         return;
       }
     }
-    if (file.size > cap * 1024 * 1024) {
-      setErr(`Máximo ${cap} MB (este pesa ${prettyBytes(file.size)})`);
+    if (file.size > cap * 1_000_000) {
+      setErr(
+        `Este archivo pesa ${pesoLegible(file.size)}. El máximo permitido aquí es ${cap} MB. Reduce su tamaño o selecciona otro archivo.`,
+      );
       return;
     }
     setErr(null);
@@ -121,36 +117,14 @@ export function FileUploader({
 
   async function uploadBlob(file: File) {
     setBusy(true);
-    setProgress(5);
+    setProgress(0);
     try {
-      const fd = new FormData();
-      fd.append('file', file, file.name);
-      const xhr = new XMLHttpRequest();
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
-      };
-      const result = await new Promise<UploadResult>((resolve, reject) => {
-        xhr.open('POST', `${API}/api/media/upload?folder=${folder}`);
-        const token = getToken();
-        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        xhr.onload = () => {
-          if (xhr.status < 200 || xhr.status >= 300) {
-            try {
-              const parsed = JSON.parse(xhr.responseText);
-              reject(new Error(parsed.message || parsed.error || 'Upload failed'));
-            } catch {
-              reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
-            }
-            return;
-          }
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            reject(new Error('Respuesta del servidor inválida'));
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.send(fd);
+      // `folder` decide el uso en el servidor (casi siempre ADJUNTO) y el
+      // tope fino por tipo lo repite `subirArchivo` antes de transmitir.
+      const result = await subirArchivo(file, {
+        folder,
+        alProgreso: setProgress,
+        alEstado: setEstado,
       });
       onChange(result.url, {
         contentType: result.contentType,
@@ -158,10 +132,11 @@ export function FileUploader({
         category: result.category,
       });
     } catch (e: any) {
-      setErr(e.message);
+      setErr(e?.message || 'No se pudo subir el archivo. Inténtalo de nuevo.');
     } finally {
       setBusy(false);
       setProgress(0);
+      setEstado(null);
     }
   }
 
@@ -276,7 +251,7 @@ export function FileUploader({
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="text-xs text-mute">Subiendo… {progress}%</div>
+            <div className="text-xs text-mute">{estado === 'procesando' ? 'Procesando…' : `Subiendo… ${progress}%`}</div>
           </>
         ) : (
           <>

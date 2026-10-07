@@ -89,6 +89,9 @@ export interface PoliticaDeImagen {
   maxBytesOriginal: number;
   presupuestoPublico: number;
   anchoReferencia: number;
+  /** Segundo presupuesto para la vista ampliada (la ficha del producto). */
+  presupuestoAmpliado?: number;
+  anchoAmpliado?: number;
   anchosVariantes: number[];
   variantesGuardadas: number[];
   /** Presupuesto de cada variante guardada (miniaturas). */
@@ -160,9 +163,15 @@ export const POLITICA = {
   PRODUCTO: {
     ...BASE,
     etiqueta: 'fotos de producto',
-    maxBytesOriginal: 5 * MB,
-    presupuestoPublico: 100 * KB,
-    anchoReferencia: 640,
+    // Inventario 2026-10-07: p99 de los originales = 2,6 MB. 3 MB deja pasar
+    // cualquier foto real; lo que viene del recortador pesa mucho menos.
+    maxBytesOriginal: 3 * MB,
+    // Tarjeta del listado (~200 px a 2x → 384).
+    presupuestoPublico: 60 * KB,
+    anchoReferencia: 384,
+    // Ficha del producto (~400 px a 2x → 828).
+    presupuestoAmpliado: 150 * KB,
+    anchoAmpliado: 828,
     anchosVariantes: [384, 640, 828],
     ladoMaestro: 1600,
     calidad: 82,
@@ -189,8 +198,9 @@ export const POLITICA = {
     etiqueta: 'banners',
     maxBytesOriginal: 8 * MB,
     presupuestoPublico: 150 * KB,
-    anchoReferencia: 1080,
-    anchosVariantes: [640, 1080],
+    // 828 q70 deja el p90 del inventario en 115 KB; detrás hay un degradado.
+    anchoReferencia: 828,
+    anchosVariantes: [640, 828, 1080],
     ladoMaestro: 2048,
     calidad: 80,
     formatos: FOTO,
@@ -202,8 +212,8 @@ export const POLITICA = {
     etiqueta: 'fondos',
     maxBytesOriginal: 8 * MB,
     presupuestoPublico: 150 * KB,
-    anchoReferencia: 1080,
-    anchosVariantes: [640, 1080],
+    anchoReferencia: 828,
+    anchosVariantes: [640, 828, 1080],
     ladoMaestro: 2048,
     calidad: 75,
     formatos: FOTO,
@@ -215,8 +225,10 @@ export const POLITICA = {
     etiqueta: 'logos',
     maxBytesOriginal: 2 * MB,
     presupuestoPublico: 50 * KB,
-    anchoReferencia: 828,
-    anchosVariantes: [256, 384, 828],
+    // Caja de 260×140: 384 sobra para un logo cuadrado o alto (p50 13 KB) y
+    // 750 para uno apaisado. Hoy se pide a 828 (p90 184 KB).
+    anchoReferencia: 384,
+    anchosVariantes: [256, 384, 750],
     ladoMaestro: 1024,
     calidad: 90,
     formatos: FOTO,
@@ -227,7 +239,7 @@ export const POLITICA = {
     ...BASE,
     etiqueta: 'iconos',
     maxBytesOriginal: 1 * MB,
-    presupuestoPublico: 10 * KB,
+    presupuestoPublico: 5 * KB,
     anchoReferencia: 64,
     anchosVariantes: [32, 64],
     ladoMaestro: 256,
@@ -242,13 +254,14 @@ export const POLITICA = {
     ...BASE,
     etiqueta: 'sellos',
     maxBytesOriginal: 1 * MB,
-    presupuestoPublico: 10 * KB,
+    // 64 px a q85 = 1,8 KB medido; el sello de marca hoy baja 225 KB crudo.
+    presupuestoPublico: 5 * KB,
     anchoReferencia: 64,
     anchosVariantes: [32, 64],
     ladoMaestro: 256,
     ladoMaximoOriginal: 4096,
     maxMegapixeles: 16,
-    calidad: 90,
+    calidad: 85,
     formatos: FOTO,
     formatoMaestro: 'compatible',
     admiteAnimacion: false,
@@ -257,7 +270,9 @@ export const POLITICA = {
     ...BASE,
     etiqueta: 'páginas del menú libro',
     maxBytesOriginal: 15 * MB,
-    presupuestoPublico: 200 * KB,
+    // Una hoja de 1440×2560 con texto: 200 KB obligaba a perder nitidez en
+    // los precios. El inventario pide p90 ≤ 300 KB a 1080.
+    presupuestoPublico: 300 * KB,
     anchoReferencia: 1080,
     anchosVariantes: [640, 828, 1080, 1200, 1920, 2048],
     variantesGuardadas: [80, 160],

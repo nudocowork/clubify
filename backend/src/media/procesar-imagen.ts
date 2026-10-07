@@ -225,6 +225,9 @@ async function codificar(
     })
       .rotate()
       .resize({ width: o.lado, height: o.lado, fit: 'inside', withoutEnlargement: true });
+    // Alfa declarado pero opaco (71 de los 79 PNG fotográficos del inventario
+    // 2026-10-07): se quita el canal y la imagen se trata como foto.
+    if (!o.tieneAlfa && !o.animada) p = p.flatten({ background: '#ffffff' });
 
     if (o.animada) {
       if (o.politica.formatoMaestro === 'compatible') {
@@ -280,6 +283,7 @@ async function variante(
     salida = await sharp(buffer, { limitInputPixels, failOn: 'error' })
       .rotate()
       .resize({ width: ancho, withoutEnlargement: true })
+      .flatten(tieneAlfa ? false : { background: '#ffffff' })
       .webp({ quality: calidad, alphaQuality: 80, effort: 6, smartSubsample: true })
       .toBuffer();
   } catch (e: any) {

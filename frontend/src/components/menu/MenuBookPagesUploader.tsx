@@ -3,76 +3,22 @@
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Icon } from '@/components/Icon';
-import { getToken } from '@/lib/api';
+import { POLITICA, aceptarDe, pesoLegible, validarArchivo } from '@/lib/politica-de-archivos.mjs';
+import { importarPdfDelMenu, subirArchivo, type EstadoDeSubida } from '@/lib/subir-archivo';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
-
-// Mismos mimetypes que acepta ALLOWED_IMAGE en backend/src/media/media.service.ts.
-// Validamos acá para no gastar la subida de un HEIC de iPhone (que el backend
-// rechaza igual) y poder decirle al negocio, archivo por archivo, por qué se
-// descartó.
-const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-
-// El endpoint /api/media/upload recibe UN archivo por request (FileInterceptor),
-// así que un lote son N requests. Tres a la vez es el techo: una carta larga son
-// imágenes de varios MB y la conexión del negocio (a menudo el wifi del local)
-// se satura si se lanzan las 20 juntas — se cortan a la mitad y hay que
-// reintentar todo.
+// El endpoint recibe UN archivo por request, así que un lote son N requests.
+// Tres a la vez es el techo: una carta larga son imágenes de varios MB y la
+// conexión del negocio (a menudo el wifi del local) se satura si se lanzan las
+// 20 juntas — se cortan a la mitad y hay que reintentar todo.
 const MAX_CONCURRENT_UPLOADS = 3;
 
 type Problem = { name: string; reason: string };
 
-function prettyBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+const PAGINA = POLITICA.PAGINA_LIBRO;
+const PDF = POLITICA.PDF_MENU;
 
-/** Extrae el mensaje del error de Nest (`{"message": "..."}`) o cae al texto crudo. */
-function serverError(body: string, status: number): string {
-  try {
-    const parsed = JSON.parse(body);
-    const msg = parsed?.message;
-    if (typeof msg === 'string' && msg) return msg;
-    if (Array.isArray(msg) && msg.length) return String(msg[0]);
-  } catch {
-    /* respuesta no-JSON (proxy caído, 502…) — usamos el texto tal cual */
-  }
-  return body?.slice(0, 140) || `HTTP ${status}`;
-}
-
-function uploadOne(
-  file: File,
-  folder: string,
-  onBytes: (loaded: number) => void,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fd = new FormData();
-    fd.append('file', file, file.name);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API}/api/media/upload?folder=${encodeURIComponent(folder)}`);
-    const token = getToken();
-    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onBytes(e.loaded);
-    };
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(serverError(xhr.responseText, xhr.status)));
-        return;
-      }
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (!data?.url) throw new Error('sin url');
-        resolve(data.url as string);
-      } catch {
-        reject(new Error('Respuesta del servidor inválida'));
-      }
-    };
-    xhr.onerror = () => reject(new Error('Fallo de red'));
-    xhr.onabort = () => reject(new Error('Subida cancelada'));
-    xhr.send(fd);
-  });
+function esPdf(f: File) {
+  return f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
 }
 
 /**
@@ -96,11 +42,11 @@ function uploadOne(
  */
 export function MenuBookPagesUploader({
   folder = 'menu-book',
-  maxSizeMb = 25,
   onUploadPage,
   onDone,
 }: {
   folder?: string;
+  /** Obsoleto: el tope lo pone la política (PAGINA_LIBRO), igual que el servidor. */
   maxSizeMb?: number;
   /** Crea la página en el menú. Se invoca de a una y en orden. */
   onUploadPage: (url: string) => Promise<void>;
@@ -117,26 +63,59 @@ export function MenuBookPagesUploader({
   const [added, setAdded] = useState(0);
   const [discarded, setDiscarded] = useState<Problem[]>([]);
   const [failed, setFailed] = useState<Problem[]>([]);
+  const [estadoPdf, setEstadoPdf] = useState<EstadoDeSubida | null>(null);
 
   function validate(files: File[]): { valid: File[]; discarded: Problem[] } {
     const valid: File[] = [];
     const bad: Problem[] = [];
     for (const f of files) {
-      if (!ACCEPTED_MIME.includes(f.type)) {
-        bad.push({ name: f.name, reason: t('uploaderReasonFormat') });
-      } else if (f.size > maxSizeMb * 1024 * 1024) {
-        bad.push({
-          name: f.name,
-          reason: t('uploaderReasonTooBig', {
-            size: prettyBytes(f.size),
-            max: maxSizeMb,
-          }),
-        });
-      } else {
-        valid.push(f);
+      // Mismo mensaje que daría el servidor, antes de transmitir un byte.
+      const motivo = esPdf(f) ? validarArchivo(f, 'PDF_MENU') : validarArchivo(f, 'PAGINA_LIBRO');
+      if (motivo) bad.push({ name: f.name, reason: motivo });
+      else valid.push(f);
+    }
+    if (valid.length > PAGINA.archivosPorLote) {
+      for (const f of valid.splice(PAGINA.archivosPorLote)) {
+        bad.push({ name: f.name, reason: `se pueden subir hasta ${PAGINA.archivosPorLote} páginas por vez` });
       }
     }
     return { valid, discarded: bad };
+  }
+
+  /**
+   * Un PDF: el servidor lo trocea en páginas ya optimizadas y aquí se dan de
+   * alta EN ORDEN, como si fueran imágenes elegidas una tras otra.
+   */
+  async function runPdf(pdf: File) {
+    setBusy(true);
+    setTotal(1);
+    setDone(0);
+    setPct(0);
+    const errors: Problem[] = [];
+    let okCount = 0;
+    try {
+      const r = await importarPdfDelMenu(pdf, { alProgreso: (n) => setPct(Math.min(99, n)), alEstado: setEstadoPdf });
+      setEstadoPdf('listo');
+      setTotal(r.paginas.length);
+      for (let i = 0; i < r.paginas.length; i++) {
+        try {
+          await onUploadPage(r.paginas[i].url);
+          okCount++;
+          setAdded(okCount);
+        } catch (e: any) {
+          errors.push({ name: `${pdf.name} · página ${i + 1}`, reason: e?.message || 'Error' });
+        }
+        setDone(i + 1);
+      }
+    } catch (e: any) {
+      errors.push({ name: pdf.name, reason: e?.message || 'Error' });
+    } finally {
+      setPct(100);
+      setFailed(errors);
+      setEstadoPdf(null);
+      setBusy(false);
+      onDone();
+    }
   }
 
   async function run(picked: File[]) {
@@ -146,8 +125,21 @@ export function MenuBookPagesUploader({
 
     // Validar el lote ENTERO antes de empezar: si algo se va a descartar, el
     // negocio lo ve de una y no a mitad de una subida de diez minutos.
-    const { valid, discarded: bad } = validate(picked);
+    const { valid: validos, discarded: bad } = validate(picked);
+    // Un PDF va solo: mezclarlo con imágenes dejaría el orden de la carta al
+    // azar de qué termina antes.
+    const pdfs = validos.filter(esPdf);
+    const valid = validos.filter((f) => !esPdf(f));
+    if (pdfs.length && (valid.length || pdfs.length > 1)) {
+      for (const f of pdfs.slice(valid.length ? 0 : 1)) {
+        bad.push({ name: f.name, reason: 'importa los PDF de a uno y sin imágenes en el mismo lote' });
+      }
+    }
     setDiscarded(bad);
+    if (pdfs.length === 1 && valid.length === 0) {
+      await runPdf(pdfs[0]);
+      return;
+    }
     if (valid.length === 0) return;
 
     setBusy(true);
@@ -189,7 +181,11 @@ export function MenuBookPagesUploader({
         const i = cursor++;
         if (i >= valid.length) return;
         try {
-          const url = await uploadOne(valid[i], folder, (n) => bumpBytes(i, n));
+          const { url } = await subirArchivo(valid[i], {
+            uso: 'PAGINA_LIBRO',
+            folder,
+            alProgreso: (pct) => bumpBytes(i, Math.round((pct / 100) * valid[i].size)),
+          });
           loaded[i] = valid[i].size;
           slots[i].settle({ ok: true, url });
         } catch (e: any) {
@@ -273,9 +269,13 @@ export function MenuBookPagesUploader({
               />
             </div>
             <div className="text-sm font-medium">
-              {t('uploaderProgress', { done, total })}
+              {estadoPdf === 'subiendo'
+                ? `Subiendo el PDF… ${pct}%`
+                : estadoPdf === 'procesando'
+                  ? 'Convirtiendo el PDF en páginas optimizadas… puede tardar hasta 2 minutos'
+                  : t('uploaderProgress', { done, total })}
             </div>
-            <div className="text-xs text-mute">{pct}%</div>
+            {!estadoPdf && <div className="text-xs text-mute">{pct}%</div>}
           </>
         ) : (
           <>
@@ -284,14 +284,17 @@ export function MenuBookPagesUploader({
             </div>
             <div className="text-sm font-medium">{t('uploaderCta')}</div>
             <div className="text-xs text-mute text-center px-3">
-              {t('uploaderHint', { max: maxSizeMb })}
+              {t('uploaderHint', { max: pesoLegible(PAGINA.maxBytesOriginal) })}
+            </div>
+            <div className="text-[11px] text-mute text-center px-3">
+              {t('uploaderPdfHint', { max: pesoLegible(PDF.maxBytesOriginal), pages: PDF.paginasMaximas })}
             </div>
           </>
         )}
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept={`${aceptarDe('PAGINA_LIBRO')},application/pdf`}
           multiple
           className="hidden"
           onChange={(e) => onPick(e.target.files)}

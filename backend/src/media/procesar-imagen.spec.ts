@@ -149,6 +149,10 @@ describe('procesarImagen', () => {
     const png = await sharp(await foto(200, 200)).ensureAlpha().png().toBuffer();
     const r = await procesarImagen(png, P('LOGO'));
     expect(r.maestro.contentType).toBe('image/jpeg');
+    // Y en la web, WebP SIN canal alfa (el inventario halló 71 PNG así).
+    const web = await procesarImagen(png, P('PORTADA'));
+    expect(web.maestro.contentType).toBe('image/webp');
+    expect(web.maestro.tieneAlfa).toBe(false);
   });
 
   it('corrige la orientación EXIF y quita los metadatos', async () => {
@@ -162,7 +166,7 @@ describe('procesarImagen', () => {
   });
 
   it('reduce al lado del maestro y nunca amplía', async () => {
-    const grande = await procesarImagen(await foto(3000, 1500), P('PRODUCTO'));
+    const grande = await procesarImagen(await foto(3000, 1500), { ...P('PRODUCTO'), maxBytesOriginal: 50 * MB });
     expect(Math.max(grande.maestro.ancho, grande.maestro.alto)).toBe(P('PRODUCTO').ladoMaestro);
     const pequena = await procesarImagen(await foto(300, 200), P('PRODUCTO'));
     expect([pequena.maestro.ancho, pequena.maestro.alto]).toEqual([300, 200]);

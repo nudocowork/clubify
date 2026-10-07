@@ -2,10 +2,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Icon } from './Icon';
-// getToken canónico: prioriza el overlay de impersonación por pestaña sobre la
-// cookie base. La copia cookie-only de antes daba 401 en /media/upload al subir
-// desde "Entrar al negocio" (el token válido está en sessionStorage, no en la cookie).
-import { getToken } from '@/lib/api';
+// La subida (token canónico, progreso, mensajes) vive en `@/lib/subir-archivo`.
+import {
+  POLITICA,
+  aceptarDe,
+  textoDeAyuda,
+  validarArchivo,
+  validarDimensiones,
+} from '@/lib/politica-de-archivos.mjs';
+import { medirImagen, subirArchivo, usoDe, type EstadoDeSubida, type Uso } from '@/lib/subir-archivo';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -13,42 +18,71 @@ export function ImageUploader({
   value,
   onChange,
   folder = 'products',
+  uso,
   className = '',
   // Si true (default para fotos de producto), abre el cropper antes de
   // subir. Si false (logos, branding), sube tal cual.
   crop = true,
   aspect = 1, // 1 = cuadrado, 4/3 = card, etc.
-  // Tamaño máximo permitido en MB. Default 15. El backend acepta 25 para
-  // los folders menu-book/menu-book-popup (menús de alta resolución).
-  maxSizeMb = 15,
-  // Si true (default), avisa cuando la imagen es <1600px (pensado para slides
-  // full-screen). Para logos/favicons (que son chicos a propósito) pasar false.
-  minDimensionWarn = true,
+  // Obsoleto: el tope lo decide la política del USO (politica-de-archivos),
+  // igual que en el servidor. Se acepta para no romper a quien lo pasa, y solo
+  // puede BAJAR el tope, nunca subirlo por encima de lo que el servidor admite.
+  maxSizeMb,
+  // Avisa cuando la imagen es <1600 px. Pensado para diapositivas a pantalla
+  // completa: por defecto solo en ese uso (antes saltaba también al subir la
+  // foto de un producto, que se pinta a 400 px).
+  minDimensionWarn,
 }: {
   value?: string | null;
   onChange: (url: string | null) => void;
   folder?: string;
+  /** Uso del recurso; si falta se deduce de `folder`, como en el servidor. */
+  uso?: Uso;
   className?: string;
   crop?: boolean;
   aspect?: number;
   maxSizeMb?: number;
   minDimensionWarn?: boolean;
 }) {
+  const usoReal = usoDe({ uso, folder });
+  const politica = POLITICA[usoReal];
+  const ladoMaestro = politica.tipo === 'imagen' ? politica.ladoMaestro : 2560;
+  const avisarPequena = minDimensionWarn ?? usoReal === 'DIAPOSITIVA';
+  const ayuda = textoDeAyuda(usoReal);
   const t = useTranslations('image_uploader');
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [estado, setEstado] = useState<EstadoDeSubida | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
 
-  async function pickFile(file: File) {
-    if (!file.type.startsWith('image/')) {
-      setErr('Solo imágenes (jpg, png, webp, gif)');
-      return;
+  function problemaDePeso(f: Blob, trasRecortar: boolean): string | null {
+    const p = validarArchivo(
+      { size: f.size, type: f.type, name: (f as File).name ?? '' },
+      usoReal,
+      { trasRecortar },
+    );
+    if (p) return p;
+    if (maxSizeMb && f.size > maxSizeMb * 1_000_000 && (!crop || trasRecortar)) {
+      return `Esta imagen pesa ${(f.size / 1e6).toFixed(1).replace('.', ',')} MB. El máximo aquí es ${maxSizeMb} MB. Reduce su tamaño o selecciona otra imagen.`;
     }
-    if (file.size > maxSizeMb * 1024 * 1024) {
-      setErr(`Máximo ${maxSizeMb} MB`);
+    return null;
+  }
+
+  async function pickFile(file: File) {
+    // Se valida ANTES de leerla o subirla: un banner de 9 MB por el wifi de
+    // un local tardaba un minuto en subir para que el servidor lo rechazara.
+    // Con recortador, lo que se transmite es el RECORTE (re-codificado en el
+    // navegador al lado del maestro): el peso se mira después de recortar, y
+    // aquí solo el formato. La memoria del lienzo la protege el tope de
+    // megapíxeles de más abajo.
+    const problema = crop
+      ? problemaDePeso(new File([], file.name, { type: file.type }), false)
+      : problemaDePeso(file, false);
+    if (problema) {
+      setErr(problema);
       return;
     }
     setErr(null);
@@ -58,9 +92,15 @@ export function ImageUploader({
     // decide). 1600×900 es el mínimo razonable para que se vea nítido
     // en pantallas modernas tras el render del slide.
     try {
-      const dims = await measureImage(file);
+      const medida = await medirImagen(file);
+      const dims = { w: medida.ancho, h: medida.alto };
+      const fueraDePolitica = validarDimensiones(dims.w, dims.h, usoReal);
+      if (fueraDePolitica) {
+        setErr(fueraDePolitica);
+        return;
+      }
       const maxSide = Math.max(dims.w, dims.h);
-      if (minDimensionWarn && maxSide < 1600) {
+      if (avisarPequena && maxSide < 1600) {
         const ok = window.confirm(
           `La imagen es de ${dims.w}×${dims.h} px (peso ${prettyBytes(
             file.size,
@@ -81,63 +121,38 @@ export function ImageUploader({
     }
   }
 
-  function measureImage(file: File): Promise<{ w: number; h: number }> {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new window.Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve({ w: img.naturalWidth, h: img.naturalHeight });
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('No se pudo leer la imagen'));
-      };
-      img.src = url;
-    });
-  }
-
   function prettyBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  async function uploadBlob(blob: Blob | File) {
+  async function uploadBlob(blob: Blob | File, trasRecortar = false) {
+    const problema = problemaDePeso(blob, trasRecortar);
+    if (problema) {
+      setErr(problema);
+      return;
+    }
     setBusy(true);
-    setProgress(10);
+    setProgress(0);
+    setErr(null);
     try {
-      const fd = new FormData();
-      const filename = (blob as File).name ?? 'cropped.jpg';
-      fd.append('file', blob, filename);
-      const xhr = new XMLHttpRequest();
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
-      };
-      const result = await new Promise<{ url: string }>((resolve, reject) => {
-        xhr.open('POST', `${API}/api/media/upload?folder=${folder}`);
-        const token = getToken();
-        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        xhr.onload = () => {
-          if (xhr.status < 200 || xhr.status >= 300) {
-            reject(new Error(xhr.responseText || 'Upload failed'));
-            return;
-          }
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            reject(new Error('Respuesta del servidor inválida'));
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.send(fd);
+      const result = await subirArchivo(blob, {
+        uso: usoReal,
+        folder,
+        nombre: (blob as File).name ?? 'recorte.jpg',
+        trasRecortar,
+        alProgreso: setProgress,
+        alEstado: setEstado,
       });
       onChange(result.url);
     } catch (e: any) {
-      setErr(e.message);
+      // El error se queda junto al campo; el resto del formulario no se toca.
+      setErr(e?.message || 'No se pudo subir la imagen. Inténtalo de nuevo.');
     } finally {
       setBusy(false);
       setProgress(0);
+      setEstado(null);
     }
   }
 
@@ -154,6 +169,7 @@ export function ImageUploader({
       <CropperModal
         src={cropSrc}
         aspect={aspect}
+        ladoMaximo={ladoMaestro}
         onCancel={() => {
           URL.revokeObjectURL(cropSrc);
           setCropSrc(null);
@@ -161,7 +177,7 @@ export function ImageUploader({
         onConfirm={(blob) => {
           URL.revokeObjectURL(cropSrc);
           setCropSrc(null);
-          uploadBlob(blob);
+          uploadBlob(blob, true);
         }}
       />
     );
@@ -206,7 +222,21 @@ export function ImageUploader({
             <Icon name="trash" size={12} /> Quitar
           </button>
         </div>
-        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])} />
+        <input ref={inputRef} type="file" accept={aceptarDe(usoReal)} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) pickFile(f); }} />
+        {busy && (
+          <div className="absolute inset-0 h-40 rounded-input bg-bg/80 flex flex-col items-center justify-center gap-2">
+            <div className="w-2/3 h-1.5 rounded-full bg-line overflow-hidden">
+              <div className="h-full bg-brand transition-all" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="text-xs text-mute">
+              {estado === 'procesando' ? 'Optimizando la imagen…' : `Subiendo… ${progress}%`}
+            </div>
+          </div>
+        )}
+        {err && (
+          <div className="mt-2 rounded-lg bg-bad-soft px-3 py-2 text-xs text-bad-ink">{err}</div>
+        )}
+        <div className="mt-1 text-[11px] text-mute">{ayuda}</div>
       </div>
     );
   }
@@ -227,7 +257,9 @@ export function ImageUploader({
             <div className="w-2/3 h-1.5 rounded-full bg-line overflow-hidden">
               <div className="h-full bg-brand transition-all" style={{ width: `${progress}%` }} />
             </div>
-            <div className="text-xs text-mute">Subiendo… {progress}%</div>
+            <div className="text-xs text-mute">
+              {estado === 'procesando' ? 'Optimizando la imagen…' : `Subiendo… ${progress}%`}
+            </div>
           </>
         ) : (
           <>
@@ -235,12 +267,12 @@ export function ImageUploader({
               <Icon name="plus" size={18} />
             </div>
             <div className="text-sm font-medium">Sube una imagen</div>
-            <div className="text-xs text-mute">
-              Arrastra o da clic · jpg, png, webp · max {maxSizeMb}MB
+            <div className="text-xs text-mute text-center px-3">
+              Arrastra o da clic · {ayuda}
             </div>
           </>
         )}
-        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])} />
+        <input ref={inputRef} type="file" accept={aceptarDe(usoReal)} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) pickFile(f); }} />
       </div>
       {err && (
         <div className="mt-2 rounded-lg bg-bad-soft px-3 py-2 text-xs text-bad-ink">{err}</div>
@@ -263,11 +295,14 @@ export function ImageUploader({
 function CropperModal({
   src,
   aspect,
+  ladoMaximo,
   onConfirm,
   onCancel,
 }: {
   src: string;
   aspect: number;
+  /** Lado del maestro del uso: exportar más grande solo es peso que el servidor tira. */
+  ladoMaximo: number;
   onConfirm: (blob: Blob) => void;
   onCancel: () => void;
 }) {
@@ -383,30 +418,21 @@ function CropperModal({
     const sx = cx - sw / 2;
     const sy = cy - sh / 2;
 
-    // Resolución de salida: tomamos directamente el ancho del crop EN
-    // PIXELS DE LA IMAGEN ORIGINAL (sw) para no perder calidad. Antes
-    // usabamos FRAME_W*2 = 560px fijo → para slides full-screen
-    // (1920×1080+) la imagen quedaba pixelada 3.4x. Ahora:
-    //   - Mínimo 1600px ancho (slides en pantalla full quedan nítidos)
-    //   - Máximo 4000px ancho (no explota el canvas en imágenes
-    //     gigantes ni demoramos el upload por una hora)
-    // El backend después re-encodea a WebP 90q con max 2560px (ver
-    // OPT_MAX_DIMENSION en media.service.ts), así que ir más arriba de
-    // 2560 aquí solo desperdicia ancho de banda — pero por simetría
-    // dejamos margen 4000 por si alguien sube una imagen 4K y quiere
-    // conservar full quality si en el futuro el backend sube el max.
-    const MIN_OUT = 1600;
-    const MAX_OUT = 4000;
-    const targetW = Math.max(MIN_OUT, Math.min(MAX_OUT, Math.round(sw)));
-    const OUT_W = targetW;
-    const OUT_H = Math.round(targetW * (FRAME_H / FRAME_W));
+    // Resolución de salida: los píxeles REALES del recorte (sw × sh), sin
+    // ampliar nunca y sin pasar del lado del maestro del uso. Antes se forzaba
+    // un mínimo de 1600 px y un máximo de 4000: una foto de producto recortada
+    // salía a 4000 × 4000 en JPEG 95 (6–8 MB) para que el servidor la redujera
+    // a 1600, y una imagen pequeña se ampliaba sin ganar detalle.
+    const escala = Math.min(1, ladoMaximo / Math.max(sw, sh));
+    const OUT_W = Math.max(1, Math.round(sw * escala));
+    const OUT_H = Math.max(1, Math.round(OUT_W * (FRAME_H / FRAME_W)));
     const canvas = document.createElement('canvas');
     canvas.width = OUT_W;
     canvas.height = OUT_H;
     const ctx = canvas.getContext('2d');
     if (!ctx) { setExporting(false); return; }
     // Calidad del re-sampling al hacer drawImage — high preserva
-    // detalle fino al upscalear imágenes chicas hasta MIN_OUT.
+    // detalle fino al reducir.
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
@@ -455,21 +481,24 @@ function CropperModal({
     }
     ctx.drawImage(imgRef.current, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
 
-    const format = sourceHasAlpha ? 'image/png' : 'image/jpeg';
-    const ext = sourceHasAlpha ? 'png' : 'jpg';
+    // Con transparencia, WebP con alfa: un PNG del recorte de un logo o de un
+    // producto sin fondo pesaba 3–5 MB y rozaba el tope del uso. Safari
+    // antiguo no codifica WebP en el lienzo y devuelve PNG: se respeta el tipo
+    // que de verdad salió (`blob.type`).
+    const format = sourceHasAlpha ? 'image/webp' : 'image/jpeg';
     canvas.toBlob(
       (blob) => {
         setExporting(false);
         if (blob) {
-          const file = new File([blob], `cropped.${ext}`, { type: format });
+          const tipo = blob.type || format;
+          const ext = tipo === 'image/webp' ? 'webp' : tipo === 'image/png' ? 'png' : 'jpg';
+          const file = new File([blob], `recorte.${ext}`, { type: tipo });
           onConfirm(file);
         }
       },
       format,
-      // 0.95 (era 0.92) — el backend re-encodea a WebP de todos modos.
-      // Subir la calidad de JPEG aquí reduce artefactos de doble
-      // compresión en regiones de alto detalle (texto en imágenes,
-      // bordes definidos).
+      // 0.95: el servidor vuelve a codificar; ir alto aquí evita artefactos
+      // de doble compresión en texto y bordes finos.
       0.95,
     );
   }

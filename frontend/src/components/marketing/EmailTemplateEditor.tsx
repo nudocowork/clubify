@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken } from '@/lib/api';
+import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { subirArchivo } from '@/lib/subir-archivo';
 import {
   BLOCK_META,
   ELEMENT_ORDER,
@@ -37,7 +38,6 @@ import SendTemplateModal from '@/components/marketing/SendTemplateModal';
 // correo no soportan flexbox/grid.
 
 const ACCENT = '#16a34a';
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type Template = {
   id: string;
@@ -57,29 +57,11 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 // multipart va con fetch directo (mismo patrón que FileUploader). La imagen
 // vive en S3 y al bloque solo entra la URL — NUNCA un data:image.
 async function uploadEmailImage(file: File): Promise<string> {
-  const fd = new FormData();
-  fd.append('file', file, file.name);
-  const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`${API}/api/media/upload?folder=email-templates`, {
-    method: 'POST',
-    headers,
-    body: fd,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    let msg = text;
-    try {
-      msg = JSON.parse(text)?.message ?? text;
-    } catch {
-      /* texto plano */
-    }
-    throw new Error(msg || `Error ${res.status} subiendo la imagen`);
-  }
-  const data = await res.json();
-  if (!data?.url) throw new Error('El servidor no devolvió la URL de la imagen.');
-  return data.url as string;
+  // Uso IMAGEN_CORREO: el servidor la deja en JPEG/PNG (Outlook no pinta
+  // WebP) a 1200 px, el doble de la columna de 600 del correo.
+  const r = await subirArchivo(file, { uso: 'IMAGEN_CORREO', folder: 'email-templates' });
+  if (!r?.url) throw new Error('El servidor no devolvió la URL de la imagen.');
+  return r.url;
 }
 
 function locate(d: EmailDoc, blockId: string) {

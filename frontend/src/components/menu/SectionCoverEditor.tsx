@@ -10,6 +10,7 @@ import {
   type CoverVerticalAlign,
   type CoverTextStyle,
 } from '@/lib/menu/section-cover-config';
+import { aceptarDe, textoDeAyuda } from '@/lib/politica-de-archivos.mjs';
 import {
   SECTION_COVER_TEMPLATES,
   SECTION_COVER_CATEGORY_LABELS,
@@ -329,13 +330,13 @@ function ImagePanel({
             className="mt-1.5 w-full text-center text-xs px-3 py-4 rounded-lg border-2 border-dashed border-line hover:border-brand transition"
             disabled={uploading}
           >
-            {uploading ? 'Subiendo…' : '+ Subir imagen (JPG/PNG/WebP)'}
+            {uploading ? 'Subiendo y optimizando…' : `+ Subir imagen (${textoDeAyuda('PORTADA')})`}
           </button>
         )}
         <input
           ref={fileRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={aceptarDe('PORTADA')}
           onChange={handleFile}
           className="hidden"
         />
