@@ -7097,6 +7097,7 @@
     "comeBack": "Check back in a moment.",
     "loadError": "We couldn't load the menu",
     "loading": "Loading the menu…",
+    "pageRetrying": "This page couldn't load. Retrying…",
     "preparing": "The menu is still being prepared",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",

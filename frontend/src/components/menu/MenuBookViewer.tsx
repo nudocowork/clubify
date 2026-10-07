@@ -516,6 +516,7 @@ export function MenuBookViewer({
           registrarPaso={(fn) => {
             pasoLibroRef.current = fn;
           }}
+          textoReintentando={t('pageRetrying')}
         />
       ) : (
       <div

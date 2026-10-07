@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
 import { firmaDelLibro } from '@/lib/menu/firma-del-libro.mjs';
-import { urlDelNegocio } from '@/lib/api-publica.mjs';
+import { urlDelLibro, urlDelNegocio } from '@/lib/api-publica.mjs';
 
 // Compartida por las dos formas del pie (enlace cuando la marca tiene web,
 // texto cuando no): el aspecto es el mismo, lo que cambia es si se puede
@@ -58,6 +58,17 @@ export default function BookClient() {
     if (!slug) return;
     let cancelled = false;
     const ctrl = new AbortController();
+    // El libro se pide YA, en paralelo con el negocio. El visor no se monta
+    // hasta tener el negocio y entonces pedía el libro: dos viajes en fila
+    // antes de la primera imagen (~250 ms en una red móvil, medido). La
+    // respuesta lleva `max-age=30`, así que cuando el visor haga su propio
+    // `fetch` el navegador se la da de su caché (o espera a esta misma si
+    // aún no ha llegado) sin volver a la red. Si falla, el visor lo intenta
+    // por su cuenta como siempre: aquí no se espera a nada. El cuerpo se lee
+    // solo para que la entrada de caché quede completa.
+    fetch(urlDelLibro(slug), { signal: ctrl.signal })
+      .then((r) => r.arrayBuffer())
+      .catch(() => {});
     // Ruta relativa: pasa por la caché del borde (ver `api-publica.mjs`).
     fetch(urlDelNegocio(slug), { signal: ctrl.signal })
       .then(async (r) => {
