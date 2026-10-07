@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-07 (124) — Estado al cierre del día: qué quedó y qué espera
+
+- **TeamClubify publicado** (lo desplegó la otra máquina encima de `fd6d54b`):
+  `team.soyclubify.com/api/ig-check` responde. Falta `IG_SESSIONID` en Vercel
+  para que la verificación de Instagram bloquee de verdad.
+- **Nómina:** Sara confirmó que los montos (228,5 / 242,5 / 260 / 271,5) son
+  POR PERSONA y septiembre se deja como está, que es justo lo que hace
+  `nomina-usd-sara-2026-10-06.cjs`. Javier lo corre (simular → `--aplicar`);
+  sin captura todavía, sin verificar.
+- **Base por la red interna de Railway: NO aplicada todavía.**
+  `/api/health/ready` sigue en 129–287 ms. Pasos dados a Javier: en el
+  servicio backend, añadir `DATABASE_PUBLIC_URL = ${{Postgres-Nq8w.DATABASE_PUBLIC_URL}}`
+  (para que los scripts locales con `railway run --service backend` sigan
+  conectando) y cambiar `DATABASE_URL = ${{Postgres-Nq8w.DATABASE_URL}}`.
+  Éxito = `latencyMs` < 5. Revertir = volver a `DATABASE_PUBLIC_URL`.
+- **En curso:** rama `perf/menu-ssr-2026-10-07` (el menú llega armado en el
+  HTML), sin desplegar.
+- **A mano:** banner PDF de Descomunal y 2 productos PDF de Degodoy. Fideliso
+  espera el valor de venta de Sara.
+
 ## 2026-10-07 (123) — Migración de imágenes APLICADA a todos los negocios
 
 Lote `prod-a1` (Javier, `optimizar-imagenes-existentes.cjs --desde-la-base
