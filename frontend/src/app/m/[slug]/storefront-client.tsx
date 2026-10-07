@@ -1,5 +1,6 @@
 'use client';
 import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
+import * as ReactDOM from 'react-dom';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -72,6 +73,25 @@ import {
   imagenDelMenu,
 } from '@/lib/menu/imagen-del-menu.mjs';
 import { pedirConLimite } from '@/lib/menu/pedir-con-limite.mjs';
+import type { MenuInicial } from '@/lib/menu/menu-inicial';
+
+/**
+ * `ReactDOM.preload` (lo trae el React de Next 14 y lo usa `next/image` con
+ * `priority`) pone un `<link rel="preload">` en el `<head>` del HTML. Los
+ * tipos de @types/react-dom 18 solo lo declaran en `canary`, de ahí el cast.
+ * Si no existiera, no se precarga y ya: nunca rompe el render.
+ */
+const precargarImagen = (
+  href: string,
+  opciones: { fetchPriority?: 'high' | 'low' | 'auto' } = {},
+) => {
+  if (!href) return;
+  (
+    ReactDOM as unknown as {
+      preload?: (h: string, o: { as: 'image'; fetchPriority?: string }) => void;
+    }
+  ).preload?.(href, { as: 'image', ...opciones });
+};
 
 /** `loadError` cuando no hubo respuesta (red o tiempo límite): se ofrece
  *  reintentar, no «este negocio no existe». */
@@ -324,6 +344,27 @@ function getProductBlocks(
   return blocks;
 }
 
+/**
+ * Las primeras fotos de producto que se ven sin desplazar (las de la primera
+ * categoría), para cargarlas con `priority`. Con el menú saliendo del
+ * servidor, `next/image` pone su `<link rel="preload">` en el HTML y la foto
+ * empieza a bajar con él, en vez de esperar al JS y al lazy load: en los
+ * menús de fotos (GRID, CLASSIC, CAROUSELS) esa foto es el LCP. Solo 2: más
+ * precargas compiten por el ancho de banda con lo que de verdad hace falta.
+ */
+function idsPrioritarios(menu: Category[], n = 2): Set<string> {
+  const ids = new Set<string>();
+  const primera = menu[0];
+  if (!primera) return ids;
+  for (const block of getProductBlocks(primera)) {
+    for (const p of block.products) {
+      if (ids.size >= n) return ids;
+      if (p.imageUrl) ids.add(p.id);
+    }
+  }
+  return ids;
+}
+
 /** Sub-header visual para subsecciones dentro de una categoría. Estilo
  *  diferente del header de categoría (más sutil) para que la jerarquía
  *  se entienda visualmente sin competir. */
@@ -402,7 +443,12 @@ function ProductImage({
   fit?: 'cover' | 'contain';
   hoverScale?: boolean;
 }) {
-  const [loaded, setLoaded] = useState(false);
+  // Las `priority` se ven en cuanto el navegador las pinta, sin esperar al
+  // `onLoad`: ese evento solo llega cuando React ya hidrató, y con el menú
+  // saliendo del servidor la foto suele estar lista ANTES. Con el fundido, la
+  // foto de arriba (el LCP) seguía invisible hasta que bajara todo el JS.
+  const [cargada, setLoaded] = useState(false);
+  const loaded = cargada || priority;
   return (
     <>
       {!loaded && (
@@ -430,15 +476,21 @@ function ProductImage({
 // Sin Suspense, el build con `output: 'export'` o un prerender de page
 // padre falla con "useSearchParams() should be wrapped in a suspense
 // boundary". Mismo patrón ya aplicado en /signup y /r/[slug].
-export default function StorefrontPublic() {
+//
+// `inicial`: el negocio y la carta pedidos en el servidor (ver
+// `lib/menu/menu-inicial.ts`). Con ellos el HTML ya trae el menú; sin ellos
+// (`null`: el backend tardó o falló) todo funciona exactamente como antes.
+// La página es dinámica (lee `searchParams`), así que `useSearchParams` NO
+// manda el árbol a renderizarse solo en el cliente: el Suspense no se ve.
+export default function StorefrontPublic({ inicial = null }: { inicial?: MenuInicial | null }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-bg" />}>
-      <StorefrontPublicInner />
+      <StorefrontPublicInner inicial={inicial} />
     </Suspense>
   );
 }
 
-function StorefrontPublicInner() {
+function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
   const tt = useT();
   const [locale] = useLocale();
   const params = useParams<{
@@ -479,13 +531,19 @@ function StorefrontPublicInner() {
   // Lo pone la vista previa del panel al publicar: pide lo recién guardado y no
   // la copia de la caché del borde. Ver `urlDelMenu` en api-publica.mjs.
   const frescoDelPanel = (searchParams?.get('fresco') ?? '').trim();
-  const [s, setS] = useState<Storefront | null>(null);
-  const [menu, setMenu] = useState<Category[]>([]);
+  // Arrancan con lo que trajo el servidor: el primer render (el del HTML y el
+  // de la hidratación, que tienen que ser idénticos) ya pinta el menú.
+  const negocioInicial = (inicial?.negocio ?? null) as Storefront | null;
+  const menuInicial = (inicial?.menu ?? null) as Category[] | null;
+  const [s, setS] = useState<Storefront | null>(negocioInicial);
+  const [menu, setMenu] = useState<Category[]>(menuInicial ?? []);
   // Si la carta YA llegó. Antes el estado «cargando» y el de «carta vacía»
   // eran el mismo (`menu.length === 0`), con el texto «Cargando menú digital,
   // espere»: un negocio con la carta vacía dejaba al cliente esperando para
   // siempre — la queja de «el menú no carga» (2026-10-04).
-  const [estadoCarta, setEstadoCarta] = useState<'cargando' | 'lista' | 'fallo'>('cargando');
+  const [estadoCarta, setEstadoCarta] = useState<'cargando' | 'lista' | 'fallo'>(
+    menuInicial ? 'lista' : 'cargando',
+  );
   const [reintento, setReintento] = useState(0);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
@@ -495,7 +553,7 @@ function StorefrontPublicInner() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(inicial?.error ?? null);
   // Promo capturado vía QR Descuento (?promo=CODE). Persiste en
   // localStorage para que el cliente lo vea aunque vuelva sin el query
   // param (links posteriores compartidos, etc).
@@ -531,8 +589,71 @@ function StorefrontPublicInner() {
   // paga el call a Claude (~1s); las siguientes son DB hits.
   useEffect(() => {
     if (!slug) return;
-    setLoadError(null);
     let cancelled = false;
+
+    // Lo que hay que hacer cada vez que llega el negocio, venga del servidor
+    // o de la petición del navegador.
+    const alLlegarElNegocio = (data: Storefront) => {
+      // PDF 1254: idioma POR NEGOCIO. Aísla el idioma del cliente por
+      // slug y usa el idioma del negocio como default. Si el cliente ya
+      // eligió uno para ESTE negocio, se respeta (clave namespaced).
+      configureTenantLocale(slug, data?.locale);
+      // El píxel del NEGOCIO (si su dueño puso uno): se carga acá, con
+      // el menú, y manda su PageView. Sin id no se carga nada de Meta.
+      configurarPixelDelNegocio(data?.metaPixelId, data?.currency);
+      // Y la sucursal, cuando el enlace ya la trae (el QR de cada sede).
+      // Va aquí y no en el checkout porque «ver producto» y «añadir al
+      // carrito» se disparan mucho antes de que el cliente abra la hoja
+      // de pedido: si la sede llegara solo al final, en Meta la misma
+      // sucursal aparecería con dos categorías distintas y el embudo no
+      // cuadraría. El nombre se busca en la lista pública de sedes.
+      if (sedeDelQr) {
+        fetch(`${API}/api/public/storefront/locations?slug=${slug}`)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((arr: Array<{ id?: string; name?: string }>) => {
+            const suya = Array.isArray(arr)
+              ? arr.find((x) => x?.id === sedeDelQr)
+              : null;
+            if (suya?.id) configurarSedeDelNegocio(suya.id, suya.name);
+          })
+          .catch(() => {});
+      }
+    };
+
+    // ¿Sirve lo que trajo el servidor? Solo si se pidió EXACTAMENTE con la
+    // misma dirección que pediría ahora el navegador (idioma, modo, sede,
+    // oficina, `fresco`). El servidor pide siempre en `es`, el idioma del
+    // primer render; si el cliente tiene otro guardado para este negocio,
+    // `configureTenantLocale` lo cambia, este efecto vuelve a correr con el
+    // idioma nuevo y entonces sí se pide, como siempre. Tras «Reintentar»
+    // (`reintento > 0`) se pide siempre.
+    const urlNegocio = urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel });
+    const urlMenu = urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel });
+    const delServidor = reintento === 0 ? inicial : null;
+    const negocioListo =
+      !!delServidor &&
+      delServidor.urlNegocio === urlNegocio &&
+      (!!delServidor.negocio || !!delServidor.error);
+    const menuListo =
+      !!delServidor && delServidor.urlMenu === urlMenu && !!delServidor.menu;
+
+    if (negocioListo && delServidor.error) {
+      // «No disponible», ya pintado desde el servidor (un 4xx del backend).
+      setLoadError(delServidor.error);
+      return;
+    }
+    setLoadError(null);
+    if (negocioListo && delServidor.negocio) {
+      // Mismo objeto que el estado inicial: si no cambió, React no repinta.
+      // Si el cliente volvió a `es` desde otro idioma, devuelve lo del servidor.
+      setS(delServidor.negocio as Storefront);
+      alLlegarElNegocio(delServidor.negocio as Storefront);
+    }
+    if (menuListo) {
+      setMenu(delServidor.menu as Category[]);
+      setEstadoCarta('lista');
+    }
+    if (negocioListo && menuListo) return;
 
     // Indicador con debounce: solo aparece si la traducción tarda >250ms.
     // Para cache hits, el fetch termina antes y el indicador no se ve.
@@ -551,7 +672,9 @@ function StorefrontPublicInner() {
     Promise.all([
       // Ruta relativa, no `${API}`: así pasa por la caché del borde de Vercel
       // en vez de ir directo a Railway (ver `api-publica.mjs`).
-      pedirConLimite(urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel }))
+      negocioListo
+        ? null
+        : pedirConLimite(urlNegocio)
         .then(async (r) => {
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
@@ -562,30 +685,7 @@ function StorefrontPublicInner() {
         .then((data) => {
           if (!cancelled) {
             setS(data);
-            // PDF 1254: idioma POR NEGOCIO. Aísla el idioma del cliente por
-            // slug y usa el idioma del negocio como default. Si el cliente ya
-            // eligió uno para ESTE negocio, se respeta (clave namespaced).
-            configureTenantLocale(slug, data?.locale);
-            // El píxel del NEGOCIO (si su dueño puso uno): se carga acá, con
-            // el menú, y manda su PageView. Sin id no se carga nada de Meta.
-            configurarPixelDelNegocio(data?.metaPixelId, data?.currency);
-            // Y la sucursal, cuando el enlace ya la trae (el QR de cada sede).
-            // Va aquí y no en el checkout porque «ver producto» y «añadir al
-            // carrito» se disparan mucho antes de que el cliente abra la hoja
-            // de pedido: si la sede llegara solo al final, en Meta la misma
-            // sucursal aparecería con dos categorías distintas y el embudo no
-            // cuadraría. El nombre se busca en la lista pública de sedes.
-            if (sedeDelQr) {
-              fetch(`${API}/api/public/storefront/locations?slug=${slug}`)
-                .then((r) => (r.ok ? r.json() : []))
-                .then((arr: Array<{ id?: string; name?: string }>) => {
-                  const suya = Array.isArray(arr)
-                    ? arr.find((x) => x?.id === sedeDelQr)
-                    : null;
-                  if (suya?.id) configurarSedeDelNegocio(suya.id, suya.name);
-                })
-                .catch(() => {});
-            }
+            alLlegarElNegocio(data);
           }
         })
         .catch((e: Error) => {
@@ -596,7 +696,9 @@ function StorefrontPublicInner() {
         }),
       // La carta de la oficina se sirve por el mismo `sede`, que ya acepta el
       // id de una carta. Si llegaran los dos, manda la sede.
-      pedirConLimite(urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel }))
+      menuListo
+        ? null
+        : pedirConLimite(urlMenu)
         .then(async (r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
@@ -618,6 +720,9 @@ function StorefrontPublicInner() {
       cancelled = true;
       if (debounceId) clearTimeout(debounceId);
     };
+    // `inicial` no cambia en la vida del componente, y `sedeDelQr`/`oficinaDelQr`
+    // ya se leían sin estar en la lista (salen de la misma URL que `slug`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, locale, mode, frescoDelPanel, reintento]);
 
   // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
@@ -776,6 +881,19 @@ function StorefrontPublicInner() {
   } else {
     pageBg = s.pageBackgroundColor || defaultBgColor;
   }
+  // Las imágenes de FONDO (banner de la cabecera y foto de la página) van en
+  // CSS, y el navegador no las descubre hasta aplicar estilos: se precargan.
+  // Ahora que el menú sale del servidor, el `<link>` va en el HTML y la
+  // descarga empieza con él. El banner era el LCP de Nudo Cowork (auditoría
+  // 2026-10-07). MISMA URL que el `background` de abajo (`imagenDelMenu` con
+  // `IMAGEN_DE_FONDO`), o se bajaría dos veces.
+  if (s.heroImageUrl) {
+    precargarImagen(imagenDelMenu(s.heroImageUrl, IMAGEN_DE_FONDO).src, { fetchPriority: 'high' });
+  }
+  if (fotoDeFondo && s.pageBackgroundImageUrl) {
+    precargarImagen(imagenDelMenu(s.pageBackgroundImageUrl, IMAGEN_DE_FONDO).src);
+  }
+
   // M2.2: el badge "Hecho con Clubify" cambia entre versión clara (pill
   // blanco) y oscura (texto sutil) según el brillo del fondo del menú.
   // Storefronts con tema oscuro/imagen reciben pill; storefronts con
@@ -3356,6 +3474,7 @@ function AccordionSection({
 
 // 1️⃣ CLASSIC — foto izq + info der (estilo Rappi/UberEats)
 function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+  const prioritarios = idsPrioritarios(menu);
   return (
     <>
       {menu.map((cat) => (
@@ -3401,6 +3520,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, catego
                       src={p.imageUrl}
                       alt={p.name}
                       sizes="96px"
+                      priority={prioritarios.has(p.id)}
                     />
                   </div>
                 ) : (
@@ -3439,6 +3559,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, catego
 
 // 2️⃣ GRID — 2 columnas con foto cuadrada grande (Instagram)
 function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+  const prioritarios = idsPrioritarios(menu);
   return (
     <>
       {menu.map((cat) => (
@@ -3487,6 +3608,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
                       alt={p.name}
                       sizes="(max-width: 640px) 50vw, 200px"
                       hoverScale
+                      priority={prioritarios.has(p.id)}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-4xl text-mute">
@@ -3520,6 +3642,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
 
 // 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
 function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+  const prioritarios = idsPrioritarios(menu);
   // Cada categoría se vuelve N carruseles: 1 por productos directos +
   // 1 por subsección con productos. Cada carrusel mantiene su scroll
   // independiente — más legible que mezclar todo en uno solo.
@@ -3570,6 +3693,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, cate
                           src={p.imageUrl}
                           alt={p.name}
                           sizes="140px"
+                          priority={prioritarios.has(p.id)}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-3xl text-mute">
@@ -3869,8 +3993,22 @@ function LayoutSections({
     subSlug?: string;
   }>();
   const storefrontSlug = params.slug;
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [activeSub, setActiveSub] = useState<string | null>(null);
+  // La sección del enlace (`/m/<slug>/<seccion>`) se resuelve YA en el primer
+  // render, no solo en el efecto de abajo: con la carta llegando del servidor,
+  // así el HTML trae los productos de esa sección en vez de la portada de
+  // todas y un salto al hidratar. Servidor y cliente calculan lo mismo (mismos
+  // params, misma carta), así que la hidratación no difiere.
+  const seccionDelEnlace = params.sectionSlug
+    ? menu.find((c) => c.slug === params.sectionSlug) ?? null
+    : null;
+  const [activeSection, setActiveSection] = useState<string | null>(
+    () => seccionDelEnlace?.id ?? null,
+  );
+  const [activeSub, setActiveSub] = useState<string | null>(() =>
+    seccionDelEnlace && params.subSlug
+      ? (seccionDelEnlace.subsections ?? []).find((x) => x.slug === params.subSlug)?.id ?? null
+      : null,
+  );
   const [transitioning, setTransitioning] = useState(false);
 
   // ── Deep-link: al cargar, resolver IDs desde slugs de la URL.
@@ -4044,7 +4182,9 @@ function LayoutSections({
         >
           ←
         </button>
-        <SectionBanner cat={section} primary={primary} />
+        {/* Arriba del todo al abrir la sección (y en el HTML de un enlace a
+            ella): no va perezosa. */}
+        <SectionBanner cat={section} primary={primary} primera />
       </div>
 
       {/* Subsection chips */}
