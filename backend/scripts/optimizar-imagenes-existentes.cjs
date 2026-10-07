@@ -406,17 +406,35 @@ ${filas}
       };
     }
 
+    let colaDeRegistro = Promise.resolve();
+    const registrarConReintento = async (e) => {
+      for (let intento = 1; intento <= 4; intento++) {
+        try {
+          return await registrarEnBase(e);
+        } catch (err) {
+          if (intento === 4) {
+            console.error(`  (no se pudo registrar en la base tras 4 intentos: ${err.message}) — completa con registrar-migracion-desde-jsonl.cjs`);
+            return;
+          }
+          await new Promise((ok) => setTimeout(ok, 1000 * intento));
+        }
+      }
+    };
     const entradas = await nucleo.ejecutar(pendientes, deps, {
       modo: a.modo,
       lote: a.lote,
       concurrencia: a.concurrencia,
       alTerminar: (e, i, total) => {
         registroLocal.write(JSON.stringify(e) + '\n');
-        registrarEnBase(e).catch((err) => console.error(`  (no se pudo registrar en la base: ${err.message})`));
+        // En FILA y con reintentos: lanzarlo sin esperar agotó las conexiones
+        // en el lote prod-a1 (2026-10-07) y dejó filas sin registrar, que
+        // `--revertir` no ve. Se espera la cola entera antes de salir.
+        colaDeRegistro = colaDeRegistro.then(() => registrarConReintento(e));
         const ahorro = e.bytesAntes && e.bytesDespues ? ` ${kb(e.bytesAntes)} → ${kb(e.bytesDespues)}` : '';
         console.log(`  [${i}/${total}] ${e.estado.padEnd(15)} ${e.negocio ?? '?'} · ${e.uso}${ahorro}${e.motivo ? ` — ${e.motivo}` : ''}`);
       },
     });
+    await colaDeRegistro;
 
     const todas = [...previas, ...entradas];
     const r = resumen(todas);
