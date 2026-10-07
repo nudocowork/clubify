@@ -58,3 +58,30 @@ describe('dentro de una marca, los cobros sin negocio de ESA marca se ven', () =
     expect(w).toEqual({ tenantId: { in: NEGOCIOS } });
   });
 });
+
+describe('crear un cobro de la propia marca sin negocio (Sara, 2026-10-06)', () => {
+  async function crear(data: Record<string, unknown>) {
+    let llego: any = null;
+    await TenantContext.run(
+      { tenantId: null, userId: 'sara', role: 'SUPER_ADMIN' as never, bypass: false, whiteLabelId: CLUBIFY, whiteLabelTenantIds: NEGOCIOS },
+      () =>
+        tenantMiddleware()(
+          { model: 'IncomeRecord', action: 'create', args: { data }, dataPath: [], runInTransaction: false } as never,
+          async (p: any) => {
+            llego = p.args.data;
+            return {};
+          },
+        ),
+    );
+    return llego;
+  }
+
+  it('«Registrar pago» de una marca blanca: cobro de Clubify sin negocio, se permite', async () => {
+    const d = await crear({ tenantId: null, whiteLabelId: CLUBIFY, payerWhiteLabelId: 'sellea', grossUsd: 1000 });
+    expect(d).toMatchObject({ whiteLabelId: CLUBIFY });
+  });
+
+  it('un cobro sin negocio de OTRA marca sigue bloqueado', async () => {
+    await expect(crear({ tenantId: null, whiteLabelId: 'otra-marca', grossUsd: 10 })).rejects.toThrow(/bloqueada/);
+  });
+});

@@ -17,6 +17,7 @@ import { SupportWidget } from './SupportWidget';
 import { LoginPopupBroadcast } from './LoginPopupBroadcast';
 import { useBranding } from '@/lib/useBranding';
 import { panelBrandCss } from '@/lib/panel-brand-theme';
+import { SECCIONES_ADMIN } from '@/lib/secciones-admin';
 import {
   getCategoryBySlug,
   resolveMainSectionLabel,
@@ -43,15 +44,7 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 // real /admin/<seg> debe estar listada; si falta, esa página se ve "rota" (la
 // sección del panel desaparece). Falta = bug (pasó con `contabilidad`, que se
 // veía como marca). Mantener sincronizado con los directorios de src/app/admin/.
-const ADMIN_ROUTE_SEGMENTS = new Set([
-  'academia', 'accounting', 'affiliate-registration', 'ai-knowledge', 'audit',
-  'automatizaciones', 'branding', 'business-categories', 'business-groups',
-  'commissions', 'contabilidad', 'creditos', 'industries', 'infolinks',
-  'integrations', 'lab', 'maintenance', 'map', 'mensajes', 'pagos-manuales',
-  'payouts', 'pending-payments', 'rankings', 'referrals', 'reports',
-  'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
-  'upgrades', 'users', 'ventas',
-]);
+const ADMIN_ROUTE_SEGMENTS = SECCIONES_ADMIN;
 
 type NavItem = {
   href: string;

@@ -1,3 +1,5 @@
+import { SECCIONES_ADMIN } from './secciones-admin';
+
 /**
  * La marca que el panel está VIENDO, leída de la URL.
  *
@@ -8,17 +10,6 @@
  * resolver por host devuelve siempre Clubify.
  */
 
-/**
- * Secciones reales de `/admin`. Si el primer segmento es una de estas, NO es
- * un slug de marca. Espejo de `RESERVED_ADMIN_ROUTES` del middleware.
- */
-const SECCIONES_ADMIN = new Set([
-  'map', 'tenants', 'referrals', 'commissions', 'branding', 'settings',
-  'users', 'reviews', 'accounting', 'integrations', 'mensajes', 'pagos',
-  'pagos-manuales', 'creditos', 'academia', 'audit', 'lab', 'industries',
-  'business-categories', 'business-groups', 'automatizaciones', 'ventas',
-  'ai-knowledge', 'affiliate-registration', 'maintenance',
-]);
 
 /** `/admin/sellea/map` → `"sellea"` · `/admin/map` → `null`. */
 export function marcaDeLaRuta(pathname: string): string | null {

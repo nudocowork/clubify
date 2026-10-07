@@ -157,6 +157,12 @@ jobs:
       - name: Imágenes remotas (ningún dominio compartido)
         run: node scripts/arqueo-imagenes-remotas.cjs --ci
 
+      # Una carpeta nueva en src/app/admin que no esté en secciones-admin.ts se
+      # abre como el panel de una marca blanca con ese nombre (pasó con
+      # «Marcas blancas» y «Upgrades a anual»).
+      - name: Secciones del admin registradas
+        run: node scripts/arqueo-secciones-admin.cjs --ci
+
       # Las pruebas del menú público. El frontend no tiene runner, así que son
       # scripts sueltos de node — pero cubren dos cosas que ya se rompieron en
       # producción (preguntar el estado teniendo la sede, y el seguimiento de

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { BusinessGroupStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { TenantContext } from '../common/tenant/tenant-context';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { addPlanPeriod } from '../common/plan-period';
 import { ReferralsService } from '../referrals/referrals.service';
@@ -191,13 +192,23 @@ export class BusinessGroupsService {
       }
     }
 
+    // Los avisos de un GRUPO se guardan sin negocio (`tenantId` null: el cobro
+    // es del grupo, no de uno de sus negocios). Dentro de la marca, el filtro
+    // por negocio los escondía y el historial de Grupo Mística salía vacío
+    // (Sara, 2026-10-06). Es seguro leerlos sin ese filtro: arriba ya se
+    // comprobó que el grupo es de la marca del usuario, y la consulta solo
+    // trae los avisos con el código o el correo de ESTE grupo.
     const eventos = OR.length
-      ? await this.prisma.hotmartWebhookEvent.findMany({
-          where: { OR },
-          orderBy: { processedAt: 'desc' },
-          take: 400,
-          select: { eventType: true, payload: true, processedAt: true },
-        })
+      ? await TenantContext.runWithoutTenant(async () =>
+          // El `await` va DENTRO: una consulta de Prisma no se ejecuta hasta
+          // que se espera, y fuera de este bloque volvería a llevar el filtro.
+          await this.prisma.hotmartWebhookEvent.findMany({
+            where: { OR },
+            orderBy: { processedAt: 'desc' },
+            take: 400,
+            select: { eventType: true, payload: true, processedAt: true },
+          }),
+        )
       : [];
 
     const pagos = agruparCobrosHotmart(eventos);

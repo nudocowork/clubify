@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CABECERA_PAGINA_PUBLICA, esRutaPublica } from '@/i18n/textos-publicos';
+import { SECCIONES_ADMIN } from '@/lib/secciones-admin';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -28,46 +29,9 @@ const CLUBIFY_ROOTS = ['soyclubify.com', 'clubify.app'];
 // segmento tras /admin es una de estas, NO es un slug de marca → no se
 // reescribe. Cualquier otro primer segmento se trata como slug de marca
 // blanca: /admin/sellea sirve el mismo panel con la URL por marca.
-// TODA carpeta nueva en `src/app/admin` va aquí. Sin ella, `/admin/<carpeta>`
-// se lee como «el panel de la marca blanca <carpeta>» y se reescribe a /admin:
-// la página nueva nunca abre. Pasó con «Marcas blancas» (Sara, 2026-10-03) y
-// con «Upgrades a anual», que llevaba semanas así.
-const RESERVED_ADMIN_ROUTES = new Set([
-  'academia',
-  'accounting',
-  'affiliate-registration',
-  'ai-knowledge',
-  'audit',
-  'automatizaciones',
-  'branding',
-  'business-categories',
-  'business-groups',
-  'commissions',
-  'contabilidad',
-  'creditos',
-  'industries',
-  'infolinks',
-  'integrations',
-  'lab',
-  'maintenance',
-  'map',
-  'marcas-blancas',
-  'mensajes',
-  'pagos-manuales',
-  'payouts',
-  'pending-payments',
-  'rankings',
-  'referrals',
-  'reports',
-  'sales-leaderboard',
-  'sales-teams',
-  'support-materials',
-  'tenants',
-  'trials',
-  'upgrades',
-  'users',
-  'ventas',
-]);
+// Las secciones reales de /admin: lo demás es el slug de una marca blanca.
+// Una sola lista para el middleware, el menú y `brand-from-path`.
+const RESERVED_ADMIN_ROUTES = SECCIONES_ADMIN;
 
 // Subdominios reservados por Clubify (no son tenants)
 const RESERVED_SUBS = new Set([

@@ -244,6 +244,15 @@ function guardWhiteLabelCreate(
     const role = args?.data?.role;
     if (typeof role === 'string' && role.startsWith('AFFILIATE_')) return args;
   }
+  // El libro de ingresos: un cobro de la PROPIA marca sin negocio (lo que paga
+  // una marca blanca, un grupo, un pack) se puede crear dentro de la marca,
+  // igual que se puede leer (`MODELOS_CON_FILAS_DE_LA_MARCA`). Sin esto,
+  // «Registrar pago» en Marcas blancas fallaba para el admin de Clubify
+  // (Sara, 2026-10-06). Otra marca no: exige el `whiteLabelId` activo.
+  if (model === 'IncomeRecord' && tid == null) {
+    const wl = args?.data?.whiteLabelId;
+    if (whiteLabelId && wl === whiteLabelId) return args;
+  }
   if (tid == null) {
     throw new ForbiddenException(
       `Escritura en ${model} bloqueada en modo marca-blanca sin tenantId explícito: entrá al negocio específico para crear registros.`,
