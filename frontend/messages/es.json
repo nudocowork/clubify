@@ -7098,6 +7098,7 @@
     "comeBack": "Vuelve a mirar en un momento.",
     "loadError": "No pudimos cargar la carta",
     "loading": "Cargando la carta…",
+    "pageRetrying": "No se pudo cargar esta página. Reintentando…",
     "preparing": "La carta todavía se está preparando",
     "zoomIn": "Ampliar",
     "zoomOut": "Reducir",

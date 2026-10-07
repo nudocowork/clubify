@@ -20,18 +20,30 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 import {
+  ANCHO_DE_MINIATURA,
   ANCHOS_DEL_LIBRO,
+  CALIDAD_DE_MINIATURA,
   CALIDAD_DEL_LIBRO,
+  MARGEN_DE_LA_TIRA,
+  REINTENTOS_DE_HOJA,
+  anchoDeHoja,
   anchoPermitido,
   cargaDeLaPagina,
+  desplazamientoDeLaTira,
   desplazamientoDelSalto,
+  hojasVecinas,
+  hojasVisibles,
   hostOptimizable,
   srcSetDelLibro,
+  urlDeHoja,
+  urlDeMiniatura,
   urlOptimizada,
 } from '../src/lib/menu/imagen-del-libro.mjs';
+import { ANCHOS_DE_ICONO } from '../src/lib/imagen-optimizada.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const VISOR = resolve(AQUI, '../src/components/menu/MenuBookViewer.tsx');
+const LIBRO = resolve(AQUI, '../src/components/menu/LibroDeHojas.tsx');
 const CONFIG = resolve(AQUI, '../next.config.js');
 
 let fallos = 0;
@@ -231,6 +243,106 @@ prueba('sin URL no se inventa nada', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+// 3. EL MODO LIBRO (LibroDeHojas) — medido el 2026-10-07 en De Godoy
+// ══════════════════════════════════════════════════════════════════════════
+prueba('la miniatura pide 128 px, no una página entera de 640', () => {
+  // w=160 pasaba por `anchoPermitido`, que nunca baja de 640: cada cuadrito
+  // de 31×40 se bajaba 62 KB (mediana). A 128 son 2-5 KB.
+  const u = urlDeMiniatura(PAGINA);
+  afirmar(u.startsWith('/_next/image?'), `no pasa por el optimizador: ${u}`);
+  afirmar(u.includes(`w=${ANCHO_DE_MINIATURA}&`), `ancho equivocado: ${u}`);
+  afirmar(u.includes(`q=${CALIDAD_DE_MINIATURA}`), `calidad equivocada: ${u}`);
+  afirmar(ANCHO_DE_MINIATURA >= 80 && ANCHO_DE_MINIATURA <= 160, 'fuera de 80-160');
+});
+
+prueba('el ancho de la miniatura es uno que el optimizador acepta', () => {
+  // `imageSizes` por defecto de Next. Fuera de la lista: 400 y en blanco.
+  afirmar(ANCHOS_DE_ICONO.includes(ANCHO_DE_MINIATURA), `${ANCHO_DE_MINIATURA} no está en imageSizes`);
+});
+
+prueba('la miniatura de algo no optimizable se sirve cruda, no en blanco', () => {
+  const ajeno = 'https://cdn-nuevo-sin-configurar.com/menu-book/x.jpg';
+  igual(urlDeMiniatura(ajeno), ajeno, 'cruda');
+  igual(urlDeMiniatura(''), '', 'vacía');
+});
+
+prueba('urlOptimizada sigue sin bajar de 640 (la miniatura va por su cuenta)', () => {
+  afirmar(urlOptimizada(PAGINA, 160).includes('w=640'), 'el suelo de 640 cambió');
+});
+
+prueba('la hoja en un teléfono retina pide lo que la pantalla pinta, no 1920', () => {
+  // 380 puntos × DPR 2,625 = 998 px → 1080. Antes: sizes=760px × 2,625 → 1920.
+  igual(anchoDeHoja(380, 2.625), 1080, 'teléfono');
+  igual(anchoDeHoja(412, 3), 1200, 'teléfono DPR 3');
+});
+
+prueba('en una pantalla 1× se sigue pidiendo el DOBLE (la letra no se lava)', () => {
+  // Lo que pidió Javier el día del estreno: a 1× la letra pequeña se veía lavada.
+  igual(anchoDeHoja(472, 1), 1080, 'escritorio, hoja de 472');
+  igual(anchoDeHoja(602, 1), 1200, '602×2=1204 acepta 1200, no salta a 1920');
+  igual(anchoDeHoja(900, 1), 1920, 'hoja muy grande');
+});
+
+prueba('el ancho de la hoja es siempre uno del libro (nunca un 400)', () => {
+  for (const css of [0, -5, 'x', 50, 180, 300, 380, 472, 602, 800, 1200, 5000]) {
+    for (const dpr of [undefined, 0, 1, 1.5, 2, 2.625, 3, 4]) {
+      const w = anchoDeHoja(css, dpr);
+      afirmar(ANCHOS_DEL_LIBRO.includes(w), `anchoDeHoja(${css}, ${dpr}) = ${w}`);
+    }
+  }
+  const u = urlDeHoja(PAGINA, 380, 2.625);
+  afirmar(u.includes('w=1080') && u.includes(`q=${CALIDAD_DEL_LIBRO}`), `hoja: ${u}`);
+});
+
+prueba('la calidad de la hoja NO baja: una carta es texto', () => {
+  igual(CALIDAD_DEL_LIBRO, 85, 'calidad del libro');
+});
+
+prueba('en retrato se ve UNA hoja', () => {
+  igual(hojasVisibles(0, 105, false), [0], 'portada');
+  igual(hojasVisibles(40, 105, false), [40], 'en medio');
+  igual(hojasVisibles(999, 105, false), [104], 'fuera de rango');
+});
+
+prueba('a doble página: la portada sola y luego pliegos [impar, par]', () => {
+  igual(hojasVisibles(0, 105, true), [0], 'portada');
+  igual(hojasVisibles(1, 105, true), [1, 2], 'primer pliego');
+  igual(hojasVisibles(2, 105, true), [1, 2], 'la derecha lleva a su pliego');
+  igual(hojasVisibles(80, 105, true), [79, 80], 'miniatura 81');
+  igual(hojasVisibles(104, 105, true), [103, 104], 'el último');
+  igual(hojasVisibles(3, 4, true), [3], 'último pliego incompleto');
+  igual(hojasVisibles(0, 0, true), [], 'libro vacío');
+});
+
+prueba('las vecinas son solo el pliego de antes y el de después', () => {
+  // Antes: ±3 desde el primer momento, a la vez que la visible.
+  igual(hojasVecinas(0, 105, false), [1, 2], 'portada en retrato');
+  igual(hojasVecinas(40, 105, false), [41, 42, 39], 'en medio, retrato');
+  igual(hojasVecinas(104, 105, false), [103], 'la última');
+  igual(hojasVecinas(0, 105, true), [1, 2], 'portada a doble página');
+  igual(hojasVecinas(5, 105, true), [7, 8, 4, 3], 'pliego [5,6]');
+  for (const [i, d] of [[0, false], [40, true], [104, true]]) {
+    const vis = hojasVisibles(i, 105, d);
+    const vec = hojasVecinas(i, 105, d);
+    afirmar(vec.every((k) => !vis.includes(k)), `repite visibles en ${i}`);
+    afirmar(vec.length <= 4, `demasiadas vecinas en ${i}: ${vec}`);
+  }
+});
+
+prueba('una hoja que falla se reintenta, y no para siempre', () => {
+  afirmar(REINTENTOS_DE_HOJA.length >= 2 && REINTENTOS_DE_HOJA.length <= 5, 'reintentos');
+  afirmar(REINTENTOS_DE_HOJA.every((ms, i, a) => i === 0 || ms > a[i - 1]), 'cada espera más larga');
+});
+
+prueba('la tira no se arrastra por todas las miniaturas en un salto largo', () => {
+  igual(desplazamientoDeLaTira(0, 80), 'instant', 'salto');
+  igual(desplazamientoDeLaTira(80, 0), 'instant', 'salto atrás');
+  igual(desplazamientoDeLaTira(4, 5), 'smooth', 'siguiente');
+  igual(desplazamientoDeLaTira(5, 3), 'smooth', 'pliego anterior');
+  afirmar(MARGEN_DE_LA_TIRA > 0 && MARGEN_DE_LA_TIRA <= 400, 'margen razonable');
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 // Ejecutar
 // ══════════════════════════════════════════════════════════════════════════
 for (const [nombre, fn] of casos) {
@@ -272,6 +384,36 @@ if (mal.length) {
   console.log(`\nFALLA  el visor ya no usa lo que se prueba aquí:\n       ${mal.join('\n       ')}`);
 } else {
   console.log('\nok     el visor usa la carga probada aquí');
+}
+
+// Lo mismo para el modo libro, que es el predeterminado: sin estas anclas,
+// las funciones de arriba pueden estar verdes y el libro seguir pidiendo las
+// 105 hojas y 105 miniaturas de 640 como antes.
+const libro = readFileSync(LIBRO, 'utf8').replace(/\r\n/g, '\n');
+const anclasLibro = [
+  ['urlDeMiniatura(p.imageUrl)', true],
+  ['urlDeMiniatura(pages[0].imageUrl)', true],
+  ['urlDeHoja(p.imageUrl', true],
+  ['hojasVisibles(', true],
+  ['hojasVecinas(', true],
+  ['root: tira', true],
+  ['REINTENTOS_DE_HOJA', true],
+  // La miniatura por `urlOptimizada` vuelve al suelo de 640.
+  ['urlOptimizada(p.imageUrl', false],
+  // `sizes` al doble del pintado: el navegador multiplicaba además por DPR.
+  ['img.sizes = ', false],
+  ['img.srcset = ', false],
+  // `loading="lazy"` en la tira: no frena nada dentro de un scroller horizontal.
+  ['loading="lazy"', false],
+];
+const malLibro = anclasLibro
+  .filter(([a, debeEstar]) => libro.includes(a) !== debeEstar)
+  .map(([a, debeEstar]) => `${debeEstar ? 'falta' : 'volvió'}: ${a}`);
+if (malLibro.length) {
+  fallos++;
+  console.log(`\nFALLA  el libro ya no usa la carga probada aquí:\n       ${malLibro.join('\n       ')}`);
+} else {
+  console.log('ok     el libro usa la carga probada aquí');
 }
 
 console.log(`\n${fallos === 0 ? 'TODO VERDE' : `${fallos} FALLO(S)`} — ${casos.length} casos`);

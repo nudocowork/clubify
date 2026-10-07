@@ -26,7 +26,17 @@
 // de las páginas con popup — el tap directo es de la librería (pasa página).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { srcSetDelLibro, urlOptimizada } from '@/lib/menu/imagen-del-libro.mjs';
+import {
+  MARGEN_DE_LA_TIRA,
+  REINTENTOS_DE_HOJA,
+  desplazamientoDeLaTira,
+  hojasVecinas,
+  hojasVisibles,
+  srcSetDelLibro,
+  urlDeHoja,
+  urlDeMiniatura,
+  urlOptimizada,
+} from '@/lib/menu/imagen-del-libro.mjs';
 
 type Popup = Record<string, unknown>;
 type Pagina = { id: string; imageUrl: string; popup: Popup | null };
@@ -45,12 +55,34 @@ type PageFlipInstancia = {
 /** Ancho para la lupa: alta, que el zoom no se pixele. */
 const ANCHO_LUPA = 2400;
 
+/** Alto de la miniatura en la tira (puntos CSS). Su ancho sale de la proporción. */
+const ALTO_MINIATURA = 40;
+
+/**
+ * Una hoja creada a mano para StPageFlip. React no la conoce: su estado de
+ * carga vive aquí y se pinta tocando el DOM directamente.
+ */
+type Hoja = {
+  img: HTMLImageElement;
+  /** Fondo animado mientras no hay imagen. */
+  marcador: HTMLDivElement;
+  /** «No se pudo cargar…»: solo visible tras un fallo. */
+  aviso: HTMLDivElement;
+  url: string;
+  estado: 'vacia' | 'cargando' | 'lista' | 'error';
+  intentos: number;
+  /** Se resuelve al terminar el intento en curso, bien o mal. */
+  promesa: Promise<void> | null;
+  temporizador: number | null;
+};
+
 export function LibroDeHojas({
   pages,
   pageIdx,
   onPageIdx,
   onAbrirPopup,
   registrarPaso,
+  textoReintentando = 'No se pudo cargar esta página. Reintentando…',
 }: {
   pages: Pagina[];
   pageIdx: number;
@@ -58,6 +90,8 @@ export function LibroDeHojas({
   onAbrirPopup: (popup: Popup) => void;
   /** El visor registra aquí su «pasar una hoja» para las flechas del pie. */
   registrarPaso?: (fn: (delta: 1 | -1) => void) => void;
+  /** Aviso de una hoja que falló (traducido por el visor). */
+  textoReintentando?: string;
 }) {
   const marcoRef = useRef<HTMLDivElement>(null);
   const librePorRef = useRef<HTMLDivElement>(null);
@@ -73,8 +107,21 @@ export function LibroDeHojas({
   const notificadoRef = useRef(-1);
   /** Estado del gesto: user_fold | fold_corner | flipping | read. */
   const estadoLibroRef = useRef('read');
-  /** Las `<img>` de las hojas, para adelantar su carga por cercanía. */
-  const hojasImgRef = useRef<HTMLImageElement[]>([]);
+  /** Las hojas del montaje actual, para pedir sus imágenes por cercanía. */
+  const hojasRef = useRef<Hoja[]>([]);
+  /** Si el montaje actual es a doble página (decide qué hojas se ven). */
+  const dobleRef = useRef(false);
+  /**
+   * Turno de carga. Cada cambio de página abre uno nuevo; las vecinas de un
+   * turno viejo ya no se piden (el cliente pasó de largo).
+   */
+  const turnoRef = useRef(0);
+  /**
+   * Si la primera página que se mira ya terminó (bien o mal). Hasta entonces
+   * las miniaturas no piden nada: en una red móvil hasta 3 KB × 10 le quitan
+   * ancho de banda a la única imagen que el cliente está esperando.
+   */
+  const [primeraLista, setPrimeraLista] = useState(false);
   const reducido = useMemo(
     () =>
       typeof window !== 'undefined' &&
@@ -104,6 +151,16 @@ export function LibroDeHojas({
     };
   }, []);
 
+  // ── La librería, en paralelo con la proporción ──────────────────
+  // Antes se importaba DESPUÉS de medir la proporción: dos esperas en fila
+  // antes de crear siquiera la primera hoja. El import se cachea, así que
+  // el montaje de abajo la encuentra ya resuelta.
+  useEffect(() => {
+    import('page-flip').catch(() => {
+      /* el montaje lo vuelve a intentar y, si falla, se ve allí */
+    });
+  }, []);
+
   // ── Proporción de la primera página ─────────────────────────────
   useEffect(() => {
     if (!pages.length) return;
@@ -115,8 +172,13 @@ export function LibroDeHojas({
       }
     };
     img.onerror = () => viva && setRatio(4 / 3);
-    // 640 basta: solo se mide la proporción, la hoja pide después la suya.
-    img.src = urlOptimizada(pages[0].imageUrl, 640);
+    // Con la MINIATURA de la portada (3 KB) y no con la página a 640
+    // (60 KB): la proporción sale igual —el optimizador conserva el aspecto,
+    // con un error de redondeo de un píxel en la hoja— y es la misma URL que
+    // pinta la tira, así que esa miniatura ya no se baja dos veces. Esta
+    // espera está en el camino de la primera página: todo lo que pese aquí
+    // lo paga el cliente antes de ver nada.
+    img.src = urlDeMiniatura(pages[0].imageUrl);
     return () => {
       viva = false;
     };
@@ -149,38 +211,54 @@ export function LibroDeHojas({
       const cont = librePorRef.current;
       cont.innerHTML = ''; // restos de un remonte anterior
       const dpr = Math.min(window.devicePixelRatio || 1, 3);
-      hojasImgRef.current = pages.map((p, i) => {
+      dobleRef.current = !esPortrait;
+      // Las hojas se crean SIN imagen. Antes las 105 recibían `src` y
+      // `srcset` aquí mismo; ahora la imagen la pide el efecto de carga, y
+      // solo para las que se ven y sus vecinas (ver `hojasVisibles` y
+      // `hojasVecinas`). Una hoja sin pedir pinta su marcador de carga.
+      hojasRef.current = pages.map((p, i) => {
         const hoja = document.createElement('div');
         hoja.dataset.density = 'soft';
         hoja.style.background = '#fff';
         hoja.style.overflow = 'hidden';
+        // Envoltorio propio: el estilo de posición de la hoja lo maneja
+        // StPageFlip, y el marcador y el aviso necesitan uno relativo.
+        const caja = document.createElement('div');
+        caja.style.position = 'relative';
+        caja.style.width = '100%';
+        caja.style.height = '100%';
+        const marcador = document.createElement('div');
+        marcador.className = 'absolute inset-0 animate-pulse';
+        marcador.style.background = '#EEF1F4';
+        const aviso = document.createElement('div');
+        aviso.className =
+          'absolute inset-x-3 top-1/2 -translate-y-1/2 text-center text-[12px] font-medium text-mute';
+        aviso.style.display = 'none';
+        aviso.textContent = textoReintentando;
         const img = document.createElement('img');
-        img.src = urlOptimizada(p.imageUrl, w * 2 * dpr);
-        const srcset = srcSetDelLibro(p.imageUrl);
-        if (srcset) {
-          img.srcset = srcset;
-          // El DOBLE del tamaño de pintado a propósito (y el navegador
-          // multiplica además por su DPR): una carta es TEXTO, y a 1× la
-          // letra pequeña se ve lavada — Javier lo reportó el mismo día
-          // del estreno. El techo real lo pone el srcset (1920) y las
-          // hojas lejanas siguen siendo perezosas, así que el sobrepeso
-          // queda acotado.
-          img.sizes = `${w * 2}px`;
-        }
-        // Lejos del lector: perezosa. Dentro del libro una hoja oculta
-        // está display:none y un lazy ahí no dispara — la carga la
-        // adelanta el efecto de cercanía según avanza.
-        img.loading = Math.abs(i - pageIdxRef.current) <= 3 ? 'eager' : 'lazy';
         img.decoding = 'async';
         img.alt = `Página ${i + 1}`;
         img.draggable = false;
+        img.style.position = 'relative'; // por encima del marcador
         img.style.width = '100%';
         img.style.height = '100%';
         img.style.objectFit = 'contain'; // una carta no se recorta jamás
         img.style.pointerEvents = 'none'; // el gesto es del libro, no del <img>
-        hoja.appendChild(img);
+        caja.appendChild(marcador);
+        caja.appendChild(aviso);
+        caja.appendChild(img);
+        hoja.appendChild(caja);
         cont.appendChild(hoja);
-        return img;
+        return {
+          img,
+          marcador,
+          aviso,
+          url: urlDeHoja(p.imageUrl, w, dpr),
+          estado: 'vacia',
+          intentos: 0,
+          promesa: null,
+          temporizador: null,
+        } satisfies Hoja;
       });
 
       notificadoRef.current = -1;
@@ -237,7 +315,12 @@ export function LibroDeHojas({
       vivo = false;
       setListo(false);
       flipRef.current = null;
-      hojasImgRef.current = [];
+      // Un reintento pendiente de un montaje viejo pediría una imagen que ya
+      // nadie va a ver.
+      for (const h of hojasRef.current) {
+        if (h.temporizador != null) window.clearTimeout(h.temporizador);
+      }
+      hojasRef.current = [];
       try {
         instancia?.destroy();
       } catch {
@@ -271,16 +354,98 @@ export function LibroDeHojas({
     else flip.turnToPage(pageIdx); // salto largo: directo, sin hojear todo
   }, [pageIdx, listo]);
 
-  // ── Adelantar la carga de las hojas cercanas al lector ──────────
+  // ── Pedir las imágenes: primero lo que se ve, luego las vecinas ──
+  //
+  // La página que el cliente mira va SOLA y con prioridad alta. Las vecinas
+  // (lo que asoma al pasar hoja) se piden cuando las visibles terminan, con
+  // prioridad baja. Antes arrancaban siete a la vez y en una conexión móvil
+  // la que se veía tardaba lo que tardaban las siete.
+  const cargarHoja = useCallback(
+    (h: Hoja, prioridad: 'high' | 'low'): Promise<void> => {
+      if (h.estado === 'lista') return Promise.resolve();
+      if (h.estado === 'cargando' && h.promesa) {
+        // Una vecina que pasa a verse sube de prioridad (si el navegador
+        // todavía no la empezó a bajar, le sirve).
+        if (prioridad === 'high') h.img.fetchPriority = 'high';
+        return h.promesa;
+      }
+      if (h.temporizador != null) {
+        window.clearTimeout(h.temporizador);
+        h.temporizador = null;
+      }
+      h.estado = 'cargando';
+      h.promesa = new Promise<void>((resolver) => {
+        const img = h.img;
+        img.onload = () => {
+          h.estado = 'lista';
+          h.marcador.remove();
+          h.aviso.style.display = 'none';
+          resolver();
+        };
+        img.onerror = () => {
+          h.estado = 'error';
+          h.intentos += 1;
+          // El marcador deja de latir: ya no está «cargando», está esperando.
+          h.marcador.classList.remove('animate-pulse');
+          h.aviso.style.display = '';
+          const espera = REINTENTOS_DE_HOJA[h.intentos - 1];
+          if (espera != null) {
+            h.temporizador = window.setTimeout(() => {
+              h.temporizador = null;
+              if (h.estado === 'error') void cargarHoja(h, 'high');
+            }, espera);
+          }
+          // Se resuelve igual: una hoja rota no puede dejar a las vecinas
+          // esperando para siempre.
+          resolver();
+        };
+        img.fetchPriority = prioridad;
+        img.loading = 'eager';
+        if (h.intentos > 0) {
+          // Reintento: quitar el `src` antes de ponerlo otra vez para que el
+          // navegador vuelva a la red y no se quede con el fallo anterior.
+          img.removeAttribute('src');
+          h.marcador.classList.add('animate-pulse');
+        }
+        img.src = h.url;
+      });
+      return h.promesa;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!listo) return;
-    const desde = Math.max(0, pageIdx - 2);
-    const hasta = Math.min(pages.length - 1, pageIdx + 3);
-    for (let i = desde; i <= hasta; i++) {
-      const img = hojasImgRef.current[i];
-      if (img && img.loading === 'lazy') img.loading = 'eager';
+    const hojas = hojasRef.current;
+    if (!hojas.length) return;
+    const turno = ++turnoRef.current;
+    const doble = dobleRef.current;
+    const visibles = hojasVisibles(pageIdx, hojas.length, doble);
+    // Volver a una página que falló cuenta como «reintentar ya».
+    for (const i of visibles) {
+      const h = hojas[i];
+      if (h.estado === 'error') h.estado = 'vacia';
     }
-  }, [pageIdx, pages.length, listo]);
+    Promise.all(visibles.map((i) => cargarHoja(hojas[i], 'high'))).then(() => {
+      setPrimeraLista(true);
+      if (turno !== turnoRef.current || hojas !== hojasRef.current) return;
+      for (const i of hojasVecinas(pageIdx, hojas.length, doble)) {
+        if (hojas[i].estado === 'vacia') void cargarHoja(hojas[i], 'low');
+      }
+    });
+  }, [pageIdx, listo, cargarHoja]);
+
+  // Con la red de vuelta, las hojas que se quedaron en error lo intentan otra
+  // vez sin esperar a que el cliente pase de página.
+  useEffect(() => {
+    const alVolver = () => {
+      for (const h of hojasRef.current) {
+        if (h.estado === 'error') void cargarHoja(h, 'high');
+      }
+    };
+    window.addEventListener('online', alVolver);
+    return () => window.removeEventListener('online', alVolver);
+  }, [cargarHoja]);
 
   const pasaHoja = useCallback((delta: 1 | -1) => {
     if (delta > 0) flipRef.current?.flipNext();
@@ -299,11 +464,65 @@ export function LibroDeHojas({
 
   // ── Miniaturas ──────────────────────────────────────────────────
   const tiraRef = useRef<HTMLDivElement>(null);
+  const tiraIdxRef = useRef(-1);
   useEffect(() => {
-    tiraRef.current
-      ?.querySelector<HTMLElement>('[aria-current="true"]')
-      ?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    const tira = tiraRef.current;
+    const actual = tira?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!tira || !actual) return;
+    const rt = tira.getBoundingClientRect();
+    const rm = actual.getBoundingClientRect();
+    const izquierda = tira.scrollLeft + (rm.left - rt.left) - (rt.width - rm.width) / 2;
+    // `scrollTo` de la tira y no `scrollIntoView`: este último mueve también
+    // a los ancestros. Y un salto largo, instantáneo: animado pasaría por
+    // todas las miniaturas de en medio y cada una pediría su imagen.
+    const desde = tiraIdxRef.current < 0 ? pageIdx : tiraIdxRef.current;
+    tira.scrollTo({
+      left: Math.max(0, izquierda),
+      behavior: desplazamientoDeLaTira(desde, pageIdx) as ScrollBehavior,
+    });
+    tiraIdxRef.current = pageIdx;
   }, [pageIdx]);
+
+  // Qué miniaturas ya pueden pedir su imagen: las que están (o estuvieron)
+  // dentro de la tira más un margen. El observador usa la TIRA como raíz: la
+  // carga perezosa del navegador mide contra la ventana con un margen de
+  // miles de píxeles, y en la tira horizontal se las bajaba todas (105 de
+  // 105 en la carta de De Godoy, 72 de ellas fuera de la vista).
+  const [cercanas, setCercanas] = useState<ReadonlySet<number>>(() => new Set());
+  useEffect(() => {
+    const tira = tiraRef.current;
+    if (!tira || typeof IntersectionObserver === 'undefined') {
+      // Sin observador (navegador muy viejo): todas, como antes.
+      setCercanas(new Set(pages.map((_, i) => i)));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entradas) => {
+        const nuevas: number[] = [];
+        for (const e of entradas) {
+          if (!e.isIntersecting) continue;
+          const i = Number((e.target as HTMLElement).dataset.indice);
+          if (Number.isFinite(i)) nuevas.push(i);
+          // Una vez pedida no se suelta: dejar de observarla ahorra trabajo.
+          io.unobserve(e.target);
+        }
+        if (nuevas.length) {
+          setCercanas((prev) => {
+            const s = new Set(prev);
+            for (const i of nuevas) s.add(i);
+            return s;
+          });
+        }
+      },
+      { root: tira, rootMargin: `0px ${MARGEN_DE_LA_TIRA}px` },
+    );
+    tira.querySelectorAll('[data-indice]').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [pages]);
+
+  // El ancho de la miniatura se fija desde la proporción para que la tira no
+  // salte cuando llegan las imágenes (y el observador mida bien antes).
+  const anchoMiniatura = Math.round(ALTO_MINIATURA / (ratio || 4 / 3));
 
   return (
     <div className="flex-1 min-h-0 w-full flex flex-col">
@@ -356,23 +575,29 @@ export function LibroDeHojas({
           </div>
           <div
             ref={tiraRef}
+            data-tira-miniaturas=""
             className="flex gap-1.5 overflow-x-auto no-scrollbar justify-start sm:justify-center py-0.5"
           >
             {pages.map((p, i) => (
               <button
                 key={p.id}
+                data-indice={i}
                 aria-current={i === pageIdx}
                 aria-label={`Ir a la página ${i + 1}`}
                 onClick={() => onPageIdx(i)}
-                className={`flex-none rounded-md overflow-hidden border-2 transition ${
+                className={`flex-none rounded-md overflow-hidden border-2 transition bg-bg2 ${
                   i === pageIdx ? 'border-brand' : 'border-transparent opacity-70 hover:opacity-100'
                 }`}
               >
+                {/* Sin `src` hasta que la tira la acerca: ni el navegador ni
+                    la carga perezosa del navegador la piden antes. A 128 px (3 KB) y no
+                    a 640 (60 KB): ver `urlDeMiniatura`. */}
                 <img
-                  src={urlOptimizada(p.imageUrl, 160)}
+                  src={primeraLista && cercanas.has(i) ? urlDeMiniatura(p.imageUrl) : undefined}
                   alt=""
-                  loading="lazy"
-                  className="h-10 w-auto block"
+                  decoding="async"
+                  className="block object-cover"
+                  style={{ height: ALTO_MINIATURA, width: anchoMiniatura }}
                   draggable={false}
                 />
               </button>

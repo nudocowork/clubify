@@ -7098,6 +7098,7 @@
     "comeBack": "Volte daqui a pouco.",
     "loadError": "Não conseguimos carregar o cardápio",
     "loading": "Carregando o cardápio…",
+    "pageRetrying": "Não foi possível carregar esta página. Tentando de novo…",
     "preparing": "O cardápio ainda está sendo preparado",
     "zoomIn": "Ampliar",
     "zoomOut": "Reduzir",
