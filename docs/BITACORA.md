@@ -8,6 +8,29 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-07 (123) — Migración de imágenes APLICADA a todos los negocios
+
+Lote `prod-a1` (Javier, `optimizar-imagenes-existentes.cjs --desde-la-base
+--aplicar`): **2.764 imágenes aplicadas, 4.157 referencias actualizadas**,
+1.298 MB de originales → 355 MB de derivados, 116 negocios. Las 2.764 están
+en "ImagenMigrada" (comprobado con `registrar-migracion-desde-jsonl.cjs`:
+0 faltantes), así que `--revertir --lote prod-a1` las cubre todas. Los
+avisos «Timed out fetching a new connection» eran el registro lanzado sin
+esperar; corregido en `1c8bff9a` (en fila y con reintentos). Los 4 errores
+de conexión se reintentaron.
+
+Verificado contra el dominio (HEAD a cada imagen del menú, con `?fresco`):
+konys 87/87, nudocowork 95/95, fusion-sushi 127/127, drive-pizza, degodoy,
+caf-1550, cafe-y-gracia, d-ponke, oasispty: todas cargan. Sin migrar a
+propósito: logo y sello compartidos de la marca (no son de un negocio; el
+menú ya los sirve por el optimizador).
+
+**Ojo:** 12 HEAD simultáneos a `r2.dev` dieron 10 ECONNRESET; uno a uno, 12/12.
+`r2.dev` limita peticiones (Cloudflare lo documenta como solo desarrollo).
+Hoy no afecta al cliente (todo pasa por `/_next/image`), pero un dominio
+propio para el bucket sigue recomendado. **Pendiente a mano:** banner PDF de
+Descomunal (36,5 MB) y 2 productos PDF de Degodoy.
+
 ## 2026-10-07 (122) — DESPLEGADO: marcas blancas, menús, libro y política de archivos
 
 `main` = `f2e2a3cb` (PR #321 política de archivos + #322 menú libro, que traen
