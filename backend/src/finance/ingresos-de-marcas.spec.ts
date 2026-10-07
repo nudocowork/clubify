@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { compararMarcas, conceptoDelIngreso } from './ingresos-de-marcas';
+import { compararMarcas, conceptoDelIngreso, cuentaDeLaVenta, fechaDeCuota } from './ingresos-de-marcas';
 import { IngresosDeMarcasService } from './ingresos-de-marcas.service';
 import { olvidarMarcaClubify } from './alcance-de-marca';
 
@@ -65,7 +65,8 @@ describe('registrar un pago de una marca', () => {
       payerWhiteLabelId: 'sellea',
       tenantId: null,
       category: 'MARCA_BLANCA',
-      productName: 'Rebranding',
+      productName: 'Compra marca blanca',
+      status: 'PAGADO',
       grossUsd: 1200,
       gateway: 'MANUAL',
       brandName: 'Sellea (marca blanca)',
@@ -81,5 +82,61 @@ describe('registrar un pago de una marca', () => {
     await expect(svc.registrar({ whiteLabelId: 'sellea', concepto: 'CREDITOS', montoUsd: '0' }, 'a')).rejects.toThrow(/monto/);
     await expect(svc.registrar({ whiteLabelId: 'sellea', concepto: 'CREDITOS', montoUsd: 5, fecha: '2099-01-01' }, 'a')).rejects.toThrow(/futura/);
     expect(creadas).toHaveLength(0);
+  });
+});
+
+describe('lo que NO es ingreso de Clubify (Sara, 2026-10-06)', () => {
+  it('un servicio (automatización de WhatsApp) queda registrado como INTERMEDIADO', async () => {
+    const creadas: any[] = [];
+    const prisma: any = {
+      whiteLabel: {
+        findFirst: async () => ({ id: 'wl-clubify' }),
+        findMany: async () => [{ id: 'sellea', name: 'Sellea', slug: 'sellea', logoUrl: null, createdAt: d('2026-05-01') }],
+      },
+      user: { findUnique: async () => null },
+      setting: { findUnique: async () => null },
+      incomeRecord: { create: async ({ data }: any) => (creadas.push(data), { id: 'f', grossUsd: data.grossUsd, saleDate: data.saleDate }) },
+    };
+    const svc = new IngresosDeMarcasService(prisma, { desglose: async (_g: string, m: number) => ({ fee: 0, tax: 0, netExpected: m }) } as any);
+    await svc.registrar({ whiteLabelId: 'sellea', concepto: 'SERVICIO', descripcion: 'Automatización de WhatsApp', montoUsd: 99.03 }, 'a');
+    await svc.registrar({ whiteLabelId: 'sellea', concepto: 'CREDITOS', montoUsd: 50 }, 'a');
+    expect(creadas[0]).toMatchObject({ status: 'INTERMEDIADO', productName: 'Servicio: Automatización de WhatsApp' });
+    expect(creadas[1].status).toBe('PAGADO');
+  });
+
+  it('el nombre viejo «Rebranding» sigue siendo la compra de la marca', () => {
+    expect(conceptoDelIngreso({ externalTxId: 'marca-1', productName: 'Compra marca blanca', esCompraDeCreditos: false })).toBe('REBRANDING');
+  });
+});
+
+describe('la venta de una marca blanca en cuotas', () => {
+  const hoy = d('2026-10-07');
+  const base = { totalUsd: 1200, cuotas: 4, frecuencia: 'MENSUAL' as const, primeraCuota: d('2026-08-31'), estado: 'ACTIVA' as const };
+
+  it('cuenta las cuotas por dinero y da la siguiente fecha', () => {
+    const c = cuentaDeLaVenta(base, [300, 300], hoy);
+    expect(c).toMatchObject({ pagadoUsd: 600, faltaUsd: 600, montoCuotaUsd: 300, cuotasPagadas: 2 });
+    // 31 de agosto + 2 meses = 31 de octubre; aún no vence.
+    expect(c.proximaCuota).toEqual(d('2026-10-31'));
+    expect(c.vencida).toBe(false);
+  });
+
+  it('media cuota no es una cuota, y el fin de mes se respeta', () => {
+    const c = cuentaDeLaVenta(base, [450], hoy);
+    expect(c.cuotasPagadas).toBe(1);
+    expect(c.proximaCuota).toEqual(d('2026-09-30'));
+    expect(c.vencida).toBe(true);
+    expect(fechaDeCuota(d('2026-01-31'), 'MENSUAL', 1)).toEqual(d('2026-02-28'));
+    expect(fechaDeCuota(d('2026-10-01'), 'QUINCENAL', 2)).toEqual(d('2026-10-31'));
+  });
+
+  it('pausada (Fideliso): lo pagado cuenta, pero no se espera cuota; sin total no hay «falta»', () => {
+    const c = cuentaDeLaVenta({ ...base, totalUsd: null, estado: 'PAUSADA' }, [200], hoy);
+    expect(c).toMatchObject({ pagadoUsd: 200, faltaUsd: null, proximaCuota: null, vencida: false });
+  });
+
+  it('pagada del todo: no queda nada ni próxima cuota', () => {
+    const c = cuentaDeLaVenta(base, [1200], hoy);
+    expect(c).toMatchObject({ faltaUsd: 0, cuotasPagadas: 4, proximaCuota: null });
   });
 });

@@ -24,6 +24,12 @@ export const ESTADOS_DE_INGRESO = {
   /** Cobro real, apartado mientras se decide qué es (no suma en ningún total).
    *  Sara, 2026-10-03: los «Servicios adicionales» de ~$20. */
   EN_REVISION: 'En revisión',
+  /** Dinero que pasó por Clubify pero es de otro: Clubify solo hace de
+   *  intermediario (la automatización de WhatsApp que una marca blanca paga
+   *  para entregársela a un tercero). Se guarda el registro pero NO es ingreso
+   *  de Clubify: no suma en ningún total, ni del socio ni del 2 %. Sara,
+   *  2026-10-06: «deben sumar como servicios adicionales (automatizaciones)». */
+  INTERMEDIADO: 'Servicio adicional (intermediado)',
 } as const;
 
 export type EstadoDeIngreso = keyof typeof ESTADOS_DE_INGRESO;

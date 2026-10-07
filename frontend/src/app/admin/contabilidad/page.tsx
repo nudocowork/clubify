@@ -44,6 +44,7 @@ type Resumen = {
   count: number; grossUsd: number; gatewayFeeUsd: number; taxUsd: number;
   netExpectedUsd: number; netReceivedUsd: number; pendingRecon: number; inReview: number;
   refundedUsd?: number; refundedCount?: number;
+  intermediadoUsd?: number; intermediadoCount?: number;
   porCategoria?: Record<string, { count: number; grossUsd: number }>;
 };
 /** La cadena completa de un ingreso: pasarela → negocio → plan → comisiones. */
@@ -82,6 +83,8 @@ const ESTADO_BDG: Record<string, { cls: string; label: string }> = {
   REEMBOLSADO: { cls: 'bg-red-100 text-red-700', label: 'Reembolsado' },
   CANCELADO: { cls: 'bg-slate-200 text-slate-600', label: 'Cancelado' },
   EN_REVISION: { cls: 'bg-amber-100 text-amber-800', label: 'En revisión' },
+  // Pasa por Clubify pero es de otro (automatizaciones de una marca blanca).
+  INTERMEDIADO: { cls: 'bg-orange-100 text-orange-800', label: 'Servicio adicional' },
 };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
@@ -444,7 +447,7 @@ export default function ContabilidadPage() {
           {/* ===== INGRESOS / CONCILIACIÓN ===== */}
           {(tab === 'ingresos' || tab === 'conciliacion') && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-              <Kpi lbl="Ventas realizadas" dot="#22C55E" val={money(resumen?.grossUsd ?? 0)} sub={`${resumen?.count ?? 0} cobros`} />
+              <Kpi lbl="Ventas realizadas" dot="#22C55E" val={money(resumen?.grossUsd ?? 0)} sub={`${resumen?.count ?? 0} cobros${resumen?.intermediadoUsd ? ` · aparte ${money(resumen.intermediadoUsd)} de servicios adicionales` : ''}`} />
               <Kpi lbl="Fee + impuestos" dot="#DC2626" val={money((resumen?.gatewayFeeUsd ?? 0) + (resumen?.taxUsd ?? 0))} sub={`fee ${money(resumen?.gatewayFeeUsd ?? 0)} · imp ${money(resumen?.taxUsd ?? 0)}`} />
               <Kpi lbl="Neto esperado" dot="#2563EB" val={money(resumen?.netExpectedUsd ?? 0)} sub="después de deducciones" />
               <Kpi lbl="Neto recibido" dot="#16A34A" val={money(resumen?.netReceivedUsd ?? 0)} sub={`${resumen?.pendingRecon ?? 0} sin conciliar · ${resumen?.inReview ?? 0} a revisar`} />

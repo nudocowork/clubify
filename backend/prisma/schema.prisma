@@ -8505,3 +8505,24 @@ model ManualPaymentRequest {
   @@index([referralCodeId])
   @@index([whiteLabelId])
 }
+
+/// La VENTA de una marca blanca (Sara, 2026-10-06): por cuánto se vendió y en
+/// cuántas cuotas se paga. Los pagos son filas de `IncomeRecord` con
+/// `payerWhiteLabelId` = la marca y el concepto «Compra marca blanca»; esto
+/// solo guarda el acuerdo, para saber cuánto falta y cuándo es la próxima
+/// cuota. Una por marca. `totalUsd` y la fecha pueden faltar mientras se
+/// define (Fideliso pagó una parte y se pausó).
+model WhiteLabelSale {
+  id            String    @id @default(uuid())
+  whiteLabelId  String    @unique
+  totalUsd      Decimal?  @db.Decimal(10, 2)
+  cuotas        Int       @default(1)
+  /// MENSUAL | QUINCENAL | SEMANAL
+  frecuencia    String    @default("MENSUAL")
+  primeraCuota  DateTime?
+  /// ACTIVA | PAUSADA | PAGADA | CANCELADA
+  estado        String    @default("ACTIVA")
+  nota          String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}

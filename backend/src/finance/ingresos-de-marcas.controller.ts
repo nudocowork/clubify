@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
@@ -28,6 +28,11 @@ export class IngresosDeMarcasController {
   @Post()
   registrar(@Body() body: Record<string, string>, @CurrentUser() user: AuthUser) {
     return this.svc.registrar(body, user.id);
+  }
+
+  @Put(':whiteLabelId/venta')
+  guardarVenta(@Param('whiteLabelId') id: string, @Body() body: Record<string, string>) {
+    return this.svc.guardarVenta(id, body);
   }
 
   @Post(':id/anular')

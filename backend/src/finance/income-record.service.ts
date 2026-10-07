@@ -418,6 +418,7 @@ export class IncomeRecordService {
     const cobrados = rows.filter((r) => r.status === 'PAGADO');
     const devueltos = rows.filter((r) => r.status === 'REEMBOLSADO');
     const anulados = rows.filter((r) => r.status === 'CANCELADO');
+    const intermediados = rows.filter((r) => r.status === 'INTERMEDIADO');
     let gross = 0,
       fee = 0,
       tax = 0,
@@ -462,6 +463,10 @@ export class IncomeRecordService {
       /** Apuntes anulados: nunca fueron un cobro. No son un reembolso. */
       canceledCount: anulados.length,
       canceledUsd: round2(anulados.reduce((a, r) => a + Number(r.grossUsd), 0)),
+      /** Servicios adicionales (automatizaciones): pasan por Clubify, pero no
+       *  son suyos. Se muestran aparte; nunca dentro del bruto. */
+      intermediadoCount: intermediados.length,
+      intermediadoUsd: round2(intermediados.reduce((a, r) => a + Number(r.grossUsd), 0)),
       porCategoria,
     };
   }
