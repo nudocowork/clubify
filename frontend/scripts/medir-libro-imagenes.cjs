@@ -36,7 +36,9 @@
  *     --cond movil --runs 3 --out medicion.json [--capturas dir] [--calentar]
  *
  * `--calentar` hace una corrida previa que se descarta: con `next dev` la
- * primera visita compila la ruta, y esa demora no es del sitio.
+ * primera visita compila la ruta y el optimizador local transforma cada
+ * imagen por primera vez; esa demora no es del sitio. Va con la misma
+ * condición que se mide para que deje listas las mismas variantes.
  *
  * Solo hace GET a páginas públicas. No inicia sesión ni escribe nada.
  */
@@ -401,7 +403,7 @@ function mediana(a) {
   try {
     if (CALENTAR) {
       process.stderr.write('calentando (se descarta)…\n');
-      await corrida(browser, CONDICIONES.escritorio, 0, null).catch((e) => process.stderr.write(`calentar: ${e.message}\n`));
+      await corrida(browser, cond, 0, null).catch((e) => process.stderr.write(`calentar: ${e.message}\n`));
     }
     for (let i = 1; i <= RUNS; i++) {
       process.stderr.write(`corrida ${i}/${RUNS} ${COND} ${BASE}\n`);
