@@ -8,6 +8,28 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-07 (122) — DESPLEGADO: marcas blancas, menús, libro y política de archivos
+
+`main` = `f2e2a3cb` (PR #321 política de archivos + #322 menú libro, que traen
+la auditoría del menú). Backend y frontend desplegados por Javier con
+`desplegar.cjs` desde ese commit. Migraciones aplicadas: `WhiteLabelSale` (10
+columnas) e `ImagenMigrada` (19 columnas, 0 filas).
+
+**Verificado contra el dominio:** `/destino` del backend nuevo responde 200;
+el frontend sirve `dpl_97TasQFDoRn1…`; salto del QR de Degodoy 0,5–0,7 s
+(antes 1,6–1,8 s); prueba de humo verde. Lighthouse móvil 4G lento, 3
+corridas: Konys /m LCP 7,4 → 5,0 s y 1.993 → 1.448 KB; Nudo /m LCP 17,6 →
+7,2 s y 3.200 → 1.067 KB. Ninguna imagen cruda del bucket en el menú.
+
+**Pendiente (datos, lo corre Javier):** simular y luego `--aplicar`
+`servicios-de-marca-intermediados.cjs` y `optimizar-imagenes-existentes.cjs
+--desde-la-base --lote prod-1` (desde `backend/`, servicio `backend`);
+nómina espera a Sara. A mano: banner de Descomunal (PDF de 36,5 MB) y 2
+productos de Degodoy que son PDF. **Ojo:** `git push` por línea de comandos
+dio «Internal Server Error» de GitHub todo el día; los merges se hicieron por
+la web. **Corrección:** `desplegar.cjs` NO se bloquea por cambios sin
+commitear de la otra máquina: clona el commit a carpeta limpia.
+
 ## 2026-10-07 (121) — Política única de archivos por uso + migración de imágenes (rama, sin desplegar)
 
 Rama `feat/politica-archivos-2026-10-07` (sale de `perf/menu-auditoria-2026-10-07`).
