@@ -8,6 +8,30 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-08 (125) — Decimales en el escáner, impresora por negocio, cartel de fidelización y QR en blanco
+
+Desplegado por Javier (frontend `dpl_9UZakS5c…`, backend con migración
+`apply-convenio-canje-decimales-migration.cjs` aplicada: compraMonto y
+descuentoMonto de ConvenioCanje a NUMERIC(12,2)). Verificado contra el dominio.
+
+- **Montos con decimales** al presentar la tarjeta (alianzas, sellos/visitas,
+  cashback, puntos): `frontend/src/lib/monto-escrito.mjs` (`leerMonto`: coma o
+  punto decimal, «12.500» sigue siendo miles; 22 casos). El canje de alianzas
+  acepta 2 decimales y calcula el descuento al centavo.
+- **Impresora de pedidos por negocio:** interruptor en Admin → Negocio →
+  Integraciones y extras (`Tenant.ordersPrintEnabled`). Script equivalente:
+  `encender-impresion-pedidos.cjs <slug>`. **BLIC: falta marcarlo y guardar.**
+- **Cartel QR Mostrador** trae por defecto ÚNETE / CLUB DE FIDELIZACIÓN /
+  escanea e instala en tu Apple o Google wallet / completa los sellos y gana
+  regalos. Los carteles ya guardados conservan su texto.
+- **Ricuras «el QR queda en blanco»** (`/i/restaurante-ricuras`): no se
+  reprodujo, pero había dos esperas sin límite en ese camino (el salto en el
+  servidor y la carga del InfoLink, que además pintaba un «Cargando…» casi
+  invisible). Corregido en `07e4eb8d`: tiempo límite, reintento y pantalla
+  «No pudimos cargar esta página» con Reintentar. Pendiente: hora y teléfono
+  del reporte para confirmar la causa. Sin registro de errores del lado del
+  cliente no hay forma de verlo: propuesto, sin hacer.
+
 ## 2026-10-07 (124) — Estado al cierre del día: qué quedó y qué espera
 
 - **TeamClubify publicado** (lo desplegó la otra máquina encima de `fd6d54b`):
