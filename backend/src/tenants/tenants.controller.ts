@@ -145,6 +145,9 @@ class UpdateTenantBody {
   // /app/settings (vista cliente) a super-admin /admin/tenants/[id].
   /** Aviso de pedido nuevo al telefono del negocio, desde el servidor. */
   @IsOptional() @IsBoolean() ownerOrderAlertsEnabled?: boolean;
+  /** «Imprimir» en el detalle del pedido. Apagado por defecto desde el
+   *  2026-09-11; se enciende negocio por negocio desde Integraciones y extras. */
+  @IsOptional() @IsBoolean() ordersPrintEnabled?: boolean;
   @IsOptional() @IsString() @MaxLength(40) ownerOrderAlertsPhone?: string | null;
   @IsOptional() @IsBoolean() deliveryAlertsEnabled?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true })

@@ -143,6 +143,7 @@ export type UpdateTenantDto = Partial<{
   // /app/settings (vista cliente) a super-admin /admin/tenants/[id].
   ownerOrderAlertsEnabled: boolean;
   ownerOrderAlertsPhone: string | null;
+  ordersPrintEnabled: boolean;
   deliveryAlertsEnabled: boolean;
   deliveryAlertsPhones: string[] | null;
   deliveryAlertsEvents: string[] | null;
