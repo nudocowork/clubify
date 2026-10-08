@@ -1,4 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
+import { resolverDestinoCorto } from '@/lib/infolink/destino-corto';
+import { ReintentarEnlace } from '@/components/ReintentarEnlace';
 
 /**
  * Vanity URLs para Infolinks — soyclubify.com/<slug>.
@@ -15,13 +17,6 @@ import { notFound, redirect } from 'next/navigation';
  * (rootSlug no existe o inactivo), devolvemos 404.
  */
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
-
-type ResolvedResponse = {
-  tenant: { slug: string };
-  link: { slug: string };
-};
-
 export default async function VanitySlugPage({
   params,
 }: {
@@ -30,26 +25,10 @@ export default async function VanitySlugPage({
   const slug = (params?.slug ?? '').toLowerCase().trim();
   if (!slug) notFound();
 
-  let resolved: ResolvedResponse | null = null;
-  try {
-    // Solo el destino, cacheado 60 s (Degodoy, 2026-10-06: el salto del QR
-    // tardaba 1,6–1,8 s en CADA escaneo, sin caché, pidiendo el InfoLink
-    // entero solo para redirigir). Si el backend aún no tiene `/destino`
-    // (se desplegó antes el frontend), cae al de siempre.
-    const base = `${API}/api/public/info-link-by-root/${encodeURIComponent(slug)}`;
-    let r = await fetch(`${base}/destino`, { next: { revalidate: 60 } });
-    if (!r.ok) r = await fetch(base, { cache: 'no-store' });
-    if (r.ok) {
-      resolved = (await r.json()) as ResolvedResponse;
-    }
-  } catch {
-    // Si el backend está caído caemos al notFound — mejor 404 que
-    // página rota.
-  }
-
-  if (!resolved?.tenant?.slug || !resolved?.link?.slug) {
-    notFound();
-  }
-
-  redirect(`/i/${resolved.tenant.slug}/${resolved.link.slug}`);
+  // Con tiempo límite y salida visible: ver `resolverDestinoCorto`.
+  const destino = await resolverDestinoCorto(slug);
+  if (destino.tipo === 'no-existe') notFound();
+  if (destino.tipo === 'fallo') return <ReintentarEnlace href={`/${slug}`} />;
+  // Fuera de cualquier try: `redirect()` funciona lanzando.
+  redirect(destino.ruta);
 }

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { pedirConLimite } from '@/lib/menu/pedir-con-limite.mjs';
 import { IMAGEN_DEL_INFOLINK, iconoDelInfolink, imagenDelInfolink, miniaturaDelInfolink } from '@/lib/infolink/imagen-del-infolink.mjs';
 import { useParams } from 'next/navigation';
 import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
@@ -120,6 +121,8 @@ export default function PublicInfoLink() {
     brand?: BrandBadgeBrand;
   } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Sube al pulsar «Reintentar»: vuelve a correr la carga.
+  const [reintento, setReintento] = useState(0);
   const [menu, setMenu] = useState<any[]>([]);
   const [storefront, setStorefront] = useState<any>(null);
   /** Popup activo. `config` viene del botón. `continueAction` aparece
@@ -139,9 +142,16 @@ export default function PublicInfoLink() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API}/api/public/i/${slug}/${linkSlug}?locale=${locale}`)
+    setErr(null);
+    // Con tiempo límite y un reintento (Ricuras, 2026-10-08: «al escanear el
+    // QR la pantalla se queda en blanco»). Sin límite, una red móvil que deja
+    // la conexión colgada dejaba el «Cargando…» para siempre; y un fallo del
+    // servidor salía como «No encontramos este link». Ahora solo un 404 dice
+    // eso; lo demás ofrece reintentar.
+    pedirConLimite(`${API}/api/public/i/${slug}/${linkSlug}?locale=${locale}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error('No disponible');
+        if (r.status === 404) throw new Error('No disponible');
+        if (!r.ok) throw Object.assign(new Error('SIN_RED'), { name: 'SinRed' });
         return r.json();
       })
       .then((d) => {
@@ -174,12 +184,12 @@ export default function PublicInfoLink() {
         }
       })
       .catch((e) => {
-        if (!cancelled) setErr(e.message);
+        if (!cancelled) setErr(e?.name === 'SinRed' ? 'SIN_RED' : e.message);
       });
     return () => {
       cancelled = true;
     };
-  }, [slug, linkSlug, locale]);
+  }, [slug, linkSlug, locale, reintento]);
 
   function trackClick(label: string, buttonType?: string) {
     if (!data) return;
@@ -193,6 +203,23 @@ export default function PublicInfoLink() {
     }).catch(() => null);
   }
 
+  if (err === 'SIN_RED') {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 bg-white">
+        <div className="text-center max-w-sm">
+          <h1 className="text-xl font-bold">No pudimos cargar esta página</h1>
+          <p className="text-mute mt-2 text-sm">Revisa tu conexión e inténtalo otra vez.</p>
+          <button
+            type="button"
+            onClick={() => setReintento((n) => n + 1)}
+            className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-full bg-ink text-white font-semibold text-sm active:scale-95 transition"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (err) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
@@ -206,7 +233,15 @@ export default function PublicInfoLink() {
       </div>
     );
   }
-  if (!data) return <div className="p-8 text-mute text-center">Cargando…</div>;
+  // Pantalla de carga que se VE: un «Cargando…» gris pequeño arriba, sobre
+  // blanco, en un celular parecía una pantalla en blanco.
+  if (!data)
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-white" role="status" aria-live="polite">
+        <span className="w-9 h-9 rounded-full border-[3px] border-gray-200 border-t-gray-700 animate-spin" aria-hidden />
+        <span className="text-sm text-mute">Cargando…</span>
+      </div>
+    );
 
   const { tenant, link } = data;
   const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
