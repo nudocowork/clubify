@@ -1066,12 +1066,12 @@ export function rescaleForCanvas(
   };
 }
 
-export function defaultConfig(brandName: string): QrPosterConfig {
+export function defaultConfig(brandName: string, type?: QrPosterType): QrPosterConfig {
   const w = 1080;
   const h = 1528;
   const qrSize = 560;
   const qrX = (w - qrSize) / 2;
-  return {
+  const base: QrPosterConfig = {
     canvas: { w, h, mm: { w: 210, h: 297 }, dpi: 300 },
     bg: { type: 'solid', color1: '#FFFFFF' },
     qr: {
@@ -1129,6 +1129,40 @@ export function defaultConfig(brandName: string): QrPosterConfig {
       },
     },
     showClubifyFooter: true,
+  };
+  return type === 'COUNTER' ? textosDeFidelizacion(base) : base;
+}
+
+/**
+ * El cartel del MOSTRADOR lleva a instalar la tarjeta de fidelización, no al
+ * menú: salía con «Escanea para ver el menú y pedir», el texto de todos los
+ * carteles. Texto pedido por Javier (2026-10-08). Solo cambia lo que trae un
+ * cartel nuevo (o «Restablecer»): los ya guardados conservan sus textos.
+ */
+function textosDeFidelizacion(c: QrPosterConfig): QrPosterConfig {
+  const w = c.canvas.w;
+  return {
+    ...c,
+    texts: {
+      ...c.texts,
+      title: { ...c.texts.title, text: 'ÚNETE' },
+      subtitle: { ...c.texts.subtitle, text: 'CLUB DE FIDELIZACIÓN', size: 64 },
+      cta: { ...c.texts.cta, text: 'completa los sellos\ny gana regalos' },
+    },
+    customTexts: [
+      {
+        id: 'fidelizacion-wallet',
+        text: 'escanea e instala\nen tu Apple o Google wallet',
+        x: w / 2,
+        y: 430,
+        font: 'Inter, system-ui, sans-serif',
+        fontLabel: 'Inter',
+        size: 36,
+        color: '#0A0A0A',
+        weight: 600,
+        align: 'center',
+      },
+    ],
   };
 }
 
@@ -1320,8 +1354,9 @@ function normalizeLogoLayer(
 export function normalizeConfig(
   cfg: Partial<QrPosterConfig> | null | undefined,
   brandName: string,
+  type?: QrPosterType,
 ): QrPosterConfig {
-  const def = defaultConfig(brandName);
+  const def = defaultConfig(brandName, type);
   if (!cfg || typeof cfg !== 'object') return def;
   // Helper para mergear un TextLayer con defaults + clonar nested
   // (shadow) — sino el undo/redo comparte references del shadow y

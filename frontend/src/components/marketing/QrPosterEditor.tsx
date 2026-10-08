@@ -572,7 +572,7 @@ export default function QrPosterEditor({
   // multi-QR). Sino, contra /qr-posters/by-type/:type (modo legacy).
   const idMode = !!posterIdProp;
   const [{ history, idx }, setHist] = useState<HistoryState>(() => ({
-    history: [defaultConfig(brandName)],
+    history: [defaultConfig(brandName, type)],
     idx: 0,
   }));
   const cfg = history[idx];
@@ -672,7 +672,7 @@ export default function QrPosterEditor({
       .then((row) => {
         if (cancelled) return;
         const serverCfg = row?.config
-          ? normalizeConfig(row.config, brandName)
+          ? normalizeConfig(row.config, brandName, type)
           : null;
         const serverJson = serverCfg ? JSON.stringify(serverCfg) : '';
 
@@ -706,7 +706,7 @@ export default function QrPosterEditor({
                 t('restoreBackup'),
               );
               if (yes) {
-                replaceHistory(normalizeConfig(localCfgRaw, brandName));
+                replaceHistory(normalizeConfig(localCfgRaw, brandName, type));
                 // El backend NO tiene esta versión todavía — queda dirty,
                 // el autosave se va a disparar enseguida.
                 lastSavedJsonRef.current = serverJson;
@@ -1019,7 +1019,7 @@ export default function QrPosterEditor({
         await api(`/qr-posters/by-type/${type}`, { method: 'DELETE' });
       } catch {}
     }
-    replaceHistory(defaultConfig(brandName));
+    replaceHistory(defaultConfig(brandName, type));
     if (!idMode) setPosterId(null);
   }
 
