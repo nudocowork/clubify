@@ -7844,9 +7844,11 @@ model ConvenioCanje {
   operatorUserId String?
   /// Total del tiquete, si el negocio activó pedirlo. Es lo único que permite
   /// decirle al aliado cuánto facturó su convenio.
-  compraMonto    Int?
-  /// Descuento aplicado, calculado en el servidor.
-  descuentoMonto Int?
+  compraMonto    Decimal?        @db.Decimal(12, 2)
+  /// Descuento aplicado, calculado en el servidor. Decimal desde 2026-10-08
+  /// (centavos de los negocios en dólares); migración
+  /// `scripts/apply-convenio-canje-decimales-migration.cjs`.
+  descuentoMonto Decimal?        @db.Decimal(12, 2)
   /// Anulación dentro de la ventana corta. Un canje anulado NO cuenta para
   /// los topes ni para los informes.
   revertedAt     DateTime?

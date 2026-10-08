@@ -397,7 +397,9 @@ export class ConveniosCanjeService {
     }
     if (cupon.tipo === 'PERCENT_OFF') {
       if (compra == null) return null;
-      const bruto = Math.round((compra * cupon.valor) / 100);
+      // Al centavo: con el total en decimales (negocios en dólares) redondear
+      // al entero se comía hasta 50 centavos por canje. En pesos da lo mismo.
+      const bruto = Math.round(compra * cupon.valor) / 100;
       return cupon.topeDescuento != null
         ? Math.min(bruto, cupon.topeDescuento)
         : bruto;

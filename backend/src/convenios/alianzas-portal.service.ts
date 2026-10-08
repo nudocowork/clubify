@@ -135,7 +135,10 @@ export class AlianzasPortalService {
         canjesTotales: agregados._count,
         // Solo se sabe cuando el negocio pide el total del tiquete en caja. Sin
         // eso el informe cuenta canjes, no pesos.
-        descuentoTotal: agregados._sum.descuentoMonto ?? null,
+        // La columna es decimal: Prisma devuelve un Decimal, que viajaría al
+        // portal como texto («1250.5») y el portal lo pinta con toLocaleString.
+        descuentoTotal:
+          agregados._sum.descuentoMonto != null ? Number(agregados._sum.descuentoMonto) : null,
       },
     };
   }
