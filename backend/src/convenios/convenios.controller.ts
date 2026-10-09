@@ -14,6 +14,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -104,7 +105,9 @@ class CanjeBody {
   @IsString() tarjetaId!: string;
   @IsString() cuponId!: string;
   @IsOptional() @IsString() locationId?: string | null;
-  @IsOptional() @IsInt() @Min(0) compraMonto?: number | null;
+  // Hasta 2 decimales: los negocios en dólares cobran centavos, y el cajero
+  // no podía escribirlos (2026-10-08). En pesos llega entero, como siempre.
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El total del tiquete admite hasta 2 decimales.' }) @Min(0) compraMonto?: number | null;
 }
 
 /**

@@ -1907,6 +1907,11 @@ function AcademyTogglesCard({
   const [avisoPedidos, setAvisoPedidos] = useState<boolean>(
     tenant.ownerOrderAlertsEnabled ?? false,
   );
+  // «Imprimir» en el detalle de cada pedido. Nace apagado (2026-09-11: no era
+  // fiable en todos) y antes solo se encendía con un script contra la base.
+  const [impresion, setImpresion] = useState<boolean>(
+    tenant.ordersPrintEnabled ?? false,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1929,6 +1934,7 @@ function AcademyTogglesCard({
           clubEnabled: club,
           infoCardEnabled: informativa,
           ownerOrderAlertsEnabled: avisoPedidos,
+          ordersPrintEnabled: impresion,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -2133,6 +2139,24 @@ function AcademyTogglesCard({
               mensaje es corto a proposito: codigo, cliente, total y enlace al
               panel. Viene encendido para todos; apagalo aqui si este negocio
               no lo quiere.
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={impresion}
+            onChange={(e) => setImpresion(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Impresora de pedidos</div>
+            <div className="text-xs text-mute leading-snug">
+              Muestra el botón <b>Imprimir</b> en el detalle de cada pedido
+              (ticket de cocina de 80 mm o recibo). Viene apagado para todos;
+              enciéndelo para los negocios que imprimen sus pedidos. El cambio
+              se ve en cuanto el negocio recarga la página de Pedidos.
             </div>
           </div>
         </label>

@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-08 (125) — Decimales en el escáner, impresora por negocio, cartel de fidelización y QR en blanco
+
+Desplegado por Javier (frontend `dpl_9UZakS5c…`, backend con migración
+`apply-convenio-canje-decimales-migration.cjs` aplicada: compraMonto y
+descuentoMonto de ConvenioCanje a NUMERIC(12,2)). Verificado contra el dominio.
+
+- **Montos con decimales** al presentar la tarjeta (alianzas, sellos/visitas,
+  cashback, puntos): `frontend/src/lib/monto-escrito.mjs` (`leerMonto`: coma o
+  punto decimal, «12.500» sigue siendo miles; 22 casos). El canje de alianzas
+  acepta 2 decimales y calcula el descuento al centavo.
+- **Impresora de pedidos por negocio:** interruptor en Admin → Negocio →
+  Integraciones y extras (`Tenant.ordersPrintEnabled`). Script equivalente:
+  `encender-impresion-pedidos.cjs <slug>`. **BLIC: falta marcarlo y guardar.**
+- **Cartel QR Mostrador** trae por defecto ÚNETE / CLUB DE FIDELIZACIÓN /
+  escanea e instala en tu Apple o Google wallet / completa los sellos y gana
+  regalos. Los carteles ya guardados conservan su texto.
+- **Ricuras «el QR queda en blanco»** (`/i/restaurante-ricuras`): no se
+  reprodujo, pero había dos esperas sin límite en ese camino (el salto en el
+  servidor y la carga del InfoLink, que además pintaba un «Cargando…» casi
+  invisible). Corregido en `07e4eb8d`: tiempo límite, reintento y pantalla
+  «No pudimos cargar esta página» con Reintentar. Pendiente: hora y teléfono
+  del reporte para confirmar la causa. Sin registro de errores del lado del
+  cliente no hay forma de verlo: propuesto, sin hacer.
+
+## 2026-10-07 (124) — Estado al cierre del día: qué quedó y qué espera
+
+- **TeamClubify publicado** (lo desplegó la otra máquina encima de `fd6d54b`):
+  `team.soyclubify.com/api/ig-check` responde. Falta `IG_SESSIONID` en Vercel
+  para que la verificación de Instagram bloquee de verdad.
+- **Nómina:** Sara confirmó que los montos (228,5 / 242,5 / 260 / 271,5) son
+  POR PERSONA y septiembre se deja como está, que es justo lo que hace
+  `nomina-usd-sara-2026-10-06.cjs`. Javier lo corre (simular → `--aplicar`);
+  sin captura todavía, sin verificar.
+- **Base por la red interna de Railway: NO aplicada todavía.**
+  `/api/health/ready` sigue en 129–287 ms. Pasos dados a Javier: en el
+  servicio backend, añadir `DATABASE_PUBLIC_URL = ${{Postgres-Nq8w.DATABASE_PUBLIC_URL}}`
+  (para que los scripts locales con `railway run --service backend` sigan
+  conectando) y cambiar `DATABASE_URL = ${{Postgres-Nq8w.DATABASE_URL}}`.
+  Éxito = `latencyMs` < 5. Revertir = volver a `DATABASE_PUBLIC_URL`.
+- **En curso:** rama `perf/menu-ssr-2026-10-07` (el menú llega armado en el
+  HTML), sin desplegar.
+- **A mano:** banner PDF de Descomunal y 2 productos PDF de Degodoy. Fideliso
+  espera el valor de venta de Sara.
+
 ## 2026-10-07 (123) — Migración de imágenes APLICADA a todos los negocios
 
 Lote `prod-a1` (Javier, `optimizar-imagenes-existentes.cjs --desde-la-base

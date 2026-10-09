@@ -1,7 +1,7 @@
 {
   "_cordura": {
     "modelos": 67,
-    "analizadas": 1374
+    "analizadas": 1375
   },
   "archivos": {
     "src/admin-reports/admin-reports.service.ts": 1,
@@ -18,6 +18,7 @@
     "src/delivery/delivery.service.ts": 11,
     "src/finance/income-record.service.ts": 3,
     "src/finance/ingresos-de-marcas.service.ts": 3,
+    "src/info-links/info-links.service.ts": 3,
     "src/notifications/notifications.service.ts": 4,
     "src/onboarding-sync/onboarding-sync.service.ts": 2,
     "src/passes/passes.controller.ts": 2,
@@ -64,7 +65,6 @@
     "src/wallet/wallet.service.ts": 3,
     "src/badges/badges.service.ts": 2,
     "src/customers/customers.service.ts": 5,
-    "src/info-links/info-links.service.ts": 2,
     "src/notifications/recurring-notifications.service.ts": 3,
     "src/orders/orders.service.ts": 1,
     "src/tenants/plan-upgrade.service.ts": 1

@@ -1,5 +1,6 @@
 'use client';
 import { textoDeLaCredencial } from '@/lib/credencial.mjs';
+import { leerMonto } from '@/lib/monto-escrito.mjs';
 import { useEffect, useRef, useState } from 'react';
 import { api, getUser, setSession, clearSession } from '@/lib/api';
 import {
@@ -1729,23 +1730,23 @@ export default function ScanPage() {
                       {(c.compraMinima != null || c.tipo === 'PERCENT_OFF') && (
                         <input
                           className="input mt-2 text-sm"
-                          type="number"
-                          inputMode="numeric"
+                          type="text"
+                          inputMode="decimal"
                           placeholder={
                             c.compraMinima != null
                               ? `Total del tiquete (mínimo $${Number(c.compraMinima).toLocaleString('es-CO')})`
                               : 'Total del tiquete (opcional)'
                           }
                           value={montoTiquete[c.id] ?? ''}
-                          // Solo dígitos. En Colombia el total se escribe
-                          // «12.500», y `Number('12.500')` es 12,5: el backend
-                          // lo rechazaba por no ser entero y le pintaba al
-                          // cajero el error de class-validator EN INGLÉS, con
-                          // el cliente delante.
+                          // Se guarda lo escrito (dígitos, punto y coma) y
+                          // `leerMonto` lo interpreta al registrar: «12.500» es
+                          // doce mil quinientos y «25,50» lleva decimales.
+                          // Antes se borraba todo lo que no fuera dígito y los
+                          // decimales desaparecían (2026-10-08).
                           onChange={(e) =>
                             setMontoTiquete({
                               ...montoTiquete,
-                              [c.id]: e.target.value.replace(/\D/g, ''),
+                              [c.id]: e.target.value.replace(/[^\d.,]/g, ''),
                             })
                           }
                         />
@@ -1753,12 +1754,15 @@ export default function ScanPage() {
                       <button
                         className="btn btn-primary w-full justify-center mt-2"
                         disabled={busy}
-                        onClick={() =>
-                          canjearConvenio(
-                            c.id,
-                            montoTiquete[c.id] ? Number(montoTiquete[c.id]) : null,
-                          )
-                        }
+                        onClick={() => {
+                          const escrito = montoTiquete[c.id] ?? '';
+                          const monto = escrito ? leerMonto(escrito) : null;
+                          if (escrito && monto == null) {
+                            setErr('Ese total no es un monto válido. Escríbelo así: 25000, 25.500 o 25,50.');
+                            return;
+                          }
+                          canjearConvenio(c.id, monto);
+                        }}
                       >
                         {/* Dice las DOS cosas que tiene que hacer: el descuento
                             lo mete él en la caja, esto solo lo registra. */}
@@ -2158,9 +2162,9 @@ export default function ScanPage() {
                 onSubmit={async (e) => {
                   e.preventDefault();
                   setPurchaseErr(null);
-                  const amt = Number(purchaseAmount);
+                  const amt = leerMonto(purchaseAmount);
                   if (!amt || amt <= 0) {
-                    setPurchaseErr('Ingresa el monto de la compra');
+                    setPurchaseErr('Ingresa el monto de la compra (puede llevar decimales: 25,50)');
                     return;
                   }
                   setBusy(true);
@@ -2183,15 +2187,16 @@ export default function ScanPage() {
                       $
                     </span>
                     <input
-                      type="number"
-                      min={0}
-                      step="0.01"
+                      // Texto y no `type="number"`: con el teclado en español
+                      // (coma decimal) Chrome para Android deja vacío un
+                      // número escrito con coma. `leerMonto` acepta los dos.
+                      type="text"
                       autoFocus
                       inputMode="decimal"
                       className="input pl-7 text-lg font-semibold"
                       value={purchaseAmount}
-                      onChange={(e) => setPurchaseAmount(e.target.value)}
-                      placeholder="0.00"
+                      onChange={(e) => setPurchaseAmount(e.target.value.replace(/[^\d.,]/g, ''))}
+                      placeholder="0,00"
                     />
                   </div>
                   <div className="text-[11px] text-mute mt-1.5 leading-snug">
@@ -2292,8 +2297,12 @@ function CashbackActions({
   cashbackPercent: number;
   busy: boolean;
 }) {
-  const [purchase, setPurchase] = useState<number>(0);
-  const [redeem, setRedeem] = useState<number>(0);
+  // Lo escrito, tal cual; el número sale de `leerMonto` (admite decimales con
+  // coma o punto, y «12.500» como miles).
+  const [purchaseTxt, setPurchaseTxt] = useState('');
+  const [redeemTxt, setRedeemTxt] = useState('');
+  const purchase = leerMonto(purchaseTxt) ?? 0;
+  const redeem = leerMonto(redeemTxt) ?? 0;
   const earned = Math.round((purchase * cashbackPercent) / 100);
   return (
     <div className="mt-5 space-y-3">
@@ -2301,20 +2310,19 @@ function CashbackActions({
         <div className="text-xs font-semibold mb-2">💰 Sumar cashback</div>
         <div className="flex gap-2">
           <input
-            type="number"
-            min={0}
-            step={1000}
+            type="text"
+            inputMode="decimal"
             placeholder="Monto compra"
             className="input flex-1"
-            value={purchase || ''}
-            onChange={(e) => setPurchase(Number(e.target.value))}
+            value={purchaseTxt}
+            onChange={(e) => setPurchaseTxt(e.target.value.replace(/[^\d.,]/g, ''))}
           />
           <button
             className="btn-primary px-4"
             disabled={busy || earned <= 0}
             onClick={() => {
               onAdd(earned, purchase);
-              setPurchase(0);
+              setPurchaseTxt('');
             }}
           >
             +${earned.toLocaleString('es-CO')}
@@ -2329,20 +2337,19 @@ function CashbackActions({
         <div className="text-xs font-semibold mb-2">🎁 Canjear saldo</div>
         <div className="flex gap-2">
           <input
-            type="number"
-            min={0}
-            step={1000}
+            type="text"
+            inputMode="decimal"
             placeholder="Monto a usar"
             className="input flex-1"
-            value={redeem || ''}
-            onChange={(e) => setRedeem(Number(e.target.value))}
+            value={redeemTxt}
+            onChange={(e) => setRedeemTxt(e.target.value.replace(/[^\d.,]/g, ''))}
           />
           <button
             className="btn-ghost px-4"
             disabled={busy || redeem <= 0}
             onClick={() => {
               onRedeem(redeem);
-              setRedeem(0);
+              setRedeemTxt('');
             }}
           >
             -${redeem.toLocaleString('es-CO')}
@@ -2365,7 +2372,9 @@ function PointsActions({
   pointsPerCurrency: number;
   busy: boolean;
 }) {
-  const [purchase, setPurchase] = useState<number>(0);
+  // El monto admite decimales (`leerMonto`); los puntos a quitar son enteros.
+  const [purchaseTxt, setPurchaseTxt] = useState('');
+  const purchase = leerMonto(purchaseTxt) ?? 0;
   const [deduct, setDeduct] = useState<number>(0);
   const earnedPts = Math.round(purchase * pointsPerCurrency);
   return (
@@ -2374,20 +2383,19 @@ function PointsActions({
         <div className="text-xs font-semibold mb-2">⭐ Sumar puntos</div>
         <div className="flex gap-2">
           <input
-            type="number"
-            min={0}
-            step={1000}
+            type="text"
+            inputMode="decimal"
             placeholder="Monto compra"
             className="input flex-1"
-            value={purchase || ''}
-            onChange={(e) => setPurchase(Number(e.target.value))}
+            value={purchaseTxt}
+            onChange={(e) => setPurchaseTxt(e.target.value.replace(/[^\d.,]/g, ''))}
           />
           <button
             className="btn-primary px-4"
             disabled={busy || earnedPts <= 0}
             onClick={() => {
               onAdd(earnedPts);
-              setPurchase(0);
+              setPurchaseTxt('');
             }}
           >
             +{earnedPts} pts
