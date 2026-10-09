@@ -8,6 +8,36 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-09 (126) — DESPLEGADO: pedidos agendados + menú armado en el HTML
+
+PR #323 (`42952e3c`) fusionado y desplegado por Javier (migración
+`apply-pedidos-agendados-migration.cjs` → backend → frontend
+`dpl_9vrUa7U6…`). Incluye la rama `perf/menu-ssr-2026-10-07`.
+
+Verificado contra el dominio: el HTML de `/m/konys` trae el menú; el código
+de Pedidos y de Menú trae «agendados»; el backend acepta `clientRequestId`
+(POST a un negocio inexistente → «Negocio no disponible», no un error de
+campo). **ORDEN OBLIGATORIO** en cualquier redespliegue o reversión: el
+frontend nuevo manda `clientRequestId` en TODOS los pedidos; un backend
+anterior lo rechaza y no entra ningún pedido.
+
+**Pedidos agendados v1** (solo domicilio, opcional por negocio): chip en Menú
+con ⚙ Ajustes (anticipación por defecto 48 h, máximo 30 días) guardados en
+`Storefront.theme.pedidosAgendados`; selector «Ahora | Agendar pedido» junto
+al carrito en `/d/`; con la función activa y el domicilio cerrado, solo se
+agenda; `Order.scheduledFor`; aviso «AGENDADO - …» por SMS/WhatsApp; botón
+«Pedidos agendados (N)» y etiqueta en Pedidos. Idempotencia de TODOS los
+pedidos con `Order.clientRequestId` (índice único parcial).
+
+**Pendiente de decidir:** la empresa de Red de Domicilios recibe el aviso del
+pedido agendado al crearse (podría despacharlo ya); SMS/correo al cliente y
+automatizaciones no mencionan la fecha; el stock se descuenta al crear.
+**Sigue pendiente:** base por la red interna de Railway (`latencyMs` 380):
+con el menú armado en el servidor, una visita en frío espera al backend
+(tope 4 s). CI: la cuponera `POST /cuponera/public/family-link` queda en
+rojo a propósito (llave = teléfono/correo del titular, adivinable; para
+Jhon) y `npm audit` con CVE nuevas de terceros.
+
 ## 2026-10-08 (125) — Decimales en el escáner, impresora por negocio, cartel de fidelización y QR en blanco
 
 Desplegado por Javier (frontend `dpl_9UZakS5c…`, backend con migración
