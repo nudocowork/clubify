@@ -862,6 +862,19 @@
     "zoom": "Zoom"
   },
   "app_menu": {
+    "scheduledOnBtn": "📅 Scheduled orders: ON",
+    "scheduledOffBtn": "📅 Scheduled orders: OFF",
+    "scheduledTitle": "Scheduled orders — on the delivery menu, customers can pick a delivery day and time. When the business is closed, they can schedule instead of leaving.",
+    "scheduledSettingsBtn": "Settings",
+    "scheduledSettingsHint": "Delivery only. Times are offered every 30 minutes within your delivery hours (no hours set: 8:00 a.m. to 8:00 p.m.).",
+    "scheduledMinNotice": "Minimum notice",
+    "scheduledUnitDays": "days",
+    "scheduledUnitHours": "hours",
+    "scheduledMaxDays": "How many days ahead",
+    "scheduledSave": "Save",
+    "scheduledOnToast": "Scheduled orders enabled — customers can pick a delivery day and time",
+    "scheduledOffToast": "Scheduled orders disabled",
+    "scheduledSavedToast": "Settings saved",
     "absolutePricePlaceholder": "price",
     "add": "Add",
     "addExtra": "+ Extra",
@@ -3748,6 +3761,18 @@
     "sendByWhatsapp": "Send by WhatsApp"
   },
   "app_orders": {
+    "scheduledBtn": "Scheduled orders ({count})",
+    "scheduledBtnHint": "Delivery orders with a requested date and time",
+    "scheduledViewTitle": "Scheduled orders",
+    "scheduledFilterToday": "Today",
+    "scheduledFilterTomorrow": "Tomorrow",
+    "scheduledFilterWeek": "Next 7 days",
+    "scheduledFilterAll": "All",
+    "scheduledEmpty": "No scheduled orders in this range.",
+    "scheduledTag": "Scheduled {when}",
+    "scheduledStatusCancelled": "Cancelled",
+    "scheduledLoading": "Loading…",
+    "scheduledClose": "Close",
     "allLocations": "All locations",
     "avgPrepLabel": "avg prep",
     "avgPrepMinutes": "{min}m",
@@ -4279,6 +4304,8 @@
     "save": "Save"
   },
   "app_orders_id": {
+    "scheduledForTitle": "Scheduled delivery",
+    "ticketScheduled": "SCHEDULED",
     "acceptDeliveryBtn": "✓ Accept payment + dispatch 🛵",
     "acceptDeliveryTooltip": "Marks payment as collected and opens WhatsApp to the delivery courier",
     "activityTitle": "Activity",

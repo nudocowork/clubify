@@ -290,3 +290,58 @@ describe('el aviso por SMS al negocio', () => {
     expect(t).not.toContain('AGENDADO');
   });
 });
+
+describe('GET /orders/agendados', () => {
+  function montarPanel(rol: string, sedeDelEmpleado: string | null = null) {
+    const prisma: any = {
+      tenant: { findUnique: vi.fn(async () => ({ timezone: 'America/Bogota' })) },
+      user: { findUnique: vi.fn(async () => ({ locationId: sedeDelEmpleado })) },
+      order: {
+        findMany: vi.fn(async () => [{ id: 'o1', scheduledFor: new Date(SABADO_1930) }]),
+        count: vi.fn(async () => 3),
+      },
+      storefront: { findUnique: vi.fn(async () => ({ theme: AGENDADOS_ON })) },
+    };
+    const svc = new OrdersService(
+      prisma,
+      sinEfecto, sinEfecto, sinEfecto, sinEfecto, sinEfecto, sinEfecto, sinEfecto,
+      sinEfecto, sinEfecto, sinEfecto, sinEfecto, sinEfecto, sinEfecto,
+    );
+    const user = { id: 'u1', role: rol, tenantId: 't1' } as any;
+    return { svc, prisma, user };
+  }
+
+  it('solo los del negocio de quien mira, ordenados por la fecha pedida', async () => {
+    const { svc, prisma, user } = montarPanel('TENANT_OWNER');
+    const r = await svc.agendados(user, 'otro-negocio', 'hoy');
+    const q = prisma.order.findMany.mock.calls[0][0];
+    // El `tenantId` de la URL no vale para un dueño: manda su sesión.
+    expect(q.where.tenantId).toBe('t1');
+    expect(q.orderBy).toEqual({ scheduledFor: 'asc' });
+    // «Hoy» = el día entero del negocio (jueves 8 en Bogotá).
+    expect(q.where.AND).toContainEqual({
+      scheduledFor: {
+        gte: new Date('2026-10-08T05:00:00Z'),
+        lt: new Date('2026-10-09T05:00:00Z'),
+      },
+    });
+    expect(prisma.order.count.mock.calls[0][0].where.tenantId).toBe('t1');
+    expect(r).toMatchObject({ zona: 'America/Bogota', filtro: 'hoy', activo: true, futuros: 3 });
+  });
+
+  it('un empleado «solo pedidos» ve los de su sede y los sin sede, igual que en el tablero', async () => {
+    const { svc, prisma, user } = montarPanel('TENANT_ORDERS', 'sede-norte');
+    await svc.agendados(user, undefined, 'todos', 'sede-sur');
+    const and = prisma.order.findMany.mock.calls[0][0].where.AND;
+    expect(and).toContainEqual({ OR: [{ locationId: 'sede-norte' }, { locationId: null }] });
+    expect(and).not.toContainEqual({ locationId: 'sede-sur' });
+  });
+
+  it('un filtro desconocido cae a «todos», que incluye los atrasados sin entregar', async () => {
+    const { svc, prisma, user } = montarPanel('TENANT_OWNER');
+    const r = await svc.agendados(user, undefined, 'lo-que-sea');
+    expect(r.filtro).toBe('todos');
+    const and = prisma.order.findMany.mock.calls[0][0].where.AND;
+    expect(JSON.stringify(and)).toContain('"notIn":["CANCELLED","DELIVERED"]');
+  });
+});

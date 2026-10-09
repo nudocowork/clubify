@@ -1754,7 +1754,7 @@ export class OrdersService {
       f === 'todos'
         ? { OR: [{ scheduledFor: { gte: desde } }, VIVOS] }
         : { scheduledFor: { gte: desde, ...(hasta ? { lt: hasta } : {}) } };
-    const [pedidos, futuros] = await Promise.all([
+    const [pedidos, futuros, sf] = await Promise.all([
       this.prisma.order.findMany({
         where: { tenantId: tid, AND: [...y, enRango] },
         include: { customer: { select: { fullName: true, phone: true } } },
@@ -1764,8 +1764,12 @@ export class OrdersService {
       this.prisma.order.count({
         where: { tenantId: tid, AND: [...y, { scheduledFor: { gt: ahora } }, VIVOS] },
       }),
+      // Si la función está encendida: el panel enseña el botón aunque aún no
+      // haya ninguno, y lo esconde a los negocios que no la usan.
+      this.prisma.storefront.findUnique({ where: { tenantId: tid }, select: { theme: true } }),
     ]);
-    return { zona, filtro: f, futuros, pedidos };
+    const activo = leerAjustesAgendado(sf?.theme).activo;
+    return { zona, filtro: f, activo, futuros, pedidos };
   }
 
   /** Zona del negocio para pintar horas en el panel. Ver `zonaUtilizable`. */

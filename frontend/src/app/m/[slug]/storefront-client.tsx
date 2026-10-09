@@ -1,5 +1,5 @@
 'use client';
-import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as ReactDOM from 'react-dom';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
@@ -10,9 +10,16 @@ import {
   type StorefrontMode,
 } from '@/lib/menu/storefront-mode';
 import {
+  enDoceHoras,
   estaAbierto,
   proximaApertura,
 } from '@/lib/horario-de-domicilios.mjs';
+import {
+  describirAgendado,
+  fechaEn,
+  franjasDeAgendado,
+  nuevoIdDeIntento,
+} from '@/lib/pedidos-agendados.mjs';
 import {
   addToCart,
   cartTotals,
@@ -189,6 +196,10 @@ type Storefront = {
    *  domicilio (gateado); pickup = recoger en tienda; dineIn = pedido en mesa.
    *  Ausente en payloads viejos → se cae a solo-domicilio. */
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Pedidos agendados (solo domicilio). null/ausente = la función está
+   *  apagada y el menú no enseña nada nuevo. Las horas libres se calculan
+   *  aquí con el reloj del cliente (ver `lib/pedidos-agendados.mjs`). */
+  pedidosAgendados?: { anticipacionHoras: number; diasMaximos: number } | null;
   /** Oficina del enlace (`?oficina=<id de la carta>`), resuelta por el
    *  backend. null o ausente = el menú de siempre. */
   oficina?: { id: string; nombre: string } | null;
@@ -750,6 +761,37 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
     } catch {}
   }, [slug]);
 
+  // PEDIDOS AGENDADOS: «Ahora» o «Agendar pedido», elegido junto al carrito.
+  //
+  // Arranca SIEMPRE en «ahora» (también en el HTML del servidor, para no
+  // romper la hidratación) y la elección se recuerda en la pestaña: quien
+  // eligió agendar y vuelve del carrito a seguir mirando no tiene que volver a
+  // elegirlo. sessionStorage y no localStorage: mañana es otra compra.
+  const claveModo = `clubify:agendar:${slug}`;
+  const [modoEntrega, setModoEntregaEstado] = useState<'ahora' | 'agendar'>('ahora');
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(claveModo) === 'agendar') setModoEntregaEstado('agendar');
+    } catch {
+      /* modo privado: se queda en «ahora», que es lo de siempre */
+    }
+  }, [claveModo]);
+  const setModoEntrega = (m: 'ahora' | 'agendar') => {
+    setModoEntregaEstado(m);
+    try {
+      sessionStorage.setItem(claveModo, m);
+    } catch {
+      /* sin almacenamiento: vale para esta vista */
+    }
+  };
+  // Reloj del selector junto al carrito: al pasar la hora de cierre, «Ahora»
+  // se apaga solo. Cada minuto basta: el checkout lleva su propio reloj.
+  const [relojDock, setRelojDock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setRelojDock(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Backend manda la sección virtual "Recomendados" con nombre/tagline
   // hardcodeados en español. La sustituimos por las claves i18n al render.
   // Fase 2 hará lo propio para el resto del contenido dinámico (nombres
@@ -856,6 +898,19 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
   //   `ordersWhatsappEnabled` fue eliminado — no tiene sentido "delivery
   //   con carrito pero sin canal para enviar el pedido".
   const showWhatsappButton = ordersAllowed && !!s.whatsappPhone;
+  // «Ahora | Agendar pedido» solo en el menú de domicilios, con la función
+  // encendida y el domicilio disponible. Con la función apagada no aparece
+  // nada nuevo. Si el domicilio está fuera de horario, «Ahora» se apaga y se
+  // ofrece solo agendar: es el cliente que antes se iba sin pedir.
+  const agendarDisponible =
+    mode === 'delivery' &&
+    deliveryOn &&
+    s.fulfillment?.delivery !== false &&
+    !!s.pedidosAgendados;
+  const cerradoAhoraDock =
+    agendarDisponible &&
+    !estaAbierto(s.horarioDomicilios, new Date(relojDock), s.timezone || 'America/Bogota');
+  const modoDock: 'ahora' | 'agendar' = cerradoAhoraDock ? 'agendar' : modoEntrega;
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
   // Fondo de la página: tipo SOLID|GRADIENT|IMAGE. El dueño elige desde
@@ -1355,6 +1410,44 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
               : 'bg-gradient-to-t from-white to-white/80'
           }`}
         >
+          {/* Junto al botón del carrito y no en la carta: es donde el cliente
+              decide «pido ya o lo dejo para otro día», y no le tapa nada del
+              menú mientras mira. El checkout repite la elección arriba. */}
+          {agendarDisponible && (
+            <div className="mb-2 flex flex-col items-center gap-1 animate-in fade-in duration-200">
+              <div
+                role="radiogroup"
+                aria-label={tt('agendar.section_title')}
+                className="inline-flex gap-0.5 bg-white border border-line rounded-pill p-0.5 text-xs shadow-sm"
+              >
+                {(['ahora', 'agendar'] as const).map((m) => {
+                  const activo = modoDock === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      role="radio"
+                      aria-checked={activo}
+                      disabled={m === 'ahora' && cerradoAhoraDock}
+                      onClick={() => setModoEntrega(m)}
+                      data-modo-entrega={m}
+                      className={`px-3.5 py-1.5 rounded-pill font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                        activo ? 'text-white shadow-sm' : 'text-mute hover:text-ink'
+                      }`}
+                      style={activo ? { background: primary } : undefined}
+                    >
+                      {m === 'ahora' ? tt('agendar.now') : tt('agendar.schedule')}
+                    </button>
+                  );
+                })}
+              </div>
+              {cerradoAhoraDock && (
+                <div className="text-[11px] font-medium text-ink bg-white/95 border border-line rounded-pill px-2.5 py-0.5 shadow-sm">
+                  {tt('agendar.closed_notice')}
+                </div>
+              )}
+            </div>
+          )}
           <button
             onClick={() => setShowCart(true)}
             className="w-full rounded-pill text-white font-semibold py-3.5 flex items-center justify-between px-5 shadow-lg hover:opacity-95 active:scale-[0.98] transition animate-in slide-in-from-bottom-4 duration-200"
@@ -1437,6 +1530,9 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
           horarioDomicilios={s.horarioDomicilios}
           zonaDelNegocio={s.timezone}
           acceptedPaymentMethods={s.acceptedPaymentMethods}
+          pedidosAgendados={agendarDisponible ? s.pedidosAgendados ?? null : null}
+          modoEntrega={modoEntrega}
+          onModoEntrega={setModoEntrega}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -2162,6 +2258,9 @@ function CheckoutSheet({
   acceptedPaymentMethods,
   sedeDelQr,
   oficina,
+  pedidosAgendados,
+  modoEntrega = 'ahora',
+  onModoEntrega,
   onClose,
 }: {
   items: CartItem[];
@@ -2187,9 +2286,15 @@ function CheckoutSheet({
   zonaDelNegocio?: string;
   /** Métodos de pago que acepta el negocio. Ausente → se ofrecen todos. */
   acceptedPaymentMethods?: string[];
+  /** Ajustes de pedidos agendados del negocio; null = función apagada. */
+  pedidosAgendados?: { anticipacionHoras: number; diasMaximos: number } | null;
+  /** Lo que eligió el cliente junto al carrito. */
+  modoEntrega?: 'ahora' | 'agendar';
+  onModoEntrega?: (m: 'ahora' | 'agendar') => void;
   onClose: () => void;
 }) {
   const tt = useT();
+  const [idioma] = useLocale();
   // InitiateCheckout: abrir la hoja de pedido ES el inicio del checkout. Una
   // sola vez por apertura (el array vacío), no en cada tecla del formulario.
   useEffect(() => {
@@ -2291,6 +2396,113 @@ function CheckoutSheet({
     : proximaApertura(horarioDomicilios, new Date(ahora), zona);
   /** Solo estorba al domicilio: recoger y comer en mesa siguen igual. */
   const cerradoParaDomicilios = form.fulfillment === 'DELIVERY' && !abiertoAhora;
+
+  // PEDIDOS AGENDADOS. Solo a domicilio: si el cliente cambia a recoger o
+  // mesa, el modo agendar deja de aplicar y el pedido sale como siempre. Con
+  // el domicilio fuera de horario y la función encendida, agendar es la ÚNICA
+  // salida (en vez del bloqueo de abajo).
+  const agendarActivo = !!pedidosAgendados && form.fulfillment === 'DELIVERY';
+  const agendarForzado = agendarActivo && !abiertoAhora;
+  const modoAgendar = agendarActivo && (agendarForzado || modoEntrega === 'agendar');
+  // Se recalculan con el reloj de 30 s: una hora que deja de cumplir la
+  // anticipación mientras el cliente rellena se apaga sola.
+  const diasAgendables = useMemo(
+    () =>
+      pedidosAgendados
+        ? franjasDeAgendado({
+            horario: horarioDomicilios,
+            zona,
+            anticipacionHoras: pedidosAgendados.anticipacionHoras,
+            diasMaximos: pedidosAgendados.diasMaximos,
+            ahora: new Date(ahora),
+          })
+        : [],
+    [pedidosAgendados, horarioDomicilios, zona, ahora],
+  );
+  const [fechaElegida, setFechaElegida] = useState<string | null>(null);
+  const [instanteElegido, setInstanteElegido] = useState<string | null>(null);
+  useEffect(() => {
+    if (!instanteElegido) return;
+    const sigue = diasAgendables.some((d) =>
+      d.horas.some((h) => h.instante === instanteElegido && h.disponible),
+    );
+    if (!sigue) setInstanteElegido(null);
+  }, [diasAgendables, instanteElegido]);
+  const diaActivo =
+    diasAgendables.find((d) => d.fecha === fechaElegida && d.disponible) ??
+    diasAgendables.find((d) => d.disponible) ??
+    null;
+  /** El bloqueo de «cerrado» de siempre, salvo cuando se está agendando. */
+  const bloqueadoPorHorario = cerradoParaDomicilios && !modoAgendar;
+  // UN ID POR INTENTO DE COMPRA, estable mientras esta hoja esté abierta: el
+  // doble toque o el reintento tras un error de red mandan el MISMO id y el
+  // servidor devuelve el pedido ya creado en vez de crear otro.
+  const idDeIntento = useRef('');
+  if (!idDeIntento.current) idDeIntento.current = nuevoIdDeIntento();
+  // Candado síncrono: dos toques en el mismo instante llegan antes de que
+  // React pinte el botón deshabilitado.
+  const enviando = useRef(false);
+
+  // «Hoy» y «Mañana» son días del NEGOCIO; la fecha ya viene en su zona, así
+  // que sumar un día es una cuenta de calendario (en UTC a propósito).
+  const hoyLocal = fechaEn(new Date(ahora), zona);
+  const [hy, hm, hd] = hoyLocal.split('-').map(Number);
+  const mananaLocal = new Date(Date.UTC(hy, hm - 1, hd + 1)).toISOString().slice(0, 10);
+  const etiquetaDia = (fecha: string) => {
+    const [y, m, d] = fecha.split('-').map(Number);
+    const mediodia = new Date(Date.UTC(y, m - 1, d, 12));
+    const sinPunto = (t: string) => t.replace(/\.$/, '');
+    const fmt = (o: Intl.DateTimeFormatOptions) => {
+      try {
+        return sinPunto(new Intl.DateTimeFormat(idioma, { ...o, timeZone: 'UTC' }).format(mediodia));
+      } catch {
+        return sinPunto(new Intl.DateTimeFormat('es', { ...o, timeZone: 'UTC' }).format(mediodia));
+      }
+    };
+    return {
+      arriba:
+        fecha === hoyLocal
+          ? tt('agendar.today')
+          : fecha === mananaLocal
+            ? tt('agendar.tomorrow')
+            : fmt({ weekday: 'short' }),
+      dia: d,
+      mes: fmt({ month: 'short' }),
+    };
+  };
+  const horaEnTexto = (h: { minutos: number; instante: string }) => {
+    if (idioma === 'es') return enDoceHoras(h.minutos);
+    try {
+      return new Intl.DateTimeFormat(idioma, { hour: 'numeric', minute: '2-digit', timeZone: zona }).format(
+        new Date(h.instante),
+      );
+    } catch {
+      return enDoceHoras(h.minutos);
+    }
+  };
+  const agendadoEnTexto = (instante: string) => {
+    if (idioma === 'es') return describirAgendado(instante, zona).largo;
+    try {
+      return new Intl.DateTimeFormat(idioma, {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: zona,
+      }).format(new Date(instante));
+    } catch {
+      return describirAgendado(instante, zona).largo;
+    }
+  };
+  const avisoAnticipacion = (() => {
+    const h = pedidosAgendados?.anticipacionHoras ?? 0;
+    if (h <= 0) return null;
+    if (h % 24 === 0) {
+      return h === 24 ? tt('agendar.notice_day') : tt('agendar.notice_days', { n: h / 24 });
+    }
+    return h === 1 ? tt('agendar.notice_hour') : tt('agendar.notice_hours', { n: h });
+  })();
   /** ¿Esta marca pide datos de facturación al pedir? */
   const pideFacturacion = MARCAS_CON_FACTURACION.has(brandSlug ?? '');
 
@@ -2411,6 +2623,7 @@ function CheckoutSheet({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (enviando.current) return;
     setErr(null);
 
     // El WhatsApp es OBLIGATORIO y tiene que parecer un teléfono.
@@ -2466,6 +2679,12 @@ function CheckoutSheet({
       return;
     }
 
+    if (modoAgendar && !instanteElegido) {
+      setErr(tt('agendar.error_pick'));
+      return;
+    }
+
+    enviando.current = true;
     setSubmitting(true);
     try {
       const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
@@ -2524,6 +2743,9 @@ function CheckoutSheet({
           locationId: effectiveSedeId || undefined,
           mode: orderModeFor(mode),
           oficinaId: enOficina && oficina ? oficina.id : undefined,
+          // Solo si se está agendando (domicilio con la función encendida).
+          scheduledFor: modoAgendar && instanteElegido ? instanteElegido : undefined,
+          clientRequestId: idDeIntento.current,
         }),
       });
       if (!res.ok) {
@@ -2622,6 +2844,9 @@ function CheckoutSheet({
     } catch (e: any) {
       setErr(e.message);
       setSubmitting(false);
+      // Se suelta el candado pero NO se cambia el id: si el pedido sí entró y
+      // lo que falló fue la respuesta, el reintento devuelve ese mismo pedido.
+      enviando.current = false;
     }
   }
 
@@ -2706,6 +2931,106 @@ function CheckoutSheet({
                 <span>
                   {tt('checkout.table_locked', { n: form.tableNumber })}
                 </span>
+              </div>
+            )}
+
+            {/* TIEMPO DE ENTREGA de un pedido agendado: día y hora.
+                No existía ningún selector de fecha en el producto; este va con
+                las piezas del checkout (mismo borde, mismo color del negocio en
+                lo elegido) y solo ofrece lo que se puede pedir: lo demás sale
+                deshabilitado para que se entienda por qué no. */}
+            {modoAgendar && pedidosAgendados && (
+              <div
+                className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200"
+                data-seccion="tiempo-de-entrega"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                    {tt('agendar.section_title')}
+                  </div>
+                  {!agendarForzado && (
+                    <button
+                      type="button"
+                      onClick={() => onModoEntrega?.('ahora')}
+                      className="text-[11px] font-semibold text-mute underline underline-offset-2 hover:text-ink"
+                    >
+                      {tt('agendar.back_to_now')}
+                    </button>
+                  )}
+                </div>
+                {agendarForzado && (
+                  <div className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[11px] text-amber-900 leading-snug">
+                    {tt('agendar.closed_notice')}
+                  </div>
+                )}
+                {avisoAnticipacion && (
+                  <div className="text-[11px] text-mute leading-snug">{avisoAnticipacion}</div>
+                )}
+                {diaActivo ? (
+                  <>
+                    <div>
+                      <div className="label">{tt('agendar.date')}</div>
+                      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
+                        {diasAgendables.map((d) => {
+                          const activo = diaActivo.fecha === d.fecha;
+                          const e = etiquetaDia(d.fecha);
+                          return (
+                            <button
+                              key={d.fecha}
+                              type="button"
+                              disabled={!d.disponible}
+                              aria-pressed={activo}
+                              title={d.disponible ? undefined : tt('agendar.closed_day')}
+                              data-fecha={d.fecha}
+                              onClick={() => {
+                                setFechaElegida(d.fecha);
+                                if (!d.horas.some((h) => h.instante === instanteElegido)) {
+                                  setInstanteElegido(null);
+                                }
+                              }}
+                              className={`snap-start flex-none w-[58px] rounded-lg border py-1.5 text-center transition disabled:opacity-35 disabled:cursor-not-allowed ${
+                                activo ? 'text-white border-transparent' : 'border-line bg-white text-ink'
+                              }`}
+                              style={activo ? { background: primary } : undefined}
+                            >
+                              <div className="text-[10px] uppercase font-semibold tracking-wide opacity-80 truncate px-0.5">
+                                {e.arriba}
+                              </div>
+                              <div className="text-lg font-bold leading-tight">{e.dia}</div>
+                              <div className="text-[10px] opacity-80">{e.mes}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="label">{tt('agendar.time')}</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {diaActivo.horas.map((h) => {
+                          const activo = instanteElegido === h.instante;
+                          return (
+                            <button
+                              key={h.instante}
+                              type="button"
+                              disabled={!h.disponible}
+                              aria-pressed={activo}
+                              data-instante={h.instante}
+                              onClick={() => setInstanteElegido(h.instante)}
+                              className={`rounded-lg border py-2 text-[13px] font-medium transition disabled:opacity-35 disabled:cursor-not-allowed ${
+                                activo ? 'text-white border-transparent' : 'border-line bg-white text-ink'
+                              }`}
+                              style={activo ? { background: primary } : undefined}
+                            >
+                              {horaEnTexto(h)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-mute">{tt('agendar.no_slots')}</div>
+                )}
               </div>
             )}
 
@@ -3080,16 +3405,35 @@ function CheckoutSheet({
               nadie al otro lado (Javier, 2026-09-25). El backend lo rechaza
               igual: esto es para que no llegue a intentarlo.
             */}
-            {cerradoParaDomicilios && (
+            {bloqueadoPorHorario && (
               <div className="rounded-lg bg-warn-soft border border-warn px-3 py-2.5 text-sm text-warn-ink">
                 <strong>No estamos recibiendo domicilios ahora.</strong>
                 {vuelveA ? ` Vuelve ${vuelveA}.` : ''}
               </div>
             )}
 
+            {/* Resumen del agendado, pegado al botón: es lo último que se lee
+                antes de enviar, y un día equivocado aquí es un pedido perdido. */}
+            {modoAgendar && instanteElegido && (
+              <div
+                className="rounded-lg border border-line bg-white px-3 py-2.5 text-sm flex items-center gap-2"
+                data-resumen-agendado
+              >
+                <span
+                  className="inline-flex items-center rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white flex-none"
+                  style={{ background: primary }}
+                >
+                  {tt('agendar.badge')}
+                </span>
+                <span className="font-medium leading-snug">
+                  {tt('agendar.summary', { when: agendadoEnTexto(instanteElegido) })}
+                </span>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={submitting || cerradoParaDomicilios}
+              disabled={submitting || bloqueadoPorHorario}
               className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.98] transition shadow-md"
               style={{ background: primary }}
             >
