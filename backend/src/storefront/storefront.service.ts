@@ -10,6 +10,7 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { hasAdminBypass } from '../common/roles/admin-bypass';
 import { normalizeAcceptedPaymentMethods } from '../common/customer-payment';
 import { safeUrlOrNull } from '../common/util/safe-url';
+import { validarAjustesAgendado } from '../orders/pedidos-agendados';
 
 export type StorefrontDto = {
   description?: string;
@@ -24,6 +25,9 @@ export type StorefrontDto = {
   // theme.menuPopups). Domicilio sigue en la columna ordersDeliveryEnabled.
   fulfillmentPickupEnabled?: boolean;
   fulfillmentDineInEnabled?: boolean;
+  // Pedidos agendados (solo domicilio): theme.pedidosAgendados. Ver
+  // `orders/pedidos-agendados.ts`.
+  pedidosAgendados?: Record<string, unknown>;
   // Métodos de pago aceptados en el checkout. Van a theme.paymentMethods
   // (JSON, sin migración, igual que theme.fulfillment). undefined = no tocar;
   // [] = reset a «todos» (se borra la clave — nunca guardamos lista vacía).
@@ -161,10 +165,19 @@ export class StorefrontService {
     // theme (menuPopups, etc.). Solo se lee/reescribe theme cuando el dto
     // toca alguno de estos campos.
     let themeToWrite = dto.theme;
+    // Se valida ANTES de leer nada: un rango imposible (máximo menor que la
+    // anticipación) dejaría al cliente con el selector vacío y sin saber por
+    // qué. Mejor que el dueño lo vea al guardar.
+    const agendados =
+      dto.pedidosAgendados !== undefined
+        ? validarAjustesAgendado(dto.pedidosAgendados)
+        : null;
+    if (agendados && !agendados.ok) throw new BadRequestException(agendados.error);
     if (
       dto.fulfillmentPickupEnabled !== undefined ||
       dto.fulfillmentDineInEnabled !== undefined ||
-      dto.acceptedPaymentMethods !== undefined
+      dto.acceptedPaymentMethods !== undefined ||
+      agendados
     ) {
       const cur = await this.prisma.storefront.findUnique({
         where: { tenantId: tid },
@@ -177,6 +190,9 @@ export class StorefrontService {
       if (dto.fulfillmentDineInEnabled !== undefined)
         fulfillment.dineIn = dto.fulfillmentDineInEnabled;
       themeToWrite = { ...base, fulfillment };
+      // Se guarda SIEMPRE con los tres campos, ya validados: lo que lee el
+      // menú público y lo que valida `createPublic` salen de aquí.
+      if (agendados?.ok) themeToWrite.pedidosAgendados = agendados.ajustes;
       if (dto.acceptedPaymentMethods !== undefined) {
         const accepted = normalizeAcceptedPaymentMethods(
           dto.acceptedPaymentMethods,

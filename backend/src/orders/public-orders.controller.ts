@@ -12,6 +12,7 @@ import {
   IsEnum,
   IsIn,
   IsInt,
+  IsISO8601,
   IsObject,
   IsOptional,
   IsString,
@@ -94,6 +95,17 @@ class PublicOrderBody {
   @IsIn(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'OTRO'])
   customerPaymentMethod?: string;
   @IsOptional() @IsString() @MaxLength(80) customerPaymentOther?: string;
+  // PEDIDO AGENDADO: instante ISO de la entrega pedida. Solo domicilio y solo
+  // si el negocio lo tiene encendido; las reglas las aplica el servicio. Tiene
+  // que estar declarado: con `forbidNonWhitelisted` un campo desconocido
+  // tumba el pedido entero.
+  @IsOptional() @IsISO8601({ strict: true }) scheduledFor?: string;
+  // Id del intento de compra que genera el checkout (un uuid). Acotado para
+  // que no se pueda usar de almacén de texto.
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9-]{8,64}$/, { message: 'Id de intento no válido.' })
+  clientRequestId?: string;
 }
 
 class PublicRateBody {

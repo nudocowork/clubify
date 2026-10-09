@@ -5,6 +5,7 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { customerPaymentLabel } from '../common/customer-payment';
 import { oficinaDelPedido } from '../orders/pedido-en-oficina';
 import { primerTelefono } from '../orders/primer-telefono';
+import { describirAgendado } from '../orders/pedidos-agendados';
 import { brandEmailPanelUrl } from '../email/brand-email-creds.util';
 
 /**
@@ -191,8 +192,17 @@ export class ChannelsService {
     // (8fdca586); este mensaje se quedó fuera.
     const urlDelPedido = enlaceDelPedido(tenant, order.code);
 
+    // PEDIDO AGENDADO: justo debajo del número, en negrita. Es lo que cambia
+    // qué hace el negocio con el pedido —no se prepara ya—, así que no puede
+    // quedar perdido al final entre la dirección y las notas. En la zona del
+    // negocio, que es la hora a la que se entrega.
+    const agendadoLine = order.scheduledFor
+      ? `▸ *AGENDADO: ${describirAgendado(order.scheduledFor, tenant.timezone).largo}*`
+      : '';
+
     const lines = [
       `★ *Pedido #${order.code}*`,
+      agendadoLine,
       sedeLine,
       oficina ? `▸ Oficina: ${oficina.nombre}` : '',
       [customer.fullName, customer.phone].filter(Boolean).join(' · '),

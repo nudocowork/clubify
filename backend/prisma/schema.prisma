@@ -2478,6 +2478,26 @@ model Order {
   cancelledAt DateTime?
   createdAt   DateTime  @default(now())
 
+  /// PEDIDO AGENDADO: cuándo quiere el cliente que le llegue (solo domicilio).
+  /// Null = pedido para ahora, que es el de siempre. Se guarda el INSTANTE en
+  /// UTC; el panel y los avisos lo pintan en la zona del negocio. Las reglas
+  /// están en `orders/pedidos-agendados.ts`. Columna creada por
+  /// `scripts/apply-pedidos-agendados-migration.cjs`.
+  scheduledFor    DateTime? @db.Timestamptz(6)
+  /// Id del INTENTO de compra que genera el checkout público (un uuid por
+  /// apertura del checkout). Si el mismo intento llega dos veces —doble toque,
+  /// reintento tras un corte de red— se devuelve el pedido ya creado en vez de
+  /// crear otro. Null en los pedidos del panel y en los anteriores al cambio.
+  ///
+  /// ÍNDICE QUE NO ESTÁ AQUÍ: un ÚNICO PARCIAL
+  /// `Order_tenantId_clientRequestId_key ON ("tenantId","clientRequestId")
+  /// WHERE "clientRequestId" IS NOT NULL`. Es el que cierra la carrera de dos
+  /// envíos simultáneos (el segundo choca con P2002 y devuelve el primero).
+  /// Prisma no sabe expresar un índice parcial, así que vive solo en
+  /// `scripts/apply-pedidos-agendados-migration.cjs`. Un `prisma db push` lo
+  /// borraría —otra razón más para no correrlo nunca contra producción—.
+  clientRequestId String?
+
   // Calificación post-entrega (1-5 estrellas + comentario opcional)
   rating        Int?
   ratingComment String?
@@ -2496,6 +2516,8 @@ model Order {
   @@index([tenantId, locationId, status])
   @@index([customerId, createdAt])
   @@index([tenantId, ratedAt])
+  // Vista «Pedidos agendados» del panel: los de un negocio ordenados por fecha.
+  @@index([tenantId, scheduledFor])
 }
 
 model OrderEvent {

@@ -10,6 +10,7 @@ import {
 } from './aviso-de-pedido';
 import { oficinaDelPedido } from './pedido-en-oficina';
 import { primerTelefono } from './primer-telefono';
+import { describirAgendado } from './pedidos-agendados';
 import {
   brandGrowCreds,
   BRAND_GROW_SELECT,
@@ -68,6 +69,8 @@ export class OwnerOrderAlertService {
           // reaccionar sin abrir el panel. Ver `texto()`.
           items: true,
           deliveryAddress: true,
+          // Pedido agendado: el aviso lo dice en la primera línea.
+          scheduledFor: true,
           location: { select: { name: true } },
           customer: { select: { fullName: true, phone: true } },
         },
@@ -81,6 +84,8 @@ export class OwnerOrderAlertService {
           brandName: true,
           currency: true,
           currencySymbol: true,
+          // La hora de un pedido agendado se escribe en la del negocio.
+          timezone: true,
           ownerOrderAlertsEnabled: true,
           ownerOrderAlertsPhone: true,
           ownerOrderAlertsAccountId: true,
@@ -280,6 +285,8 @@ export class OwnerOrderAlertService {
       // pase— deja el aviso exactamente como era antes, sin huecos raros.
       items?: unknown;
       deliveryAddress?: unknown;
+      /** Entrega pedida de un pedido AGENDADO. Ausente o null = para ahora. */
+      scheduledFor?: Date | string | null;
       location?: { name: string | null } | null;
       // El teléfono ya venía en la consulta (`customer: { fullName, phone }`);
       // lo único que faltaba era usarlo.
@@ -287,6 +294,7 @@ export class OwnerOrderAlertService {
     },
     tenant: {
       currencySymbol: string | null;
+      timezone?: string | null;
       whiteLabel?: { domain?: string | null; appDomain?: string | null } | null;
     },
   ): string {
@@ -340,7 +348,18 @@ export class OwnerOrderAlertService {
     const segundaLinea = oficina
       ? origen
       : [tipo, origen].filter(Boolean).join('\n');
-    const cabecera = [`Nuevo pedido ${order.code}`, segundaLinea]
+    // PEDIDO AGENDADO: lo PRIMERO que se lee, antes que el código. Quien lo
+    // recibe en el mostrador tiene que saber de un vistazo que no es para
+    // prepararlo ya. Con guiones y no con «·»: el punto medio no está en
+    // GSM-7 y pasaría el SMS entero a 16 bits —el doble de segmentos en cada
+    // pedido agendado—. `paraSms` quita la tilde de «sáb».
+    const agendado = order.scheduledFor
+      ? paraSms(
+          `AGENDADO - ${describirAgendado(order.scheduledFor, tenant.timezone)
+            .corto.replace(/ · /g, ' - ')}`,
+        )
+      : '';
+    const cabecera = [agendado, `Nuevo pedido ${order.code}`, segundaLinea]
       .filter(Boolean)
       .join('\n');
     // EN LÍNEAS Y NO TODO SEGUIDO CON GUIONES.

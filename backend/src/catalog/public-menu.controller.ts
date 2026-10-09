@@ -18,6 +18,7 @@ const PUBLIC_CACHE =
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { leerHorario } from '../orders/horario-de-domicilios';
+import { leerAjustesAgendado } from '../orders/pedidos-agendados';
 import {
   indexarFilas,
   resolverEnSede,
@@ -315,6 +316,16 @@ export class PublicMenuController {
         pickup: !!(t.storefront?.theme as any)?.fulfillment?.pickup,
         dineIn: !!(t.storefront?.theme as any)?.fulfillment?.dineIn,
       },
+      // PEDIDOS AGENDADOS (solo domicilio). Solo los AJUSTES y solo si están
+      // encendidos: null = el menú no enseña nada nuevo. Las horas libres las
+      // calcula el cliente con su reloj, por lo mismo que el horario (esta
+      // respuesta se cachea minutos); `createPublic` vuelve a validar.
+      pedidosAgendados: (() => {
+        const a = leerAjustesAgendado(t.storefront?.theme);
+        return a.activo
+          ? { anticipacionHoras: a.anticipacionHoras, diasMaximos: a.diasMaximos }
+          : null;
+      })(),
       // Métodos de pago que el negocio acepta en el checkout (viven en
       // theme.paymentMethods, sin migración). Sin configurar → TODOS, para
       // que ningún negocio pierda opciones (ni ventas) por un default vacío.
