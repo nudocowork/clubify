@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { imprimirCon } from '@/lib/imprimir';
 import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
+import { describirAgendado } from '@/lib/pedidos-agendados.mjs';
 
 type OrderItem = {
   productId: string;
@@ -58,6 +59,10 @@ type Order = {
   readyAt: string | null;
   deliveredAt: string | null;
   cancelledAt: string | null;
+  /** Entrega pedida de un pedido AGENDADO (ISO, UTC). Null = para ahora. */
+  scheduledFor?: string | null;
+  /** Zona del negocio; el backend solo la manda en los agendados. */
+  zonaDelNegocio?: string;
   /** Null en una venta de mostrador. El nombre suelto va en `customerName`. */
   customer: { id: string; fullName: string; phone: string; email: string | null } | null;
   customerName?: string | null;
@@ -589,6 +594,19 @@ export default function OrderDetail() {
                 ? t('fulfillmentDineIn', { table: o.tableNumber ?? '' })
                 : t('fulfillmentDelivery')}
             </div>
+            {/* La fecha y hora que pidió el cliente, en la hora del negocio. Va
+                arriba del todo: cambia qué se hace con el pedido (no se
+                prepara ya). */}
+            {o.scheduledFor && (
+              <div className="mt-3 rounded-lg bg-brand-soft border border-brand/20 px-3 py-2.5">
+                <div className="text-[10px] font-bold tracking-[0.14em] uppercase text-brand-700">
+                  📅 {t('scheduledForTitle')}
+                </div>
+                <div className="text-sm font-semibold mt-0.5 text-ink">
+                  {describirAgendado(o.scheduledFor, o.zonaDelNegocio ?? 'America/Bogota').largo}
+                </div>
+              </div>
+            )}
             {o.location && (
               <div className="text-xs text-mute mt-1">
                 {o.location.name}
@@ -1138,6 +1156,13 @@ function KitchenTicket({ order }: { order: Order }) {
           <div className="ticket-code">#{order.code}</div>
           <div className="ticket-fulfillment">{fulfillmentLabel}</div>
         </div>
+        {/* Que la cocina no lo prepare ya: la fecha en el propio ticket. */}
+        {order.scheduledFor && (
+          <div className="ticket-fulfillment">
+            {t('ticketScheduled')}:{' '}
+            {describirAgendado(order.scheduledFor, order.zonaDelNegocio ?? 'America/Bogota').corto}
+          </div>
+        )}
         <div className="ticket-meta">
           {new Date(order.createdAt).toLocaleString('es-CO', {
             day: '2-digit',

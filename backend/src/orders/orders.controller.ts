@@ -130,6 +130,20 @@ export class OrdersController {
     return this.svc.board(user, tenantId, days ? Number(days) : 1, locationId);
   }
 
+  /**
+   * Pedidos agendados del negocio. `filtro` = hoy | manana | semana | todos.
+   * Va ANTES de `:id`: si no, el router tomaría «agendados» por un id.
+   */
+  @Get('agendados')
+  agendados(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('filtro') filtro?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.svc.agendados(user, tenantId, filtro, locationId);
+  }
+
   @Get('export.csv')
   async export(
     @CurrentUser() user: AuthUser,
@@ -184,8 +198,14 @@ export class OrdersController {
   }
 
   @Get(':id')
-  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.get(user, id);
+  async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const o = await this.svc.get(user, id);
+    // Un pedido agendado lleva la zona del negocio: la fecha pedida se pinta
+    // en SU hora, no en la del navegador de quien abre el detalle. Aquí y no en
+    // `svc.get`, que también usan `setStatus` y otros por dentro.
+    return o.scheduledFor
+      ? { ...o, zonaDelNegocio: await this.svc.zonaParaElPanel(o.tenantId) }
+      : o;
   }
 
   @Patch(':id/status')

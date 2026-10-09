@@ -58,6 +58,14 @@ import {
   orderReadyTemplate,
 } from '../email/templates/templates';
 import { fechaValida, minutosLocalesAUtc } from '../common/franjas-horarias';
+import {
+  describirAgendado,
+  ES_ID_DE_INTENTO,
+  leerAjustesAgendado,
+  rangoDelFiltro,
+  validarAgendado,
+  type FiltroAgendados,
+} from './pedidos-agendados';
 import { NEGOCIO_PARA_EL_DOMICILIARIO } from '../channels/channels.service';
 
 /**
@@ -227,6 +235,12 @@ export type CreateOrderDto = {
   // Método de pago declarado por el cliente (informativo). PDF 2026-07-25.
   customerPaymentMethod?: string;
   customerPaymentOther?: string;
+  // PEDIDO AGENDADO: instante ISO en que el cliente quiere el domicilio. Solo
+  // si el negocio tiene la función encendida. Ver `pedidos-agendados.ts`.
+  scheduledFor?: string;
+  // Id del intento de compra (uno por apertura del checkout). Con él, el mismo
+  // envío repetido devuelve el pedido ya creado en vez de crear otro.
+  clientRequestId?: string;
 };
 
 /**
@@ -574,7 +588,57 @@ export class OrdersService {
     if (!tenant || tenant.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
 
+    // EL MISMO INTENTO NO CREA DOS PEDIDOS.
+    //
+    // El checkout manda un id por intento de compra, estable entre reintentos.
+    // Si ya hay un pedido con ese id en ESTE negocio, se devuelve ese: el
+    // cliente que tocó dos veces «Enviar» —o que reenvió porque la red se cortó
+    // justo después de guardar— no le deja al negocio dos pedidos iguales.
+    //
+    // Va ANTES de cualquier validación a propósito: si el primer envío entró y
+    // el reintento llega cuando el negocio ya cerró, la respuesta correcta es
+    // «ya está», no «estamos cerrados». Sin id, todo es como antes.
+    const idDeIntento =
+      dto.clientRequestId && ES_ID_DE_INTENTO.test(dto.clientRequestId)
+        ? dto.clientRequestId
+        : null;
+    if (idDeIntento) {
+      const ya = await this.pedidoDelIntento(tenant.id, idDeIntento);
+      if (ya) return ya;
+    }
+
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
+
+    // PEDIDO AGENDADO (solo domicilio). Se valida AQUÍ con el reloj del
+    // servidor aunque el selector del cliente solo ofrezca horas válidas: un
+    // POST directo, o una página abierta desde hace horas, puede mandar
+    // cualquier cosa. Ver `pedidos-agendados.ts`.
+    let agendadoPara: Date | null = null;
+    if (dto.scheduledFor != null && String(dto.scheduledFor).trim() !== '') {
+      const ajustes = leerAjustesAgendado(tenant.storefront?.theme);
+      if (!ajustes.activo) {
+        // El negocio la apagó mientras el cliente tenía el menú abierto (se
+        // cachea minutos). Decirlo claro: reintentar no lo va a arreglar.
+        throw new BadRequestException(
+          'Este negocio ya no recibe pedidos agendados. Puedes hacer tu pedido para ahora.',
+        );
+      }
+      if (dto.fulfillment !== 'DELIVERY') {
+        throw new BadRequestException(
+          'Solo se pueden agendar pedidos a domicilio.',
+        );
+      }
+      const r = validarAgendado({
+        instante: dto.scheduledFor,
+        horario: leerHorario(tenant.deliveryHours),
+        zona: tenant.timezone,
+        anticipacionHoras: ajustes.anticipacionHoras,
+        diasMaximos: ajustes.diasMaximos,
+        ahora: new Date(),
+      });
+      if (!r.ok) throw new BadRequestException(r.error);
+      agendadoPara = r.instante;
+    }
 
     // HORARIO DE DOMICILIOS.
     //
@@ -589,7 +653,11 @@ export class OrdersService {
     //
     // Solo a DOMICILIO: en mesa el cliente ya está sentado dentro. Sin horario
     // configurado no se toca nada — que es el caso de todos hoy.
-    if (dto.fulfillment === 'DELIVERY') {
+    //
+    // Un pedido AGENDADO no pasa por aquí: no se entrega ahora, y su hora ya
+    // se comprobó contra el horario arriba. Es justo lo que permite que, con
+    // el negocio cerrado, el cliente pueda dejar su pedido para mañana.
+    if (dto.fulfillment === 'DELIVERY' && !agendadoPara) {
       const ahora = new Date();
       const franjas = leerHorario(tenant.deliveryHours);
       if (!estaAbierto(franjas, ahora, tenant.timezone)) {
@@ -937,6 +1005,8 @@ export class OrdersService {
             // como discriminator. PICKUP queda como null porque puede venir
             // de cualquiera de los dos menús sin ambigüedad.
             mode: effectiveMode,
+            scheduledFor: agendadoPara,
+            clientRequestId: idDeIntento,
             events: {
               create: { type: 'CREATED', metadata: { source: 'public' } },
             },
@@ -945,6 +1015,16 @@ export class OrdersService {
         break;
       } catch (e: any) {
         attempts += 1;
+        // LA CARRERA DEL DOBLE ENVÍO. Dos envíos del mismo intento llegan a la
+        // vez, los dos miran arriba, no ven nada y los dos crean. El índice
+        // único parcial (tenantId, clientRequestId) hace que el segundo choque
+        // aquí con P2002: se devuelve el pedido del primero, sin repetir stock,
+        // avisos ni mensajes. Si el choque fue por el código, no habrá pedido
+        // con este id y se sigue como siempre (otro código).
+        if (e?.code === 'P2002' && idDeIntento) {
+          const ya = await this.pedidoDelIntento(tenant.id, idDeIntento);
+          if (ya) return ya;
+        }
         if (e?.code === 'P2002' && attempts < 3) {
           code = codeGen();
           continue;
@@ -1011,12 +1091,19 @@ export class OrdersService {
     // Notificación a la APP del negocio. Es el aviso que de verdad se ve en el
     // mostrador: el SMS de arriba va al CLIENTE, no al local. Incluye a los
     // empleados "Solo pedidos", que son justo quienes atienden esto.
+    // Un pedido agendado lo dice desde el título: quien lo ve en el mostrador
+    // no tiene que prepararlo ya.
+    const agendadoTexto = agendadoPara
+      ? describirAgendado(agendadoPara, tenant.timezone).corto
+      : null;
     this.appPush
       .enviarATenant(
         tenant.id,
         {
-          titulo: 'Nuevo pedido',
-          cuerpo: `Pedido #${order.code} · $${Number(order.total).toLocaleString('es-CO')}`,
+          titulo: agendadoTexto ? 'Nuevo pedido agendado' : 'Nuevo pedido',
+          cuerpo:
+            `Pedido #${order.code} · $${Number(order.total).toLocaleString('es-CO')}` +
+            (agendadoTexto ? ` · para el ${agendadoTexto}` : ''),
           ruta: '/app/orders',
           datos: { orderId: order.id },
         },
@@ -1083,6 +1170,18 @@ export class OrdersService {
       ...order,
       whatsappLink: link,
     };
+  }
+
+  /**
+   * El pedido que ya creó este intento de compra, con la forma que devuelve
+   * `createPublic`. Acotado por negocio: el id lo genera el navegador y no
+   * puede servir para leer el pedido de otro negocio.
+   */
+  private async pedidoDelIntento(tenantId: string, clientRequestId: string) {
+    const o = await this.prisma.order.findFirst({
+      where: { tenantId, clientRequestId },
+    });
+    return o ? { ...o, whatsappLink: o.whatsappLink ?? '' } : null;
   }
 
   /**
@@ -1321,6 +1420,9 @@ export class OrdersService {
             currencySymbol: true,
             // Marca blanca del negocio: el recibo muestra "Hecho con {marca}".
             whiteLabelId: true,
+            // Un pedido agendado se confirma con SU fecha, en la hora del
+            // negocio, que es a la que se entrega.
+            timezone: true,
           },
         },
         customer: { select: { fullName: true, phone: true } },
@@ -1369,6 +1471,9 @@ export class OrdersService {
       paymentRef: _refPago,
       paymentUrl: _urlPago,
       paymentProvider: _proveedorPago,
+      // El id del intento de compra es la llave de la idempotencia: no le
+      // sirve a la pantalla y no tiene por qué salir por una ruta pública.
+      clientRequestId: _idDeIntento,
       ...publico
     } = o as Record<string, unknown> & typeof o;
     return {
@@ -1610,6 +1715,66 @@ export class OrdersService {
     };
     for (const o of all) byStatus[o.status].push(o);
     return byStatus;
+  }
+
+  /**
+   * La vista «Pedidos agendados» del panel: los que tienen fecha de entrega,
+   * ordenados por esa fecha, con el filtro en días DEL NEGOCIO.
+   *
+   * Devuelve también `futuros` —los que aún no llegan y siguen vivos— para el
+   * contador del botón, y la `zona` para que el panel pinte las horas en la
+   * del negocio y no en la del navegador de quien mira.
+   *
+   * Misma regla de sede que el tablero y el listado: un empleado «solo
+   * pedidos» ve los de su sede y los que no tienen sede.
+   */
+  async agendados(
+    user: AuthUser,
+    override?: string,
+    filtro?: string,
+    locationId?: string,
+  ) {
+    const tid = this.tid(user, override);
+    const zona = await this.zonaDelNegocio(tid);
+    const f: FiltroAgendados = (['hoy', 'manana', 'semana', 'todos'] as const).includes(
+      filtro as FiltroAgendados,
+    )
+      ? (filtro as FiltroAgendados)
+      : 'todos';
+    const ahora = new Date();
+    const { desde, hasta } = rangoDelFiltro(f, ahora, zona);
+    const y: any[] = [{ scheduledFor: { not: null } }];
+    const suSede = await this.sedeDeSoloPedidos(user);
+    if (suSede) y.push({ OR: [{ locationId: suSede }, { locationId: null }] });
+    else if (locationId) y.push({ locationId });
+    const VIVOS = { status: { notIn: ['CANCELLED', 'DELIVERED'] as OrderStatus[] } };
+    // «Todos» incluye además los que se quedaron atrás sin entregar: un pedido
+    // de ayer que nadie cerró es justo el que no se puede perder de vista.
+    const enRango =
+      f === 'todos'
+        ? { OR: [{ scheduledFor: { gte: desde } }, VIVOS] }
+        : { scheduledFor: { gte: desde, ...(hasta ? { lt: hasta } : {}) } };
+    const [pedidos, futuros, sf] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { tenantId: tid, AND: [...y, enRango] },
+        include: { customer: { select: { fullName: true, phone: true } } },
+        orderBy: { scheduledFor: 'asc' },
+        take: 300,
+      }),
+      this.prisma.order.count({
+        where: { tenantId: tid, AND: [...y, { scheduledFor: { gt: ahora } }, VIVOS] },
+      }),
+      // Si la función está encendida: el panel enseña el botón aunque aún no
+      // haya ninguno, y lo esconde a los negocios que no la usan.
+      this.prisma.storefront.findUnique({ where: { tenantId: tid }, select: { theme: true } }),
+    ]);
+    const activo = leerAjustesAgendado(sf?.theme).activo;
+    return { zona, filtro: f, activo, futuros, pedidos };
+  }
+
+  /** Zona del negocio para pintar horas en el panel. Ver `zonaUtilizable`. */
+  zonaParaElPanel(tenantId: string): Promise<string> {
+    return this.zonaDelNegocio(tenantId);
   }
 
   /**

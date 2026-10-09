@@ -14,6 +14,7 @@ import {
   browserNotify,
   ensureNotificationPermission,
 } from '@/lib/notify';
+import { describirAgendado, esHoyEn } from '@/lib/pedidos-agendados.mjs';
 
 type Order = {
   id: string;
@@ -31,6 +32,8 @@ type Order = {
   readyAt?: string | null;
   deliveredAt?: string | null;
   whatsappLink?: string;
+  /** Entrega pedida de un pedido AGENDADO (ISO, UTC). Null = para ahora. */
+  scheduledFor?: string | null;
   paymentStatus?:
     | 'NOT_REQUIRED'
     | 'PENDING'
@@ -82,6 +85,32 @@ function nombreDelPedido(o: {
   return o.customer?.fullName || o.customerName?.trim() || 'Mostrador';
 }
 
+type FiltroAgendados = 'hoy' | 'manana' | 'semana' | 'todos';
+
+/** Lo que devuelve `GET /orders/agendados`. */
+type Agendados = {
+  zona: string;
+  filtro: FiltroAgendados;
+  /** ¿Tiene el negocio la función encendida? */
+  activo: boolean;
+  /** Agendados que aún no llegan y siguen vivos: el número del botón. */
+  futuros: number;
+  pedidos: Order[];
+};
+
+/**
+ * «Agendado 7:30 p. m.» si es para hoy; con el día delante si es para otro.
+ *
+ * La regla era etiquetar los de HOY. Los de otro día se etiquetan también, con
+ * su fecha: en la columna de nuevos, un pedido del viernes sin etiqueta se
+ * confunde con uno para preparar ya, que es justo el error que esto evita.
+ */
+function etiquetaAgendado(o: Order, zona: string): string | null {
+  if (!o.scheduledFor) return null;
+  const d = describirAgendado(o.scheduledFor, zona);
+  return esHoyEn(o.scheduledFor, new Date(), zona) ? d.hora : d.corto;
+}
+
 function fmt(n: number) {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
@@ -116,6 +145,20 @@ export default function OrdersBoard() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState('');
   const [newOrderOpen, setNewOrderOpen] = useState(false);
+  // PEDIDOS AGENDADOS: contador del botón, zona del negocio (para pintar las
+  // horas en la suya y no en la del navegador) y la vista con filtros.
+  const [agendados, setAgendados] = useState<Agendados | null>(null);
+  const [verAgendados, setVerAgendados] = useState(false);
+  const [filtroAgendados, setFiltroAgendados] = useState<FiltroAgendados>('hoy');
+  const [listaAgendados, setListaAgendados] = useState<Order[] | null>(null);
+  // Refs para el intervalo de 30 s y el socket, que se montan una sola vez y
+  // si no leerían el filtro y la sede del primer render.
+  const filtroRef = useRef(filtroAgendados);
+  filtroRef.current = filtroAgendados;
+  const verAgendadosRef = useRef(verAgendados);
+  verAgendadosRef.current = verAgendados;
+  const sedeRef = useRef('');
+  const zonaAgendados = agendados?.zona ?? 'America/Bogota';
   const router = useRouter();
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
@@ -123,7 +166,30 @@ export default function OrdersBoard() {
   const stateRef = useRef(board);
   stateRef.current = board;
 
+  /**
+   * Contador y zona (siempre, con «hoy», que es la lista más corta) y la
+   * lista de la vista si está abierta. Best-effort: si falla, el tablero sigue.
+   */
+  async function loadAgendados() {
+    const sede = sedeRef.current
+      ? `&locationId=${encodeURIComponent(sedeRef.current)}`
+      : '';
+    try {
+      const r = await api<Agendados>(`/orders/agendados?filtro=hoy${sede}`);
+      setAgendados(r);
+      if (verAgendadosRef.current) {
+        const f = filtroRef.current;
+        const lista =
+          f === 'hoy' ? r : await api<Agendados>(`/orders/agendados?filtro=${f}${sede}`);
+        setListaAgendados(lista.pedidos);
+      }
+    } catch {
+      /* sin agendados no se rompe nada: el botón no aparece */
+    }
+  }
+
   async function load() {
+    loadAgendados();
     try {
       const q = `/orders/board?days=${scopeDays}${
         locationId ? `&locationId=${encodeURIComponent(locationId)}` : ''
@@ -160,6 +226,8 @@ export default function OrdersBoard() {
     }
     next[o.status] = [o, ...(next[o.status] ?? [])];
     setBoard(next);
+    // Un agendado nuevo o que cambió de estado mueve el contador del botón.
+    if (o.scheduledFor) loadAgendados();
 
     // Alerta solo para pedidos NUEVOS recién creados (PENDING)
     if (isNew && o.status === 'PENDING') {
@@ -220,10 +288,19 @@ export default function OrdersBoard() {
   // Recarga cuando cambia el scope de fechas o la sede (no incluido en el
   // efecto de socket).
   useEffect(() => {
+    sedeRef.current = locationId;
     seenRef.current = new Set(); // re-hidratar IDs en el siguiente load
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeDays, locationId]);
+
+  // Al abrir la vista o cambiar el filtro, se pide esa lista.
+  useEffect(() => {
+    if (!verAgendados) return;
+    setListaAgendados(null);
+    loadAgendados();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verAgendados, filtroAgendados]);
 
   /**
    * Al entregar un DOMICILIO, pregunta si se suma el sello.
@@ -386,14 +463,16 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
     }, 0);
     const avgMin = Math.round(totalMin / withReady.length);
 
-    // Cuántos pedidos en curso ya pasaron > 15min sin estar listos
+    // Cuántos pedidos en curso ya pasaron > 15min sin estar listos. Un
+    // agendado para más tarde no va «atrasado» por llevar horas creado: se
+    // cuenta desde la hora que pidió el cliente.
     const lateCount = [
       ...(filteredBoard.PENDING ?? []),
       ...(filteredBoard.CONFIRMED ?? []),
-    ].filter(
-      (o) =>
-        (Date.now() - new Date(o.createdAt).getTime()) / 60000 > 15,
-    ).length;
+    ].filter((o) => {
+      const desde = o.scheduledFor ?? o.createdAt;
+      return (Date.now() - new Date(desde).getTime()) / 60000 > 15;
+    }).length;
 
     return { avgMin, lateCount };
   }, [filteredBoard]);
@@ -549,6 +628,19 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
           >
             📋 Historial
           </Link>
+          {/* Solo a quien usa la función (o tiene alguno): a los demás
+              negocios no se les llena la barra con un «(0)» que no les sirve. */}
+          {agendados && (agendados.activo || agendados.futuros > 0 || agendados.pedidos.length > 0) && (
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              title={t('scheduledBtnHint')}
+              onClick={() => setVerAgendados(true)}
+              data-boton-agendados
+            >
+              📅 {t('scheduledBtn', { count: agendados.futuros })}
+            </button>
+          )}
           <button className="btn-ghost" onClick={load}>
             <Icon name="history" /> {t('refresh')}
           </button>
@@ -575,6 +667,102 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
           </button>
         </div>
       </div>
+
+      {verAgendados && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setVerAgendados(false);
+          }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[88vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between gap-3">
+              <div className="font-semibold text-lg">{t('scheduledViewTitle')}</div>
+              <button
+                onClick={() => setVerAgendados(false)}
+                className="text-mute hover:text-ink text-xl leading-none"
+                aria-label={t('scheduledClose')}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="px-5 pt-3">
+              <div className="inline-flex flex-wrap gap-0.5 bg-bg2 rounded-pill p-0.5 text-xs">
+                {(
+                  [
+                    ['hoy', 'scheduledFilterToday'],
+                    ['manana', 'scheduledFilterTomorrow'],
+                    ['semana', 'scheduledFilterWeek'],
+                    ['todos', 'scheduledFilterAll'],
+                  ] as const
+                ).map(([f, k]) => (
+                  <button
+                    key={f}
+                    onClick={() => setFiltroAgendados(f)}
+                    className={`px-3 py-1 rounded-pill font-medium ${
+                      filtroAgendados === f
+                        ? 'bg-white text-ink shadow-sm'
+                        : 'text-mute hover:text-ink'
+                    }`}
+                  >
+                    {t(k)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 pt-3 space-y-2">
+              {listaAgendados === null ? (
+                <div className="text-sm text-mute text-center py-8">{t('scheduledLoading')}</div>
+              ) : listaAgendados.length === 0 ? (
+                <div className="text-sm text-mute text-center py-8 rounded-lg border border-dashed border-line">
+                  {t('scheduledEmpty')}
+                </div>
+              ) : (
+                listaAgendados.map((o) => (
+                  <Link
+                    key={o.id}
+                    href={`/app/orders/${o.id}`}
+                    className="flex items-center gap-3 border border-line2 bg-bg2/30 hover:bg-bg2 rounded-lg px-3 py-2.5 transition"
+                  >
+                    <div className="w-28 flex-none">
+                      <div className="text-sm font-semibold text-ink">
+                        {describirAgendado(o.scheduledFor!, zonaAgendados).corto.split(' · ')[0]}
+                      </div>
+                      <div className="text-xs text-mute">
+                        {describirAgendado(o.scheduledFor!, zonaAgendados).hora}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{nombreDelPedido(o)}</div>
+                      <div className="text-xs text-mute">
+                        #{o.code} · 🛵 {t('fulfillmentDelivery')}
+                      </div>
+                    </div>
+                    <div className="text-right flex-none">
+                      <div className="text-sm font-semibold">{fmt(Number(o.total))}</div>
+                      <span
+                        className={`badge text-[10px] ${
+                          o.status === 'PENDING'
+                            ? 'badge-warn'
+                            : o.status === 'DELIVERED'
+                              ? 'badge-ok'
+                              : o.status === 'CANCELLED'
+                                ? 'bg-bad-soft text-bad-ink'
+                                : 'badge-info'
+                        }`}
+                      >
+                        {o.status === 'CANCELLED'
+                          ? t('scheduledStatusCancelled')
+                          : t(COLS.find((c) => c.key === o.status)?.labelKey ?? 'colPending')}
+                      </span>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {newOrderOpen && (
         <NewOrderModal
@@ -687,6 +875,11 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
                         ? `🍽 ${t('fulfillmentDineIn', { table: o.tableNumber ?? '' })}`
                         : `🛵 ${t('fulfillmentDelivery')}`}
                     </span>
+                    {o.scheduledFor && (
+                      <span className="badge badge-info text-[10px]" data-etiqueta-agendado>
+                        📅 {t('scheduledTag', { when: etiquetaAgendado(o, zonaAgendados) ?? '' })}
+                      </span>
+                    )}
                     {o.paymentStatus === 'PAID' && (
                       <span className="badge badge-ok text-[10px]">💳 {t('paymentPaid')}</span>
                     )}

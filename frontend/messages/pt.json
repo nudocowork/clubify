@@ -862,6 +862,19 @@
     "zoom": "Zoom"
   },
   "app_menu": {
+    "scheduledOnBtn": "📅 Pedidos agendados: ON",
+    "scheduledOffBtn": "📅 Pedidos agendados: OFF",
+    "scheduledTitle": "Pedidos agendados — no menu de entregas, o cliente escolhe dia e horário de entrega. Com o negócio fechado, pode agendar em vez de desistir.",
+    "scheduledSettingsBtn": "Ajustes",
+    "scheduledSettingsHint": "Só para entregas. Os horários são oferecidos a cada 30 minutos dentro do seu horário de entregas (sem horário: das 8h às 20h).",
+    "scheduledMinNotice": "Antecedência mínima",
+    "scheduledUnitDays": "dias",
+    "scheduledUnitHours": "horas",
+    "scheduledMaxDays": "Até quantos dias à frente",
+    "scheduledSave": "Salvar",
+    "scheduledOnToast": "Pedidos agendados ativos — seus clientes podem escolher dia e horário de entrega",
+    "scheduledOffToast": "Pedidos agendados desativados",
+    "scheduledSavedToast": "Ajustes salvos",
     "absolutePricePlaceholder": "preço",
     "add": "Adicionar",
     "addExtra": "+ Extra",
@@ -3748,6 +3761,18 @@
     "sendByWhatsapp": "Enviar por WhatsApp"
   },
   "app_orders": {
+    "scheduledBtn": "Pedidos agendados ({count})",
+    "scheduledBtnHint": "Pedidos de entrega com data e horário marcados",
+    "scheduledViewTitle": "Pedidos agendados",
+    "scheduledFilterToday": "Hoje",
+    "scheduledFilterTomorrow": "Amanhã",
+    "scheduledFilterWeek": "Próximos 7 dias",
+    "scheduledFilterAll": "Todos",
+    "scheduledEmpty": "Não há pedidos agendados neste período.",
+    "scheduledTag": "Agendado {when}",
+    "scheduledStatusCancelled": "Cancelado",
+    "scheduledLoading": "Carregando…",
+    "scheduledClose": "Fechar",
     "allLocations": "Todas as unidades",
     "avgPrepLabel": "preparo médio",
     "avgPrepMinutes": "{min}m",
@@ -4279,6 +4304,8 @@
     "save": "Salvar"
   },
   "app_orders_id": {
+    "scheduledForTitle": "Entrega agendada",
+    "ticketScheduled": "AGENDADO",
     "acceptDeliveryBtn": "✓ Aceitar pagamento + despachar 🛵",
     "acceptDeliveryTooltip": "Marca o pagamento como recebido e abre o WhatsApp para o entregador",
     "activityTitle": "Atividade",

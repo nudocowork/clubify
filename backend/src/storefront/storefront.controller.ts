@@ -32,6 +32,11 @@ class StorefrontBody {
   // theme.fulfillment; domicilio sigue en ordersDeliveryEnabled.
   @IsOptional() @IsBoolean() fulfillmentPickupEnabled?: boolean;
   @IsOptional() @IsBoolean() fulfillmentDineInEnabled?: boolean;
+  // Pedidos agendados: `{ activo, anticipacionHoras, diasMaximos }`. Se guarda
+  // en theme.pedidosAgendados (sin migración, como theme.fulfillment). El
+  // detalle de los rangos lo valida el servicio con `validarAjustesAgendado`,
+  // que da el mensaje en español; aquí solo se exige que sea un objeto.
+  @IsOptional() @IsObject() pedidosAgendados?: Record<string, unknown>;
   // Métodos de pago que el negocio acepta en el checkout (EFECTIVO/TARJETA/
   // TRANSFERENCIA/OTRO). Se guardan en theme.paymentMethods (JSON, sin
   // migración — mismo patrón que theme.fulfillment). Lista vacía = reset a

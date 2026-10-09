@@ -18,6 +18,7 @@
     "pruebas:vista-previa-marca": "node scripts/pruebas-vista-previa-marca.mjs",
     "pruebas:api-publica": "node scripts/pruebas-api-publica.mjs",
     "pruebas:imagenes-del-menu": "node scripts/pruebas-imagenes-del-menu.mjs",
+    "pruebas:agendados": "node scripts/pruebas-pedidos-agendados.mjs",
     "pruebas:sentry-sin-dsn": "node scripts/pruebas-sentry-sin-dsn.mjs",
     "pruebas:enlace-de-pago": "node scripts/pruebas-enlace-de-pago.mjs",
     "pruebas:filtro-tarjetas": "node scripts/pruebas-filtro-de-tarjetas.mjs",

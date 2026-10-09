@@ -17,6 +17,17 @@ import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import { formatPrice, parsePriceInput } from '@/lib/money';
+import {
+  leerAjustesAgendado,
+  validarAjustesAgendado,
+} from '@/lib/pedidos-agendados.mjs';
+
+/** `Storefront.theme.pedidosAgendados`. Ver `lib/pedidos-agendados.mjs`. */
+type AjustesAgendado = {
+  activo: boolean;
+  anticipacionHoras: number;
+  diasMaximos: number;
+};
 
 type Category = {
   id: string;
@@ -210,6 +221,18 @@ export default function MenuEditor() {
   const [dineInEnabled, setDineInEnabled] = useState<boolean | null>(null);
   const [togglingPickup, setTogglingPickup] = useState(false);
   const [togglingDineIn, setTogglingDineIn] = useState(false);
+  // PEDIDOS AGENDADOS (theme.pedidosAgendados). null = /storefront aún no
+  // respondió: no se enseña el interruptor, para no guardar a ciegas encima de
+  // unos ajustes que no conocemos (mismo criterio que los métodos de pago).
+  const [agendados, setAgendados] = useState<AjustesAgendado | null>(null);
+  const [agendadosMenuOpen, setAgendadosMenuOpen] = useState(false);
+  const [savingAgendados, setSavingAgendados] = useState(false);
+  // Borrador del panel de ajustes. La anticipación se escribe en días u horas
+  // —«2 días» se piensa así, «4 horas» también— y se guarda siempre en horas.
+  const [antCantidad, setAntCantidad] = useState('2');
+  const [antUnidad, setAntUnidad] = useState<'dias' | 'horas'>('dias');
+  const [maxDias, setMaxDias] = useState('30');
+  const [errAgendados, setErrAgendados] = useState<string | null>(null);
   // Métodos de pago aceptados en el checkout (theme.paymentMethods).
   // null = /storefront aún no respondió → el botón no se muestra (no
   // dejamos tocar la config sin saber la actual: se pisaría a ciegas).
@@ -339,8 +362,14 @@ export default function MenuEditor() {
         theme?: {
           fulfillment?: { pickup?: boolean; dineIn?: boolean };
           paymentMethods?: string[];
+          pedidosAgendados?: unknown;
         };
       }>('/storefront');
+      // Tolerante igual que el backend: lo que no se entienda vuelve a 48 h /
+      // 30 días, que es lo que se le mostraría al cliente.
+      const ag = leerAjustesAgendado(sf.theme) as AjustesAgendado;
+      setAgendados(ag);
+      cargarBorradorAgendados(ag);
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
       setOrdersDeliveryEnabled(
@@ -397,6 +426,74 @@ export default function MenuEditor() {
     } finally {
       setTogglingOrders(false);
     }
+  }
+
+  function cargarBorradorAgendados(a: AjustesAgendado) {
+    const enDias = a.anticipacionHoras % 24 === 0;
+    setAntUnidad(enDias ? 'dias' : 'horas');
+    setAntCantidad(String(enDias ? a.anticipacionHoras / 24 : a.anticipacionHoras));
+    setMaxDias(String(a.diasMaximos));
+    setErrAgendados(null);
+  }
+
+  /**
+   * Guarda los ajustes de pedidos agendados (encendido + anticipación +
+   * máximo). Optimista con vuelta atrás si falla, como recoger y mesa. Los
+   * rangos se comprueban AQUÍ con la misma función que el backend para
+   * decirlo antes de mandar nada; el backend vuelve a validar.
+   */
+  async function guardarAgendados(siguiente: AjustesAgendado, aviso: string) {
+    const v = validarAjustesAgendado(siguiente);
+    if (!v.ok) {
+      setErrAgendados(v.error ?? null);
+      return false;
+    }
+    const antes = agendados;
+    setSavingAgendados(true);
+    setErrAgendados(null);
+    setAgendados(v.ajustes as AjustesAgendado);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ pedidosAgendados: v.ajustes }),
+      });
+      toast(aviso, 'success');
+      return true;
+    } catch (e: any) {
+      setErrAgendados(e.message || t('error'));
+      setAgendados(antes);
+      return false;
+    } finally {
+      setSavingAgendados(false);
+    }
+  }
+
+  async function toggleAgendados() {
+    if (agendados === null || savingAgendados) return;
+    const activo = !agendados.activo;
+    const ok = await guardarAgendados(
+      { ...agendados, activo },
+      activo ? t('scheduledOnToast') : t('scheduledOffToast'),
+    );
+    // Al encenderlo se abren los ajustes: el dueño tiene que ver con qué
+    // anticipación lo está ofreciendo antes de que le llegue el primero.
+    if (ok && activo) setAgendadosMenuOpen(true);
+    if (ok && !activo) setAgendadosMenuOpen(false);
+  }
+
+  async function guardarAjustesAgendados() {
+    if (agendados === null) return;
+    const cantidad = Number(antCantidad);
+    const horas = antUnidad === 'dias' ? cantidad * 24 : cantidad;
+    const ok = await guardarAgendados(
+      {
+        activo: agendados.activo,
+        anticipacionHoras: horas,
+        diasMaximos: Number(maxDias),
+      },
+      t('scheduledSavedToast'),
+    );
+    if (ok) setAgendadosMenuOpen(false);
   }
 
   // PDF1145: toggles de Pick Up y Pedido en mesa. Persisten en
@@ -1002,6 +1099,97 @@ export default function MenuEditor() {
             >
               {dineInEnabled ? t('dineinOnBtn') : t('dineinOffBtn')}
             </button>
+          )}
+          {/* PEDIDOS AGENDADOS: mismo patrón que Recoger/Mesa. Encendido,
+              al lado van los ajustes que el negocio puede tocar ahí mismo. */}
+          {agendados !== null && (
+            <div className="relative flex items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleAgendados}
+                disabled={savingAgendados}
+                className={`btn-ghost ${agendados.activo ? 'text-ok' : 'text-mute'}`}
+                title={t('scheduledTitle')}
+                data-interruptor-agendados
+              >
+                {agendados.activo ? t('scheduledOnBtn') : t('scheduledOffBtn')}
+              </button>
+              {agendados.activo && (
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  onClick={() => {
+                    if (!agendadosMenuOpen) cargarBorradorAgendados(agendados);
+                    setAgendadosMenuOpen((o) => !o);
+                  }}
+                  title={t('scheduledTitle')}
+                >
+                  ⚙ {t('scheduledSettingsBtn')}
+                </button>
+              )}
+              {agendadosMenuOpen && agendados.activo && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setAgendadosMenuOpen(false)}
+                  />
+                  <div className="card absolute left-0 top-full z-20 mt-1 w-72 p-3 space-y-3">
+                    <div className="text-xs text-mute leading-snug">
+                      {t('scheduledSettingsHint')}
+                    </div>
+                    <div>
+                      <label className="label">{t('scheduledMinNotice')}</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={antUnidad === 'dias' ? 30 : 720}
+                          step={1}
+                          inputMode="numeric"
+                          className="input w-20"
+                          value={antCantidad}
+                          onChange={(e) => setAntCantidad(e.target.value)}
+                        />
+                        <select
+                          className="input flex-1"
+                          value={antUnidad}
+                          onChange={(e) => setAntUnidad(e.target.value as 'dias' | 'horas')}
+                        >
+                          <option value="dias">{t('scheduledUnitDays')}</option>
+                          <option value="horas">{t('scheduledUnitHours')}</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label">{t('scheduledMaxDays')}</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={90}
+                        step={1}
+                        inputMode="numeric"
+                        className="input w-20"
+                        value={maxDias}
+                        onChange={(e) => setMaxDias(e.target.value)}
+                      />
+                    </div>
+                    {errAgendados && (
+                      <div className="rounded-lg bg-bad-soft px-3 py-2 text-xs text-bad-ink">
+                        {errAgendados}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-primary w-full text-sm"
+                      disabled={savingAgendados}
+                      onClick={guardarAjustesAgendados}
+                    >
+                      {t('scheduledSave')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {/* Métodos de pago que acepta el negocio en el checkout público.
               Solo aparece cuando /storefront ya respondió (payMethods !==

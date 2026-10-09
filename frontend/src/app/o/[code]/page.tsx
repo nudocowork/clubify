@@ -9,6 +9,7 @@ import {
   hayChatDelDomicilio,
   hayRepartidor,
 } from '@/lib/pedido-en-oficina.mjs';
+import { describirAgendado } from '@/lib/pedidos-agendados.mjs';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -21,6 +22,8 @@ type Order = {
   tableNumber: string | null;
   items: any[];
   createdAt: string;
+  /** Entrega pedida de un pedido AGENDADO (ISO, UTC). Null = para ahora. */
+  scheduledFor?: string | null;
   customerNote: string | null;
   rating: number | null;
   ratingComment: string | null;
@@ -32,6 +35,8 @@ type Order = {
     slug: string;
     currency?: string | null;
     currencySymbol?: string | null;
+    /** Zona del negocio: la fecha agendada se lee en SU hora. */
+    timezone?: string | null;
   };
   brand?: BrandBadgeBrand;
   // SIN `customer` A PROPÓSITO: la ruta pública por código no lo devuelve
@@ -223,6 +228,32 @@ export default function OrderStatus() {
               : 'El negocio te confirmará en breve.'}
           </p>
         </div>
+
+        {/* Pedido AGENDADO: la fecha y hora pedidas, lo primero después del
+            número. Es lo que el cliente necesita comprobar al terminar —un
+            día equivocado aquí es un pedido que llega cuando no está—. En la
+            hora del negocio, que es a la que se entrega. */}
+        {order.scheduledFor && !cancelled && (
+          <div className="card card-pad mb-4 flex items-start gap-3" data-agendado>
+            <span
+              className="inline-flex items-center rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white flex-none mt-0.5"
+              style={{ background: primary }}
+            >
+              Agendado
+            </span>
+            <div>
+              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                Entrega agendada
+              </div>
+              <div className="font-semibold mt-0.5">
+                {describirAgendado(order.scheduledFor, order.tenant.timezone ?? 'America/Bogota').largo.replace(
+                  / ([ap])\. m\./g,
+                  '\u00a0$1.\u00a0m.',
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {!cancelled && (
           <div className="card card-pad mb-4">

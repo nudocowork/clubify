@@ -862,6 +862,19 @@
     "zoom": "Zoom"
   },
   "app_menu": {
+    "scheduledOnBtn": "📅 Pedidos agendados: ON",
+    "scheduledOffBtn": "📅 Pedidos agendados: OFF",
+    "scheduledTitle": "Pedidos agendados — en el menú de domicilios, el cliente puede elegir día y hora de entrega. Si el negocio está cerrado, puede agendar en vez de quedarse sin pedir.",
+    "scheduledSettingsBtn": "Ajustes",
+    "scheduledSettingsHint": "Solo para domicilios. Las horas se ofrecen cada 30 minutos dentro de tu horario de domicilios (sin horario: de 8:00 a. m. a 8:00 p. m.).",
+    "scheduledMinNotice": "Anticipación mínima",
+    "scheduledUnitDays": "días",
+    "scheduledUnitHours": "horas",
+    "scheduledMaxDays": "Hasta cuántos días adelante",
+    "scheduledSave": "Guardar",
+    "scheduledOnToast": "Pedidos agendados activos — tus clientes pueden elegir día y hora de entrega",
+    "scheduledOffToast": "Pedidos agendados desactivados",
+    "scheduledSavedToast": "Ajustes guardados",
     "absolutePricePlaceholder": "precio",
     "add": "Agregar",
     "addExtra": "+ Extra",
@@ -3748,6 +3761,18 @@
     "sendByWhatsapp": "Enviar por WhatsApp"
   },
   "app_orders": {
+    "scheduledBtn": "Pedidos agendados ({count})",
+    "scheduledBtnHint": "Pedidos a domicilio con fecha y hora de entrega",
+    "scheduledViewTitle": "Pedidos agendados",
+    "scheduledFilterToday": "Hoy",
+    "scheduledFilterTomorrow": "Mañana",
+    "scheduledFilterWeek": "Próximos 7 días",
+    "scheduledFilterAll": "Todos",
+    "scheduledEmpty": "No hay pedidos agendados en este rango.",
+    "scheduledTag": "Agendado {when}",
+    "scheduledStatusCancelled": "Cancelado",
+    "scheduledLoading": "Cargando…",
+    "scheduledClose": "Cerrar",
     "allLocations": "Todas las sedes",
     "avgPrepLabel": "prep promedio",
     "avgPrepMinutes": "{min}m",
@@ -4279,6 +4304,8 @@
     "save": "Guardar"
   },
   "app_orders_id": {
+    "scheduledForTitle": "Entrega agendada",
+    "ticketScheduled": "AGENDADO",
     "acceptDeliveryBtn": "✓ Aceptar pago + despachar 🛵",
     "acceptDeliveryTooltip": "Marca pago como cobrado y abre WhatsApp al courier de domicilio",
     "activityTitle": "Actividad",

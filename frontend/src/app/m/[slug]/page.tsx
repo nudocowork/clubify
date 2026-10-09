@@ -1,5 +1,6 @@
-// Página pública del storefront. El componente real vive en
-// `./storefront-client` para poder compartirlo con la ruta
-// `/m/[slug]/[sectionSlug]` sin violar la regla de Next.js 14.2.x que
-// solo permite default export + named exports específicos en page.tsx.
-export { default } from './storefront-client';
+// Menú público, MESA. El HTML sale ya con el menú: ver `./pagina-del-menu`.
+import { paginaDelMenu, type PropsDeLaPagina } from './pagina-del-menu';
+
+export default function Pagina(props: PropsDeLaPagina) {
+  return paginaDelMenu('mesa', props);
+}

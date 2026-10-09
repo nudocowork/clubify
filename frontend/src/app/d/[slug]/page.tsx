@@ -1,4 +1,6 @@
-// /d/[slug] — DELIVERY canal del menú público (separación de rutas
-// 2026-06-07). Comparte componente con /m/[slug] (mesa); el mode lo
-// deriva el cliente del primer segmento del path.
-export { default } from '../../m/[slug]/storefront-client';
+// /d/[slug] — menú público DELIVERY. Comparte componente con /m/[slug].
+import { paginaDelMenu, type PropsDeLaPagina } from '../../m/[slug]/pagina-del-menu';
+
+export default function Pagina(props: PropsDeLaPagina) {
+  return paginaDelMenu('delivery', props);
+}

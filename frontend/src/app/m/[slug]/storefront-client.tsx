@@ -1,5 +1,6 @@
 'use client';
-import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import * as ReactDOM from 'react-dom';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -9,9 +10,16 @@ import {
   type StorefrontMode,
 } from '@/lib/menu/storefront-mode';
 import {
+  enDoceHoras,
   estaAbierto,
   proximaApertura,
 } from '@/lib/horario-de-domicilios.mjs';
+import {
+  describirAgendado,
+  fechaEn,
+  franjasDeAgendado,
+  nuevoIdDeIntento,
+} from '@/lib/pedidos-agendados.mjs';
 import {
   addToCart,
   cartTotals,
@@ -72,6 +80,25 @@ import {
   imagenDelMenu,
 } from '@/lib/menu/imagen-del-menu.mjs';
 import { pedirConLimite } from '@/lib/menu/pedir-con-limite.mjs';
+import type { MenuInicial } from '@/lib/menu/menu-inicial';
+
+/**
+ * `ReactDOM.preload` (lo trae el React de Next 14 y lo usa `next/image` con
+ * `priority`) pone un `<link rel="preload">` en el `<head>` del HTML. Los
+ * tipos de @types/react-dom 18 solo lo declaran en `canary`, de ahí el cast.
+ * Si no existiera, no se precarga y ya: nunca rompe el render.
+ */
+const precargarImagen = (
+  href: string,
+  opciones: { fetchPriority?: 'high' | 'low' | 'auto' } = {},
+) => {
+  if (!href) return;
+  (
+    ReactDOM as unknown as {
+      preload?: (h: string, o: { as: 'image'; fetchPriority?: string }) => void;
+    }
+  ).preload?.(href, { as: 'image', ...opciones });
+};
 
 /** `loadError` cuando no hubo respuesta (red o tiempo límite): se ofrece
  *  reintentar, no «este negocio no existe». */
@@ -169,6 +196,10 @@ type Storefront = {
    *  domicilio (gateado); pickup = recoger en tienda; dineIn = pedido en mesa.
    *  Ausente en payloads viejos → se cae a solo-domicilio. */
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Pedidos agendados (solo domicilio). null/ausente = la función está
+   *  apagada y el menú no enseña nada nuevo. Las horas libres se calculan
+   *  aquí con el reloj del cliente (ver `lib/pedidos-agendados.mjs`). */
+  pedidosAgendados?: { anticipacionHoras: number; diasMaximos: number } | null;
   /** Oficina del enlace (`?oficina=<id de la carta>`), resuelta por el
    *  backend. null o ausente = el menú de siempre. */
   oficina?: { id: string; nombre: string } | null;
@@ -324,6 +355,27 @@ function getProductBlocks(
   return blocks;
 }
 
+/**
+ * Las primeras fotos de producto que se ven sin desplazar (las de la primera
+ * categoría), para cargarlas con `priority`. Con el menú saliendo del
+ * servidor, `next/image` pone su `<link rel="preload">` en el HTML y la foto
+ * empieza a bajar con él, en vez de esperar al JS y al lazy load: en los
+ * menús de fotos (GRID, CLASSIC, CAROUSELS) esa foto es el LCP. Solo 2: más
+ * precargas compiten por el ancho de banda con lo que de verdad hace falta.
+ */
+function idsPrioritarios(menu: Category[], n = 2): Set<string> {
+  const ids = new Set<string>();
+  const primera = menu[0];
+  if (!primera) return ids;
+  for (const block of getProductBlocks(primera)) {
+    for (const p of block.products) {
+      if (ids.size >= n) return ids;
+      if (p.imageUrl) ids.add(p.id);
+    }
+  }
+  return ids;
+}
+
 /** Sub-header visual para subsecciones dentro de una categoría. Estilo
  *  diferente del header de categoría (más sutil) para que la jerarquía
  *  se entienda visualmente sin competir. */
@@ -402,7 +454,12 @@ function ProductImage({
   fit?: 'cover' | 'contain';
   hoverScale?: boolean;
 }) {
-  const [loaded, setLoaded] = useState(false);
+  // Las `priority` se ven en cuanto el navegador las pinta, sin esperar al
+  // `onLoad`: ese evento solo llega cuando React ya hidrató, y con el menú
+  // saliendo del servidor la foto suele estar lista ANTES. Con el fundido, la
+  // foto de arriba (el LCP) seguía invisible hasta que bajara todo el JS.
+  const [cargada, setLoaded] = useState(false);
+  const loaded = cargada || priority;
   return (
     <>
       {!loaded && (
@@ -430,15 +487,21 @@ function ProductImage({
 // Sin Suspense, el build con `output: 'export'` o un prerender de page
 // padre falla con "useSearchParams() should be wrapped in a suspense
 // boundary". Mismo patrón ya aplicado en /signup y /r/[slug].
-export default function StorefrontPublic() {
+//
+// `inicial`: el negocio y la carta pedidos en el servidor (ver
+// `lib/menu/menu-inicial.ts`). Con ellos el HTML ya trae el menú; sin ellos
+// (`null`: el backend tardó o falló) todo funciona exactamente como antes.
+// La página es dinámica (lee `searchParams`), así que `useSearchParams` NO
+// manda el árbol a renderizarse solo en el cliente: el Suspense no se ve.
+export default function StorefrontPublic({ inicial = null }: { inicial?: MenuInicial | null }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-bg" />}>
-      <StorefrontPublicInner />
+      <StorefrontPublicInner inicial={inicial} />
     </Suspense>
   );
 }
 
-function StorefrontPublicInner() {
+function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
   const tt = useT();
   const [locale] = useLocale();
   const params = useParams<{
@@ -479,13 +542,19 @@ function StorefrontPublicInner() {
   // Lo pone la vista previa del panel al publicar: pide lo recién guardado y no
   // la copia de la caché del borde. Ver `urlDelMenu` en api-publica.mjs.
   const frescoDelPanel = (searchParams?.get('fresco') ?? '').trim();
-  const [s, setS] = useState<Storefront | null>(null);
-  const [menu, setMenu] = useState<Category[]>([]);
+  // Arrancan con lo que trajo el servidor: el primer render (el del HTML y el
+  // de la hidratación, que tienen que ser idénticos) ya pinta el menú.
+  const negocioInicial = (inicial?.negocio ?? null) as Storefront | null;
+  const menuInicial = (inicial?.menu ?? null) as Category[] | null;
+  const [s, setS] = useState<Storefront | null>(negocioInicial);
+  const [menu, setMenu] = useState<Category[]>(menuInicial ?? []);
   // Si la carta YA llegó. Antes el estado «cargando» y el de «carta vacía»
   // eran el mismo (`menu.length === 0`), con el texto «Cargando menú digital,
   // espere»: un negocio con la carta vacía dejaba al cliente esperando para
   // siempre — la queja de «el menú no carga» (2026-10-04).
-  const [estadoCarta, setEstadoCarta] = useState<'cargando' | 'lista' | 'fallo'>('cargando');
+  const [estadoCarta, setEstadoCarta] = useState<'cargando' | 'lista' | 'fallo'>(
+    menuInicial ? 'lista' : 'cargando',
+  );
   const [reintento, setReintento] = useState(0);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
@@ -495,7 +564,7 @@ function StorefrontPublicInner() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(inicial?.error ?? null);
   // Promo capturado vía QR Descuento (?promo=CODE). Persiste en
   // localStorage para que el cliente lo vea aunque vuelva sin el query
   // param (links posteriores compartidos, etc).
@@ -531,8 +600,71 @@ function StorefrontPublicInner() {
   // paga el call a Claude (~1s); las siguientes son DB hits.
   useEffect(() => {
     if (!slug) return;
-    setLoadError(null);
     let cancelled = false;
+
+    // Lo que hay que hacer cada vez que llega el negocio, venga del servidor
+    // o de la petición del navegador.
+    const alLlegarElNegocio = (data: Storefront) => {
+      // PDF 1254: idioma POR NEGOCIO. Aísla el idioma del cliente por
+      // slug y usa el idioma del negocio como default. Si el cliente ya
+      // eligió uno para ESTE negocio, se respeta (clave namespaced).
+      configureTenantLocale(slug, data?.locale);
+      // El píxel del NEGOCIO (si su dueño puso uno): se carga acá, con
+      // el menú, y manda su PageView. Sin id no se carga nada de Meta.
+      configurarPixelDelNegocio(data?.metaPixelId, data?.currency);
+      // Y la sucursal, cuando el enlace ya la trae (el QR de cada sede).
+      // Va aquí y no en el checkout porque «ver producto» y «añadir al
+      // carrito» se disparan mucho antes de que el cliente abra la hoja
+      // de pedido: si la sede llegara solo al final, en Meta la misma
+      // sucursal aparecería con dos categorías distintas y el embudo no
+      // cuadraría. El nombre se busca en la lista pública de sedes.
+      if (sedeDelQr) {
+        fetch(`${API}/api/public/storefront/locations?slug=${slug}`)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((arr: Array<{ id?: string; name?: string }>) => {
+            const suya = Array.isArray(arr)
+              ? arr.find((x) => x?.id === sedeDelQr)
+              : null;
+            if (suya?.id) configurarSedeDelNegocio(suya.id, suya.name);
+          })
+          .catch(() => {});
+      }
+    };
+
+    // ¿Sirve lo que trajo el servidor? Solo si se pidió EXACTAMENTE con la
+    // misma dirección que pediría ahora el navegador (idioma, modo, sede,
+    // oficina, `fresco`). El servidor pide siempre en `es`, el idioma del
+    // primer render; si el cliente tiene otro guardado para este negocio,
+    // `configureTenantLocale` lo cambia, este efecto vuelve a correr con el
+    // idioma nuevo y entonces sí se pide, como siempre. Tras «Reintentar»
+    // (`reintento > 0`) se pide siempre.
+    const urlNegocio = urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel });
+    const urlMenu = urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel });
+    const delServidor = reintento === 0 ? inicial : null;
+    const negocioListo =
+      !!delServidor &&
+      delServidor.urlNegocio === urlNegocio &&
+      (!!delServidor.negocio || !!delServidor.error);
+    const menuListo =
+      !!delServidor && delServidor.urlMenu === urlMenu && !!delServidor.menu;
+
+    if (negocioListo && delServidor.error) {
+      // «No disponible», ya pintado desde el servidor (un 4xx del backend).
+      setLoadError(delServidor.error);
+      return;
+    }
+    setLoadError(null);
+    if (negocioListo && delServidor.negocio) {
+      // Mismo objeto que el estado inicial: si no cambió, React no repinta.
+      // Si el cliente volvió a `es` desde otro idioma, devuelve lo del servidor.
+      setS(delServidor.negocio as Storefront);
+      alLlegarElNegocio(delServidor.negocio as Storefront);
+    }
+    if (menuListo) {
+      setMenu(delServidor.menu as Category[]);
+      setEstadoCarta('lista');
+    }
+    if (negocioListo && menuListo) return;
 
     // Indicador con debounce: solo aparece si la traducción tarda >250ms.
     // Para cache hits, el fetch termina antes y el indicador no se ve.
@@ -551,7 +683,9 @@ function StorefrontPublicInner() {
     Promise.all([
       // Ruta relativa, no `${API}`: así pasa por la caché del borde de Vercel
       // en vez de ir directo a Railway (ver `api-publica.mjs`).
-      pedirConLimite(urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel }))
+      negocioListo
+        ? null
+        : pedirConLimite(urlNegocio)
         .then(async (r) => {
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
@@ -562,30 +696,7 @@ function StorefrontPublicInner() {
         .then((data) => {
           if (!cancelled) {
             setS(data);
-            // PDF 1254: idioma POR NEGOCIO. Aísla el idioma del cliente por
-            // slug y usa el idioma del negocio como default. Si el cliente ya
-            // eligió uno para ESTE negocio, se respeta (clave namespaced).
-            configureTenantLocale(slug, data?.locale);
-            // El píxel del NEGOCIO (si su dueño puso uno): se carga acá, con
-            // el menú, y manda su PageView. Sin id no se carga nada de Meta.
-            configurarPixelDelNegocio(data?.metaPixelId, data?.currency);
-            // Y la sucursal, cuando el enlace ya la trae (el QR de cada sede).
-            // Va aquí y no en el checkout porque «ver producto» y «añadir al
-            // carrito» se disparan mucho antes de que el cliente abra la hoja
-            // de pedido: si la sede llegara solo al final, en Meta la misma
-            // sucursal aparecería con dos categorías distintas y el embudo no
-            // cuadraría. El nombre se busca en la lista pública de sedes.
-            if (sedeDelQr) {
-              fetch(`${API}/api/public/storefront/locations?slug=${slug}`)
-                .then((r) => (r.ok ? r.json() : []))
-                .then((arr: Array<{ id?: string; name?: string }>) => {
-                  const suya = Array.isArray(arr)
-                    ? arr.find((x) => x?.id === sedeDelQr)
-                    : null;
-                  if (suya?.id) configurarSedeDelNegocio(suya.id, suya.name);
-                })
-                .catch(() => {});
-            }
+            alLlegarElNegocio(data);
           }
         })
         .catch((e: Error) => {
@@ -596,7 +707,9 @@ function StorefrontPublicInner() {
         }),
       // La carta de la oficina se sirve por el mismo `sede`, que ya acepta el
       // id de una carta. Si llegaran los dos, manda la sede.
-      pedirConLimite(urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel }))
+      menuListo
+        ? null
+        : pedirConLimite(urlMenu)
         .then(async (r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
@@ -618,6 +731,9 @@ function StorefrontPublicInner() {
       cancelled = true;
       if (debounceId) clearTimeout(debounceId);
     };
+    // `inicial` no cambia en la vida del componente, y `sedeDelQr`/`oficinaDelQr`
+    // ya se leían sin estar en la lista (salen de la misma URL que `slug`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, locale, mode, frescoDelPanel, reintento]);
 
   // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
@@ -644,6 +760,37 @@ function StorefrontPublicInner() {
       if (stored) setCapturedPromo(stored);
     } catch {}
   }, [slug]);
+
+  // PEDIDOS AGENDADOS: «Ahora» o «Agendar pedido», elegido junto al carrito.
+  //
+  // Arranca SIEMPRE en «ahora» (también en el HTML del servidor, para no
+  // romper la hidratación) y la elección se recuerda en la pestaña: quien
+  // eligió agendar y vuelve del carrito a seguir mirando no tiene que volver a
+  // elegirlo. sessionStorage y no localStorage: mañana es otra compra.
+  const claveModo = `clubify:agendar:${slug}`;
+  const [modoEntrega, setModoEntregaEstado] = useState<'ahora' | 'agendar'>('ahora');
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(claveModo) === 'agendar') setModoEntregaEstado('agendar');
+    } catch {
+      /* modo privado: se queda en «ahora», que es lo de siempre */
+    }
+  }, [claveModo]);
+  const setModoEntrega = (m: 'ahora' | 'agendar') => {
+    setModoEntregaEstado(m);
+    try {
+      sessionStorage.setItem(claveModo, m);
+    } catch {
+      /* sin almacenamiento: vale para esta vista */
+    }
+  };
+  // Reloj del selector junto al carrito: al pasar la hora de cierre, «Ahora»
+  // se apaga solo. Cada minuto basta: el checkout lleva su propio reloj.
+  const [relojDock, setRelojDock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setRelojDock(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Backend manda la sección virtual "Recomendados" con nombre/tagline
   // hardcodeados en español. La sustituimos por las claves i18n al render.
@@ -751,6 +898,19 @@ function StorefrontPublicInner() {
   //   `ordersWhatsappEnabled` fue eliminado — no tiene sentido "delivery
   //   con carrito pero sin canal para enviar el pedido".
   const showWhatsappButton = ordersAllowed && !!s.whatsappPhone;
+  // «Ahora | Agendar pedido» solo en el menú de domicilios, con la función
+  // encendida y el domicilio disponible. Con la función apagada no aparece
+  // nada nuevo. Si el domicilio está fuera de horario, «Ahora» se apaga y se
+  // ofrece solo agendar: es el cliente que antes se iba sin pedir.
+  const agendarDisponible =
+    mode === 'delivery' &&
+    deliveryOn &&
+    s.fulfillment?.delivery !== false &&
+    !!s.pedidosAgendados;
+  const cerradoAhoraDock =
+    agendarDisponible &&
+    !estaAbierto(s.horarioDomicilios, new Date(relojDock), s.timezone || 'America/Bogota');
+  const modoDock: 'ahora' | 'agendar' = cerradoAhoraDock ? 'agendar' : modoEntrega;
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
   // Fondo de la página: tipo SOLID|GRADIENT|IMAGE. El dueño elige desde
@@ -776,6 +936,19 @@ function StorefrontPublicInner() {
   } else {
     pageBg = s.pageBackgroundColor || defaultBgColor;
   }
+  // Las imágenes de FONDO (banner de la cabecera y foto de la página) van en
+  // CSS, y el navegador no las descubre hasta aplicar estilos: se precargan.
+  // Ahora que el menú sale del servidor, el `<link>` va en el HTML y la
+  // descarga empieza con él. El banner era el LCP de Nudo Cowork (auditoría
+  // 2026-10-07). MISMA URL que el `background` de abajo (`imagenDelMenu` con
+  // `IMAGEN_DE_FONDO`), o se bajaría dos veces.
+  if (s.heroImageUrl) {
+    precargarImagen(imagenDelMenu(s.heroImageUrl, IMAGEN_DE_FONDO).src, { fetchPriority: 'high' });
+  }
+  if (fotoDeFondo && s.pageBackgroundImageUrl) {
+    precargarImagen(imagenDelMenu(s.pageBackgroundImageUrl, IMAGEN_DE_FONDO).src);
+  }
+
   // M2.2: el badge "Hecho con Clubify" cambia entre versión clara (pill
   // blanco) y oscura (texto sutil) según el brillo del fondo del menú.
   // Storefronts con tema oscuro/imagen reciben pill; storefronts con
@@ -1237,6 +1410,46 @@ function StorefrontPublicInner() {
               : 'bg-gradient-to-t from-white to-white/80'
           }`}
         >
+          {/* Junto al botón del carrito y no en la carta: es donde el cliente
+              decide «pido ya o lo dejo para otro día», y no le tapa nada del
+              menú mientras mira. El checkout repite la elección arriba. */}
+          {agendarDisponible && (
+            <div className="mb-2 flex flex-col items-center gap-1 animate-in fade-in duration-200">
+              {/* El aviso ARRIBA del selector: abajo a la izquierda flotan el
+                  idioma y «Mis pedidos», y debajo lo tapaban a medias. */}
+              {cerradoAhoraDock && (
+                <div className="text-[11px] font-medium text-ink bg-white/95 border border-line rounded-pill px-2.5 py-0.5 shadow-sm">
+                  {tt('agendar.closed_notice')}
+                </div>
+              )}
+              <div
+                role="radiogroup"
+                aria-label={tt('agendar.section_title')}
+                className="inline-flex gap-0.5 bg-white border border-line rounded-pill p-0.5 text-xs shadow-sm"
+              >
+                {(['ahora', 'agendar'] as const).map((m) => {
+                  const activo = modoDock === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      role="radio"
+                      aria-checked={activo}
+                      disabled={m === 'ahora' && cerradoAhoraDock}
+                      onClick={() => setModoEntrega(m)}
+                      data-modo-entrega={m}
+                      className={`px-3.5 py-1.5 rounded-pill font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                        activo ? 'text-white shadow-sm' : 'text-mute hover:text-ink'
+                      }`}
+                      style={activo ? { background: primary } : undefined}
+                    >
+                      {m === 'ahora' ? tt('agendar.now') : tt('agendar.schedule')}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <button
             onClick={() => setShowCart(true)}
             className="w-full rounded-pill text-white font-semibold py-3.5 flex items-center justify-between px-5 shadow-lg hover:opacity-95 active:scale-[0.98] transition animate-in slide-in-from-bottom-4 duration-200"
@@ -1319,6 +1532,9 @@ function StorefrontPublicInner() {
           horarioDomicilios={s.horarioDomicilios}
           zonaDelNegocio={s.timezone}
           acceptedPaymentMethods={s.acceptedPaymentMethods}
+          pedidosAgendados={agendarDisponible ? s.pedidosAgendados ?? null : null}
+          modoEntrega={modoEntrega}
+          onModoEntrega={setModoEntrega}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -2044,6 +2260,9 @@ function CheckoutSheet({
   acceptedPaymentMethods,
   sedeDelQr,
   oficina,
+  pedidosAgendados,
+  modoEntrega = 'ahora',
+  onModoEntrega,
   onClose,
 }: {
   items: CartItem[];
@@ -2069,9 +2288,15 @@ function CheckoutSheet({
   zonaDelNegocio?: string;
   /** Métodos de pago que acepta el negocio. Ausente → se ofrecen todos. */
   acceptedPaymentMethods?: string[];
+  /** Ajustes de pedidos agendados del negocio; null = función apagada. */
+  pedidosAgendados?: { anticipacionHoras: number; diasMaximos: number } | null;
+  /** Lo que eligió el cliente junto al carrito. */
+  modoEntrega?: 'ahora' | 'agendar';
+  onModoEntrega?: (m: 'ahora' | 'agendar') => void;
   onClose: () => void;
 }) {
   const tt = useT();
+  const [idioma] = useLocale();
   // InitiateCheckout: abrir la hoja de pedido ES el inicio del checkout. Una
   // sola vez por apertura (el array vacío), no en cada tecla del formulario.
   useEffect(() => {
@@ -2173,6 +2398,116 @@ function CheckoutSheet({
     : proximaApertura(horarioDomicilios, new Date(ahora), zona);
   /** Solo estorba al domicilio: recoger y comer en mesa siguen igual. */
   const cerradoParaDomicilios = form.fulfillment === 'DELIVERY' && !abiertoAhora;
+
+  // PEDIDOS AGENDADOS. Solo a domicilio: si el cliente cambia a recoger o
+  // mesa, el modo agendar deja de aplicar y el pedido sale como siempre. Con
+  // el domicilio fuera de horario y la función encendida, agendar es la ÚNICA
+  // salida (en vez del bloqueo de abajo).
+  const agendarActivo = !!pedidosAgendados && form.fulfillment === 'DELIVERY';
+  const agendarForzado = agendarActivo && !abiertoAhora;
+  const modoAgendar = agendarActivo && (agendarForzado || modoEntrega === 'agendar');
+  // Se recalculan con el reloj de 30 s: una hora que deja de cumplir la
+  // anticipación mientras el cliente rellena se apaga sola.
+  const diasAgendables = useMemo(
+    () =>
+      pedidosAgendados
+        ? franjasDeAgendado({
+            horario: horarioDomicilios,
+            zona,
+            anticipacionHoras: pedidosAgendados.anticipacionHoras,
+            diasMaximos: pedidosAgendados.diasMaximos,
+            ahora: new Date(ahora),
+          })
+        : [],
+    [pedidosAgendados, horarioDomicilios, zona, ahora],
+  );
+  const [fechaElegida, setFechaElegida] = useState<string | null>(null);
+  const [instanteElegido, setInstanteElegido] = useState<string | null>(null);
+  useEffect(() => {
+    if (!instanteElegido) return;
+    const sigue = diasAgendables.some((d) =>
+      d.horas.some((h) => h.instante === instanteElegido && h.disponible),
+    );
+    if (!sigue) setInstanteElegido(null);
+  }, [diasAgendables, instanteElegido]);
+  const diaActivo =
+    diasAgendables.find((d) => d.fecha === fechaElegida && d.disponible) ??
+    diasAgendables.find((d) => d.disponible) ??
+    null;
+  /** El bloqueo de «cerrado» de siempre, salvo cuando se está agendando. */
+  const bloqueadoPorHorario = cerradoParaDomicilios && !modoAgendar;
+  // UN ID POR INTENTO DE COMPRA, estable mientras esta hoja esté abierta: el
+  // doble toque o el reintento tras un error de red mandan el MISMO id y el
+  // servidor devuelve el pedido ya creado en vez de crear otro.
+  const idDeIntento = useRef('');
+  if (!idDeIntento.current) idDeIntento.current = nuevoIdDeIntento();
+  // Candado síncrono: dos toques en el mismo instante llegan antes de que
+  // React pinte el botón deshabilitado.
+  const enviando = useRef(false);
+
+  // «Hoy» y «Mañana» son días del NEGOCIO; la fecha ya viene en su zona, así
+  // que sumar un día es una cuenta de calendario (en UTC a propósito).
+  const hoyLocal = fechaEn(new Date(ahora), zona);
+  const [hy, hm, hd] = hoyLocal.split('-').map(Number);
+  const mananaLocal = new Date(Date.UTC(hy, hm - 1, hd + 1)).toISOString().slice(0, 10);
+  const etiquetaDia = (fecha: string) => {
+    const [y, m, d] = fecha.split('-').map(Number);
+    const mediodia = new Date(Date.UTC(y, m - 1, d, 12));
+    const sinPunto = (t: string) => t.replace(/\.$/, '');
+    const fmt = (o: Intl.DateTimeFormatOptions) => {
+      try {
+        return sinPunto(new Intl.DateTimeFormat(idioma, { ...o, timeZone: 'UTC' }).format(mediodia));
+      } catch {
+        return sinPunto(new Intl.DateTimeFormat('es', { ...o, timeZone: 'UTC' }).format(mediodia));
+      }
+    };
+    return {
+      arriba:
+        fecha === hoyLocal
+          ? tt('agendar.today')
+          : fecha === mananaLocal
+            ? tt('agendar.tomorrow')
+            : fmt({ weekday: 'short' }),
+      dia: d,
+      mes: fmt({ month: 'short' }),
+    };
+  };
+  const horaEnTexto = (h: { minutos: number; instante: string }) => {
+    if (idioma === 'es') return enDoceHoras(h.minutos);
+    try {
+      return new Intl.DateTimeFormat(idioma, { hour: 'numeric', minute: '2-digit', timeZone: zona }).format(
+        new Date(h.instante),
+      );
+    } catch {
+      return enDoceHoras(h.minutos);
+    }
+  };
+  const agendadoEnTexto = (instante: string) => {
+    // Espacios duros en «8 a. m.»: si no, la línea se parte entre «a.» y «m.».
+    if (idioma === 'es') {
+      return describirAgendado(instante, zona).largo.replace(/ ([ap])\. m\./g, '\u00a0$1.\u00a0m.');
+    }
+    try {
+      return new Intl.DateTimeFormat(idioma, {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: zona,
+      }).format(new Date(instante));
+    } catch {
+      return describirAgendado(instante, zona).largo;
+    }
+  };
+  const avisoAnticipacion = (() => {
+    const h = pedidosAgendados?.anticipacionHoras ?? 0;
+    if (h <= 0) return null;
+    if (h % 24 === 0) {
+      return h === 24 ? tt('agendar.notice_day') : tt('agendar.notice_days', { n: h / 24 });
+    }
+    return h === 1 ? tt('agendar.notice_hour') : tt('agendar.notice_hours', { n: h });
+  })();
   /** ¿Esta marca pide datos de facturación al pedir? */
   const pideFacturacion = MARCAS_CON_FACTURACION.has(brandSlug ?? '');
 
@@ -2293,6 +2628,7 @@ function CheckoutSheet({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (enviando.current) return;
     setErr(null);
 
     // El WhatsApp es OBLIGATORIO y tiene que parecer un teléfono.
@@ -2348,6 +2684,12 @@ function CheckoutSheet({
       return;
     }
 
+    if (modoAgendar && !instanteElegido) {
+      setErr(tt('agendar.error_pick'));
+      return;
+    }
+
+    enviando.current = true;
     setSubmitting(true);
     try {
       const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
@@ -2406,6 +2748,9 @@ function CheckoutSheet({
           locationId: effectiveSedeId || undefined,
           mode: orderModeFor(mode),
           oficinaId: enOficina && oficina ? oficina.id : undefined,
+          // Solo si se está agendando (domicilio con la función encendida).
+          scheduledFor: modoAgendar && instanteElegido ? instanteElegido : undefined,
+          clientRequestId: idDeIntento.current,
         }),
       });
       if (!res.ok) {
@@ -2504,6 +2849,9 @@ function CheckoutSheet({
     } catch (e: any) {
       setErr(e.message);
       setSubmitting(false);
+      // Se suelta el candado pero NO se cambia el id: si el pedido sí entró y
+      // lo que falló fue la respuesta, el reintento devuelve ese mismo pedido.
+      enviando.current = false;
     }
   }
 
@@ -2588,6 +2936,106 @@ function CheckoutSheet({
                 <span>
                   {tt('checkout.table_locked', { n: form.tableNumber })}
                 </span>
+              </div>
+            )}
+
+            {/* TIEMPO DE ENTREGA de un pedido agendado: día y hora.
+                No existía ningún selector de fecha en el producto; este va con
+                las piezas del checkout (mismo borde, mismo color del negocio en
+                lo elegido) y solo ofrece lo que se puede pedir: lo demás sale
+                deshabilitado para que se entienda por qué no. */}
+            {modoAgendar && pedidosAgendados && (
+              <div
+                className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200"
+                data-seccion="tiempo-de-entrega"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                    {tt('agendar.section_title')}
+                  </div>
+                  {!agendarForzado && (
+                    <button
+                      type="button"
+                      onClick={() => onModoEntrega?.('ahora')}
+                      className="text-[11px] font-semibold text-mute underline underline-offset-2 hover:text-ink"
+                    >
+                      {tt('agendar.back_to_now')}
+                    </button>
+                  )}
+                </div>
+                {agendarForzado && (
+                  <div className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[11px] text-amber-900 leading-snug">
+                    {tt('agendar.closed_notice')}
+                  </div>
+                )}
+                {avisoAnticipacion && (
+                  <div className="text-[11px] text-mute leading-snug">{avisoAnticipacion}</div>
+                )}
+                {diaActivo ? (
+                  <>
+                    <div>
+                      <div className="label">{tt('agendar.date')}</div>
+                      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
+                        {diasAgendables.map((d) => {
+                          const activo = diaActivo.fecha === d.fecha;
+                          const e = etiquetaDia(d.fecha);
+                          return (
+                            <button
+                              key={d.fecha}
+                              type="button"
+                              disabled={!d.disponible}
+                              aria-pressed={activo}
+                              title={d.disponible ? undefined : tt('agendar.closed_day')}
+                              data-fecha={d.fecha}
+                              onClick={() => {
+                                setFechaElegida(d.fecha);
+                                if (!d.horas.some((h) => h.instante === instanteElegido)) {
+                                  setInstanteElegido(null);
+                                }
+                              }}
+                              className={`snap-start flex-none w-[58px] rounded-lg border py-1.5 text-center transition disabled:opacity-35 disabled:cursor-not-allowed ${
+                                activo ? 'text-white border-transparent' : 'border-line bg-white text-ink'
+                              }`}
+                              style={activo ? { background: primary } : undefined}
+                            >
+                              <div className="text-[10px] uppercase font-semibold tracking-wide opacity-80 truncate px-0.5">
+                                {e.arriba}
+                              </div>
+                              <div className="text-lg font-bold leading-tight">{e.dia}</div>
+                              <div className="text-[10px] opacity-80">{e.mes}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="label">{tt('agendar.time')}</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {diaActivo.horas.map((h) => {
+                          const activo = instanteElegido === h.instante;
+                          return (
+                            <button
+                              key={h.instante}
+                              type="button"
+                              disabled={!h.disponible}
+                              aria-pressed={activo}
+                              data-instante={h.instante}
+                              onClick={() => setInstanteElegido(h.instante)}
+                              className={`rounded-lg border py-2 text-[13px] font-medium transition disabled:opacity-35 disabled:cursor-not-allowed ${
+                                activo ? 'text-white border-transparent' : 'border-line bg-white text-ink'
+                              }`}
+                              style={activo ? { background: primary } : undefined}
+                            >
+                              {horaEnTexto(h)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-mute">{tt('agendar.no_slots')}</div>
+                )}
               </div>
             )}
 
@@ -2962,16 +3410,35 @@ function CheckoutSheet({
               nadie al otro lado (Javier, 2026-09-25). El backend lo rechaza
               igual: esto es para que no llegue a intentarlo.
             */}
-            {cerradoParaDomicilios && (
+            {bloqueadoPorHorario && (
               <div className="rounded-lg bg-warn-soft border border-warn px-3 py-2.5 text-sm text-warn-ink">
                 <strong>No estamos recibiendo domicilios ahora.</strong>
                 {vuelveA ? ` Vuelve ${vuelveA}.` : ''}
               </div>
             )}
 
+            {/* Resumen del agendado, pegado al botón: es lo último que se lee
+                antes de enviar, y un día equivocado aquí es un pedido perdido. */}
+            {modoAgendar && instanteElegido && (
+              <div
+                className="rounded-lg border border-line bg-white px-3 py-2.5 text-sm flex items-center gap-2"
+                data-resumen-agendado
+              >
+                <span
+                  className="inline-flex items-center rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white flex-none"
+                  style={{ background: primary }}
+                >
+                  {tt('agendar.badge')}
+                </span>
+                <span className="font-medium leading-snug">
+                  {tt('agendar.summary', { when: agendadoEnTexto(instanteElegido) })}
+                </span>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={submitting || cerradoParaDomicilios}
+              disabled={submitting || bloqueadoPorHorario}
               className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.98] transition shadow-md"
               style={{ background: primary }}
             >
@@ -3356,6 +3823,7 @@ function AccordionSection({
 
 // 1️⃣ CLASSIC — foto izq + info der (estilo Rappi/UberEats)
 function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+  const prioritarios = idsPrioritarios(menu);
   return (
     <>
       {menu.map((cat) => (
@@ -3401,6 +3869,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, catego
                       src={p.imageUrl}
                       alt={p.name}
                       sizes="96px"
+                      priority={prioritarios.has(p.id)}
                     />
                   </div>
                 ) : (
@@ -3439,6 +3908,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, catego
 
 // 2️⃣ GRID — 2 columnas con foto cuadrada grande (Instagram)
 function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+  const prioritarios = idsPrioritarios(menu);
   return (
     <>
       {menu.map((cat) => (
@@ -3487,6 +3957,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
                       alt={p.name}
                       sizes="(max-width: 640px) 50vw, 200px"
                       hoverScale
+                      priority={prioritarios.has(p.id)}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-4xl text-mute">
@@ -3520,6 +3991,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
 
 // 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
 function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+  const prioritarios = idsPrioritarios(menu);
   // Cada categoría se vuelve N carruseles: 1 por productos directos +
   // 1 por subsección con productos. Cada carrusel mantiene su scroll
   // independiente — más legible que mezclar todo en uno solo.
@@ -3570,6 +4042,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, cate
                           src={p.imageUrl}
                           alt={p.name}
                           sizes="140px"
+                          priority={prioritarios.has(p.id)}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-3xl text-mute">
@@ -3869,8 +4342,22 @@ function LayoutSections({
     subSlug?: string;
   }>();
   const storefrontSlug = params.slug;
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [activeSub, setActiveSub] = useState<string | null>(null);
+  // La sección del enlace (`/m/<slug>/<seccion>`) se resuelve YA en el primer
+  // render, no solo en el efecto de abajo: con la carta llegando del servidor,
+  // así el HTML trae los productos de esa sección en vez de la portada de
+  // todas y un salto al hidratar. Servidor y cliente calculan lo mismo (mismos
+  // params, misma carta), así que la hidratación no difiere.
+  const seccionDelEnlace = params.sectionSlug
+    ? menu.find((c) => c.slug === params.sectionSlug) ?? null
+    : null;
+  const [activeSection, setActiveSection] = useState<string | null>(
+    () => seccionDelEnlace?.id ?? null,
+  );
+  const [activeSub, setActiveSub] = useState<string | null>(() =>
+    seccionDelEnlace && params.subSlug
+      ? (seccionDelEnlace.subsections ?? []).find((x) => x.slug === params.subSlug)?.id ?? null
+      : null,
+  );
   const [transitioning, setTransitioning] = useState(false);
 
   // ── Deep-link: al cargar, resolver IDs desde slugs de la URL.
@@ -4044,7 +4531,9 @@ function LayoutSections({
         >
           ←
         </button>
-        <SectionBanner cat={section} primary={primary} />
+        {/* Arriba del todo al abrir la sección (y en el HTML de un enlace a
+            ella): no va perezosa. */}
+        <SectionBanner cat={section} primary={primary} primera />
       </div>
 
       {/* Subsection chips */}
