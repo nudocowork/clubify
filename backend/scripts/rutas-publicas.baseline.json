@@ -39,6 +39,7 @@
     "POST /public/orders/:code/rate",
     "POST /public/quote/:token/cta-click",
     "POST /public/r/:slug/submit",
+    "POST /public/registro-pago/:token",
     "POST /public/reservations/:slug",
     "POST /public/reservations/cancel/:token",
     "POST /public/service-reservations/:slug/book",
