@@ -1415,6 +1415,13 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
               menú mientras mira. El checkout repite la elección arriba. */}
           {agendarDisponible && (
             <div className="mb-2 flex flex-col items-center gap-1 animate-in fade-in duration-200">
+              {/* El aviso ARRIBA del selector: abajo a la izquierda flotan el
+                  idioma y «Mis pedidos», y debajo lo tapaban a medias. */}
+              {cerradoAhoraDock && (
+                <div className="text-[11px] font-medium text-ink bg-white/95 border border-line rounded-pill px-2.5 py-0.5 shadow-sm">
+                  {tt('agendar.closed_notice')}
+                </div>
+              )}
               <div
                 role="radiogroup"
                 aria-label={tt('agendar.section_title')}
@@ -1441,11 +1448,6 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
                   );
                 })}
               </div>
-              {cerradoAhoraDock && (
-                <div className="text-[11px] font-medium text-ink bg-white/95 border border-line rounded-pill px-2.5 py-0.5 shadow-sm">
-                  {tt('agendar.closed_notice')}
-                </div>
-              )}
             </div>
           )}
           <button
@@ -2481,7 +2483,10 @@ function CheckoutSheet({
     }
   };
   const agendadoEnTexto = (instante: string) => {
-    if (idioma === 'es') return describirAgendado(instante, zona).largo;
+    // Espacios duros en «8 a. m.»: si no, la línea se parte entre «a.» y «m.».
+    if (idioma === 'es') {
+      return describirAgendado(instante, zona).largo.replace(/ ([ap])\. m\./g, '\u00a0$1.\u00a0m.');
+    }
     try {
       return new Intl.DateTimeFormat(idioma, {
         weekday: 'long',

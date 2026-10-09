@@ -246,7 +246,10 @@ export default function OrderStatus() {
                 Entrega agendada
               </div>
               <div className="font-semibold mt-0.5">
-                {describirAgendado(order.scheduledFor, order.tenant.timezone ?? 'America/Bogota').largo}
+                {describirAgendado(order.scheduledFor, order.tenant.timezone ?? 'America/Bogota').largo.replace(
+                  / ([ap])\. m\./g,
+                  '\u00a0$1.\u00a0m.',
+                )}
               </div>
             </div>
           </div>
