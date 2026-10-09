@@ -740,6 +740,11 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
   const [dias, setDias] = useState<number | null>(null);
   const [rows, setRows] = useState<RankingRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Buscar una marca en el ranking (Sara, PDF 13): saber cuántos pases o
+  // pedidos lleva un negocio concreto sin bajar por la lista. Se conserva al
+  // cambiar de ranking, y el puesto que se muestra es el REAL en el ranking
+  // completo, no el de la lista filtrada.
+  const [busqueda, setBusqueda] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -762,6 +767,12 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
   // ranking dice quién va primero pero no de cuánto estamos hablando.
   const totalPases = rows.reduce((s, r) => s + r.passTotal, 0);
   const totalPeriodo = rows.reduce((s, r) => s + r.passCount, 0);
+  const sinTildes = (x: string) =>
+    x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+  const q = sinTildes(busqueda);
+  const visibles = rows
+    .map((r, puesto) => ({ r, puesto }))
+    .filter(({ r }) => !q || sinTildes(r.brandName ?? '').includes(q));
 
   return (
     <div
@@ -853,7 +864,27 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
+          <div className="relative">
+            <input
+              type="search"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar marca…"
+              aria-label="Buscar marca en el ranking"
+              className="input w-full h-9 text-sm pl-8"
+            />
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mute text-sm pointer-events-none" aria-hidden>
+              🔍
+            </span>
+          </div>
+
           <div className="text-xs text-mute">
+            {q && (
+              <>
+                <b className="text-ink">{visibles.length}</b>{' '}
+                {visibles.length === 1 ? 'coincide' : 'coinciden'} ·{' '}
+              </>
+            )}
             {t('rankingCount', { count: rows.length })} ·{' '}
             <b className="text-ink">{totalPases.toLocaleString('es-CO')}</b>{' '}
             {unidad} {unidadVerbo} en total
@@ -880,9 +911,13 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
             <div className="text-center text-mute text-sm py-8">{t('loading')}</div>
           ) : rows.length === 0 ? (
             <div className="text-center text-mute text-sm py-8">{t('noData')}</div>
+          ) : visibles.length === 0 ? (
+            <div className="text-center text-mute text-sm py-8">
+              Ninguna marca coincide con «{busqueda.trim()}».
+            </div>
           ) : (
             <div className="divide-y divide-line">
-              {rows.map((r, i) => (
+              {visibles.map(({ r, puesto: i }) => (
                 <Link
                   key={r.id}
                   href={`/admin/tenants/${r.id}`}
