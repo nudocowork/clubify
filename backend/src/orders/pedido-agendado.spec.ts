@@ -159,14 +159,14 @@ describe('pedido agendado', () => {
     expect(creados).toHaveLength(0);
   });
 
-  it('para recoger o en mesa no se agenda', async () => {
-    const { svc } = montar();
-    await expect(
-      svc.createPublic({ ...PEDIDO, fulfillment: 'PICKUP', scheduledFor: SABADO_1930 } as any),
-    ).rejects.toThrow('Solo se pueden agendar pedidos a domicilio.');
+  it('para recoger también se agenda (2026-10-09); en mesa no', async () => {
+    const { svc, creados } = montar();
+    await svc.createPublic({ ...PEDIDO, fulfillment: 'PICKUP', scheduledFor: SABADO_1930 } as any);
+    expect(creados).toHaveLength(1);
+    expect(JSON.stringify(creados[0])).toContain('scheduledFor');
     await expect(
       svc.createPublic({ ...PEDIDO, fulfillment: 'DINE_IN', scheduledFor: SABADO_1930 } as any),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toThrow('Solo se pueden agendar pedidos a domicilio o para recoger.');
   });
 
   it('antes de la anticipación, fuera del horario o más allá del máximo: no', async () => {

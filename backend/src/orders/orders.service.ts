@@ -609,7 +609,7 @@ export class OrdersService {
 
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
 
-    // PEDIDO AGENDADO (solo domicilio). Se valida AQUÍ con el reloj del
+    // PEDIDO AGENDADO (domicilio programado o para recoger; mesa no). Se valida AQUÍ con el reloj del
     // servidor aunque el selector del cliente solo ofrezca horas válidas: un
     // POST directo, o una página abierta desde hace horas, puede mandar
     // cualquier cosa. Ver `pedidos-agendados.ts`.
@@ -623,9 +623,12 @@ export class OrdersService {
           'Este negocio ya no recibe pedidos agendados. Puedes hacer tu pedido para ahora.',
         );
       }
-      if (dto.fulfillment !== 'DELIVERY') {
+      // Domicilio programado o para recoger (Javier, 2026-10-09: «si es
+      // agendar, preguntar si es para recoger o para domicilio programado»).
+      // En mesa el cliente ya está sentado: no tiene sentido agendar.
+      if (dto.fulfillment !== 'DELIVERY' && dto.fulfillment !== 'PICKUP') {
         throw new BadRequestException(
-          'Solo se pueden agendar pedidos a domicilio.',
+          'Solo se pueden agendar pedidos a domicilio o para recoger.',
         );
       }
       const r = validarAgendado({

@@ -902,13 +902,16 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
   // encendida y el domicilio disponible. Con la función apagada no aparece
   // nada nuevo. Si el domicilio está fuera de horario, «Ahora» se apaga y se
   // ofrece solo agendar: es el cliente que antes se iba sin pedir.
+  const domicilioDisponible = deliveryOn && s.fulfillment?.delivery !== false;
   const agendarDisponible =
     mode === 'delivery' &&
-    deliveryOn &&
-    s.fulfillment?.delivery !== false &&
-    !!s.pedidosAgendados;
+    !!s.pedidosAgendados &&
+    (domicilioDisponible || !!s.fulfillment?.pickup);
+  // «Ahora» se apaga solo si el domicilio está cerrado Y no hay otra forma de
+  // pedir ya: recoger no depende del horario de domicilios.
   const cerradoAhoraDock =
     agendarDisponible &&
+    !s.fulfillment?.pickup &&
     !estaAbierto(s.horarioDomicilios, new Date(relojDock), s.timezone || 'America/Bogota');
   const modoDock: 'ahora' | 'agendar' = cerradoAhoraDock ? 'agendar' : modoEntrega;
 
@@ -2403,8 +2406,13 @@ function CheckoutSheet({
   // mesa, el modo agendar deja de aplicar y el pedido sale como siempre. Con
   // el domicilio fuera de horario y la función encendida, agendar es la ÚNICA
   // salida (en vez del bloqueo de abajo).
-  const agendarActivo = !!pedidosAgendados && form.fulfillment === 'DELIVERY';
-  const agendarForzado = agendarActivo && !abiertoAhora;
+  // Agendar vale para DOMICILIO PROGRAMADO o para RECOGER; en mesa no
+  // (Javier, 2026-10-09). Forzado solo aplica al domicilio: recoger no tiene
+  // horario de domicilios que lo bloquee.
+  const agendarActivo =
+    !!pedidosAgendados && (form.fulfillment === 'DELIVERY' || form.fulfillment === 'PICKUP');
+  const agendarForzado =
+    !!pedidosAgendados && form.fulfillment === 'DELIVERY' && !abiertoAhora;
   const modoAgendar = agendarActivo && (agendarForzado || modoEntrega === 'agendar');
   // Se recalculan con el reloj de 30 s: una hora que deja de cumplir la
   // anticipación mientras el cliente rellena se apaga sola.
@@ -2421,6 +2429,21 @@ function CheckoutSheet({
         : [],
     [pedidosAgendados, horarioDomicilios, zona, ahora],
   );
+  /** El cliente eligió «Agendar pedido» (junto al carrito o forzado por el
+   *  cierre): «¿Es para...?» ofrece solo domicilio programado y recoger. */
+  const quiereAgendar = !!pedidosAgendados && (modoEntrega === 'agendar' || agendarForzado);
+  const opcionesDeEntrega = quiereAgendar
+    ? fulfillmentChoices
+        .filter((o) => o.v !== 'DINE_IN')
+        .map((o) => (o.v === 'DELIVERY' ? { ...o, l: tt('agendar.delivery_option') } : o))
+    : fulfillmentChoices;
+  // Si venía en «mesa» y elige agendar, pasa a la primera opción válida.
+  useEffect(() => {
+    if (quiereAgendar && form.fulfillment === 'DINE_IN' && opcionesDeEntrega[0]) {
+      setForm((f) => ({ ...f, fulfillment: opcionesDeEntrega[0].v }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quiereAgendar, form.fulfillment]);
   const [fechaElegida, setFechaElegida] = useState<string | null>(null);
   const [instanteElegido, setInstanteElegido] = useState<string | null>(null);
   useEffect(() => {
@@ -2901,15 +2924,17 @@ function CheckoutSheet({
                 onChange={(v) => setForm({ ...form, phone: v })}
               />
             </div>
-            {!lockedTable && !enOficina && fulfillmentChoices.length > 1 && (
+            {!lockedTable && !enOficina && opcionesDeEntrega.length > 1 && (
               <div>
-                <label className="label">{tt('checkout.fulfillment_q')}</label>
+                <label className="label">
+                  {quiereAgendar ? tt('agendar.how') : tt('checkout.fulfillment_q')}
+                </label>
                 <div
                   className={`grid gap-2 ${
-                    fulfillmentChoices.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'
+                    opcionesDeEntrega.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'
                   }`}
                 >
-                  {fulfillmentChoices.map((o) => {
+                  {opcionesDeEntrega.map((o) => {
                     const active = form.fulfillment === o.v;
                     return (
                       <button
