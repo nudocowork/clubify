@@ -8,6 +8,22 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-10 (127) — Drive Pizza: reembolso por error → pago manual «desde siempre»
+
+Hotmart reembolsó por error su anual de USD 500 (HP2009265423, cobro del
+2026-08-24) y el aviso lo suspendió el 10-oct. Pagó otra vez por fuera.
+Aplicado por Javier con `scripts/reactivar-tras-reembolso-con-pago-manual.cjs
+--negocio drive-pizza --aplicar`: ACTIVO, pago manual con la fecha y el monto
+del cobro original (cubre 2026-08-24 → 2027-08-24, vencimiento SIN cambio),
+ingreso MANUAL de $500 en 2026-08, referido PAYING, Hotmart desvinculado (sus
+ids quedan en la nota del pago). Comisiones: el reembolso no había anulado
+ninguna (la de ese cobro ya estaba pagada). Verificado: la API pública
+responde y `/m` lleva a su menú libro (`/book/drive-pizza`, 200).
+
+**No usar «Registrar pago manual» para estos casos**: encadena desde el
+vencimiento y regala otro período. Y el ingreso de Hotmart se queda
+REEMBOLSADO a propósito (el conciliador lo recrearía o lo re-reembolsaría).
+
 ## 2026-10-09 (126) — DESPLEGADO: pedidos agendados + menú armado en el HTML
 
 PR #323 (`42952e3c`) fusionado y desplegado por Javier (migración
