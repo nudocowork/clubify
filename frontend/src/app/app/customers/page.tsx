@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
 
 type Customer = {
@@ -373,103 +373,102 @@ export default function CustomersPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">
+      <PanelHeader
+        title={t('title')}
+        crumb={
+          <>
             / {visible.length}
             {segment !== 'all' && ` ${t('ofTotal', { total: list.length })}`}
-          </span>
-        </h1>
-        <div className="flex gap-2 flex-wrap">
-          <div className="flex items-center gap-2 bg-white border border-line rounded-pill px-3 py-1.5">
-            <Icon name="search" size={14} className="text-mute" />
-            <input
-              className="border-0 outline-none text-sm w-52 bg-transparent"
-              placeholder={t('searchPlaceholder')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="text-mute hover:text-ink text-sm"
-                title={t('clear')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-          <AcademyButton moduleKey="clientes" />
-          {locations.length > 0 && (
-            <select
-              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm max-w-full"
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              title={t('filterByLocation')}
+          </>
+        }
+        tutorial="clientes"
+      />
+
+      {/* Filtros en UNA fila en escritorio (pedido del cliente): cada control
+          mide lo que su texto pide y el buscador es el único que se estira o
+          encoge. Por debajo de 1280 px (o con el zoom del navegador al
+          125-150 %) salta de línea en vez de salirse de su caja o esconder
+          botones tras un scroll; «Nuevo cliente» siempre queda al final, a la
+          derecha. El aviso de duplicados vive con los segmentos: no cabía en
+          la fila y es un atajo, no un filtro. */}
+      <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 bg-white border border-line rounded-pill px-3 py-1.5 min-w-[9rem] basis-full sm:basis-auto flex-1 sm:flex-none sm:w-56 xl:w-auto xl:flex-1 xl:max-w-[15rem]">
+          <Icon name="search" size={14} className="text-mute shrink-0" />
+          <input
+            className="border-0 outline-none text-sm w-full min-w-0 bg-transparent"
+            placeholder={t('searchPlaceholder')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="text-mute hover:text-ink text-sm"
+              title={t('clear')}
             >
-              <option value="">{t('allLocations')}</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  📍 {l.name}
-                </option>
-              ))}
-            </select>
+              ✕
+            </button>
           )}
-          {staff.length > 0 && (
-            <select
-              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm max-w-full"
-              value={operatorId}
-              onChange={(e) => setOperatorId(e.target.value)}
-              title={t('filterByScanner')}
-            >
-              <option value="">{t('allScanners')}</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  👤 {s.fullName}
-                </option>
-              ))}
-            </select>
-          )}
-          <select
-            className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm max-w-full"
-            value={sinceDays}
-            onChange={(e) => setSinceDays(e.target.value)}
-            title={t('filterByActivity')}
-          >
-            <option value="">{t('anyDate')}</option>
-            <option value="7">📅 {t('last7Days')}</option>
-            <option value="30">📅 {t('last30Days')}</option>
-            <option value="90">📅 {t('last90Days')}</option>
-          </select>
-          {duplicateGroups > 0 && (
-            <Link
-              href="/app/customers/duplicates"
-              className="text-xs font-medium px-3 py-1.5 rounded-pill border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition flex items-center gap-1.5"
-              title={t('duplicatesDetected')}
-            >
-              ⚠ {t('possibleDuplicates')}
-              <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                {duplicateGroups}
-              </span>
-            </Link>
-          )}
-          <button
-            className="btn-ghost text-xs"
-            title={t('downloadCsvTitle')}
-            onClick={() =>
-              downloadFile(
-                `/customers/export.csv${search ? `?search=${encodeURIComponent(search)}` : ''}`,
-                `clientes-${new Date().toISOString().slice(0, 10)}.csv`,
-              )
-            }
-          >
-            ⤓ {t('exportCsv')}
-          </button>
-          <button className="btn-primary" onClick={() => setShowForm(!showForm)}>
-            <Icon name="plus" /> {showForm ? t('cancel') : t('newCustomer')}
-          </button>
         </div>
+        {locations.length > 0 && (
+          <select
+            className="basis-[calc(50%-0.25rem)] sm:basis-auto shrink-0 min-w-0 sm:w-auto sm:max-w-[11rem] truncate bg-white border border-line rounded-pill px-2.5 py-1.5 text-[13px]"
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
+            title={t('filterByLocation')}
+          >
+            <option value="">{t('allLocations')}</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                📍 {l.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {staff.length > 0 && (
+          <select
+            className="basis-[calc(50%-0.25rem)] sm:basis-auto shrink-0 min-w-0 sm:w-auto sm:max-w-[11rem] truncate bg-white border border-line rounded-pill px-2.5 py-1.5 text-[13px]"
+            value={operatorId}
+            onChange={(e) => setOperatorId(e.target.value)}
+            title={t('filterByScanner')}
+          >
+            <option value="">{t('allScanners')}</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>
+                👤 {s.fullName}
+              </option>
+            ))}
+          </select>
+        )}
+        <select
+          className="basis-[calc(50%-0.25rem)] sm:basis-auto shrink-0 min-w-0 sm:w-auto sm:max-w-[11rem] truncate bg-white border border-line rounded-pill px-2.5 py-1.5 text-[13px]"
+          value={sinceDays}
+          onChange={(e) => setSinceDays(e.target.value)}
+          title={t('filterByActivity')}
+        >
+          <option value="">{t('anyDate')}</option>
+          <option value="7">📅 {t('last7Days')}</option>
+          <option value="30">📅 {t('last30Days')}</option>
+          <option value="90">📅 {t('last90Days')}</option>
+        </select>
+        <button
+          className="btn-ghost text-xs shrink-0 whitespace-nowrap"
+          title={t('downloadCsvTitle')}
+          onClick={() =>
+            downloadFile(
+              `/customers/export.csv${search ? `?search=${encodeURIComponent(search)}` : ''}`,
+              `clientes-${new Date().toISOString().slice(0, 10)}.csv`,
+            )
+          }
+        >
+          ⤓ {t('exportCsv')}
+        </button>
+        <button
+          className="btn-primary shrink-0 whitespace-nowrap ml-auto"
+          onClick={() => setShowForm(!showForm)}
+        >
+          <Icon name="plus" /> {showForm ? t('cancel') : t('newCustomer')}
+        </button>
       </div>
 
       {/* Segment chips */}
@@ -500,6 +499,18 @@ export default function CustomersPage() {
             </button>
           );
         })}
+        {duplicateGroups > 0 && (
+          <Link
+            href="/app/customers/duplicates"
+            className="shrink-0 whitespace-nowrap text-xs sm:ml-auto font-medium px-3 py-1.5 rounded-pill border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition flex items-center gap-1.5"
+            title={t('duplicatesDetected')}
+          >
+            ⚠ {t('possibleDuplicates')}
+            <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+              {duplicateGroups}
+            </span>
+          </Link>
+        )}
       </div>
 
       {/* Ordenar. Lo pidio Primor Barber: con 128 clientes, una lista por
@@ -508,7 +519,7 @@ export default function CustomersPage() {
       <div className="flex items-center gap-2 mb-4">
         <span className="text-xs text-mute">{t('sortBy')}</span>
         <select
-          className="input h-8 text-sm w-auto"
+          className="input h-8 py-0 text-sm w-auto"
           value={orden}
           onChange={(e) => setOrden(e.target.value as Orden)}
         >
@@ -585,7 +596,6 @@ export default function CustomersPage() {
                 { key: 'colOrders', label: t('colOrders') },
                 { key: 'colLtv', label: t('colLtv') },
                 { key: 'colLastScan', label: t('colLastScan') },
-                { key: 'colLast', label: t('colLast') },
               ].map((h) => (
                 <th
                   key={h.key}
@@ -600,14 +610,14 @@ export default function CustomersPage() {
             {loading &&
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-t border-line2">
-                  <td colSpan={8} className="px-4 py-3.5">
+                  <td colSpan={7} className="px-4 py-3.5">
                     <div className="h-6 bg-bg2 rounded animate-shimmer" />
                   </td>
                 </tr>
               ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td className="px-4 py-12 text-center" colSpan={8}>
+                <td className="px-4 py-12 text-center" colSpan={7}>
                   <div className="text-4xl mb-2">
                     {segment === 'all' ? '👥' : SEGMENTS.find((s) => s.key === segment)?.emoji}
                   </div>
@@ -730,9 +740,6 @@ export default function CustomersPage() {
                         </div>
                       );
                     })()}
-                  </td>
-                  <td className="px-4 py-3.5 text-xs text-mute">
-                    {fmtDate(c.lastOrderAt)}
                   </td>
                 </tr>
               ))}
