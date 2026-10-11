@@ -8,6 +8,27 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-10 (128) — SIN DESPLEGAR: panel del negocio, «MODIFICACIONES CLIENTES (5)»
+
+Rama `feat/panel-pdf5-2026-10-10` (no está en `main`, nada desplegado).
+
+- **Barra superior del panel**: cada sección declara `<PanelHeader title
+  crumb subtitle tutorial>` y el shell lo pinta junto a «Buscar ⌘K» (portal a
+  un hueco de `AppShell`). «Ver tutorial» sale de ahí, grande y verde (color de
+  la marca, halo que respeta `prefers-reduced-motion`); se quitaron los 17
+  `AcademyButton` sueltos del contenido. ~45 páginas de `/app/**` migradas;
+  las fichas de detalle (`[id]`, `edit`) conservan su cabecera.
+- **Clientes**: filtros en una fila desde 1280 px, «Nuevo cliente» al final;
+  sin la columna «Último». **Push**: fuera «📍 Ubicación» (iba a
+  `/app/locations`, igual que la pestaña GeoPush). **Reseñas**: 5 respuestas
+  y «Ver N más».
+- **Nueva tarjeta**: primero el TIPO, luego solo sus plantillas.
+- **Etiquetas del producto**: «i» con vista previa según el estilo del menú.
+- **Historial de sellos**: el backend (`/stamps/audit`) añade `origin`,
+  `giftReason` y `redeemKind`; sin `—` vacíos. El orden de despliegue da
+  igual: con el backend viejo la tabla deduce «automático» de que no haya
+  empleado.
+
 ## 2026-10-10 (127) — Drive Pizza: reembolso por error → pago manual «desde siempre»
 
 Hotmart reembolsó por error su anual de USD 500 (HP2009265423, cobro del
