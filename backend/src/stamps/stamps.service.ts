@@ -1390,6 +1390,22 @@ export class StampsService {
         location: s.location?.name ?? null,
         ip: canSeeAudit ? s.ip ?? null : null,
         device: canSeeAudit ? s.device ?? null : null,
+        // De dónde salió el movimiento. Sin esto la tabla pintaba «—» en
+        // Empleado, Motivo e IP de todo sello automático y el negocio lo leía
+        // como un dato perdido (o un fraude) en vez de «lo hizo el sistema».
+        // ORDER = lo dio/reversó un pedido; AUTOMATION = una automatización;
+        // STAFF = lo hizo alguien del equipo; SYSTEM = sin persona detrás.
+        // La persona manda: si hay operador, es suyo aunque cuelgue de un
+        // pedido.
+        origin: s.operatorId
+          ? 'STAFF'
+          : s.orderId
+            ? 'ORDER'
+            : s.note === 'Por automation'
+              ? 'AUTOMATION'
+              : 'SYSTEM',
+        giftReason: s.giftReason ?? null,
+        redeemKind: s.redeemKind ?? null,
       })),
     };
   }

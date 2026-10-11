@@ -7,15 +7,13 @@
  */
 import { StampAuditTable } from '@/components/StampAuditTable';
 import { useTranslations } from 'next-intl';
+import { PanelHeader } from '@/components/PanelHeader';
 
 export default function HistorialSellosPage() {
   const t = useTranslations('app_stamp_history');
   return (
     <div>
-      <h1 className="page-title">{t('title')}</h1>
-      <p className="text-sm text-mute mb-4 max-w-2xl">
-        {t('intro')}
-      </p>
+      <PanelHeader title={t('title')} subtitle={t('intro')} />
       <div className="card card-pad">
         <StampAuditTable />
       </div>

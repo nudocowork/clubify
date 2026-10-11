@@ -19,6 +19,10 @@ type AuditRow = {
   location: string | null;
   ip: string | null;
   device: string | null;
+  /** Ausente en respuestas de un backend anterior: se trata como desconocido. */
+  origin?: 'STAFF' | 'ORDER' | 'AUTOMATION' | 'SYSTEM';
+  giftReason?: string | null;
+  redeemKind?: string | null;
 };
 
 type AuditResp = { enabled: boolean; showAudit: boolean; rows: AuditRow[] };
@@ -38,6 +42,66 @@ function actionBadge(action: string, amount: number) {
     default:
       return { label: action, bg: '#f3f4f6', fg: '#6b7280' };
   }
+}
+
+// Los «—» en Empleado, Motivo e IP se leían como «falta un dato» (o algo
+// raro) cuando en realidad el movimiento lo hizo el sistema: un pedido
+// entregado, un reverso por cancelación, una automatización. Cada celda vacía
+// ahora dice POR QUÉ está vacía (pedido del cliente, PDF 5).
+
+/** Notas que escribe el propio sistema, con un texto legible para el negocio. */
+const NOTAS_DEL_SISTEMA: Record<string, string> = {
+  'Por automation': 'Automatización',
+};
+
+function esAutomatico(r: AuditRow) {
+  if (r.origin) return r.origin !== 'STAFF';
+  return !r.operator;
+}
+
+function quien(r: AuditRow): { texto: string; tenue: boolean } {
+  if (r.operator) return { texto: r.operator, tenue: false };
+  switch (r.origin) {
+    case 'ORDER':
+      return { texto: 'Automático (pedido)', tenue: true };
+    case 'AUTOMATION':
+      return { texto: 'Automático (regla)', tenue: true };
+    case 'SYSTEM':
+      return { texto: 'Sistema', tenue: true };
+    case 'STAFF':
+      // Tenía operador y la cuenta se borró después.
+      return { texto: 'Empleado eliminado', tenue: true };
+    default:
+      return { texto: 'Sistema', tenue: true };
+  }
+}
+
+function motivo(r: AuditRow): { texto: string; tenue: boolean } {
+  const partes: string[] = [];
+  if (r.note) partes.push(NOTAS_DEL_SISTEMA[r.note] ?? r.note);
+  if (r.giftReason === 'COURTESY') partes.push('Cortesía');
+  if (r.giftReason === 'SPECIAL_DATE') partes.push('Fecha especial');
+  if (r.action === 'REDEEM' && !r.note) {
+    if (r.redeemKind === 'COUPON') partes.push('Canje de cupón');
+    else if (r.redeemKind === 'REWARD') partes.push('Canje de premio');
+  }
+  if (r.location) partes.push(r.location);
+  if (partes.length > 0) return { texto: partes.join(' · '), tenue: false };
+  // Sin motivo ni sede: decir qué fue, no dejar un guion.
+  if (!esAutomatico(r)) {
+    if (r.action === 'STAMP' || r.action === 'VISIT') return { texto: 'Escaneo en caja', tenue: true };
+    if (r.action === 'REDEEM') return { texto: 'Canje en caja', tenue: true };
+    return { texto: 'Ajuste manual sin motivo', tenue: true };
+  }
+  return { texto: 'Movimiento automático', tenue: true };
+}
+
+function dispositivo(r: AuditRow): { texto: string; tenue: boolean } {
+  const v = [r.ip, r.device].filter(Boolean).join(' · ');
+  if (v) return { texto: v, tenue: false };
+  // Un movimiento del sistema no pasa por ningún teléfono ni navegador.
+  if (esAutomatico(r)) return { texto: 'No aplica', tenue: true };
+  return { texto: 'No registrado', tenue: true };
 }
 
 function fmt(ts: string) {
@@ -99,6 +163,9 @@ export function StampAuditTable({ tenantId }: { tenantId?: string }) {
         <tbody>
           {data.rows.map((r) => {
             const b = actionBadge(r.action, r.amount);
+            const q = quien(r);
+            const m = motivo(r);
+            const d = dispositivo(r);
             return (
               <tr key={r.id} className="border-b border-line/60 align-top">
                 <td className="py-2 pr-3 whitespace-nowrap text-mute">{fmt(r.createdAt)}</td>
@@ -111,13 +178,16 @@ export function StampAuditTable({ tenantId }: { tenantId?: string }) {
                     {b.label}
                   </span>
                 </td>
-                <td className="py-2 pr-3">{r.operator ?? '—'}</td>
-                <td className="py-2 pr-3 text-mute">
-                  {[r.note, r.location].filter(Boolean).join(' · ') || '—'}
+                <td className={`py-2 pr-3 ${q.tenue ? 'text-mute italic' : ''}`}>{q.texto}</td>
+                <td className={`py-2 pr-3 ${m.tenue ? 'text-mute2 italic' : 'text-mute'}`}>
+                  {m.texto}
                 </td>
                 {data.showAudit && (
-                  <td className="py-2 pr-3 text-[11px] text-mute max-w-[220px] truncate" title={r.device ?? ''}>
-                    {[r.ip, r.device].filter(Boolean).join(' · ') || '—'}
+                  <td
+                    className={`py-2 pr-3 text-[11px] max-w-[220px] truncate ${d.tenue ? 'text-mute2 italic' : 'text-mute'}`}
+                    title={d.tenue ? '' : r.device ?? ''}
+                  >
+                    {d.texto}
                   </td>
                 )}
               </tr>
