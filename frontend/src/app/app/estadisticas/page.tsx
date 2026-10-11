@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { InfoLinkStats } from '@/components/InfoLinkStats';
 import { useTranslations } from 'next-intl';
 
@@ -11,11 +12,10 @@ export default function EstadisticasPage() {
   const t = useTranslations('app_infolink_stats');
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')} <span className="page-crumb">/ InfoLink</span>
-        </h1>
-      </div>
+      <PanelHeader
+        title={t('title')}
+        crumb={<>/ InfoLink</>}
+      />
       <p className="text-sm text-mute mb-5">
         {t('intro')}
       </p>

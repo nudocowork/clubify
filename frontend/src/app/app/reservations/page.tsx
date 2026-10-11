@@ -5,7 +5,7 @@ import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
 import {
   Reservation,
@@ -225,13 +225,13 @@ export default function AgendaPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-        <div>
-          <h1 className="page-title m-0">
-            {t('pageTitle')} <span className="page-crumb text-mute font-normal">/ {fmtLongDate(date)}</span>
-          </h1>
-          <p className="text-xs text-mute mt-1">{t('subtitle')}</p>
-        </div>
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={<>/ {fmtLongDate(date)}</>}
+        subtitle={t('subtitle')}
+        tutorial="agenda"
+      />
+      <div className="flex items-start justify-end gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
             <span className="relative inline-block w-2 h-2">
@@ -255,7 +255,6 @@ export default function AgendaPage() {
               ))}
             </select>
           )}
-          <AcademyButton moduleKey="agenda" />
           <input
             type="search"
             value={search}

@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -198,16 +199,18 @@ export default function WorkflowsPage() {
 
   return (
     <div className="max-w-3xl">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <div>
-          <h1 className="text-xl font-bold m-0">{t('title')}</h1>
-          <div className="text-xs" style={{ color: '#9aa4af' }}>
+      <PanelHeader
+        title={t('title')}
+        subtitle={
+          <>
             {t('subtitle')} ·{' '}
-            <Link href="/app/automations" style={{ color: '#0ea5e9' }}>
+            <Link href="/app/automations" className="text-brand hover:underline">
               {t('backToRules')}
             </Link>
-          </div>
-        </div>
+          </>
+        }
+      />
+      <div className="flex items-center justify-end gap-2 mb-1">
         {!editing && (
           <button
             onClick={newWorkflow}

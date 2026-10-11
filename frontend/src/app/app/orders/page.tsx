@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, downloadFile } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { DirectChatList, type ChatPeer } from '@/components/DirectChatList';
 import { getOrdersSocket } from '@/lib/socket';
@@ -503,13 +503,12 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('pageTitle')}{' '}
-          <span className="page-crumb">
-            {t('crumbInProgress', { count: counts.PENDING + counts.CONFIRMED + counts.READY })}
-          </span>
-        </h1>
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={t('crumbInProgress', { count: counts.PENDING + counts.CONFIRMED + counts.READY })}
+        tutorial="pedidos"
+      />
+      <div className="page-head justify-end">
         <div className="flex items-center gap-2 -mt-1 mb-2 lg:mb-0 lg:mt-0">
           {opStats.avgMin !== null && (
             <span
@@ -563,7 +562,6 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
               ))}
             </select>
           )}
-          <AcademyButton moduleKey="pedidos" />
           <div className="flex gap-0.5 bg-bg2 rounded-pill p-0.5 text-xs">
             {([1, 7, 30] as const).map((d) => (
               <button

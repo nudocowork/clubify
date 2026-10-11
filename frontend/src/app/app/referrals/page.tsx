@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { useAuthBrand, type AuthBrand } from '@/components/AuthBrand';
 import { darkenHex } from '@/lib/panel-brand-theme';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -96,7 +96,13 @@ export default function TenantReferrals() {
     }
   }
 
-  if (loading) return <div className="text-mute">{t('loading')}</div>;
+  if (loading)
+    return (
+      <div className="max-w-4xl">
+        <PanelHeader title={t('pageTitle')} tutorial="referidos" />
+        <div className="text-mute">{t('loading')}</div>
+      </div>
+    );
 
   const totals = data!.totals;
   const codes = data!.codes;
@@ -105,12 +111,9 @@ export default function TenantReferrals() {
 
   return (
     <div className="max-w-4xl">
+      <PanelHeader title={t('pageTitle')} tutorial="referidos" />
       <div className="page-head">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h1 className="page-title" style={{ margin: 0 }}>{t('pageTitle')}</h1>
-          <AcademyButton moduleKey="referidos" />
-        </div>
-        <p className="text-mute text-sm mt-1 leading-relaxed">
+        <p className="text-mute text-sm m-0 leading-relaxed">
           {t.rich(fixedTerms ? 'introFixed' : 'intro', {
             brandName: brand?.name ?? 'Clubify',
             amount: fixedTerms ? fixedTerms.negocioAmount : 0,

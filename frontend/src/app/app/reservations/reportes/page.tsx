@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -419,8 +419,12 @@ export default function ReportesPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">{t('pageTitle')} <span className="page-crumb">/ {date}</span></h1>
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={<>/ {date}</>}
+        tutorial="reportes"
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2 items-center flex-wrap">
           {locations.length > 1 && (
             <select
@@ -438,7 +442,6 @@ export default function ReportesPage() {
               ))}
             </select>
           )}
-          <AcademyButton moduleKey="reportes" />
           <button
             onClick={() => setWalkInOpen(true)}
             className="btn-primary text-sm"

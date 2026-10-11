@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
@@ -147,11 +148,11 @@ export default function BadgesPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">/ {t('configuredCount', { count: list.length })}</span>
-        </h1>
+      <PanelHeader
+        title={t('title')}
+        crumb={<>/ {t('configuredCount', { count: list.length })}</>}
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setShowTemplates(true)}>
             <Icon name="spark" /> {t('templates')}

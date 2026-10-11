@@ -1,13 +1,14 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
 import { useTranslations } from 'next-intl';
 import { NotificationBell } from './NotificationBell';
 import { TrialBanner } from './TrialBanner';
 import { CommandPalette, CommandHint } from './CommandPalette';
+import { PanelHeaderSlotContext } from './PanelHeader';
 import { QuickCreateFAB } from './QuickCreateFAB';
 import { CardVerificationLockscreen } from './CardVerificationLockscreen';
 import { TrialExpiredLockscreen } from './TrialExpiredLockscreen';
@@ -144,6 +145,19 @@ export default function AppShell({
   const lastSyncedLocaleRef = useRef<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
+  // Hueco de la barra superior donde cada sección pinta su título y su
+  // «Ver tutorial» (ver components/PanelHeader). Se guarda en estado, no en
+  // ref, para que las páginas se vuelvan a pintar cuando el hueco ya existe.
+  const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
+  const [headerCount, setHeaderCount] = useState(0);
+  const registerHeader = useCallback(() => {
+    setHeaderCount((n) => n + 1);
+    return () => setHeaderCount((n) => n - 1);
+  }, []);
+  const headerCtx = useMemo(
+    () => ({ slot: headerSlot, register: registerHeader }),
+    [headerSlot, registerHeader],
+  );
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
   // Seed anti-flash (FODT) del panel /app. Al entrar por "Entrar al negocio"
   // (impersonation) el backup en sessionStorage YA trae el branding de la marca
@@ -1621,11 +1635,22 @@ export default function AppShell({
           </div>
         )}
         {variant === 'app' && <TrialBanner />}
-        {/* Topbar desktop con CommandHint a la derecha */}
-        <div className="hidden lg:flex items-center justify-end gap-3 px-7 pt-4">
+        {/* Franja superior: título de la sección + «Ver tutorial» a la
+            izquierda (los pone la página con <PanelHeader>) y el buscador a
+            la derecha. En celular solo aparece si la página trae cabecera;
+            si no, sería un hueco vacío encima del contenido. */}
+        <div
+          className={`${headerCount > 0 ? 'flex' : 'hidden lg:flex'} items-center gap-x-3 gap-y-2 px-4 sm:px-6 lg:px-7 pt-4 sm:pt-5 lg:pt-4 min-w-0`}
+        >
+          <div
+            ref={setHeaderSlot}
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2"
+          />
           <CommandHint />
         </div>
-        <main className="bg-bg p-4 sm:p-6 lg:p-7 lg:pt-4">{children}</main>
+        <main className="bg-bg p-4 sm:p-6 lg:p-7 lg:pt-4">
+          <PanelHeaderSlotContext.Provider value={headerCtx}>{children}</PanelHeaderSlotContext.Provider>
+        </main>
       </div>
 
       <CommandPalette variant={variant} />

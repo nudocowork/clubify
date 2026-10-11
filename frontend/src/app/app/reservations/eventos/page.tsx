@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
 import { EnlaceConQr } from '@/components/EnlaceConQr';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
@@ -92,16 +92,13 @@ export default function EventosPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-        <div>
-          <h1 className="page-title m-0">
-            {t('pageTitle')}{' '}
-            <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
-          </h1>
-          <p className="text-xs text-mute mt-1">
-            {t('subtitle')}
-          </p>
-        </div>
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={<>/ {fmtLongDate(todayISO())}</>}
+        subtitle={t('subtitle')}
+        tutorial="eventos"
+      />
+      <div className="flex items-start justify-end gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
             <span className="relative inline-block w-2 h-2">
@@ -113,7 +110,6 @@ export default function EventosPage() {
           <button onClick={() => setCreateOpen(true)} className="btn-primary text-sm">
             {t('newEvent')}
           </button>
-          <AcademyButton moduleKey="eventos" />
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -85,13 +86,11 @@ export default function InfoLinksList() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('heading')}{' '}
-          <span className="page-crumb">
-            / {t('countCrumb', { count: list.length })}
-          </span>
-        </h1>
+      <PanelHeader
+        title={t('heading')}
+        crumb={<>/ {t('countCrumb', { count: list.length })}</>}
+      />
+      <div className="page-head justify-end">
         <button className="btn-primary" onClick={create} disabled={creating}>
           <Icon name="plus" /> {creating ? t('creating') : t('newLink')}
         </button>

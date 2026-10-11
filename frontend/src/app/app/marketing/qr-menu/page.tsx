@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -88,14 +89,12 @@ export default function QrMenuPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          <Link href="/app/marketing" className="text-mute hover:text-ink">
+      <PanelHeader
+        title={<><Link href="/app/marketing" className="text-mute hover:text-ink">
             {t('marketing')}
-          </Link>{' '}
-          <span className="page-crumb">/ QR {mainLabel}</span>
-        </h1>
-      </div>
+          </Link></>}
+        crumb={<>/ QR {mainLabel}</>}
+      />
 
       <p className="text-sm text-mute max-w-2xl mb-3 leading-relaxed">
         {soloLectura ? t('readOnlyIntro') : t('menuIntro')}

@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations, useLocale } from 'next-intl';
@@ -86,11 +87,8 @@ export default function OrdersHistoryPage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
-          <p className="text-mute text-sm mt-1">{t('intro')}</p>
-        </div>
+      <PanelHeader title={t('title')} subtitle={t('intro')} />
+      <div className="flex items-center justify-end gap-3 mb-4 flex-wrap">
         <Link href="/app/orders" className="btn-ghost text-sm">
           {t('backToBoard')}
         </Link>

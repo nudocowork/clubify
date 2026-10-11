@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -577,10 +577,10 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="page-head">
-        <h1 className="page-title">{t('myAccount')}</h1>
-        <AcademyButton moduleKey="configuracion" />
-      </div>
+      <PanelHeader
+        title={t('myAccount')}
+        tutorial="configuracion"
+      />
 
       {/* Perfil */}
       <form onSubmit={saveProfile} className="card card-pad mb-4">

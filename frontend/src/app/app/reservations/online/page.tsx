@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { cleanDomain } from '@/lib/public-domain';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
 import { fmtLongDate, todayISO, to12h } from '../_shared';
 
@@ -49,16 +49,13 @@ export default function ReservaOnlinePage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="page-title m-0">
-              {t('pageTitle')} <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
-            </h1>
-            <AcademyButton moduleKey="reservas-online" />
-          </div>
-          <p className="text-xs text-mute mt-1">{t('subtitle')}</p>
-        </div>
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={<>/ {fmtLongDate(todayISO())}</>}
+        subtitle={t('subtitle')}
+        tutorial="reservas-online"
+      />
+      <div className="flex items-start justify-end gap-3 mb-5 flex-wrap">
         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
           <span className="relative inline-block w-2 h-2">
             <span className="absolute inset-0 rounded-full bg-ok animate-ping opacity-75" />

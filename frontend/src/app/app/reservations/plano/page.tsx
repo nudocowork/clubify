@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
 import {
   Location,
@@ -413,21 +413,18 @@ export default function PlanoPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-        <div>
-          <h1 className="page-title m-0">
-            {t('pageTitle')}{' '}
-            <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
-          </h1>
-          <p className="text-xs text-mute mt-1">
-            {t('realtimeLayout')}
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={<>/ {fmtLongDate(todayISO())}</>}
+        subtitle={<>{t('realtimeLayout')}
             {locations.length > 0 && activeLocationId
               ? ` · ${locations.find((l) => l.id === activeLocationId)?.name ?? ''}`
               : locations.length === 1
               ? ` · ${locations[0].name}`
-              : ''}
-          </p>
-        </div>
+              : ''}</>}
+        tutorial="plano"
+      />
+      <div className="flex items-start justify-end gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
             <span className="relative inline-block w-2 h-2">
@@ -449,7 +446,6 @@ export default function PlanoPage() {
               ))}
             </select>
           )}
-          <AcademyButton moduleKey="plano" />
         </div>
       </div>
 

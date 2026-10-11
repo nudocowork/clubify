@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { EmojiPicker } from '@/components/EmojiPicker';
@@ -348,20 +348,14 @@ export default function NotificationsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('pageTitle')}{' '}
-          <span className="page-crumb">{t('sentCrumb', { count: history.length })}</span>
-        </h1>
-        <Link
-          href="/app/locations"
-          className="btn-ghost"
-          title={t('locationLinkTitle')}
-        >
-          {t('locationLink')}
-        </Link>
-        <AcademyButton moduleKey="push" />
-      </div>
+      {/* El botón «📍 Ubicación» que iba aquí se quitó (pedido del cliente):
+          llevaba a /app/locations, lo mismo que el enlace de la pestaña
+          «GeoPush» de esta página y que «Ubicaciones» del menú lateral. */}
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={t('sentCrumb', { count: history.length })}
+        tutorial="push"
+      />
 
       <PushLogoCard
         pushLogoUrl={pushLogoUrl}

@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -269,11 +270,11 @@ export default function StorefrontEditor() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('configureTitle', { label: mainLabel.toLowerCase() })}{' '}
-          <span className="page-crumb">/ {sf.isPublished ? t('published') : t('draft')}</span>
-        </h1>
+      <PanelHeader
+        title={t('configureTitle', { label: mainLabel.toLowerCase() })}
+        crumb={<>/ {sf.isPublished ? t('published') : t('draft')}</>}
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2 flex-wrap items-center">
           <Link
             href={mesaHref}

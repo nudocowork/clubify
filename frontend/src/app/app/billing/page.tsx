@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -218,12 +219,7 @@ export default function BillingPage() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
-        <p className="text-mute mt-1">
-          {t('subtitle')}
-        </p>
-      </div>
+      <PanelHeader title={t('title')} subtitle={t('subtitle')} />
 
       {justSuspended && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 mb-4">
@@ -555,10 +551,7 @@ function InfolinkSubscriptionPanel({
 
   return (
     <div className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">{t('yourInfoLinkPlan')}</h1>
-        <p className="text-mute mt-1">{t('infoLinkPlanHint')}</p>
-      </div>
+      <PanelHeader title={t('yourInfoLinkPlan')} subtitle={t('infoLinkPlanHint')} />
 
       <div className="card card-pad ring-1 ring-line">
         <div className="flex items-start justify-between gap-4 flex-wrap">

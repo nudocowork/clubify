@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -129,10 +130,7 @@ export default function ServiciosPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-xl font-bold m-0 mb-1">{t('title')}</h1>
-      <p className="text-xs mb-3" style={{ color: '#9aa4af' }}>
-        {t('intro')}
-      </p>
+      <PanelHeader title={t('title')} subtitle={t('intro')} />
       {slug && (
         <div
           className="flex flex-wrap items-center gap-2 rounded-[10px] px-3 py-2 mb-4 text-xs"

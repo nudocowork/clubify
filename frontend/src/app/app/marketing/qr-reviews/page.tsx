@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -31,14 +32,12 @@ export default function QrReviewsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          <Link href="/app/marketing" className="text-mute hover:text-ink">
+      <PanelHeader
+        title={<><Link href="/app/marketing" className="text-mute hover:text-ink">
             {t('marketing')}
-          </Link>{' '}
-          <span className="page-crumb">/ {t('reviewsCrumb')}</span>
-        </h1>
-      </div>
+          </Link></>}
+        crumb={<>/ {t('reviewsCrumb')}</>}
+      />
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
         {soloLectura ? t('readOnlyIntro') : t('reviewsIntro')}

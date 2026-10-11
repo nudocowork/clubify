@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -47,14 +48,10 @@ export default function MessagesPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">
-            / {t('totalCrumb', { count: list.length })}
-          </span>
-        </h1>
-      </div>
+      <PanelHeader
+        title={t('title')}
+        crumb={<>/ {t('totalCrumb', { count: list.length })}</>}
+      />
 
       <div className="mb-3.5">
         <div className="tabs">

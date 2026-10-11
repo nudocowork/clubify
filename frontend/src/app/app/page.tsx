@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations, useLocale } from 'next-intl';
@@ -324,10 +325,11 @@ export default function TenantDashboard() {
   if (tenant?.businessType === 'INFOLINK') {
     return (
       <div>
-        <div className="page-head">
-          <h1 className="page-title">
-            {t('dashboard')} <span className="page-crumb">/ {today}</span>
-          </h1>
+        <PanelHeader
+          title={t('dashboard')}
+          crumb={<>/ {today}</>}
+        />
+        <div className="page-head justify-end">
           <div className="flex gap-2 flex-wrap">
             <Link className="btn-primary" href="/app/info-links">
               <Icon name="edit" /> {t('editInfoLink')}
@@ -351,10 +353,11 @@ export default function TenantDashboard() {
           dashboard funcional sin checklist de pasos. Las funcionalidades
           siguen disponibles desde sidebar. */}
       <InsightsCard />
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('dashboard')} <span className="page-crumb">/ {today}</span>
-        </h1>
+      <PanelHeader
+        title={t('dashboard')}
+        crumb={<>/ {today}</>}
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2 flex-wrap">
           <Link className="btn-ghost" href="/app/notifications">
             <Icon name="bell" /> {t('push')}

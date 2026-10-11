@@ -5,6 +5,7 @@
 // negocio tiene 2+ sedes activas, /r/<slug> muestra un selector antes de
 // redirigir al Google de la sede elegida.
 
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -125,13 +126,13 @@ export default function ReviewLocationsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          <Link href="/app/reviews" className="text-mute hover:text-ink">
+      <PanelHeader
+        title={<><Link href="/app/reviews" className="text-mute hover:text-ink">
             {t('reviews')}
-          </Link>{' '}
-          <span className="page-crumb">{t('crumb')}</span>
-        </h1>
+          </Link></>}
+        crumb={t('crumb')}
+      />
+      <div className="page-head justify-end">
         <button
           onClick={() => setShowNew(true)}
           disabled={!canCreate}

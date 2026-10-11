@@ -5,6 +5,7 @@
 // El QR público se construye desde /app/marketing/edit/[id] eligiendo
 // uno de estos targets.
 
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -75,13 +76,13 @@ export default function ReviewTargetsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          <Link href="/app/marketing" className="text-mute hover:text-ink">
+      <PanelHeader
+        title={<><Link href="/app/marketing" className="text-mute hover:text-ink">
             {t('marketing')}
-          </Link>{' '}
-          <span className="page-crumb">{t('crumb')}</span>
-        </h1>
+          </Link></>}
+        crumb={t('crumb')}
+      />
+      <div className="page-head justify-end">
         <button onClick={() => setShowNew(true)} className="btn-primary">
           <Icon name="plus" /> {t('newTarget')}
         </button>

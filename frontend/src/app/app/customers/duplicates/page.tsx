@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations, useLocale } from 'next-intl';
@@ -112,21 +113,21 @@ export default function DuplicatesPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">
-            {t('title')}{' '}
-            {data && (
-              <span className="page-crumb">
-                /{' '}
-                {data.total === 1
-                  ? t('groupCrumb', { count: data.total })
-                  : t('groupsCrumb', { count: data.total })}
-              </span>
-            )}
-          </h1>
-          <p className="text-mute text-sm mt-1">{t('intro')}</p>
-        </div>
+      <PanelHeader
+        title={t('title')}
+        crumb={
+          data ? (
+            <>
+              /{' '}
+              {data.total === 1
+                ? t('groupCrumb', { count: data.total })
+                : t('groupsCrumb', { count: data.total })}
+            </>
+          ) : null
+        }
+        subtitle={t('intro')}
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2">
           <Link href="/app/customers" className="btn-ghost text-xs">
             {t('backToCustomers')}

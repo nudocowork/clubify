@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -200,13 +200,12 @@ export default function StaffPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">
-            / {t('peopleCount', { count: list.length })}
-          </span>
-        </h1>
+      <PanelHeader
+        title={t('title')}
+        crumb={<>/ {t('peopleCount', { count: list.length })}</>}
+        tutorial="equipo"
+      />
+      <div className="page-head justify-end">
         {isOwner && (
           <button
             className="btn-primary"
@@ -215,7 +214,6 @@ export default function StaffPage() {
             <Icon name="plus" /> {t('inviteTeam')}
           </button>
         )}
-        <AcademyButton moduleKey="equipo" />
       </div>
 
       {!isOwner && (

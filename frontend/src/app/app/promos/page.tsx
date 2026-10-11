@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -112,11 +113,11 @@ export default function PromosPage() {
       >
         ← {t('breadcrumbMenu')}
       </Link>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">{t('crumbConfigured', { count: list.length })}</span>
-        </h1>
+      <PanelHeader
+        title={t('title')}
+        crumb={t('crumbConfigured', { count: list.length })}
+      />
+      <div className="page-head justify-end">
         <button
           className="btn-primary"
           onClick={() =>

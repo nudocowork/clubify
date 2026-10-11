@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations, useLocale } from 'next-intl';
@@ -74,10 +75,11 @@ export default function AnalyticsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')} <span className="page-crumb">{t('crumb')}</span>
-        </h1>
+      <PanelHeader
+        title={t('title')}
+        crumb={t('crumb')}
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-1">
           {[7, 30, 90].map((d) => (
             <button

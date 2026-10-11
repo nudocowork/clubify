@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -138,11 +139,8 @@ export default function AlianzasPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">{t('title')}</h1>
-          <p className="mt-1 text-sm text-mute">{t('intro')}</p>
-        </div>
+      <PanelHeader title={t('title')} subtitle={t('intro')} />
+      <header className="flex items-start justify-end gap-4">
         {data.cupoLibre > 0 && !creando && (
           <button className="btn btn-primary shrink-0" onClick={() => setCreando(true)}>
             {t('new')}

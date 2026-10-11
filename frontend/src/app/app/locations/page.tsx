@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import dynamic from 'next/dynamic';
@@ -119,14 +120,10 @@ export default function LocationsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">
-            {t('configuredCount', { count: list.length })}
-          </span>
-        </h1>
-      </div>
+      <PanelHeader
+        title={t('title')}
+        crumb={t('configuredCount', { count: list.length })}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <form onSubmit={create} className="card card-pad">

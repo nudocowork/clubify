@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -140,9 +141,9 @@ export default function ClubPage() {
   if (falloAlPreguntar) {
     return (
       <div>
-        <div className="page-head">
-          <h1 className="page-title">{t('title')}</h1>
-        </div>
+        <PanelHeader
+          title={t('title')}
+        />
         <div className="card card-pad text-center py-12">
           <div className="font-semibold">{t('cantLoadTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
@@ -165,9 +166,9 @@ export default function ClubPage() {
   if (habilitado === false) {
     return (
       <div>
-        <div className="page-head">
-          <h1 className="page-title">{t('title')}</h1>
-        </div>
+        <PanelHeader
+          title={t('title')}
+        />
         <div className="card card-pad text-center py-12">
           <div className="text-4xl mb-2">🎟️</div>
           <div className="font-semibold">{t('lockedTitle')}</div>
@@ -182,15 +183,13 @@ export default function ClubPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">
-            {planes.length === 1
+      <PanelHeader
+        title={t('title')}
+        crumb={planes.length === 1
               ? t('onePlan')
               : t('manyPlans', { count: planes.length })}
-          </span>
-        </h1>
+      />
+      <div className="page-head justify-end">
         {habilitado === true && planes.length > 0 && !borrador && (
           <button className="btn-primary" onClick={() => setBorrador({ ...NUEVO })}>
             <Icon name="plus" /> {t('newPlan')}

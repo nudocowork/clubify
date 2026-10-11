@@ -1,4 +1,5 @@
 'use client';
+import { PanelHeader } from '@/components/PanelHeader';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -124,11 +125,11 @@ export default function AutomationsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">{t('crumbRules', { count: list.length })}</span>
-        </h1>
+      <PanelHeader
+        title={t('title')}
+        crumb={t('crumbRules', { count: list.length })}
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2">
           <Link className="btn-ghost" href="/app/automations/workflows">
             <Icon name="spark" /> Workflows

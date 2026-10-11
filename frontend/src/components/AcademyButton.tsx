@@ -14,9 +14,14 @@ import { ACADEMY_MODULE_LABEL, youTubeEmbedUrl } from '@/lib/academy-modules';
 export function AcademyButton({
   moduleKey,
   className = '',
+  variant = 'pill',
 }: {
   moduleKey: string;
   className?: string;
+  /** `shell`: el botón grande y verde de la barra superior (junto al buscador).
+   *  Ahí compite con el título de la sección, así que tiene que verse sin
+   *  buscarlo; `pill` queda para usos sueltos dentro del contenido. */
+  variant?: 'pill' | 'shell';
 }) {
   const videos = useAcademyVideos();
   const v = videos[moduleKey];
@@ -44,15 +49,34 @@ export function AcademyButton({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`academy-pill ${className}`}
-        aria-haspopup="dialog"
-      >
-        <span className="academy-tri" aria-hidden="true">▶</span>
-        <span>Ver tutorial</span>
-      </button>
+      {variant === 'shell' ? (
+        // Clases de Tailwind (bg-brand…) y no estilos propios: el tema de la
+        // marca blanca (.brand-panel) voltea `bg-brand` a su color, así que en
+        // Sellea el botón sale con el color de Sellea y no con el verde.
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`academy-shell relative isolate inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-pill bg-brand px-4 py-2 text-[13.5px] font-semibold leading-none text-white shadow-active transition hover:bg-brand-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${className}`}
+          aria-haspopup="dialog"
+        >
+          <span className="academy-shell-ico" aria-hidden="true">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+              <path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z" />
+            </svg>
+          </span>
+          <span>Ver tutorial</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`academy-pill ${className}`}
+          aria-haspopup="dialog"
+        >
+          <span className="academy-tri" aria-hidden="true">▶</span>
+          <span>Ver tutorial</span>
+        </button>
+      )}
 
       {open && (
         <div
@@ -107,6 +131,28 @@ export function AcademyButton({
         .academy-pill:hover { border-color: var(--brand, #16a34a); color: var(--brand, #16a34a); }
         .academy-pill:focus-visible { outline: 2px solid var(--brand, #16a34a); outline-offset: 3px; }
         .academy-tri { color: var(--brand, #16a34a); font-size: 10px; }
+
+        /* Botón de la barra superior. El halo es un ::after que HEREDA el
+           fondo del botón (background: inherit), así late con el color de la
+           marca blanca sin conocerlo. Late suave y con pausa larga: llama la
+           atención sin convertirse en un parpadeo que distrae al trabajar. */
+        .academy-shell::after {
+          content: ''; position: absolute; inset: 0; z-index: -1;
+          border-radius: inherit; background: inherit; opacity: 0;
+          animation: academyHalo 3.2s ease-out infinite;
+          pointer-events: none;
+        }
+        .academy-shell-ico {
+          display: grid; place-items: center; width: 20px; height: 20px;
+          border-radius: 999px; background: rgba(255,255,255,.22);
+        }
+        @keyframes academyHalo {
+          0% { transform: scale(1); opacity: .45; }
+          55%, 100% { transform: scale(1.18, 1.45); opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .academy-shell::after { animation: none; }
+        }
 
         .academy-overlay {
           position: fixed; inset: 0; z-index: 60; display: flex; align-items: center;

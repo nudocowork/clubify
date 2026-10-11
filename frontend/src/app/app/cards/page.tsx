@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
 import { cartonSinTope, coincideElTipo } from '@/lib/tipo-de-tarjeta.mjs';
@@ -231,14 +231,13 @@ export default function CardsList() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('title')}{' '}
-          <span className="page-crumb">
-            / {t('activeCrumb', { count: activeCount })}
-          </span>
-        </h1>
-        <div className="flex gap-2 flex-wrap">
+      <PanelHeader
+        title={t('title')}
+        crumb={<>/ {t('activeCrumb', { count: activeCount })}</>}
+        tutorial="wallet"
+      />
+      <div className="flex justify-end mb-5">
+        <div className="flex gap-2 flex-wrap justify-end">
           <button
             className="btn-ghost"
             onClick={() => setShowLogoModal(true)}
@@ -256,7 +255,6 @@ export default function CardsList() {
             )}
             {t('configureLogo')}
           </button>
-          <AcademyButton moduleKey="wallet" />
           <Link className="btn-primary" href="/app/cards/new">
             <Icon name="plus" /> {t('createCard')}
           </Link>

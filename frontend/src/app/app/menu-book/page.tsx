@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { MenuBookPagesUploader } from '@/components/menu/MenuBookPagesUploader';
@@ -276,13 +276,17 @@ export default function MenuBookAdminPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-5">
+      <PanelHeader
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Icon name="book" size={22} /> {t('title')}
+          </span>
+        }
+        tutorial="menu-libro"
+      />
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex-1 min-w-[260px]">
-          <h1 className="text-2xl font-bold m-0 flex items-center gap-2">
-            <Icon name="book" size={22} /> {t('title')}
-            <AcademyButton moduleKey="menu-libro" />
-          </h1>
-          <p className="text-sm text-mute mt-1 max-w-xl leading-relaxed">
+          <p className="text-sm text-mute m-0 max-w-xl leading-relaxed">
             {t.rich('intro', {
               code: (chunks) => (
                 <code className="text-[12px] px-1 py-0.5 bg-bg2 rounded">{chunks}</code>

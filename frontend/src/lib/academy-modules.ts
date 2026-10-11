@@ -1,10 +1,11 @@
 // Academia interactiva — registro canónico de módulos que pueden tener un
 // video-tutorial. La clave (`key`) debe coincidir con ACADEMY_MODULE_KEYS del
 // backend. Este registro alimenta la página /admin/academia; el botón contextual
-// (<AcademyButton moduleKey="...">) se coloca UNA vez en el header de cada módulo.
+// lo pinta la barra superior del panel, junto al buscador, cuando la página lo
+// declara con <PanelHeader tutorial="..."> (ver components/PanelHeader).
 //
 // Agregar un módulo nuevo: sumar su entrada aquí + su clave en el backend +
-// colocar el botón en el header del módulo (una sola vez).
+// pasar `tutorial="<clave>"` al <PanelHeader> de la página del módulo.
 export type AcademyModuleDef = {
   key: string;
   /** Nombre del módulo mostrado en la config y usado como título por defecto del popup. */
@@ -14,23 +15,23 @@ export type AcademyModuleDef = {
 };
 
 export const ACADEMY_MODULES: AcademyModuleDef[] = [
-  { key: 'wallet', label: 'Tarjetas Wallet', where: 'Al lado de “Configura tu logo”' },
-  { key: 'clientes', label: 'Clientes', where: 'Al lado del buscador por nombre' },
-  { key: 'push', label: 'Push', where: 'Al lado del selector de ubicación' },
-  { key: 'reviews', label: 'Reseñas de Google', where: 'Al lado de “Gestionar sedes”' },
-  { key: 'agenda', label: 'Agenda del Día', where: 'Al lado del selector “Todas las sedes”' },
-  { key: 'plano', label: 'Plano de Mesas', where: 'Al lado del selector “Todas las sedes”' },
-  { key: 'eventos', label: 'Eventos', where: 'Al lado del botón “Nuevo evento”' },
-  { key: 'reservas-online', label: 'Reservas Online', where: 'Al lado del buscador' },
-  { key: 'reportes', label: 'Reportes', where: 'Al lado del selector “Todas las sedes”' },
-  { key: 'qr', label: 'QR (Menú, Mostrador, Descuento, InfoLink)', where: 'Al lado del buscador' },
-  { key: 'menu', label: 'Menú', where: 'Al lado del botón “Pedidos Delivery”' },
-  { key: 'menu-libro', label: 'Menú Libro', where: 'Al lado del buscador' },
-  { key: 'traducciones', label: 'Traducciones', where: 'Al lado del buscador' },
-  { key: 'pedidos', label: 'Pedidos', where: 'Al lado del buscador' },
-  { key: 'equipo', label: 'Equipo de Trabajo', where: 'Al lado de “Invitar al Equipo”' },
-  { key: 'configuracion', label: 'Configuración', where: 'Al lado del buscador' },
-  { key: 'referidos', label: 'Referidos', where: 'Al lado del buscador' },
+  { key: 'wallet', label: 'Tarjetas Wallet', where: 'Barra superior, junto al buscador' },
+  { key: 'clientes', label: 'Clientes', where: 'Barra superior, junto al buscador' },
+  { key: 'push', label: 'Push', where: 'Barra superior, junto al buscador' },
+  { key: 'reviews', label: 'Reseñas de Google', where: 'Barra superior, junto al buscador' },
+  { key: 'agenda', label: 'Agenda del Día', where: 'Barra superior, junto al buscador' },
+  { key: 'plano', label: 'Plano de Mesas', where: 'Barra superior, junto al buscador' },
+  { key: 'eventos', label: 'Eventos', where: 'Barra superior, junto al buscador' },
+  { key: 'reservas-online', label: 'Reservas Online', where: 'Barra superior, junto al buscador' },
+  { key: 'reportes', label: 'Reportes', where: 'Barra superior, junto al buscador' },
+  { key: 'qr', label: 'QR (Menú, Mostrador, Descuento, InfoLink)', where: 'Barra superior, junto al buscador' },
+  { key: 'menu', label: 'Menú', where: 'Barra superior, junto al buscador' },
+  { key: 'menu-libro', label: 'Menú Libro', where: 'Barra superior, junto al buscador' },
+  { key: 'traducciones', label: 'Traducciones', where: 'Barra superior, junto al buscador' },
+  { key: 'pedidos', label: 'Pedidos', where: 'Barra superior, junto al buscador' },
+  { key: 'equipo', label: 'Equipo de Trabajo', where: 'Barra superior, junto al buscador' },
+  { key: 'configuracion', label: 'Configuración', where: 'Barra superior, junto al buscador' },
+  { key: 'referidos', label: 'Referidos', where: 'Barra superior, junto al buscador' },
 ];
 
 export const ACADEMY_MODULE_LABEL: Record<string, string> = Object.fromEntries(
