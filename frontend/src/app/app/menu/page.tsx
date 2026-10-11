@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
+import { EtiquetasVistaPrevia, type EstiloDeMenu } from '@/components/menu/EtiquetasVistaPrevia';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -240,6 +241,10 @@ export default function MenuEditor() {
   const [payMenuOpen, setPayMenuOpen] = useState(false);
   const [savingPayMethods, setSavingPayMethods] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
+  // Estilo de la carta y color del negocio: los usa la vista previa de las
+  // etiquetas del producto para pintarlas como las verá el cliente.
+  const [estiloMenu, setEstiloMenu] = useState<EstiloDeMenu | null>(null);
+  const [colorNegocio, setColorNegocio] = useState<string>('#22C55E');
   // Fix 2026-06-10: moneda del tenant para mostrar precios correctos.
   // Default COP para fallback histórico mientras /tenants/me carga.
   const [tenantCurrency, setTenantCurrency] = useState<string>('COP');
@@ -338,9 +343,11 @@ export default function MenuEditor() {
       currency?: string;
       currencySymbol?: string | null;
       sedeMenuEnabled?: boolean;
+      primaryColor?: string | null;
     }>('/tenants/me')
       .then((me) => {
         setTenantSlug(me?.slug ?? null);
+        if (me?.primaryColor) setColorNegocio(me.primaryColor);
         setSedeMenuEnabled(me?.sedeMenuEnabled === true);
         if (me?.currency) setTenantCurrency(me.currency.toUpperCase());
         setTenantCurrencySymbol(me?.currencySymbol ?? null);
@@ -359,6 +366,7 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
+        menuLayout?: EstiloDeMenu | null;
         theme?: {
           fulfillment?: { pickup?: boolean; dineIn?: boolean };
           paymentMethods?: string[];
@@ -367,6 +375,7 @@ export default function MenuEditor() {
       }>('/storefront');
       // Tolerante igual que el backend: lo que no se entienda vuelve a 48 h /
       // 30 días, que es lo que se le mostraría al cliente.
+      setEstiloMenu(sf.menuLayout ?? 'CLASSIC');
       const ag = leerAjustesAgendado(sf.theme) as AjustesAgendado;
       setAgendados(ag);
       cargarBorradorAgendados(ag);
@@ -1052,13 +1061,13 @@ export default function MenuEditor() {
         />
       )}
 
-      <div className="page-head">
-        <h1 className="page-title">
-          {mainLabel}{' '}
-          <span className="page-crumb">
-            / {t('crumbCounts', { cats: cats.length, products: products.length })}
-          </span>
-        </h1>
+      <PanelHeader
+        title={mainLabel}
+        // El texto ya trae su «/»: con otro delante salía «/ / 2 categorías».
+        crumb={t('crumbCounts', { cats: cats.length, products: products.length })}
+        tutorial="menu"
+      />
+      <div className="page-head justify-end">
         <div className="flex gap-2 flex-wrap">
           {ordersDeliveryEnabled !== null && (
             <button
@@ -1243,7 +1252,6 @@ export default function MenuEditor() {
               )}
             </div>
           )}
-          <AcademyButton moduleKey="menu" />
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> {t('category')}
           </button>
@@ -1886,6 +1894,8 @@ export default function MenuEditor() {
           onSyncChanged={() => void load()}
           sedes={sedes}
           sedeMenuEnabled={sedeMenuEnabled}
+          estiloMenu={estiloMenu}
+          colorNegocio={colorNegocio}
           categories={cats}
           adicionales={adicionales}
           mainLabel={mainLabel}
@@ -2689,7 +2699,13 @@ function ProductDrawer({
   onSyncChanged,
   sedes,
   sedeMenuEnabled,
+  estiloMenu,
+  colorNegocio,
 }: {
+  /** Estilo de la carta pública (null mientras carga). */
+  estiloMenu: EstiloDeMenu | null;
+  /** Color del negocio, el mismo que pinta el menú público. */
+  colorNegocio: string;
   value: Partial<Product>;
   /** Se llama tras enganchar/desenganchar, para recargar el catalogo. */
   onSyncChanged?: () => void;
@@ -2964,7 +2980,20 @@ function ProductDrawer({
             />
           </div>
           <div>
-            <label className="label">{t('tagsLabel')}</label>
+            {/* div y no <label>: un <label> con un botón dentro le pasa el
+                clic al botón, y tocar el texto abría la vista previa. */}
+            <div className="label flex items-center">
+              {t('tagsLabel')}
+              <EtiquetasVistaPrevia
+                tags={form.tags ?? []}
+                estilo={estiloMenu}
+                color={colorNegocio}
+                destacado={!!form.isRecommended}
+                nombre={form.name ?? ''}
+                precio={fmt(Number(form.basePrice) || 0, tenantCurrency, tenantCurrencySymbol)}
+                imagen={form.imageUrl ?? null}
+              />
+            </div>
             <input
               className="input"
               value={tagsTexto}

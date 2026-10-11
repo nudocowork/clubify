@@ -1117,7 +1117,27 @@
     "visible": "Visible",
     "visibleDeliveryTitle": "Visible in the delivery menu (/d/<slug>)",
     "visibleMesaTitle": "Visible in the table menu (/m/<slug>)",
-    "withCart": "With cart"
+    "withCart": "With cart",
+    "tagsPreviewOpen": "See how the tags will look on your menu",
+    "tagsPreviewClose": "Close preview",
+    "tagsPreviewTitle": "This is how your tags will look",
+    "tagsPreviewStyle": "Your menu style:",
+    "tagsPreviewCard": "In the menu list",
+    "tagsPreviewDetail": "When the product is opened",
+    "tagsPreviewDetailNone": "No tags of its own: only «Recommended» shows in the list.",
+    "tagsPreviewEmpty": "Type one or more comma-separated tags to see how they look.",
+    "tagsPreviewSampleName": "Your product",
+    "tagsPreviewOnlyFirst": "In this style the product card shows only the first tag; all of them appear when the product is opened. Put the most important one first.",
+    "tagsPreviewAllInline": "In this style all tags appear next to the price and also when the product is opened.",
+    "tagsPreviewRecommended": "Since the product is marked as recommended, the list shows «Recommended» instead of your first tag.",
+    "tagsPreviewColors": "«Nuevo», «Popular», «Promo», «Oferta», «2x1» and «Agotado» have their own color; the rest are shown in white.",
+    "tagsPreviewLayout_CLASSIC": "Classic",
+    "tagsPreviewLayout_GRID": "Grid",
+    "tagsPreviewLayout_CAROUSELS": "Carousels",
+    "tagsPreviewLayout_CLEAN": "Clean",
+    "tagsPreviewLayout_COMPACT": "Compact",
+    "tagsPreviewLayout_CLUVI": "Dark background",
+    "tagsPreviewLayout_SECTIONS": "Premium sections"
   },
   "app_storefront": {
     "addBlock": "+ Add block",
@@ -1528,7 +1548,9 @@
     "defaultMessageHint": "(optional · default: \"Hi, I just left a review…\")",
     "addNumberBeforeTest": "Add a number before testing",
     "opensWhatsappWithConfig": "Opens WhatsApp with the configured number and message",
-    "sendTestMessage": "📤 Send test message"
+    "sendTestMessage": "📤 Send test message",
+    "showMoreResponses": "Show {count} more",
+    "showLessResponses": "Show less"
   },
   "app_notifications": {
     "actionsCount": "{count} actions",
@@ -1868,7 +1890,9 @@
     "vipTiers": "VIP tiers",
     "visitsHint": "Each scan adds 1 visit, regardless of amount. The reward unlocks when reaching the limit.",
     "visitsRequired": "Visits required",
-    "yourBrand": "Your brand"
+    "yourBrand": "Your brand",
+    "chooseTemplateOfType": "Choose a {type} template",
+    "changeType": "Change type"
   },
   "app_customers_id": {
     "stampPurchasePrompt": "Purchase amount (in $) to register the stamp:",

@@ -5,7 +5,7 @@ import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { AcademyButton } from '@/components/AcademyButton';
+import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -45,6 +45,9 @@ export default function ReviewsPage() {
   const tc = useTranslations('common');
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
+  // Con decenas de respuestas la lista empujaba todo lo demás fuera de la
+  // vista: se ven las 5 más recientes y el resto se despliega a pedido.
+  const [verTodasRespuestas, setVerTodasRespuestas] = useState(false);
   const [tenant, setTenant] = useState<any>(null);
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState('');
@@ -147,19 +150,19 @@ export default function ReviewsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          {t('pageTitle')}{' '}
-          {data && (
-            <span className="page-crumb">
-              {t('headerCrumb', { count: data.stats.total, avg: data.stats.avg ?? '—' })}
-            </span>
-          )}
-        </h1>
+      <PanelHeader
+        title={t('pageTitle')}
+        crumb={
+          data
+            ? t('headerCrumb', { count: data.stats.total, avg: data.stats.avg ?? '—' })
+            : null
+        }
+        tutorial="reviews"
+      />
+      <div className="flex justify-end mb-5">
         <Link href="/app/reviews/locations" className="btn-ghost text-sm">
           {t('manageLocations')}
         </Link>
-        <AcademyButton moduleKey="reviews" />
       </div>
 
       {/* Fase F: selector de sede que cambia link + QR mostrados abajo. */}
@@ -409,7 +412,7 @@ export default function ReviewsPage() {
         </div>
       ) : (
         <div className="space-y-2.5">
-          {data.items.map((f) => (
+          {(verTodasRespuestas ? data.items : data.items.slice(0, RESPUESTAS_VISIBLES)).map((f) => (
             <div
               key={f.id}
               className={`card card-pad ${
@@ -503,11 +506,34 @@ export default function ReviewsPage() {
               </div>
             </div>
           ))}
+          {data.items.length > RESPUESTAS_VISIBLES && (
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => setVerTodasRespuestas((v) => !v)}
+                aria-expanded={verTodasRespuestas}
+                className="inline-flex items-center gap-1.5 rounded-pill border border-line bg-white px-4 py-2 text-[13px] font-semibold text-ink shadow-sm2 transition hover:border-brand hover:text-brand"
+              >
+                {verTodasRespuestas
+                  ? t('showLessResponses')
+                  : t('showMoreResponses', { count: data.items.length - RESPUESTAS_VISIBLES })}
+                <span
+                  aria-hidden="true"
+                  className={`inline-block transition-transform ${verTodasRespuestas ? 'rotate-180' : ''}`}
+                >
+                  ▾
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
+
+/** Respuestas que se ven sin desplegar la lista. */
+const RESPUESTAS_VISIBLES = 5;
 
 const DEFAULT_TEMPLATE =
   '⚠️ Nueva reseña privada en {businessName}\n\n' +

@@ -1117,7 +1117,27 @@
     "visible": "Visível",
     "visibleDeliveryTitle": "Visível no cardápio de delivery (/d/<slug>)",
     "visibleMesaTitle": "Visível no cardápio de mesa (/m/<slug>)",
-    "withCart": "Com carrinho"
+    "withCart": "Com carrinho",
+    "tagsPreviewOpen": "Ver como as etiquetas aparecerão no seu cardápio",
+    "tagsPreviewClose": "Fechar pré-visualização",
+    "tagsPreviewTitle": "Assim suas etiquetas vão aparecer",
+    "tagsPreviewStyle": "Estilo do seu cardápio:",
+    "tagsPreviewCard": "Na lista do cardápio",
+    "tagsPreviewDetail": "Ao abrir o produto",
+    "tagsPreviewDetailNone": "Sem etiquetas próprias: só aparece «Recomendado» na lista.",
+    "tagsPreviewEmpty": "Escreva uma ou mais etiquetas separadas por vírgula para ver como ficam.",
+    "tagsPreviewSampleName": "Seu produto",
+    "tagsPreviewOnlyFirst": "Neste estilo o cartão do produto mostra só a primeira etiqueta; todas aparecem ao abrir o produto. Coloque a mais importante primeiro.",
+    "tagsPreviewAllInline": "Neste estilo todas as etiquetas aparecem junto ao preço e também ao abrir o produto.",
+    "tagsPreviewRecommended": "Como o produto está marcado como recomendado, a lista mostra «Recomendado» no lugar da sua primeira etiqueta.",
+    "tagsPreviewColors": "«Nuevo», «Popular», «Promo», «Oferta», «2x1» e «Agotado» têm cor própria; as demais aparecem em branco.",
+    "tagsPreviewLayout_CLASSIC": "Clássico",
+    "tagsPreviewLayout_GRID": "Grade",
+    "tagsPreviewLayout_CAROUSELS": "Carrosséis",
+    "tagsPreviewLayout_CLEAN": "Limpo",
+    "tagsPreviewLayout_COMPACT": "Compacto",
+    "tagsPreviewLayout_CLUVI": "Fundo escuro",
+    "tagsPreviewLayout_SECTIONS": "Seções premium"
   },
   "app_storefront": {
     "addBlock": "+ Adicionar bloco",
@@ -1528,7 +1548,9 @@
     "defaultMessageHint": "(opcional · padrão: \"Olá, acabei de deixar uma avaliação…\")",
     "addNumberBeforeTest": "Adicione um número antes de testar",
     "opensWhatsappWithConfig": "Abre o WhatsApp com o número e a mensagem configurados",
-    "sendTestMessage": "📤 Enviar mensagem de teste"
+    "sendTestMessage": "📤 Enviar mensagem de teste",
+    "showMoreResponses": "Ver mais {count}",
+    "showLessResponses": "Ver menos"
   },
   "app_notifications": {
     "actionsCount": "{count} ações",
@@ -1868,7 +1890,9 @@
     "vipTiers": "Tiers VIP",
     "visitsHint": "Cada scan soma 1 visita, independentemente do valor. Ao atingir o limite, a recompensa é liberada.",
     "visitsRequired": "Visitas necessárias",
-    "yourBrand": "Sua marca"
+    "yourBrand": "Sua marca",
+    "chooseTemplateOfType": "Escolha um modelo de {type}",
+    "changeType": "Mudar tipo"
   },
   "app_customers_id": {
     "stampPurchasePrompt": "Valor da compra (em $) para registrar o selo:",

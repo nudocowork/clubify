@@ -1117,7 +1117,27 @@
     "visible": "Visible",
     "visibleDeliveryTitle": "Visible en el menú delivery (/d/<slug>)",
     "visibleMesaTitle": "Visible en el menú mesa (/m/<slug>)",
-    "withCart": "Con carrito"
+    "withCart": "Con carrito",
+    "tagsPreviewOpen": "Ver cómo se verán las etiquetas en tu menú",
+    "tagsPreviewClose": "Cerrar vista previa",
+    "tagsPreviewTitle": "Así se verán tus etiquetas",
+    "tagsPreviewStyle": "Estilo de tu menú:",
+    "tagsPreviewCard": "En la lista del menú",
+    "tagsPreviewDetail": "Al abrir el producto",
+    "tagsPreviewDetailNone": "Sin etiquetas propias: solo se ve «Recomendado» en la lista.",
+    "tagsPreviewEmpty": "Escribe una o más etiquetas separadas por coma para ver cómo quedan.",
+    "tagsPreviewSampleName": "Tu producto",
+    "tagsPreviewOnlyFirst": "En este estilo la tarjeta del producto muestra solo la primera etiqueta; todas aparecen al abrir el producto. Pon primero la más importante.",
+    "tagsPreviewAllInline": "En este estilo todas las etiquetas aparecen junto al precio y también al abrir el producto.",
+    "tagsPreviewRecommended": "Como el producto está marcado como recomendado, en la lista se ve «Recomendado» en lugar de tu primera etiqueta.",
+    "tagsPreviewColors": "«Nuevo», «Popular», «Promo», «Oferta», «2x1» y «Agotado» tienen color propio; las demás salen en blanco.",
+    "tagsPreviewLayout_CLASSIC": "Clásico",
+    "tagsPreviewLayout_GRID": "Grid",
+    "tagsPreviewLayout_CAROUSELS": "Carruseles",
+    "tagsPreviewLayout_CLEAN": "Limpio",
+    "tagsPreviewLayout_COMPACT": "Compacto",
+    "tagsPreviewLayout_CLUVI": "Fondo oscuro",
+    "tagsPreviewLayout_SECTIONS": "Secciones premium"
   },
   "app_storefront": {
     "addBlock": "+ Agregar bloque",
@@ -1528,7 +1548,9 @@
     "defaultMessageHint": "(opcional · default: \"Hola, acabo de dejar una reseña…\")",
     "addNumberBeforeTest": "Agrega un número antes de probar",
     "opensWhatsappWithConfig": "Abre WhatsApp con el número y mensaje configurados",
-    "sendTestMessage": "📤 Enviar mensaje de prueba"
+    "sendTestMessage": "📤 Enviar mensaje de prueba",
+    "showMoreResponses": "Ver {count} más",
+    "showLessResponses": "Ver menos"
   },
   "app_notifications": {
     "actionsCount": "{count} acciones",
@@ -1868,7 +1890,9 @@
     "vipTiers": "Tiers VIP",
     "visitsHint": "Cada scan suma 1 visita, sin importar el monto. Al alcanzar el tope, se libera la recompensa.",
     "visitsRequired": "Visitas requeridas",
-    "yourBrand": "Tu marca"
+    "yourBrand": "Tu marca",
+    "chooseTemplateOfType": "Elige una plantilla de {type}",
+    "changeType": "Cambiar tipo"
   },
   "app_customers_id": {
     "stampPurchasePrompt": "Monto de la compra (en $) para registrar el sello:",

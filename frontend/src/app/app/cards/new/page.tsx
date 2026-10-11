@@ -12,6 +12,7 @@ import { WalletPassPreview } from '@/components/WalletPassPreview';
 import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
+import { PanelHeader } from '@/components/PanelHeader';
 import {
   CARD_TEMPLATES,
   TYPE_LABEL,
@@ -40,7 +41,17 @@ const ALL_TYPES: CardType[] = ['STAMPS', 'COUPON'];
 // preconfigurar en una tarjeta que no acumula nada.
 const TIPO_INFORMATIVA: CardType = 'INFO';
 
+// Orden del asistente (pedido del cliente, PDF 5): 1 = TIPO, 2 = plantilla de
+// ESE tipo, 3 = configurar, 4 = diseño, 5 = información. Antes la plantilla iba
+// primero y las 2 de cupón salían mezcladas entre las de sellos: el negocio
+// que quería un cupón tenía que encontrarlo entre decenas de tarjetas de
+// sellos, y el que elegía sellos podía acabar con un cupón sin notarlo.
 type Step = 1 | 2 | 3 | 4 | 5;
+
+/** Plantillas que se ofrecen para un tipo (solo de tipos expuestos). */
+function plantillasDelTipo(type: CardType) {
+  return CARD_TEMPLATES.filter((tpl) => tpl.type === type && ALL_TYPES.includes(tpl.type));
+}
 
 const FROM_SCRATCH_DEFAULTS = {
   type: 'STAMPS' as CardType,
@@ -160,12 +171,28 @@ export default function NewCardWizard() {
         type: t.type,
       });
     } else {
-      setForm(FROM_SCRATCH_DEFAULTS);
+      // «Desde cero» conserva el tipo elegido en el paso 1: volver a STAMPS
+      // aquí convertía en sellos al que había pedido un cupón.
+      setForm({ ...FROM_SCRATCH_DEFAULTS, type: form.type });
     }
   }
 
-  function set<K extends keyof typeof form>(k: K, v: any) {
-    setForm({ ...form, [k]: v });
+  /** Cambiar de tipo descarta la plantilla de otro tipo que hubiera elegida:
+   *  sus valores (sellos, premio, colores) no aplican al tipo nuevo. */
+  function elegirTipo(type: CardType) {
+    if (type === form.type) return;
+    setPicked(null);
+    setForm({ ...FROM_SCRATCH_DEFAULTS, type });
+  }
+
+  // Un tipo sin plantillas (la Informativa) salta directo a configurar: un
+  // paso con solo «Desde cero» es un clic de más sin nada que decidir.
+  const tienePlantillas = plantillasDelTipo(form.type).length > 0;
+  function siguiente() {
+    setStep((s) => (s === 1 && !tienePlantillas ? 3 : (Math.min(5, s + 1) as Step)));
+  }
+  function anterior() {
+    setStep((s) => (s === 3 && !tienePlantillas ? 1 : (Math.max(1, s - 1) as Step)));
   }
 
   async function submit() {
@@ -229,15 +256,15 @@ export default function NewCardWizard() {
         canBack={step > 1}
         canNext={
           step < 5 &&
-          (step === 1 ||
-            (step === 2 && !!form.type) ||
+          ((step === 1 && !!form.type) ||
+            step === 2 ||
             (step === 3 && !!form.name.trim()) ||
             step === 4)
         }
         canSubmit={step === 5 && !!form.name.trim()}
         submitting={submitting}
-        onBack={() => setStep((s) => Math.max(1, s - 1) as Step)}
-        onNext={() => setStep((s) => Math.min(5, s + 1) as Step)}
+        onBack={anterior}
+        onNext={siguiente}
         onCancel={() => router.push('/app/cards')}
         onSubmit={attemptSubmit}
       />
@@ -251,7 +278,18 @@ export default function NewCardWizard() {
       )}
 
       {step === 1 && (
+        <Step2Type
+          selected={form.type}
+          onSelect={elegirTipo}
+          onContinue={siguiente}
+          modulos={modulos}
+        />
+      )}
+
+      {step === 2 && (
         <Step1Templates
+          type={form.type}
+          onChangeType={() => setStep(1)}
           tenantCategorySlug={tenantCategorySlug}
           filterMode={filterMode}
           setFilterMode={setFilterMode}
@@ -260,23 +298,12 @@ export default function NewCardWizard() {
           pickedId={picked?.id ?? null}
           onPick={(t) => {
             applyTemplate(t);
-            setStep(2);
+            setStep(3);
           }}
           onScratch={() => {
             applyTemplate(null);
-            setStep(2);
+            setStep(3);
           }}
-        />
-      )}
-
-      {step === 2 && (
-        <Step2Type
-          selected={form.type}
-          onSelect={(t) => {
-            set('type', t);
-          }}
-          onContinue={() => setStep(3)}
-          modulos={modulos}
         />
       )}
 
@@ -336,18 +363,20 @@ function WizardHeader({
 }) {
   const t = useTranslations('app_cards_new');
   const steps = [
-    { n: 1, label: t('stepTemplate') },
-    { n: 2, label: t('stepType') },
+    { n: 1, label: t('stepType') },
+    { n: 2, label: t('stepTemplate') },
     { n: 3, label: t('stepConfigure') },
     { n: 4, label: t('stepDesign') },
     { n: 5, label: t('stepInformation') },
   ];
 
   return (
-    <div className="page-head flex-wrap gap-3">
-      <div className="flex-1 min-w-[260px]">
-        <h1 className="page-title m-0">{cardName}</h1>
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1.5 text-xs">
+    <>
+    <PanelHeader
+      title={cardName}
+      tutorial="wallet"
+      subtitle={
+        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1 text-xs">
           {steps.map((s, i) => (
             <span key={s.n} className="flex items-center gap-1.5">
               <span
@@ -367,10 +396,11 @@ function WizardHeader({
               {i < steps.length - 1 && <span className="text-line">·</span>}
             </span>
           ))}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
+        </span>
+      }
+    />
+    <div className="page-head justify-end">
+      <div className="flex flex-wrap gap-2 justify-end">
         <button className="btn-ghost" onClick={onCancel}>
           {t('cancel')}
         </button>
@@ -395,6 +425,7 @@ function WizardHeader({
         )}
       </div>
     </div>
+    </>
   );
 }
 
@@ -403,6 +434,8 @@ function WizardHeader({
 // ═══════════════════════════════════════════════════════════
 
 function Step1Templates({
+  type,
+  onChangeType,
   tenantCategorySlug,
   filterMode,
   setFilterMode,
@@ -412,6 +445,9 @@ function Step1Templates({
   onPick,
   onScratch,
 }: {
+  /** Tipo elegido en el paso 1: solo se ofrecen SUS plantillas. */
+  type: CardType;
+  onChangeType: () => void;
   tenantCategorySlug: string | null;
   filterMode: 'mine' | 'all';
   setFilterMode: (m: 'mine' | 'all') => void;
@@ -425,7 +461,7 @@ function Step1Templates({
   const filtered = useMemo(() => {
     // Filtramos plantillas a tipos expuestos en el wizard. Si un template
     // usa CASHBACK/VISITS/HYBRID/etc no se muestra hasta que se reactiven.
-    let list = CARD_TEMPLATES.filter((t) => ALL_TYPES.includes(t.type));
+    let list = plantillasDelTipo(type);
     if (filterMode === 'mine' && tenantCategorySlug) {
       const scoped = list.filter((t) => t.categorySlug === tenantCategorySlug);
       if (scoped.length > 0) list = scoped;
@@ -439,15 +475,24 @@ function Step1Templates({
       );
     }
     return list;
-  }, [filterMode, search, tenantCategorySlug]);
+  }, [filterMode, search, tenantCategorySlug, type]);
 
   return (
     <div className="card card-pad">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <div>
-          <h2 className="text-base font-semibold m-0">{t('chooseTemplate')}</h2>
+          <h2 className="text-base font-semibold m-0">
+            {t('chooseTemplateOfType', { type: TYPE_LABEL[type].toLowerCase() })}
+          </h2>
           <p className="text-xs text-mute mt-1">
-            {t('chooseTemplateDesc')}
+            {t('chooseTemplateDesc')}{' '}
+            <button
+              type="button"
+              onClick={onChangeType}
+              className="font-semibold text-brand hover:underline"
+            >
+              {TYPE_EMOJI[type]} {t('changeType')}
+            </button>
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -472,7 +517,7 @@ function Step1Templates({
             </div>
           )}
           <input
-            className="input w-56"
+            className="input w-full sm:w-56"
             placeholder={t('searchTemplate')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
