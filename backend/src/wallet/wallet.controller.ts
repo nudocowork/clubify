@@ -168,22 +168,28 @@ export class WalletController {
     const auth = req.headers['authorization'] ?? '';
     const token = String(auth).replace(/^ApplePass /, '');
     const meta = await this.wallet.getPassMeta(serial, token);
+    // Una línea por respuesta: sin esto, «deslizó y no se actualizó» no deja
+    // rastro y no hay forma de saber si el iPhone llegó, con qué
+    // If-Modified-Since, ni qué le contestamos (Konys, 2026-10-12).
+    const ims = req.headers['if-modified-since'];
     if (!meta) {
+      this.logger.warn(`FETCH ${serial}: 401 (token ${token ? `de ${token.length} caracteres` : 'vacío'})`);
       res.status(401).end();
       return;
     }
 
     // If-Modified-Since: si el cliente ya tiene esta versión, devolvemos 304
-    const ims = req.headers['if-modified-since'];
     if (ims) {
       const since = new Date(String(ims)).getTime();
       if (since >= meta.lastUpdated.getTime()) {
+        this.logger.log(`FETCH ${serial}: 304 (tiene ${String(ims)}, última ${meta.lastUpdated.toUTCString()})`);
         res.status(304).end();
         return;
       }
     }
 
     const buf = await this.wallet.generateApplePass(meta.id);
+    this.logger.log(`FETCH ${serial}: 200 ${buf.length}b (tenía ${ims ? String(ims) : 'nada'})`);
     res.set({
       'Content-Type': 'application/vnd.apple.pkpass',
       'Last-Modified': meta.lastUpdated.toUTCString(),
