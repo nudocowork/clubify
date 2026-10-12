@@ -33,6 +33,7 @@ type Portal = {
     tarjetasBloqueadas: number;
     canjesTotales: number;
     descuentoTotal: number | null;
+    consumoTotal: number | null;
   };
 };
 
@@ -236,7 +237,7 @@ export default function PortalAliado() {
       {/* ── El informe, solo agregados ── */}
       <section className="mt-7">
         <h2 className="text-sm font-semibold">Cómo va el convenio</h2>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Dato n={p.informe.tarjetasActivas} t="tarjetas activas" />
           <Dato n={p.informe.canjesTotales} t="usos en total" />
           <Dato
@@ -247,11 +248,21 @@ export default function PortalAliado() {
             }
             t="ahorro de tu gente"
           />
+          {/* Lo que su gente compró en total. Solo el agregado: el detalle por
+              persona lo lleva el negocio. */}
+          <Dato
+            n={
+              p.informe.consumoTotal != null
+                ? `$${p.informe.consumoTotal.toLocaleString('es-CO', { maximumFractionDigits: 2 })}`
+                : '—'
+            }
+            t="consumo de tu gente"
+          />
         </div>
         {p.informe.descuentoTotal == null && (
           <p className="mt-2 text-xs text-neutral-500">
-            El ahorro en dinero solo aparece cuando el negocio registra el total
-            de la cuenta al aplicar el beneficio.
+            El ahorro y el consumo en dinero solo aparecen cuando el negocio
+            registra el total de la cuenta al aplicar el beneficio.
           </p>
         )}
       </section>

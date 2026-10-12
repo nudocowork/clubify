@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-12 (129) — Wallet de José Carlos (Konys) y consumo por empleado en alianzas
+
+**Konys, José Carlos — su iPhone muestra 0/10 y la base 3/10.** El servidor
+entrega bien el pase (descargado: `SELLOS = 3/10`, serial `CLB-D7HZAFT5YK`); su
+Wallet conserva la copia de la instalación (02:53 UTC del 9-oct, sellos a las
+02:54/02:55). Sin causa todavía. **Desplegado `15507d1a`**: el GET del pase de
+Apple (`wallet.controller.ts`) registra `FETCH <serial>: 401|304|200`. Siguiente
+paso: «Refrescar Apple/Google Wallet» en su ficha + que deslice, y leer
+`railway logs | grep "FETCH CLB-D7HZAFT5YK"`. Arreglo inmediato para él: borrar
+el pase y volver a añadirlo. Scripts de solo lectura: `diag-sellos-no-se-ven.cjs`,
+`diag-refresco-apple.cjs`.
+
+**Alianzas: monto de la compra en todo beneficio (SIN DESPLEGAR, backend y
+frontend).** El escáner solo pedía el total con compra mínima o con %; ahora lo
+pide siempre (opcional salvo compra mínima). El panel del negocio
+(`/app/alianzas/[id]`, Empleados) muestra «Consumió $X» por persona y el
+«Consumo total»; el portal del aliado suma «consumo de tu gente» (solo
+agregado, a propósito). Sin migración: `ConvenioCanje.compraMonto` ya existía.
+Canjes anulados no suman. Los canjes viejos sin monto quedan en $0.
+
 ## 2026-10-10 (128) — SIN DESPLEGAR: panel del negocio, «MODIFICACIONES CLIENTES (5)»
 
 Rama `feat/panel-pdf5-2026-10-10` (no está en `main`, nada desplegado).

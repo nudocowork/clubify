@@ -1723,34 +1723,34 @@ export default function ScanPage() {
 
                   {c.disponible && (
                     <>
-                      {/* El monto solo se pide cuando de verdad hace falta: con
-                          compra mínima el backend lo exige, y con un % es lo
-                          único que permite decirle al aliado cuánto ahorró su
-                          gente. Pedirlo siempre alargaría cada cobro. */}
-                      {(c.compraMinima != null || c.tipo === 'PERCENT_OFF') && (
-                        <input
-                          className="input mt-2 text-sm"
-                          type="text"
-                          inputMode="decimal"
-                          placeholder={
-                            c.compraMinima != null
-                              ? `Total del tiquete (mínimo $${Number(c.compraMinima).toLocaleString('es-CO')})`
-                              : 'Total del tiquete (opcional)'
-                          }
-                          value={montoTiquete[c.id] ?? ''}
-                          // Se guarda lo escrito (dígitos, punto y coma) y
-                          // `leerMonto` lo interpreta al registrar: «12.500» es
-                          // doce mil quinientos y «25,50» lleva decimales.
-                          // Antes se borraba todo lo que no fuera dígito y los
-                          // decimales desaparecían (2026-10-08).
-                          onChange={(e) =>
-                            setMontoTiquete({
-                              ...montoTiquete,
-                              [c.id]: e.target.value.replace(/[^\d.,]/g, ''),
-                            })
-                          }
-                        />
-                      )}
+                      {/* El total se pide en TODO beneficio: es lo único que
+                          dice cuánto consumió cada empleado, y la empresa lo
+                          necesita para cruzarlo con su nómina (Javier,
+                          2026-10-12). Antes solo salía con compra mínima o con
+                          un %, y en «bebida gratis» no había dónde anotarlo.
+                          Sigue siendo opcional salvo con compra mínima. */}
+                      <input
+                        className="input mt-2 text-sm"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder={
+                          c.compraMinima != null
+                            ? `Total del tiquete (mínimo $${Number(c.compraMinima).toLocaleString('es-CO')})`
+                            : 'Total de la compra (opcional)'
+                        }
+                        value={montoTiquete[c.id] ?? ''}
+                        // Se guarda lo escrito (dígitos, punto y coma) y
+                        // `leerMonto` lo interpreta al registrar: «12.500» es
+                        // doce mil quinientos y «25,50» lleva decimales.
+                        // Antes se borraba todo lo que no fuera dígito y los
+                        // decimales desaparecían (2026-10-08).
+                        onChange={(e) =>
+                          setMontoTiquete({
+                            ...montoTiquete,
+                            [c.id]: e.target.value.replace(/[^\d.,]/g, ''),
+                          })
+                        }
+                      />
                       <button
                         className="btn btn-primary w-full justify-center mt-2"
                         disabled={busy}

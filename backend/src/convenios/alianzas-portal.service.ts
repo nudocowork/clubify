@@ -89,7 +89,7 @@ export class AlianzasPortalService {
       this.prisma.convenioCanje.aggregate({
         where: { convenioId: convenio.id, revertedAt: null },
         _count: true,
-        _sum: { descuentoMonto: true },
+        _sum: { descuentoMonto: true, compraMonto: true },
       }),
     ]);
 
@@ -139,6 +139,10 @@ export class AlianzasPortalService {
         // portal como texto («1250.5») y el portal lo pinta con toLocaleString.
         descuentoTotal:
           agregados._sum.descuentoMonto != null ? Number(agregados._sum.descuentoMonto) : null,
+        // Lo que su gente compró en total. Agregado, como todo el portal: el
+        // detalle por persona lo tiene el negocio, que es quien guarda los datos.
+        consumoTotal:
+          agregados._sum.compraMonto != null ? Number(agregados._sum.compraMonto) : null,
       },
     };
   }

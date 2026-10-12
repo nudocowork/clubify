@@ -914,6 +914,18 @@ export class ConveniosService {
         _count: { select: { canjes: true } },
       },
     });
+    // Cuánto consumió cada empleado: lo que la empresa le pide al negocio
+    // para cruzarlo con su nómina (Javier, 2026-10-12). Solo canjes vigentes —
+    // uno anulado fue un error de caja, no una compra— y solo los que llevan
+    // el total del tiquete; sin él no hay pesos que sumar.
+    const sumas = await this.prisma.convenioCanje.groupBy({
+      by: ['tarjetaId'],
+      where: { convenioId: id, revertedAt: null },
+      _sum: { compraMonto: true, descuentoMonto: true },
+    });
+    const porTarjeta = new Map(sumas.map((s) => [s.tarjetaId, s._sum]));
+    // Decimal → number: como texto viajaría «90000.5» y el panel no lo suma.
+    const num = (d: unknown) => (d != null ? Number(d) : 0);
     return filas.map((t) => ({
       id: t.id,
       nombre: t.customer.fullName,
@@ -926,6 +938,8 @@ export class ConveniosService {
       bloqueadaEl: t.blockedAt,
       origen: t.origen,
       canjes: t._count.canjes,
+      consumo: num(porTarjeta.get(t.id)?.compraMonto),
+      ahorro: num(porTarjeta.get(t.id)?.descuentoMonto),
       createdAt: t.createdAt,
     }));
   }

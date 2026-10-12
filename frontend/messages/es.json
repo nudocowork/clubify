@@ -6593,6 +6593,8 @@
     "loadError": "No pudimos cargar la alianza",
     "manyActivated": "{count} empleados activaron su tarjeta",
     "manyUses": "{count} usos",
+    "spent": "Consumió {amount}",
+    "totalSpent": "Consumo total",
     "method": "Método",
     "methodCode": "Código que reparte la empresa",
     "methodList": "Lista de documentos o correos",

@@ -6593,6 +6593,8 @@
     "loadError": "Não conseguimos carregar a parceria",
     "manyActivated": "{count} funcionários ativaram o cartão",
     "manyUses": "{count} usos",
+    "spent": "Consumiu {amount}",
+    "totalSpent": "Consumo total",
     "method": "Método",
     "methodCode": "Código que a empresa distribui",
     "methodList": "Lista de documentos ou e-mails",

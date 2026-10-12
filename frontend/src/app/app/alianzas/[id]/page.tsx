@@ -50,6 +50,9 @@ type Tarjeta = {
   bloqueadaPor: 'negocio' | 'aliado' | null;
   origen: string | null;
   canjes: number;
+  /** Suma del total de la compra en sus canjes vigentes (0 si nunca se anotó). */
+  consumo: number;
+  ahorro: number;
   createdAt: string;
 };
 
@@ -213,6 +216,10 @@ export default function AlianzaDetalle() {
   if (!c) return <div className="card card-pad animate-shimmer h-40" />;
 
   const finalizada = c.status === 'FINISHED';
+  const consumoTotal = tarjetas.reduce((n, x) => n + (x.consumo || 0), 0);
+  // Hasta 2 decimales: los negocios en dólares cobran centavos.
+  const pesos = (n: number) =>
+    `$${n.toLocaleString(locale, { maximumFractionDigits: 2 })}`;
   // Vencida por fecha es DISTINTO de finalizada: se arregla extendiendo la
   // fecha o poniéndola en ilimitada. Finalizada no tiene vuelta atrás.
   const vencida = !!c.endsAt && new Date(c.endsAt) <= new Date();
@@ -653,7 +660,15 @@ export default function AlianzaDetalle() {
 
       {/* ── Empleados ── */}
       <section className="card card-pad mt-4">
-        <h2 className="font-medium">{t('employees')}</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-medium">{t('employees')}</h2>
+          {consumoTotal > 0 && (
+            <p className="text-sm text-mute">
+              {t('totalSpent')}{' '}
+              <span className="font-semibold text-ink tabular-nums">{pesos(consumoTotal)}</span>
+            </p>
+          )}
+        </div>
         {tarjetas.length === 0 ? (
           <p className="mt-3 rounded-input bg-bg2 px-4 py-6 text-center text-sm text-mute">
             {t('noEmployees')}
@@ -673,6 +688,14 @@ export default function AlianzaDetalle() {
                     {tarjeta.canjes === 1
                       ? t('oneUse', { count: tarjeta.canjes })
                       : t('manyUses', { count: tarjeta.canjes })}
+                    {tarjeta.consumo > 0 && (
+                      <>
+                        {' · '}
+                        <span className="font-medium text-ink tabular-nums">
+                          {t('spent', { amount: pesos(tarjeta.consumo) })}
+                        </span>
+                      </>
+                    )}
                     {tarjeta.status === 'BLOCKED' &&
                       (tarjeta.bloqueadaPor === 'aliado'
                         ? t('blockedByCompany')

@@ -6593,6 +6593,8 @@
     "loadError": "We couldn't load the partnership",
     "manyActivated": "{count} employees activated their card",
     "manyUses": "{count} uses",
+    "spent": "Spent {amount}",
+    "totalSpent": "Total spent",
     "method": "Method",
     "methodCode": "Code the company hands out",
     "methodList": "List of IDs or emails",
