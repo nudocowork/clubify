@@ -26,9 +26,10 @@ import { Roles } from '../common/decorators/roles.decorator';
 
 class ProductBody {
   /** Hasta dónde llega el cambio: solo esta carta, o también las enganchadas.
-   *  Ausente = «todas», que es como se comportaba antes de que se pudiera
-   *  elegir. El PATCH no se valida (es `Partial<...>`), así que quien decide
-   *  de verdad es `ProductsService.update`. */
+   *  En el PATCH, ausente = «todas», que es como se comportaba antes de que se
+   *  pudiera elegir; el PATCH no se valida (es `Partial<...>`), así que quien
+   *  decide de verdad es `ProductsService.update`. En el POST, ausente = solo
+   *  la carta actual, y `'todas'` lo crea en cada carta del negocio. */
   @IsOptional() @IsIn(['solo-esta', 'todas']) alcance?: 'solo-esta' | 'todas';
   // 2026-06-12: nullable para permitir productos sin categoría
   // (Bloque 2 spec). ValidateIf deja pasar null explícito sin pedirle
@@ -172,8 +173,23 @@ export class ProductsController {
     return this.svc.setAvailable(user, id, body.isAvailable);
   }
 
+  /**
+   * En qué otras cartas está este mismo producto. Lo pide el panel ANTES de
+   * eliminar, para preguntar «¿de todas las cartas o solo de esta?».
+   */
+  @Get(':id/en-otras-cartas')
+  enOtrasCartas(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.enOtrasCartas(user, id);
+  }
+
+  /** `?alcance=todas` lo elimina de todas las cartas; sin él, solo de esta,
+   *  que es como se comportaba siempre. */
   @Delete(':id')
-  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.remove(user, id);
+  remove(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('alcance') alcance?: string,
+  ) {
+    return this.svc.remove(user, id, alcance === 'todas' ? 'todas' : 'solo-esta');
   }
 }

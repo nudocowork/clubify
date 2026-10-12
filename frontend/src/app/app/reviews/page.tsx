@@ -159,33 +159,40 @@ export default function ReviewsPage() {
         }
         tutorial="reviews"
       />
-      <div className="flex justify-end mb-5">
-        <Link href="/app/reviews/locations" className="btn-ghost text-sm">
-          {t('manageLocations')}
-        </Link>
-      </div>
-
-      {/* Fase F: selector de sede que cambia link + QR mostrados abajo. */}
-      {reviewLocations.length > 0 && (
-        <div className="card card-pad mb-4 flex items-center gap-3 flex-wrap">
-          <div className="font-semibold text-sm">{t('locationLabel')}</div>
-          <select
-            className="input text-sm py-1.5 max-w-xs"
-            value={selectedLocationId}
-            onChange={(e) => setSelectedLocationId(e.target.value)}
-          >
-            <option value="">{t('locationGeneric')}</option>
-            {reviewLocations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          <div className="text-xs text-mute flex-1 min-w-[200px]">
+      {/* Fase F: selector de sede que cambia link + QR mostrados abajo.
+          «Gestionar sedes» va en la misma fila del filtro (pedido del cliente:
+          no gastar una fila solo para el botón); la ayuda queda debajo. */}
+      {reviewLocations.length > 0 ? (
+        <div className="card card-pad mb-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="font-semibold text-sm">{t('locationLabel')}</div>
+            <select
+              className="input text-sm py-1.5 max-w-xs"
+              value={selectedLocationId}
+              onChange={(e) => setSelectedLocationId(e.target.value)}
+            >
+              <option value="">{t('locationGeneric')}</option>
+              {reviewLocations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <Link href="/app/reviews/locations" className="btn-ghost text-sm">
+              {t('manageLocations')}
+            </Link>
+          </div>
+          <div className="text-xs text-mute mt-2">
             {selectedLocation
               ? t('locationSelectedHint')
               : t('locationGenericHint')}
           </div>
+        </div>
+      ) : (
+        <div className="flex justify-end mb-5">
+          <Link href="/app/reviews/locations" className="btn-ghost text-sm">
+            {t('manageLocations')}
+          </Link>
         </div>
       )}
 

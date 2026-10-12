@@ -677,11 +677,34 @@ export default function MenuEditor() {
     }
   }
 
+  /** El negocio tiene más de una carta. Con una sola no se pregunta nada. */
+  const variasCartas = !!menus?.habilitado && (menus?.menus.length ?? 0) > 1;
+
   async function deleteProduct(id: string) {
+    // Con varias cartas se pregunta si se elimina solo aquí o de todas. Cuáles
+    // lo tienen lo dice el backend justo ahora: solo cuentan las que lo
+    // recibieron duplicando o con «guardar en todas»; un producto creado a
+    // mano en una sola carta no está en las demás y se borra como siempre.
+    if (variasCartas) {
+      const otras = await api<{ count: number; cartas: string[] }>(
+        `/catalog/products/${id}/en-otras-cartas`,
+      ).catch(() => null);
+      if (otras && otras.count > 0) {
+        setPreguntaAlcance({ accion: 'eliminar', payload: null, id, cartas: otras.cartas });
+        return;
+      }
+    }
     if (!confirm(t('confirmDeleteProduct'))) return;
+    await eliminarProducto(id);
+  }
+
+  async function eliminarProducto(id: string, alcance?: 'solo-esta' | 'todas') {
     try {
-      await api(`/catalog/products/${id}`, { method: 'DELETE' });
+      const q = alcance === 'todas' ? '?alcance=todas' : '';
+      await api(`/catalog/products/${id}${q}`, { method: 'DELETE' });
+      setPreguntaAlcance(null);
       load();
+      if (alcance === 'todas') void loadMenus();
       toast(t('productDeleted'), 'success');
     } catch (e: any) {
       toast(e.message || t('couldNotDeleteProduct'), 'error');
@@ -718,30 +741,51 @@ export default function MenuEditor() {
    * TODAS las cartas del negocio, en silencio (Javier, 2026-09-18). Quien
    * corregía una errata le movía el precio a las 10 oficinas sin enterarse.
    */
+  /**
+   * La misma pregunta sirve para tres cosas, con el mismo diálogo:
+   *  · editar en el menú principal → ¿cambiar también en las cartas que lo siguen?
+   *  · crear con varias cartas     → ¿guardar en todas o solo en esta?
+   *  · eliminar algo que está en otras cartas → ¿de todas o solo de esta?
+   */
   const [preguntaAlcance, setPreguntaAlcance] = useState<{
+    accion: 'editar' | 'crear' | 'eliminar';
     payload: any;
-    id: string;
+    id?: string;
     cartas: string[];
   } | null>(null);
 
   /** Guarda de verdad, ya con el alcance decidido. */
   async function guardarProducto(payload: any, id: string | undefined, alcance?: 'solo-esta' | 'todas') {
     try {
+      let creado: { enTodas?: { categoriasCreadas: { carta: string; categoria: string }[] } } | null = null;
       if (id) {
         await api(`/catalog/products/${id}`, {
           method: 'PATCH',
           body: JSON.stringify(alcance ? { ...payload, alcance } : payload),
         });
       } else {
-        await api('/catalog/products', {
+        creado = await api('/catalog/products', {
           method: 'POST',
-          body: JSON.stringify(payload),
+          body: JSON.stringify(alcance ? { ...payload, alcance } : payload),
         });
       }
       setEditing(null);
       setPreguntaAlcance(null);
       load();
+      if (!id && alcance === 'todas') void loadMenus();
       toast(id ? t('productUpdated') : t('productCreated'), 'success');
+      // Si alguna carta no tenía la categoría, se creó: que el negocio lo sepa
+      // en vez de encontrarse una sección nueva sin explicación.
+      const nuevas = creado?.enTodas?.categoriasCreadas ?? [];
+      if (nuevas.length) {
+        toast(
+          t('scopeCategoriesCreated', {
+            categoria: nuevas[0].categoria,
+            cartas: nuevas.map((c) => c.carta).join(', '),
+          }),
+          'success',
+        );
+      }
     } catch (e: any) {
       toast(e.message || t('couldNotSave'), 'error');
     }
@@ -830,9 +874,19 @@ export default function MenuEditor() {
         `/catalog/products/${p.id}/copias-enganchadas`,
       ).catch(() => null);
       if (copias && copias.count > 0) {
-        setPreguntaAlcance({ payload, id: p.id, cartas: copias.cartas });
+        setPreguntaAlcance({ accion: 'editar', payload, id: p.id, cartas: copias.cartas });
         return;
       }
+    }
+    // Producto NUEVO con varias cartas: ¿en todas o solo en esta? (Nudo,
+    // 2026-10-12). Las cartas son las que el negocio ve en el selector.
+    if (!p.id && variasCartas && menus) {
+      setPreguntaAlcance({
+        accion: 'crear',
+        payload,
+        cartas: menus.menus.filter((m) => m.id !== menuActivo).map((m) => m.name),
+      });
+      return;
     }
     await guardarProducto(payload, p.id);
   }
@@ -1841,20 +1895,51 @@ export default function MenuEditor() {
       {/* A cuántas cartas va el cambio. Sale solo al editar en el MENÚ
           PRINCIPAL y solo si de verdad hay cartas enganchadas: si el negocio
           tiene una sola carta, o el producto está desenganchado, no molesta. */}
-      {preguntaAlcance && (
+      {/* El mismo diálogo pregunta también al CREAR con varias cartas y al
+          ELIMINAR un producto que está en otras cartas. */}
+      {preguntaAlcance && (() => {
+        const n = preguntaAlcance.cartas.length;
+        const decidir = (alcance: 'solo-esta' | 'todas') =>
+          preguntaAlcance.accion === 'eliminar'
+            ? void eliminarProducto(preguntaAlcance.id!, alcance)
+            : void guardarProducto(preguntaAlcance.payload, preguntaAlcance.id, alcance);
+        const textos = {
+          editar: {
+            title: t('scopeTitle', { n }),
+            help: t('scopeHelp'),
+            label: t('scopeCardsLabel'),
+            all: t('scopeAll', { n }),
+            only: t('scopeOnlyThis'),
+          },
+          crear: {
+            title: t('scopeCreateTitle'),
+            help: t('scopeCreateHelp'),
+            label: t('scopeCreateCardsLabel'),
+            all: t('scopeCreateAll', { n: n + 1 }),
+            only: t('scopeCreateOnlyThis'),
+          },
+          eliminar: {
+            title: t('scopeDeleteTitle'),
+            help: t('scopeDeleteHelp'),
+            label: t('scopeDeleteCardsLabel'),
+            all: t('scopeDeleteAll', { n: n + 1 }),
+            only: t('scopeDeleteOnlyThis'),
+          },
+        }[preguntaAlcance.accion];
+        return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="p-5 border-b border-line">
               <h2 className="font-bold text-lg m-0">
-                {t('scopeTitle', { n: preguntaAlcance.cartas.length })}
+                {textos.title}
               </h2>
               <p className="text-xs text-mute mt-1 mb-0 leading-relaxed">
-                {t('scopeHelp')}
+                {textos.help}
               </p>
             </div>
             <div className="p-5">
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-                {t('scopeCardsLabel')}
+                {textos.label}
               </div>
               <div className="text-xs text-ink leading-relaxed max-h-28 overflow-auto">
                 {preguntaAlcance.cartas.join(' · ')}
@@ -1862,20 +1947,16 @@ export default function MenuEditor() {
             </div>
             <div className="p-5 pt-0 grid gap-2">
               <button
-                className="btn-primary"
-                onClick={() =>
-                  void guardarProducto(preguntaAlcance.payload, preguntaAlcance.id, 'todas')
-                }
+                className={preguntaAlcance.accion === 'eliminar' ? 'btn-ghost text-bad' : 'btn-primary'}
+                onClick={() => decidir('todas')}
               >
-                {t('scopeAll', { n: preguntaAlcance.cartas.length })}
+                {textos.all}
               </button>
               <button
                 className="btn-ghost"
-                onClick={() =>
-                  void guardarProducto(preguntaAlcance.payload, preguntaAlcance.id, 'solo-esta')
-                }
+                onClick={() => decidir('solo-esta')}
               >
-                {t('scopeOnlyThis')}
+                {textos.only}
               </button>
               <button
                 className="text-xs text-mute hover:underline mt-1"
@@ -1886,7 +1967,8 @@ export default function MenuEditor() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {editing && (
         <ProductDrawer

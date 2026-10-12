@@ -100,6 +100,13 @@ type Props = {
     meta: Record<string, any>,
     setMeta: (m: Record<string, any>) => void,
   ) => React.ReactNode;
+  /** Controles de la página que van en la MISMA fila que la barra de
+   *  acciones (p. ej. las pestañas Mesa/Delivery del QR Menú). Cuando viene,
+   *  la barra se pinta a todo el ancho encima del editor —pestañas a la
+   *  izquierda, acciones a la derecha— en vez de solo sobre el lienzo, donde
+   *  no caben las dos cosas en una fila (pedido del cliente: no gastar una
+   *  fila para las pestañas). */
+  toolbarStart?: React.ReactNode;
 };
 
 const STAGE_MAX_DISPLAY_W = 540; // px en pantalla; el canvas interno es 1080+
@@ -556,6 +563,7 @@ export default function QrPosterEditor({
   brandName,
   logoUrl,
   metaSlot,
+  toolbarStart,
 }: Props) {
   const t = useTranslations('qr_poster');
   // Pie "Powered by X": usa el nombre de la MARCA BLANCA resuelta por host
@@ -1811,7 +1819,47 @@ export default function QrPosterEditor({
         )
       : null;
 
-  return (
+  const accionesDelEditor = (
+    <>
+      <AutosaveStatus
+        state={autosaveState}
+        savedAt={savedAt}
+        error={saveError}
+      />
+      <button
+        onClick={reset}
+        className="btn-ghost text-xs bg-bg/90 backdrop-blur"
+        title={t('reset')}
+      >
+        ↺
+      </button>
+      <button
+        onClick={undo}
+        disabled={!canUndo}
+        className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
+        title={t('undo')}
+      >
+        ← Deshacer
+      </button>
+      <button
+        onClick={redo}
+        disabled={!canRedo}
+        className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
+        title={t('redo')}
+      >
+        Rehacer →
+      </button>
+      <button
+        onClick={() => save()}
+        disabled={saving}
+        className="btn-primary text-sm shadow-card disabled:opacity-50"
+      >
+        {saving ? 'Guardando…' : 'Guardar diseño'}
+      </button>
+    </>
+  );
+
+  const editor = (
     <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5">
       {/* ─────────────────────── Sidebar ─────────────────────── */}
       <div className="space-y-3 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-2">
@@ -2405,43 +2453,9 @@ export default function QrPosterEditor({
             El panel de la izquierda tiene su propio scroll: estando en las
             últimas secciones, guardar obligaba a subir hasta arriba. Aquí
             arriba a la derecha no se mueve. */}
-        {!soloLectura && (
+        {!toolbarStart && !soloLectura && (
         <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center justify-end gap-2">
-          <AutosaveStatus
-            state={autosaveState}
-            savedAt={savedAt}
-            error={saveError}
-          />
-          <button
-            onClick={reset}
-            className="btn-ghost text-xs bg-bg/90 backdrop-blur"
-            title={t('reset')}
-          >
-            ↺
-          </button>
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
-            title={t('undo')}
-          >
-            ← Deshacer
-          </button>
-          <button
-            onClick={redo}
-            disabled={!canRedo}
-            className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
-            title={t('redo')}
-          >
-            Rehacer →
-          </button>
-          <button
-            onClick={() => save()}
-            disabled={saving}
-            className="btn-primary text-sm shadow-card disabled:opacity-50"
-          >
-            {saving ? 'Guardando…' : 'Guardar diseño'}
-          </button>
+          {accionesDelEditor}
         </div>
         )}
 
@@ -2902,6 +2916,21 @@ export default function QrPosterEditor({
         </div>
       </div>
       </div>
+    </div>
+  );
+
+  if (!toolbarStart) return editor;
+  return (
+    <div>
+      <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center justify-between gap-2">
+        {toolbarStart}
+        {!soloLectura && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {accionesDelEditor}
+          </div>
+        )}
+      </div>
+      {editor}
     </div>
   );
 }

@@ -424,7 +424,10 @@ export default function ReportesPage() {
         crumb={<>/ {date}</>}
         tutorial="reportes"
       />
-      <div className="page-head justify-end">
+      {/* Sede · Walk-in · fecha a la IZQUIERDA, justo bajo la cabecera (pedido
+          del cliente). No va en la fila del «Rango» porque a ~1180 px con el
+          menú lateral no cabe sin apretar los botones de 7/30/90 días. */}
+      <div className="flex items-center justify-start gap-3 flex-wrap mb-3">
         <div className="flex gap-2 items-center flex-wrap">
           {locations.length > 1 && (
             <select

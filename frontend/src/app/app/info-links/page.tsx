@@ -90,13 +90,14 @@ export default function InfoLinksList() {
         title={t('heading')}
         crumb={<>/ {t('countCrumb', { count: list.length })}</>}
       />
-      <div className="page-head justify-end">
-        <button className="btn-primary" onClick={create} disabled={creating}>
+      {/* Introducción y «Nuevo link» en la misma fila (pedido del cliente: no
+          gastar una fila para cada uno). */}
+      <div className="page-head items-start">
+        <p className="text-mute m-0 max-w-2xl flex-1 basis-[16rem]">{t('intro')}</p>
+        <button className="btn-primary shrink-0" onClick={create} disabled={creating}>
           <Icon name="plus" /> {creating ? t('creating') : t('newLink')}
         </button>
       </div>
-
-      <p className="text-mute mb-5 max-w-2xl">{t('intro')}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {list.length === 0 && (

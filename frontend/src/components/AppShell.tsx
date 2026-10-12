@@ -107,8 +107,26 @@ function findBestActiveHref(allHrefs: string[], pathname: string): string | null
     if (!isHrefActive(h, pathname)) continue;
     if (best === null || h.length > best.length) best = h;
   }
-  return best;
+  if (best) return best;
+  // Rutas que ya no tienen ítem propio en la barra pero viven «dentro» de
+  // otro apartado. Sin esto, al entrar en ellas no se ilumina nada y el
+  // usuario pierde la referencia de dónde está.
+  for (const [ruta, padre] of RUTAS_SIN_ITEM_PROPIO) {
+    if ((pathname === ruta || pathname.startsWith(ruta + '/')) && allHrefs.includes(padre)) {
+      return padre;
+    }
+  }
+  return null;
 }
+
+/** Ruta → ítem de la barra que se marca activo al estar en ella.
+ *  Suscripción salió de la barra y vive como último apartado de
+ *  Configuración (pedido del cliente, 2026-10-12); la ruta `/app/billing` se
+ *  conserva porque la usan el banner de prueba, el aviso de suspensión
+ *  (`lib/api.ts`), la ayuda y la búsqueda ⌘K. */
+const RUTAS_SIN_ITEM_PROPIO: ReadonlyArray<readonly [string, string]> = [
+  ['/app/billing', '/app/settings'],
+];
 
 export default function AppShell({
   variant,
@@ -886,8 +904,9 @@ export default function AppShell({
             ] as NavGroup[];
           }
           // Negocio "Solo InfoLink": panel reducido, producto independiente.
-          // Solo Dashboard, InfoLink, QR InfoLink, Estadísticas, Suscripción y
-          // Configuración. El backend además bloquea el resto de módulos (guard).
+          // Solo Dashboard, InfoLink, QR InfoLink, Estadísticas y Configuración
+          // (Suscripción va dentro de Configuración, como último apartado).
+          // El backend además bloquea el resto de módulos (guard).
           if (tenantInfo?.businessType === 'INFOLINK') {
             return [
               {
@@ -905,7 +924,6 @@ export default function AppShell({
               {
                 section: tNav('secAccount'),
                 items: [
-                  { href: '/app/billing', label: tNav('subscription'), icon: 'card' as IconName },
                   { href: '/app/settings', label: tNav('settings'), icon: 'gear' as IconName },
                 ],
               },
@@ -1038,7 +1056,10 @@ export default function AppShell({
               section: tNav('secAccount'),
               items: [
                 { href: '/app/staff', label: tNav('staff'), icon: 'users', module: 'staff' },
-                { href: '/app/billing', label: tNav('subscription'), icon: 'card' },
+                // Suscripción ya no va aquí: es el último apartado de
+                // Configuración (/app/billing sigue existiendo). Quien está en
+                // prueba llega por el banner «Activar ahora →» y quien está
+                // suspendido cae allí solo (lib/api.ts), sin pasar por la barra.
                 { href: '/app/settings', label: tNav('settings'), icon: 'gear' },
                 // "Referidos" se gatea por el módulo REFERRALS de la MARCA del
                 // negocio. Si la marca lo tiene apagado (ej. Sellea) no aparece.

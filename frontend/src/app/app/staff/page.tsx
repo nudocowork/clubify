@@ -204,17 +204,17 @@ export default function StaffPage() {
         title={t('title')}
         crumb={<>/ {t('peopleCount', { count: list.length })}</>}
         tutorial="equipo"
+        actions={
+          isOwner ? (
+            <button
+              className="btn-primary shrink-0 whitespace-nowrap"
+              onClick={() => setShowInvite((v) => !v)}
+            >
+              <Icon name="plus" /> {t('inviteTeam')}
+            </button>
+          ) : null
+        }
       />
-      <div className="page-head justify-end">
-        {isOwner && (
-          <button
-            className="btn-primary"
-            onClick={() => setShowInvite((v) => !v)}
-          >
-            <Icon name="plus" /> {t('inviteTeam')}
-          </button>
-        )}
-      </div>
 
       {!isOwner && (
         <div className="card card-pad text-mute mb-4">

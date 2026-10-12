@@ -8,6 +8,25 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-12 (130) — SIN DESPLEGAR: «MODIFICACIONES CLIENTES (7)»
+
+**Panel del negocio, reacomodos (solo frontend):**
+- Reseñas: «Gestionar sedes» va en la misma fila que el filtro de sede y la ayuda queda debajo.
+- Plano de mesas: una sola fila con Tiempo real y la sede a la izquierda y Operación | Editor a la derecha.
+- Eventos: las pestañas suben a la fila de «Nuevo evento».
+- Informes de reservas: la sede, Walk-in y la fecha pasan a la izquierda.
+- QR Menú: Mesa/Delivery van en la misma fila que la barra del editor. `QrPosterEditor` tiene la prop opcional `toolbarStart` y el texto de introducción pasa al subtítulo de la cabecera.
+- InfoLinks: el texto nuevo y «Nuevo link» comparten fila.
+- Equipo de trabajo: «Invitar al equipo» sube a la barra superior. `PanelHeader` tiene la prop opcional `actions`.
+- Suscripción: sale de la barra lateral y queda como la última tarjeta de Configuración. `/app/billing` no cambia y marca «Configuración» como activa.
+
+**Cartas (menús) de un negocio con varias, backend y frontend:**
+- Al crear y al eliminar un producto, pregunta «¿En todas las cartas o solo en esta?» (`alcance=todas`).
+- Nuevo endpoint `GET /catalog/products/:id/en-otras-cartas`.
+- «Crear en todas» deja el original en el menú principal y una copia enganchada (`sourceProductId`) en cada carta. Empareja las categorías por slug y después por nombre; si una no existe en una carta, la crea.
+- Error de «editar en todas»: la propagación hacía 5 consultas por carta dentro de una transacción de 5 s y, con el proxy público (~140 ms por consulta), caducaba (P2028) y no guardaba nada. Ahora hace un número fijo de consultas (`updateMany`/`createMany`) y la transacción tiene `timeout` de 20 s.
+- No hay cambio de esquema. Pruebas: `productos-en-todas.spec.ts`, con 22 casos.
+
 ## 2026-10-12 (129) — Wallet de José Carlos (Konys) y consumo por empleado en alianzas
 
 **Konys, José Carlos — su iPhone muestra 0/10 y la base 3/10.** El servidor

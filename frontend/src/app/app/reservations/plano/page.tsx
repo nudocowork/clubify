@@ -424,7 +424,9 @@ export default function PlanoPage() {
               : ''}</>}
         tutorial="plano"
       />
-      <div className="flex items-start justify-end gap-3 mb-5 flex-wrap">
+      {/* Una sola fila: «Tiempo real» + sede a la izquierda y el modo a la
+          derecha (pedido del cliente: no gastar dos filas antes de los pisos). */}
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
             <span className="relative inline-block w-2 h-2">
@@ -447,25 +449,6 @@ export default function PlanoPage() {
             </select>
           )}
         </div>
-      </div>
-
-      {/* Toolbar: filtros + mode toggle */}
-      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <div className="flex gap-1.5 text-xs flex-wrap">
-          <FilterChip
-            label={t('filterAll')}
-            active={zoneFilter === 'todas'}
-            onClick={() => setZoneFilter('todas')}
-          />
-          {zones.map((z) => (
-            <FilterChip
-              key={z.id}
-              label={z.name}
-              active={zoneFilter === z.id}
-              onClick={() => setZoneFilter(z.id)}
-            />
-          ))}
-        </div>
         <div className="flex gap-1 bg-bg2 p-1 rounded-lg text-xs">
           <button
             onClick={() => setMode('operacion')}
@@ -483,6 +466,25 @@ export default function PlanoPage() {
           >
             ⚙ {t('modeEditor')}
           </button>
+        </div>
+      </div>
+
+      {/* Filtro por piso/zona */}
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <div className="flex gap-1.5 text-xs flex-wrap">
+          <FilterChip
+            label={t('filterAll')}
+            active={zoneFilter === 'todas'}
+            onClick={() => setZoneFilter('todas')}
+          />
+          {zones.map((z) => (
+            <FilterChip
+              key={z.id}
+              label={z.name}
+              active={zoneFilter === z.id}
+              onClick={() => setZoneFilter(z.id)}
+            />
+          ))}
         </div>
       </div>
 

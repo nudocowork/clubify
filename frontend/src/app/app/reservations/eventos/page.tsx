@@ -98,7 +98,26 @@ export default function EventosPage() {
         subtitle={t('subtitle')}
         tutorial="eventos"
       />
-      <div className="flex items-start justify-end gap-3 mb-5 flex-wrap">
+      {/* Pestañas a la izquierda y «Tiempo real» + «Nuevo evento» a la derecha,
+          en una sola fila (pedido del cliente: no gastar una fila para cada cosa). */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex gap-1 bg-bg2 p-1 rounded-lg w-fit">
+          {([
+            { v: 'proximos' as const, label: t('filterUpcoming') },
+            { v: 'pasados' as const, label: t('filterPast') },
+            { v: 'todos' as const, label: t('filterAll') },
+          ]).map((f) => (
+            <button
+              key={f.v}
+              onClick={() => setFilter(f.v)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
+                filter === f.v ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
             <span className="relative inline-block w-2 h-2">
@@ -111,24 +130,6 @@ export default function EventosPage() {
             {t('newEvent')}
           </button>
         </div>
-      </div>
-
-      <div className="flex gap-1 bg-bg2 p-1 rounded-lg mb-4 w-fit">
-        {([
-          { v: 'proximos' as const, label: t('filterUpcoming') },
-          { v: 'pasados' as const, label: t('filterPast') },
-          { v: 'todos' as const, label: t('filterAll') },
-        ]).map((f) => (
-          <button
-            key={f.v}
-            onClick={() => setFilter(f.v)}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-md transition ${
-              filter === f.v ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
       </div>
 
       {filtered.length === 0 ? (

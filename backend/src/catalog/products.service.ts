@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 export type VariantDto = {
   id?: string;
@@ -90,6 +91,72 @@ export type SedesDto = {
     description?: string | null;
   }[];
 };
+
+/**
+ * Cuánto se les deja a las transacciones del catálogo.
+ *
+ * El default de Prisma son 5 s y este backend habla con Postgres por el proxy
+ * PÚBLICO de Railway: ~140 ms por consulta. «Cambiar en todas las cartas» hacía
+ * cinco consultas POR CARTA dentro de la transacción; con las 10 cartas de un
+ * coworking pasaba de 5 s, Prisma cerraba la transacción (P2028) y el guardado
+ * entero se deshacía: «sale un error y no guarda». La propagación ahora hace un
+ * número fijo de consultas (ver `propagarASincronizados`); este margen es por
+ * si el proxy va lento, no lo que lo arregla.
+ */
+const OPCIONES_DE_TRANSACCION = { timeout: 20_000, maxWait: 10_000 } as const;
+
+/** Cuántos saltos de «copia de una copia» se siguen como mucho. Duplicar una
+ *  carta que ya era copia crea cadenas; un ciclo no debería existir, pero si
+ *  existiera no puede colgar la petición. */
+const MAX_SALTOS = 10;
+
+/** Lo que define QUÉ ES el producto y viaja a las copias. Ver
+ *  `propagarASincronizados`. */
+const CAMPOS_COMPARTIDOS = [
+  'name',
+  'description',
+  'basePrice',
+  'priceMode',
+  'priceMax',
+  'variantPriceMode',
+  'maxVariantsTotal',
+  'maxExtrasTotal',
+  'imageUrl',
+  'tags',
+] as const;
+
+/** Qué dejó hecho «guardar en todas las cartas», para contárselo al negocio. */
+export type ResumenEnTodas = {
+  /** Cartas donde quedó el producto, contando la actual. */
+  cartas: number;
+  /** Categorías que no existían en alguna carta y se crearon para no dejar el
+   *  producto suelto. Ver `categoriaEquivalente`. */
+  categoriasCreadas: { carta: string; categoria: string }[];
+};
+
+type CategoriaFila = {
+  id: string;
+  menuId: string | null;
+  parentId: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  tagline: string | null;
+  coverConfig: Prisma.JsonValue | null;
+  position: number;
+};
+
+/** Igual que el `slugify` de `categories.service.ts`: es con lo que se generó
+ *  el slug de cada categoría, así que es con lo que se comparan nombres. */
+function slugDe(s: string) {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
 
 @Injectable()
 export class ProductsService {
@@ -259,65 +326,21 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Crea el producto en la carta que se está editando o, con
+   * `alcance: 'todas'`, en todas las cartas del negocio.
+   *
+   * Sin `alcance` (o `'solo-esta'`) es exactamente lo de siempre: una carta.
+   */
   async create(user: AuthUser, dto: ProductDto, override?: string) {
     const tid = this.tid(user, override);
+    if (dto.alcance === 'todas') {
+      return this.crearEnTodas(tid, dto);
+    }
     return this.prisma.$transaction(async (tx) => {
-      const creado = await tx.product.create({
-        data: {
-          tenantId: tid,
-          // La carta que se esta editando. Sin esto, un producto creado desde la
-          // carta de la sede 2 aparecia en el menu principal.
-          menuId: dto.menuId ?? null,
-          categoryId: dto.categoryId ?? null,
-          name: dto.name,
-          description: dto.description ?? '',
-          basePrice: dto.basePrice,
-          priceMode: dto.priceMode ?? 'FIXED',
-          priceMax:
-            dto.priceMode === 'RANGE' && dto.priceMax != null
-              ? dto.priceMax
-              : null,
-          variantPriceMode: dto.variantPriceMode ?? 'DELTA',
-          maxVariantsTotal:
-            dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
-              ? Math.floor(dto.maxVariantsTotal)
-              : null,
-          maxExtrasTotal:
-            dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
-              ? Math.floor(dto.maxExtrasTotal)
-              : null,
-          imageUrl: dto.imageUrl,
-          tags: dto.tags ?? [],
-          isAvailable: dto.isAvailable ?? true,
-          availableForMesa: dto.availableForMesa ?? true,
-          availableForDelivery: dto.availableForDelivery ?? true,
-          isRecommended: dto.isRecommended ?? false,
-          position: dto.position ?? 0,
-          stock: dto.stock ?? null,
-          stockAlert: dto.stockAlert ?? null,
-          variants: dto.variants
-            ? {
-                create: dto.variants.map((v) => ({
-                  groupName: v.groupName ?? 'Tamaño',
-                  name: v.name,
-                  priceDelta: v.priceDelta,
-                  isDefault: v.isDefault ?? false,
-                  position: v.position ?? 0,
-                })),
-              }
-            : undefined,
-          extras: dto.extras
-            ? {
-                create: dto.extras.map((e) => ({
-                  name: e.name,
-                  price: e.price,
-                  maxQty: e.maxQty ?? 1,
-                  isAvailable: e.isAvailable ?? true,
-                })),
-              }
-            : undefined,
-        },
-        include: { variants: true, extras: true, category: true },
+      const creado = await this.crearEnCarta(tx, tid, dto, {
+        menuId: dto.menuId ?? null,
+        categoryId: dto.categoryId ?? null,
       });
       // Va DENTRO de la misma transacción: si guardar las sedes falla, el
       // producto tampoco se crea. Peor que no crearlo es crearlo a medias
@@ -326,7 +349,302 @@ export class ProductsService {
         await this.guardarSedes(tx, creado.id, tid, dto.sedes);
       }
       return creado;
+    }, OPCIONES_DE_TRANSACCION);
+  }
+
+  /**
+   * «Guardar en todas las cartas» (pedido de Nudo, 2026-10-12: tiene una carta
+   * por sala y crear un producto obligaba a repetirlo en cada una).
+   *
+   * Se crea con la MISMA forma que deja duplicar una carta
+   * (`MenusService.duplicarCatalogo`): el original en el MENÚ PRINCIPAL y en
+   * cada otra carta una copia enganchada (`sourceProductId` +
+   * `syncWithSource`). Así el producto nuevo se comporta igual que los que ya
+   * venían duplicados: editarlo en el principal ofrece «cambiar en todas», y
+   * eliminarlo ofrece «eliminar de todas». Si el original quedara en la carta
+   * de una sala, el principal sería una copia y esas dos preguntas nunca
+   * saldrían para él.
+   *
+   * Lo que es de cada carta no se copia: el stock (es físico de cada sede, el
+   * mismo criterio que al duplicar) y los precios por sede, que el formulario
+   * configuró para la carta en la que se está.
+   *
+   * Todo en UNA transacción: o queda en todas, o en ninguna.
+   */
+  private async crearEnTodas(tid: string, dto: ProductDto) {
+    const cartaActual = dto.menuId ?? null;
+    return this.prisma.$transaction(async (tx) => {
+      const menus = await tx.menu.findMany({
+        where: { tenantId: tid },
+        select: { id: true, name: true },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      });
+      if (cartaActual && !menus.some((m) => m.id === cartaActual)) {
+        throw new BadRequestException('Esa carta no es de este negocio.');
+      }
+      const cartas: { id: string | null; name: string }[] = [
+        { id: null, name: 'Menú principal' },
+        ...menus,
+      ];
+
+      // Todas las categorías del negocio de una vez: emparejarlas carta por
+      // carta con una consulta por cada una es lo que hizo caer «cambiar en
+      // todas» por tiempo.
+      const categorias: CategoriaFila[] = await tx.category.findMany({
+        where: { tenantId: tid },
+        select: {
+          id: true,
+          menuId: true,
+          parentId: true,
+          slug: true,
+          name: true,
+          description: true,
+          imageUrl: true,
+          tagline: true,
+          coverConfig: true,
+          position: true,
+        },
+      });
+      let origen: CategoriaFila | null = null;
+      if (dto.categoryId) {
+        origen = categorias.find((c) => c.id === dto.categoryId) ?? null;
+        // Una categoría de otro negocio, o de otra carta, no tiene equivalente
+        // que buscar: es una petición mal hecha, no un caso a adivinar.
+        if (!origen || origen.menuId !== cartaActual) {
+          throw new BadRequestException(
+            'Esa categoría no es de la carta que estás editando.',
+          );
+        }
+      }
+
+      const resumen: ResumenEnTodas = { cartas: cartas.length, categoriasCreadas: [] };
+      const categoriaEn = async (carta: { id: string | null; name: string }) =>
+        origen
+          ? this.categoriaEquivalente(tx, tid, origen, carta, categorias, resumen)
+          : null;
+
+      const original = await this.crearEnCarta(tx, tid, dto, {
+        menuId: null,
+        categoryId: await categoriaEn(cartas[0]),
+        // El stock es de la carta en la que se está creando.
+        conStock: cartaActual === null,
+      });
+
+      // Las copias van en TRES consultas (productos, variantes, extras) tenga el
+      // negocio 2 cartas o 20 —con un `create` anidado por carta eran unas tres
+      // por carta—. Es la misma lección del error de «cambiar en todas»: cada
+      // consulta cuesta ~140 ms por el proxy y la transacción tiene reloj. Los
+      // ids se generan aquí para poder colgarles variantes y extras sin
+      // volver a leerlos.
+      const copias: { id: string; carta: { id: string | null; name: string } }[] = [];
+      const filas: Prisma.ProductCreateManyInput[] = [];
+      for (const carta of cartas.slice(1)) {
+        const id = randomUUID();
+        const categoryId = await categoriaEn(carta);
+        copias.push({ id, carta });
+        filas.push({
+          ...this.datosDelProducto(dto, carta.id === cartaActual),
+          id,
+          tenantId: tid,
+          menuId: carta.id,
+          categoryId,
+          // Nace SIGUIENDO al original, como las de duplicar una carta.
+          sourceProductId: original.id,
+          syncWithSource: true,
+        });
+      }
+      if (filas.length) {
+        await tx.product.createMany({ data: filas });
+        const ids = copias.map((c) => c.id);
+        if (dto.variants?.length) {
+          const variantes = dto.variants;
+          await tx.productVariant.createMany({
+            data: ids.flatMap((productId) =>
+              variantes.map((v) => ({
+                productId,
+                groupName: v.groupName ?? 'Tamaño',
+                name: v.name,
+                priceDelta: v.priceDelta,
+                isDefault: v.isDefault ?? false,
+                position: v.position ?? 0,
+              })),
+            ),
+          });
+        }
+        if (dto.extras?.length) {
+          const extras = dto.extras;
+          await tx.productExtra.createMany({
+            data: ids.flatMap((productId) =>
+              extras.map((e) => ({
+                productId,
+                name: e.name,
+                price: e.price,
+                maxQty: e.maxQty ?? 1,
+                isAvailable: e.isAvailable ?? true,
+              })),
+            ),
+          });
+        }
+      }
+
+      // Lo que vuelve es el producto de la carta que se estaba editando.
+      const idActual =
+        cartaActual === null
+          ? original.id
+          : (copias.find((c) => c.carta.id === cartaActual)?.id ?? original.id);
+      if (dto.sedes) {
+        await this.guardarSedes(tx, idActual, tid, dto.sedes);
+      }
+      const enLaCartaActual =
+        idActual === original.id
+          ? original
+          : await tx.product.findUnique({
+              where: { id: idActual },
+              include: { variants: true, extras: true, category: true },
+            });
+      return { ...enLaCartaActual, enTodas: resumen };
+    }, OPCIONES_DE_TRANSACCION);
+  }
+
+  /**
+   * La categoría de `carta` que corresponde a `origen`, creándola si no hay.
+   *
+   * No hay un vínculo guardado entre categorías de cartas distintas (duplicar
+   * las copia sin enlazarlas), así que se empareja por el SLUG: duplicar lo
+   * copia tal cual y renombrar una categoría no lo cambia, de modo que «Bebidas»
+   * renombrada a «Bebidas frías» en una sala sigue casando con la del
+   * principal. Si no hay slug igual, por el nombre normalizado (una categoría
+   * creada a mano en cada carta con el mismo nombre). Las subcategorías casan
+   * DENTRO de la categoría padre equivalente, no en toda la carta.
+   *
+   * Si la carta no la tiene, se CREA (con el nombre, la foto y la portada de la
+   * original) en vez de saltarse esa carta: quien eligió «en todas» quiere el
+   * producto en todas, y dejarlo «Sin categoría» lo escondería al final del
+   * menú. Se cuenta en `resumen` para que el panel lo diga.
+   */
+  private async categoriaEquivalente(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    origen: CategoriaFila,
+    carta: { id: string | null; name: string },
+    categorias: CategoriaFila[],
+    resumen: ResumenEnTodas,
+  ): Promise<string> {
+    if (origen.menuId === carta.id) return origen.id;
+
+    const padreOrigen = origen.parentId
+      ? categorias.find((c) => c.id === origen.parentId)
+      : undefined;
+    const padreDestino = padreOrigen
+      ? await this.categoriaEquivalente(tx, tenantId, padreOrigen, carta, categorias, resumen)
+      : null;
+
+    const hermanas = categorias.filter(
+      (c) => c.menuId === carta.id && c.parentId === padreDestino,
+    );
+    const igual =
+      hermanas.find((c) => c.slug === origen.slug) ??
+      hermanas.find((c) => slugDe(c.name) === slugDe(origen.name));
+    if (igual) return igual.id;
+
+    const ultima = hermanas.reduce((m, c) => Math.max(m, c.position), -1);
+    const nueva = await tx.category.create({
+      data: {
+        tenantId,
+        menuId: carta.id,
+        parentId: padreDestino,
+        name: origen.name,
+        slug: origen.slug,
+        description: origen.description,
+        imageUrl: origen.imageUrl,
+        tagline: origen.tagline,
+        coverConfig: (origen.coverConfig ?? undefined) as Prisma.InputJsonValue | undefined,
+        position: ultima + 1,
+      },
+      select: { id: true },
     });
+    // Al conjunto en memoria: la siguiente carta, o un hijo de esta misma
+    // categoría, tiene que encontrarla en vez de crearla dos veces.
+    categorias.push({ ...origen, id: nueva.id, menuId: carta.id, parentId: padreDestino, position: ultima + 1 });
+    resumen.categoriasCreadas.push({ carta: carta.name, categoria: origen.name });
+    return nueva.id;
+  }
+
+  private crearEnCarta(
+    tx: Prisma.TransactionClient,
+    tid: string,
+    dto: ProductDto,
+    donde: {
+      menuId: string | null;
+      categoryId: string | null;
+      /** `false` = esta carta arranca sin stock propio. Por defecto sí. */
+      conStock?: boolean;
+    },
+  ) {
+    return tx.product.create({
+      data: {
+        ...this.datosDelProducto(dto, donde.conStock !== false),
+        tenantId: tid,
+        // La carta que se esta editando. Sin esto, un producto creado desde la
+        // carta de la sede 2 aparecia en el menu principal.
+        menuId: donde.menuId,
+        categoryId: donde.categoryId,
+        variants: dto.variants
+          ? {
+              create: dto.variants.map((v) => ({
+                groupName: v.groupName ?? 'Tamaño',
+                name: v.name,
+                priceDelta: v.priceDelta,
+                isDefault: v.isDefault ?? false,
+                position: v.position ?? 0,
+              })),
+            }
+          : undefined,
+        extras: dto.extras
+          ? {
+              create: dto.extras.map((e) => ({
+                name: e.name,
+                price: e.price,
+                maxQty: e.maxQty ?? 1,
+                isAvailable: e.isAvailable ?? true,
+              })),
+            }
+          : undefined,
+      },
+      include: { variants: true, extras: true, category: true },
+    });
+  }
+
+  /** Los campos propios del producto al crearlo, sin carta ni categoría.
+   *  `conStock = false` → esta carta arranca sin stock propio (es físico de
+   *  cada sede; el mismo criterio que al duplicar una carta). */
+  private datosDelProducto(dto: ProductDto, conStock: boolean) {
+    return {
+      name: dto.name,
+      description: dto.description ?? '',
+      basePrice: dto.basePrice,
+      priceMode: dto.priceMode ?? 'FIXED',
+      priceMax:
+        dto.priceMode === 'RANGE' && dto.priceMax != null ? dto.priceMax : null,
+      variantPriceMode: dto.variantPriceMode ?? 'DELTA',
+      maxVariantsTotal:
+        dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
+          ? Math.floor(dto.maxVariantsTotal)
+          : null,
+      maxExtrasTotal:
+        dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
+          ? Math.floor(dto.maxExtrasTotal)
+          : null,
+      imageUrl: dto.imageUrl,
+      tags: dto.tags ?? [],
+      isAvailable: dto.isAvailable ?? true,
+      availableForMesa: dto.availableForMesa ?? true,
+      availableForDelivery: dto.availableForDelivery ?? true,
+      isRecommended: dto.isRecommended ?? false,
+      position: dto.position ?? 0,
+      stock: conStock ? (dto.stock ?? null) : null,
+      stockAlert: conStock ? (dto.stockAlert ?? null) : null,
+    };
   }
 
   /**
@@ -340,16 +658,92 @@ export class ProductsService {
    */
   async copiasEnganchadas(user: AuthUser, id: string) {
     // `get` ya comprueba que el producto es del negocio de quien pregunta.
-    await this.get(user, id);
-    const copias = await this.prisma.product.findMany({
-      where: { sourceProductId: id, syncWithSource: true },
+    const p = await this.get(user, id);
+    // La MISMA búsqueda que usa `propagarASincronizados`: el número del aviso
+    // tiene que ser el de las cartas que de verdad se van a cambiar.
+    const ids = await this.copiasSincronizadas(this.prisma, p.tenantId, id);
+    return { count: ids.length, cartas: await this.nombresDeCartas(p.tenantId, ids) };
+  }
+
+  /**
+   * En qué OTRAS cartas está este mismo producto. Lo pide el panel antes de
+   * eliminar, para preguntar «¿de todas las cartas o solo de esta?» y decir de
+   * cuáles. Cuenta TODAS las copias, también las desenganchadas: siguen siendo
+   * ese producto en esa carta aunque tengan precio propio.
+   */
+  async enOtrasCartas(user: AuthUser, id: string) {
+    const p = await this.get(user, id);
+    const otros = (await this.familia(p.tenantId, id)).filter((x) => x !== id);
+    return { count: otros.length, cartas: await this.nombresDeCartas(p.tenantId, otros) };
+  }
+
+  private async nombresDeCartas(tenantId: string, ids: string[]) {
+    if (!ids.length) return [];
+    const filas = await this.prisma.product.findMany({
+      where: { tenantId, id: { in: ids } },
       select: { menu: { select: { name: true } } },
     });
-    return {
-      count: copias.length,
-      // `null` es el menú principal: no tiene fila en `Menu`.
-      cartas: copias.map((c) => c.menu?.name ?? 'Menú principal'),
-    };
+    // `null` es el menú principal: no tiene fila en `Menu`.
+    return filas.map((c) => c.menu?.name ?? 'Menú principal');
+  }
+
+  /**
+   * Las copias que SIGUEN a `sourceId`, también las copias de copias (duplicar
+   * una carta que ya era copia de otra). Una consulta por nivel, no por copia.
+   * Solo atraviesa copias enganchadas: una desenganchada va por libre, y lo
+   * que cuelgue de ella la sigue a ella.
+   */
+  private async copiasSincronizadas(
+    db: Prisma.TransactionClient,
+    tenantId: string,
+    sourceId: string,
+  ): Promise<string[]> {
+    const vistos = new Set<string>([sourceId]);
+    const copias: string[] = [];
+    let frontera = [sourceId];
+    for (let i = 0; i < MAX_SALTOS && frontera.length; i++) {
+      const filas = await db.product.findMany({
+        where: { tenantId, sourceProductId: { in: frontera }, syncWithSource: true },
+        select: { id: true },
+      });
+      frontera = filas.map((f) => f.id).filter((x) => !vistos.has(x));
+      for (const x of frontera) vistos.add(x);
+      copias.push(...frontera);
+    }
+    return copias;
+  }
+
+  /**
+   * Todos los productos que son «este mismo» en alguna carta: se sube al
+   * original por `sourceProductId` y se baja a todas sus copias, enganchadas o
+   * no. Incluye el propio `id`.
+   *
+   * Es el único vínculo que hay entre cartas. Un producto que se creó a mano
+   * en cada carta, sin duplicar, no tiene familia: no se empareja por nombre
+   * porque dos «Café» de dos salas pueden ser productos distintos, y borrar el
+   * equivocado no tiene deshacer.
+   */
+  private async familia(tenantId: string, id: string): Promise<string[]> {
+    let raiz = id;
+    for (let i = 0; i < MAX_SALTOS; i++) {
+      const p = await this.prisma.product.findFirst({
+        where: { id: raiz, tenantId },
+        select: { sourceProductId: true },
+      });
+      if (!p?.sourceProductId) break;
+      raiz = p.sourceProductId;
+    }
+    const todos = new Set<string>([raiz, id]);
+    let frontera = [raiz];
+    for (let i = 0; i < MAX_SALTOS && frontera.length; i++) {
+      const filas = await this.prisma.product.findMany({
+        where: { tenantId, sourceProductId: { in: frontera } },
+        select: { id: true },
+      });
+      frontera = filas.map((f) => f.id).filter((x) => !todos.has(x));
+      for (const x of frontera) todos.add(x);
+    }
+    return [...todos];
   }
 
   async update(user: AuthUser, id: string, dto: Partial<ProductDto>) {
@@ -456,7 +850,7 @@ export class ProductsService {
       // —o una importación, o el editor rápido de precios— no puede cambiar de
       // comportamiento por no mandar un campo que no conoce.
       if (dto.alcance !== 'solo-esta') {
-        await this.propagarASincronizados(tx, id, dto);
+        await this.propagarASincronizados(tx, existing.tenantId, id, dto);
       }
 
       // Solo si el guardado trae sedes. Una pantalla que no las conoce —el
@@ -475,7 +869,7 @@ export class ProductsService {
           productLocations: true,
         },
       });
-    });
+    }, OPCIONES_DE_TRANSACCION);
   }
 
   /**
@@ -490,67 +884,92 @@ export class ProductsService {
    * igual que en el producto original.
    */
   private async propagarASincronizados(
-    tx: any,
+    tx: Prisma.TransactionClient,
+    tenantId: string,
     sourceId: string,
     dto: Partial<ProductDto>,
   ) {
-    const copias = await tx.product.findMany({
-      where: { sourceProductId: sourceId, syncWithSource: true },
-      select: { id: true },
-    });
-    if (!copias.length) return;
+    const ids = await this.copiasSincronizadas(tx, tenantId, sourceId);
+    if (!ids.length) return;
 
-    const compartido: Record<string, unknown> = {};
-    const campos = [
-      'name',
-      'description',
-      'basePrice',
-      'priceMode',
-      'priceMax',
-      'variantPriceMode',
-      'maxVariantsTotal',
-      'maxExtrasTotal',
-      'imageUrl',
-      'tags',
-    ] as const;
-    for (const k of campos) {
-      if ((dto as any)[k] !== undefined) compartido[k] = (dto as any)[k];
+    // EL ERROR DE «CAMBIAR EN TODAS» (Nudo, 2026-10-12): esto iba copia por
+    // copia —actualizar, borrar variantes, crearlas, borrar extras, crearlos—,
+    // cinco consultas por carta dentro de la transacción. Con 10 cartas eran
+    // más de 50 a ~140 ms cada una por el proxy público: pasaba de los 5 s de
+    // Prisma, la transacción caducaba (P2028) y se deshacía TODO, también el
+    // cambio del menú principal. Ahora son cinco consultas en total, tenga el
+    // negocio 2 cartas o 20.
+    const compartido = this.camposCompartidos(dto);
+    if (Object.keys(compartido).length) {
+      await tx.product.updateMany({
+        where: { tenantId, id: { in: ids } },
+        data: compartido,
+      });
     }
+    if (dto.variants) {
+      const variantes = dto.variants;
+      await tx.productVariant.deleteMany({ where: { productId: { in: ids } } });
+      const filas = ids.flatMap((productId) =>
+        variantes.map((v) => ({
+          productId,
+          groupName: v.groupName ?? 'Tamaño',
+          name: v.name,
+          priceDelta: v.priceDelta,
+          isDefault: v.isDefault ?? false,
+          position: v.position ?? 0,
+        })),
+      );
+      if (filas.length) await tx.productVariant.createMany({ data: filas });
+    }
+    if (dto.extras) {
+      const extras = dto.extras;
+      await tx.productExtra.deleteMany({ where: { productId: { in: ids } } });
+      const filas = ids.flatMap((productId) =>
+        extras.map((e) => ({
+          productId,
+          name: e.name,
+          price: e.price,
+          maxQty: e.maxQty ?? 1,
+          isAvailable: e.isAvailable ?? true,
+        })),
+      );
+      if (filas.length) await tx.productExtra.createMany({ data: filas });
+    }
+  }
 
-    for (const copia of copias) {
-      if (Object.keys(compartido).length) {
-        await tx.product.update({ where: { id: copia.id }, data: compartido });
-      }
-      if (dto.variants) {
-        await tx.productVariant.deleteMany({ where: { productId: copia.id } });
-        if (dto.variants.length) {
-          await tx.productVariant.createMany({
-            data: dto.variants.map((v) => ({
-              productId: copia.id,
-              groupName: v.groupName ?? 'Tamaño',
-              name: v.name,
-              priceDelta: v.priceDelta,
-              isDefault: v.isDefault ?? false,
-              position: v.position ?? 0,
-            })),
-          });
-        }
-      }
-      if (dto.extras) {
-        await tx.productExtra.deleteMany({ where: { productId: copia.id } });
-        if (dto.extras.length) {
-          await tx.productExtra.createMany({
-            data: dto.extras.map((e) => ({
-              productId: copia.id,
-              name: e.name,
-              price: e.price,
-              maxQty: e.maxQty ?? 1,
-              isAvailable: e.isAvailable ?? true,
-            })),
-          });
-        }
-      }
+  /**
+   * Los campos de `CAMPOS_COMPARTIDOS` que trae el dto, normalizados IGUAL que
+   * en el original. Antes se copiaban crudos: el original guardaba «elige 1»
+   * como `null` y la copia como `1`, y un tope con decimales llegaba a la
+   * copia sin redondear.
+   */
+  private camposCompartidos(
+    dto: Partial<ProductDto>,
+  ): Prisma.ProductUpdateManyMutationInput {
+    const d: Record<string, unknown> = {};
+    for (const k of CAMPOS_COMPARTIDOS) {
+      if (dto[k] !== undefined) d[k] = dto[k];
     }
+    if (dto.priceMode === 'FIXED') d.priceMax = null;
+    if (dto.maxVariantsTotal !== undefined) {
+      d.maxVariantsTotal =
+        dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
+          ? Math.floor(dto.maxVariantsTotal)
+          : null;
+    }
+    if (dto.maxExtrasTotal !== undefined) {
+      d.maxExtrasTotal =
+        dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
+          ? Math.floor(dto.maxExtrasTotal)
+          : null;
+    }
+    // `null` en campos que no lo admiten (nombre, precio, descripción,
+    // etiquetas...) se queda fuera: en el original `?? undefined` los ignora,
+    // y aquí harían fallar el guardado entero.
+    for (const k of ['name', 'description', 'basePrice', 'priceMode', 'variantPriceMode', 'tags']) {
+      if (d[k] === null) delete d[k];
+    }
+    return d as Prisma.ProductUpdateManyMutationInput;
   }
 
   /**
@@ -629,10 +1048,26 @@ export class ProductsService {
     return this.get(user, id);
   }
 
-  async remove(user: AuthUser, id: string) {
-    await this.get(user, id);
-    await this.prisma.product.delete({ where: { id } });
-    return { ok: true };
+  /**
+   * Elimina el producto de esta carta o, con `alcance: 'todas'`, de todas las
+   * cartas donde está (ver `familia`).
+   *
+   * «Todas» va en UN `deleteMany` filtrado por negocio: o se borra en todas o
+   * en ninguna, y un id ajeno colado en la familia no puede tocar otro negocio.
+   * Los pedidos no se tocan: guardan nombre y precio copiados, sin clave
+   * foránea al producto.
+   */
+  async remove(user: AuthUser, id: string, alcance?: AlcanceDelCambio) {
+    const p = await this.get(user, id);
+    if (alcance !== 'todas') {
+      await this.prisma.product.delete({ where: { id } });
+      return { ok: true, eliminados: 1 };
+    }
+    const ids = await this.familia(p.tenantId, id);
+    const r = await this.prisma.product.deleteMany({
+      where: { tenantId: p.tenantId, id: { in: ids } },
+    });
+    return { ok: true, eliminados: r.count };
   }
 
   async setAvailable(user: AuthUser, id: string, isAvailable: boolean) {

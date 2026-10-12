@@ -94,32 +94,8 @@ export default function QrMenuPage() {
             {t('marketing')}
           </Link></>}
         crumb={<>/ QR {mainLabel}</>}
+        subtitle={soloLectura ? t('readOnlyIntro') : t('menuIntro')}
       />
-
-      <p className="text-sm text-mute max-w-2xl mb-3 leading-relaxed">
-        {soloLectura ? t('readOnlyIntro') : t('menuIntro')}
-      </p>
-
-      <div className="inline-flex bg-bg2 rounded-pill p-1 mb-5 text-sm font-semibold">
-        <button
-          type="button"
-          onClick={() => setTarget('mesa')}
-          className={`px-4 py-1.5 rounded-pill transition ${
-            target === 'mesa' ? 'bg-white shadow-sm' : 'text-mute hover:text-ink'
-          }`}
-        >
-          🍽 {t('tabTable')} <span className="text-[10px] text-mute">/m/</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setTarget('delivery')}
-          className={`px-4 py-1.5 rounded-pill transition ${
-            target === 'delivery' ? 'bg-white shadow-sm' : 'text-mute hover:text-ink'
-          }`}
-        >
-          🛵 {t('tabDelivery')} <span className="text-[10px] text-mute">/d/</span>
-        </button>
-      </div>
 
       {/* Selector de carta. Solo si el negocio tiene mas de una: con una sola
           no hay nada que elegir y el selector solo estorbaria. */}
@@ -181,6 +157,30 @@ export default function QrMenuPage() {
         qrUrl={qrUrl}
         brandName={tenant.brandName ?? t('defaultBusiness')}
         logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
+        // Pestañas Mesa/Delivery en la misma fila que la barra del editor
+        // (pedido del cliente: no gastar una fila solo para ellas).
+        toolbarStart={
+          <div className="inline-flex bg-bg2 rounded-pill p-1 text-sm font-semibold">
+            <button
+              type="button"
+              onClick={() => setTarget('mesa')}
+              className={`px-4 py-1.5 rounded-pill transition ${
+                target === 'mesa' ? 'bg-white shadow-sm' : 'text-mute hover:text-ink'
+              }`}
+            >
+              🍽 {t('tabTable')} <span className="text-[10px] text-mute">/m/</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTarget('delivery')}
+              className={`px-4 py-1.5 rounded-pill transition ${
+                target === 'delivery' ? 'bg-white shadow-sm' : 'text-mute hover:text-ink'
+              }`}
+            >
+              🛵 {t('tabDelivery')} <span className="text-[10px] text-mute">/d/</span>
+            </button>
+          </div>
+        }
       />
     </div>
   );

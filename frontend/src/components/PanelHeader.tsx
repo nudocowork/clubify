@@ -36,6 +36,7 @@ export function PanelHeader({
   crumb,
   subtitle,
   tutorial,
+  actions,
 }: {
   title: ReactNode;
   /** Contador o miga junto al título («/ 26», «/ 31 enviadas»). */
@@ -45,6 +46,10 @@ export function PanelHeader({
   /** Clave del módulo de Academia (ver lib/academy-modules). Sin video activo
    *  para esa clave el botón no se pinta. */
   tutorial?: string;
+  /** Botones de la sección que van en la barra superior, a la DERECHA de
+   *  «Ver tutorial» (p. ej. «+ Invitar al equipo»). Existe para que la acción
+   *  principal no gaste una fila propia bajo la barra (pedido del cliente). */
+  actions?: ReactNode;
 }) {
   const ctx = useContext(PanelHeaderSlotContext);
   const register = ctx?.register;
@@ -69,6 +74,7 @@ export function PanelHeader({
         )}
       </div>
       {tutorial && <AcademyButton moduleKey={tutorial} variant="shell" />}
+      {actions}
     </>
   );
 

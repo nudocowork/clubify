@@ -82,6 +82,9 @@ describe('cuándo sale el aviso', () => {
   });
 
   it('no sale al CREAR un producto: todavía no lo sigue nadie', () => {
+    // Crear tiene SU propia pregunta («¿guardar en todas las cartas o solo en
+    // esta?»), que se prueba contra el servicio real en
+    // `productos-en-todas.spec.ts`. Esta es la de propagar un cambio.
     expect(sePregunta({ esProductoNuevo: true, enMenuPrincipal: true, cartasEnganchadas: 0 })).toBe(false);
   });
 });

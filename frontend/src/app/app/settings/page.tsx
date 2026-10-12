@@ -173,6 +173,10 @@ function detectMainMode(override: string | null): {
 
 export default function SettingsPage() {
   const t = useTranslations('app_settings');
+  // Textos del apartado Suscripción: se reutilizan los de su propia pantalla
+  // y el de la barra, para no duplicar claves en los tres idiomas.
+  const tBilling = useTranslations('app_billing');
+  const tNav = useTranslations('app_nav');
   const locale = useLocale();
   const router = useRouter();
   const [me, setMe] = useState<Profile | null>(null);
@@ -1263,7 +1267,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Sesión */}
-      <div className="card card-pad">
+      <div className="card card-pad mb-4">
         <h2 className="text-base font-semibold m-0">{t('session')}</h2>
         <p className="text-xs text-mute mt-1">
           {t('loggedInAs')} <span className="font-medium text-ink">{me.email}</span>
@@ -1277,6 +1281,30 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Suscripción — último apartado de Configuración. Antes era un ítem
+          propio de la barra lateral; el cliente pidió moverlo aquí, al final.
+          Es un acceso, no una copia: la pantalla sigue en /app/billing porque
+          allí apuntan el banner de prueba, el aviso de suspensión
+          (lib/api.ts), la ayuda y la búsqueda ⌘K. Se espera a /tenants/me
+          para no pintar el texto genérico y cambiarlo al de InfoLink. */}
+      {tenant !== null && (
+        <div className="card card-pad">
+          <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+            <Icon name="card" size={16} /> {tBilling('title')}
+          </h2>
+          <p className="text-xs text-mute mt-1">
+            {tenant.businessType === 'INFOLINK'
+              ? tBilling('infoLinkPlanHint')
+              : tBilling('subtitle')}
+          </p>
+          <div className="mt-4 flex justify-end">
+            <Link href="/app/billing" className="btn-primary text-sm">
+              {tNav('subscription')} <Icon name="arrow-right" size={14} />
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
