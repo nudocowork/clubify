@@ -8,6 +8,24 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-13 (131) — Ofertas «+ Abono» en el panel de afiliados (SIN DESPLEGAR + script)
+
+**Ya existía:** el panel `/affiliate` (influencer, embajador y vendedor; el socio no) pinta «Enlaces de pago directo» con la lista `GET /enlaces-de-venta` y mete el código de cada uno en `sck`/`src` (`lib/enlace-de-pago.mjs`). Para que les aparezca una oferta solo hay que cargarla en esa lista.
+
+**Script `backend/scripts/cargar-ofertas-abono.cjs`** (simula sin `--aplicar`). Mezcla las nuevas en `landing.enlacesDeVenta` sin borrar las que ya estaban:
+- Tarjetas de Fidelización: 25 USD al mes.
+- Mensual + Abono: 48 USD.
+- Trimestral + Abono: 135 USD.
+- Semestral + Abono: 258 USD.
+- Anual + Abono: 480 USD.
+
+**Respaldo de la periodicidad (backend):** `activatePurchase` solo leía el plan del nombre del plan de Hotmart. Ahora, si ese nombre no lo dice, usa el `off=` del pago contra los enlaces de venta (`periodicidadDeLaOferta`). Sin esto, un negocio quedaba con la periodicidad en blanco y el sistema lo leía como MENSUAL.
+
+**Abierto:**
+- Siguen saliendo los 4 planes viejos de la landing (68/150/278/500), que son los de `/admin/branding`. No se quitaron.
+- La base de la comisión de las ofertas «+ Abono» sigue la regla de siempre (precio canónico por periodicidad). No se tocó.
+- `aviso-de-cancelacion.spec.ts` falla por la fecha: compara con una prueba que vencía el 2026-10-05. No tiene relación con este cambio.
+
 ## 2026-10-12 (130) — SIN DESPLEGAR: «MODIFICACIONES CLIENTES (7)»
 
 **Panel del negocio, reacomodos (solo frontend):**

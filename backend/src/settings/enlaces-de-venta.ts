@@ -162,3 +162,39 @@ export function componerEnlaces(args: {
   }
   return out;
 }
+
+const PERIODICIDADES = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'] as const;
+type Periodicidad = (typeof PERIODICIDADES)[number];
+
+/**
+ * La periodicidad de una venta por el CÓDIGO DE OFERTA del pago (`off=` del
+ * enlace), buscándolo en TODOS los enlaces de venta: los 4 planes y los
+ * añadidos.
+ *
+ * Por qué (2026-10-13): el alta de Hotmart saca el plan del NOMBRE del plan de
+ * Hotmart («Plan Trimestral 150 USD»). Las ofertas nuevas («Tarjetas de
+ * Fidelización», «… + Abono») pueden llamarse sin esa palabra, y sin
+ * periodicidad el sistema lee el negocio como MENSUAL: próximo cobro y
+ * suspensión en la fecha equivocada (caso El Arrayán, 2026-08-18). Cada enlace
+ * añadido ya guarda su periodicidad; esto la usa como respaldo.
+ */
+export function periodicidadDeLaOferta(
+  codigoDeOferta: string | null | undefined,
+  enlaces: Array<{ url: string; periodicidad: string | null }>,
+): Periodicidad | null {
+  const codigo = (codigoDeOferta ?? '').trim().toLowerCase();
+  if (!codigo) return null;
+  for (const e of enlaces) {
+    let off: string | null = null;
+    try {
+      off = new URL(e.url).searchParams.get('off');
+    } catch {
+      continue;
+    }
+    if (off && off.trim().toLowerCase() === codigo) {
+      const p = (e.periodicidad ?? '').toUpperCase();
+      return (PERIODICIDADES as readonly string[]).includes(p) ? (p as Periodicidad) : null;
+    }
+  }
+  return null;
+}

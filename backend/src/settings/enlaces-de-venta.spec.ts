@@ -3,6 +3,7 @@ import {
   componerEnlaces,
   normalizarEnlaces,
   MAX_ENLACES,
+  periodicidadDeLaOferta,
 } from './enlaces-de-venta';
 
 /**
@@ -118,5 +119,23 @@ describe('lo que ve quien comparte enlaces', () => {
   it('un extra con el id de un plan no lo duplica', () => {
     const extras = normalizarEnlaces([{ id: 'plan-anual', nombre: 'Anual bis', url: 'https://pay.hotmart.com/U1?off=bis' }]);
     expect(componerEnlaces({ planes: PLANES, extras }).filter((e) => e.id === 'plan-anual')).toHaveLength(1);
+  });
+});
+
+describe('periodicidadDeLaOferta', () => {
+  const enlaces = [
+    { url: 'https://pay.hotmart.com/U102596072A?off=5xge6zhd&checkoutMode=6', periodicidad: 'MENSUAL' },
+    { url: 'https://pay.hotmart.com/U102596072A?off=2oxitibw&bid=1780088368942', periodicidad: 'TRIMESTRAL' },
+    { url: 'https://pay.hotmart.com/U102596072A?off=sinplan', periodicidad: null },
+    { url: 'no es una url', periodicidad: 'ANUAL' },
+  ];
+  it('saca la periodicidad del enlace cuyo off= coincide (sin distinguir mayúsculas)', () => {
+    expect(periodicidadDeLaOferta('2OXITIBW', enlaces)).toBe('TRIMESTRAL');
+    expect(periodicidadDeLaOferta('5xge6zhd', enlaces)).toBe('MENSUAL');
+  });
+  it('null si no hay código, no coincide o el enlace no tiene periodicidad', () => {
+    expect(periodicidadDeLaOferta(null, enlaces)).toBeNull();
+    expect(periodicidadDeLaOferta('otra', enlaces)).toBeNull();
+    expect(periodicidadDeLaOferta('sinplan', enlaces)).toBeNull();
   });
 });

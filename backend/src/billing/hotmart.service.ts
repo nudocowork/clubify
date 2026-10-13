@@ -16,6 +16,11 @@ import { CommissionExceptionsService } from '../admin/commission-exceptions.serv
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { parsePlanPeriodLabel } from '../common/plan-period';
+import {
+  CLAVE_ENLACES_DE_VENTA,
+  normalizarEnlaces,
+  periodicidadDeLaOferta,
+} from '../settings/enlaces-de-venta';
 import { getCanonicalBundlePrice } from '../common/plan-pricing';
 import { SmsTemplatesService } from './sms-templates.service';
 import { BrandEmailService } from '../email/brand-email.service';
@@ -307,6 +312,43 @@ export class HotmartService {
       this.logger.log(
         `Ciclo propagado al grupo ${yo.businessGroupId}: ${r.count} negocio(s) hasta ${hasta.toISOString().slice(0, 10)}`,
       );
+    }
+  }
+
+  /**
+   * Respaldo de la periodicidad: el código de oferta del pago contra los
+   * enlaces de venta (los 4 planes y los añadidos en /admin/branding). Ver
+   * `periodicidadDeLaOferta`. Best-effort: si falla la lectura, null.
+   */
+  private async periodicidadPorOferta(codigo: string | null | undefined) {
+    if (!codigo) return null;
+    try {
+      const filas = await this.prisma.setting.findMany({
+        where: {
+          key: {
+            in: [
+              CLAVE_ENLACES_DE_VENTA,
+              'landing.plans.mensual.checkoutUrl',
+              'landing.plans.trimestral.checkoutUrl',
+              'landing.plans.semestral.checkoutUrl',
+              'landing.plans.anual.checkoutUrl',
+            ],
+          },
+        },
+        select: { key: true, value: true },
+      });
+      const enlaces: Array<{ url: string; periodicidad: string | null }> = [];
+      for (const f of filas) {
+        if (f.key === CLAVE_ENLACES_DE_VENTA) {
+          enlaces.push(...normalizarEnlaces(f.value));
+        } else {
+          const plan = f.key.split('.')[2];
+          if (plan && f.value) enlaces.push({ url: f.value, periodicidad: plan.toUpperCase() });
+        }
+      }
+      return periodicidadDeLaOferta(codigo, enlaces);
+    } catch {
+      return null;
     }
   }
 
@@ -1837,7 +1879,8 @@ export class HotmartService {
     let effectivePeriod = planForBase?.planPeriodicity ?? null;
     const periodFromHotmart = effectivePeriod
       ? null
-      : parsePlanPeriodLabel(payload.data?.subscription?.plan?.name);
+      : parsePlanPeriodLabel(payload.data?.subscription?.plan?.name) ??
+        (await this.periodicidadPorOferta(payload.data?.purchase?.offer?.code));
     if (periodFromHotmart) {
       effectivePeriod = periodFromHotmart;
       this.logger.log(
