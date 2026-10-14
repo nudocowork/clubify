@@ -1,6 +1,6 @@
 /**
- * Carga las ofertas de Hotmart de octubre 2026 (Tarjetas de Fidelización y los
- * planes «+ Abono») en la lista de ENLACES DE VENTA (`landing.enlacesDeVenta`).
+ * Carga las ofertas de Hotmart de octubre 2026 (la Mensualidad básica y los
+ * planes «+ Abono», que cobran la diferencia cuando el cliente ya dio un abono) en la lista de ENLACES DE VENTA (`landing.enlacesDeVenta`).
  *
  * Esa lista es la que pinta el panel de cada influencer, embajador y vendedor
  * en «Enlaces de pago directo», con SU código metido en `sck`: así Hotmart
@@ -22,8 +22,10 @@ const CLAVE = 'landing.enlacesDeVenta';
 
 const OFERTAS = [
   {
-    id: 'tarjetas-fidelizacion-25',
-    nombre: 'Tarjetas de Fidelización',
+    // Plan APARTE, no es abono: solo tarjetas de sellos, cupones y
+    // geolocalización (Javier, 2026-10-13). Aún sin ventas.
+    id: 'mensualidad-basica-25',
+    nombre: 'Mensualidad básica',
     tipo: 'NORMAL',
     periodicidad: 'MENSUAL',
     precioUsd: 25,
