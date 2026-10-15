@@ -627,6 +627,26 @@ export class GoogleWalletService {
     const escrita = this.clasesEscritas.get(classId);
     if (escrita && escrita.firma === firma && escrita.hasta > ahora) return true;
 
+    // Y si ya se escribió IGUAL alguna vez —aunque haya sido hace días o antes
+    // de un reinicio—, tampoco. Reescribir una clase sin cambios NO es gratis:
+    // Google avisa a quienes tienen la tarjeta. Aldehir (Hacienda Don Antonio,
+    // 2026-10-14) recibió en su casa, a las 10:20 p. m., un «Mensaje nuevo»
+    // que nadie mandó: fue el sello en caja de OTRO cliente, que reescribió la
+    // clase porque los 10 minutos de la memoria habían pasado. Con la firma
+    // guardada en la base, la clase solo se toca cuando cambia de verdad
+    // (logo, color, sedes, textos).
+    const huella = createHash('sha256').update(firma).digest('hex');
+    const guardada = await this.prisma.setting
+      .findUnique({ where: { key: GoogleWalletService.claveDeFirma(classId) } })
+      .catch(() => null);
+    if (guardada?.value === huella) {
+      this.clasesEscritas.set(classId, {
+        firma,
+        hasta: ahora + GoogleWalletService.CLASE_VIGENTE_MS,
+      });
+      return true;
+    }
+
     const clave = `${classId}\u0000${firma}`;
     const enVuelo = this.clasesEnVuelo.get(clave);
     if (enVuelo) return enVuelo;
@@ -637,6 +657,10 @@ export class GoogleWalletService {
           firma,
           hasta: Date.now() + GoogleWalletService.CLASE_VIGENTE_MS,
         });
+        const key = GoogleWalletService.claveDeFirma(classId);
+        this.prisma.setting
+          .upsert({ where: { key }, update: { value: huella }, create: { key, value: huella } })
+          .catch(() => null);
       }
       return r !== 'sin-clase';
     });
@@ -646,6 +670,19 @@ export class GoogleWalletService {
     } finally {
       this.clasesEnVuelo.delete(clave);
     }
+  }
+
+  private static claveDeFirma(classId: string) {
+    return `google.clase.firma.${classId}`;
+  }
+
+  /** La clase no existe en Google: se olvida su firma para que el próximo
+   *  envío la vuelva a crear en vez de saltársela por «ya escrita». */
+  private olvidarClase(classId: string) {
+    this.clasesEscritas.delete(classId);
+    this.prisma.setting
+      .deleteMany({ where: { key: GoogleWalletService.claveDeFirma(classId) } })
+      .catch(() => null);
   }
 
   private async escribirClase(
@@ -1093,6 +1130,7 @@ export class GoogleWalletService {
         // no saveó» — y sus objetos existían y estaban vivos.
         const esDeClase = /class/i.test(String(e?.message ?? ''));
         if (esDeClase) {
+          this.olvidarClase(ids.classId);
           this.logger.error(
             `Google Wallet: la CLASE ${ids.classId} no existe (el objeto ${pass.googleObjectId} sí). ` +
               `Nada se actualizó en la billetera del cliente.`,

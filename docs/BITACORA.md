@@ -8,6 +8,23 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-15 (132) — Avisos de Google Wallet que nadie mandó (Aldehir), SIN DESPLEGAR
+
+**Caso:** el 2026-10-14, a las 10:22 p. m. de Perú, Aldehir recibió en su casa un «Mensaje nuevo» de Google Wallet de Hacienda Don Antonio. Nadie mandó nada.
+
+**Lo que mostraron los registros:**
+- A las 03:20 UTC (10:20 p. m. de Perú), un sello en caja a OTRO cliente (Christian Ipenza, pase `63f89266…`) disparó `pushUpdate`.
+- Ese `pushUpdate` volvió a escribir la CLASE de Google de Hacienda (`card_1ca80612…`), sin ningún cambio, porque la memoria de «ya escrita» dura solo 10 minutos.
+- En 3 días la clase se escribió 3 veces. Dos fueron a las 12:00 m. de Perú, junto con su recurrente de mediodía, y la tercera es esta, de la noche.
+- El objeto del cliente sellado no existe en Google, así que el aviso NO vino del `addMessage`.
+
+**Arreglo (`google-wallet.service.ts`, `asegurarClase`):**
+- La firma (sha256 del cuerpo de la clase) se guarda en `Setting` con la clave `google.clase.firma.<classId>`. Si lo que se va a escribir es igual a lo último escrito, no se escribe, aunque haya pasado tiempo o haya habido un reinicio.
+- Si Google dice que la clase no existe, se olvida la firma (`olvidarClase`) para que el siguiente envío la vuelva a crear.
+- Pruebas: `clase-sin-cambios.spec.ts`.
+
+**Para confirmar después de desplegar:** que `class patched: …card_1ca80612` deje de salir con los sellos y que a Aldehir no le vuelva a llegar nada de noche. Como la firma todavía no está guardada, la primera escritura de cada clase después del despliegue sí se hace.
+
 ## 2026-10-13 (131) — Ofertas «+ Abono» en el panel de afiliados (SIN DESPLEGAR + script)
 
 **Ya existía:** el panel `/affiliate` (influencer, embajador y vendedor; el socio no) pinta «Enlaces de pago directo» con la lista `GET /enlaces-de-venta` y mete el código de cada uno en `sck`/`src` (`lib/enlace-de-pago.mjs`). Para que les aparezca una oferta solo hay que cargarla en esa lista.
