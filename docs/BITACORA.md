@@ -23,6 +23,11 @@
 - Si Google dice que la clase no existe, se olvida la firma (`olvidarClase`) para que el siguiente envío la vuelva a crear.
 - Pruebas: `clase-sin-cambios.spec.ts`.
 
+**Mismo día, otras dos quejas de Aldehir:**
+- *«No sale a la hora que puse»:* las programadas y las recurrentes se revisaban **cada 5 minutos** (una a las 8:32 salía a las 8:35). Ahora los dos crons corren **cada minuto**. El claim atómico y el cerrojo siguen evitando el doble envío.
+- *«Llega dos veces»:* el 14-oct a las 12:00, Marea Místika tenía **dos recurrentes distintas a la misma hora** («Comida marina y cócteles…» y «DÚO O TRÍO MARINO…»), y salieron las dos a sus 98 dispositivos. Es configuración del negocio, no un fallo. En Android, además, reescribir la clase en cada envío podía sumar un segundo aviso; eso lo cubre el arreglo de la firma.
+- La lectura y la escritura de la firma son best-effort (`leerFirma`/`guardarFirma`): si la base falla, la clase se escribe como antes.
+
 **Para confirmar después de desplegar:** que `class patched: …card_1ca80612` deje de salir con los sellos y que a Aldehir no le vuelva a llegar nada de noche. Como la firma todavía no está guardada, la primera escritura de cada clase después del despliegue sí se hace.
 
 ## 2026-10-13 (131) — Ofertas «+ Abono» en el panel de afiliados (SIN DESPLEGAR + script)

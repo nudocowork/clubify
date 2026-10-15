@@ -636,9 +636,7 @@ export class GoogleWalletService {
     // guardada en la base, la clase solo se toca cuando cambia de verdad
     // (logo, color, sedes, textos).
     const huella = createHash('sha256').update(firma).digest('hex');
-    const guardada = await this.prisma.setting
-      .findUnique({ where: { key: GoogleWalletService.claveDeFirma(classId) } })
-      .catch(() => null);
+    const guardada = await this.leerFirma(classId);
     if (guardada?.value === huella) {
       this.clasesEscritas.set(classId, {
         firma,
@@ -657,10 +655,7 @@ export class GoogleWalletService {
           firma,
           hasta: Date.now() + GoogleWalletService.CLASE_VIGENTE_MS,
         });
-        const key = GoogleWalletService.claveDeFirma(classId);
-        this.prisma.setting
-          .upsert({ where: { key }, update: { value: huella }, create: { key, value: huella } })
-          .catch(() => null);
+        this.guardarFirma(classId, huella);
       }
       return r !== 'sin-clase';
     });
@@ -676,12 +671,41 @@ export class GoogleWalletService {
     return `google.clase.firma.${classId}`;
   }
 
+  // Best-effort las tres: si la base no responde, la clase se escribe como
+  // antes (el peor caso es el de siempre, nunca dejar de escribirla).
+  private async leerFirma(classId: string): Promise<{ value: string } | null> {
+    try {
+      return await this.prisma.setting.findUnique({
+        where: { key: GoogleWalletService.claveDeFirma(classId) },
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private guardarFirma(classId: string, huella: string) {
+    const key = GoogleWalletService.claveDeFirma(classId);
+    Promise.resolve()
+      .then(() =>
+        this.prisma.setting.upsert({
+          where: { key },
+          update: { value: huella },
+          create: { key, value: huella },
+        }),
+      )
+      .catch(() => null);
+  }
+
   /** La clase no existe en Google: se olvida su firma para que el próximo
    *  envío la vuelva a crear en vez de saltársela por «ya escrita». */
   private olvidarClase(classId: string) {
     this.clasesEscritas.delete(classId);
-    this.prisma.setting
-      .deleteMany({ where: { key: GoogleWalletService.claveDeFirma(classId) } })
+    Promise.resolve()
+      .then(() =>
+        this.prisma.setting.deleteMany({
+          where: { key: GoogleWalletService.claveDeFirma(classId) },
+        }),
+      )
       .catch(() => null);
   }
 

@@ -146,9 +146,14 @@ export class RecurringNotificationsService {
   // ============================================================
 
   /**
-   * Cron cada 5 min: para cada RecurringNotification activa, calcula
+   * Cron CADA MINUTO: para cada RecurringNotification activa, calcula
    * si en ESTE momento (en su timezone) toca disparar y no se disparó
-   * todavía hoy. Window de tolerancia: 5min después de la hora exacta.
+   * todavía hoy. Ventana de tolerancia: `VENTANA_MIN` después de la hora.
+   *
+   * Era cada 5 minutos, y una recurrencia a las 8:32 salía a las 8:35:
+   * «no sale a la hora que puse» (Aldehir, 2026-10-15). La consulta es una
+   * tabla pequeña y el claim de abajo impide el doble envío, así que correr
+   * cada minuto no cuesta nada y deja el retraso en segundos.
    *
    * Idempotency:
    *  - lastDispatchedAt se actualiza PRIMERO antes del dispatch real
@@ -156,7 +161,7 @@ export class RecurringNotificationsService {
    *  - Comparamos lastDispatchedAt vs "fecha local de hoy en TZ" — si
    *    ya hay un dispatch hoy, skip.
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron(CronExpression.EVERY_MINUTE)
   async dispatchDue() {
     const schedules = await this.prisma.recurringNotification.findMany({
       where: { isActive: true },

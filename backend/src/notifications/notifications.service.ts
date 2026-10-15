@@ -402,7 +402,10 @@ export class NotificationsService {
    * llevó, y entonces no se envía. Ante la duda, no enviar: un push repetido le
    * llega a clientes reales.
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  // CADA MINUTO, no cada 5: una programada a las 8:32 salía a las 8:35 y el
+  // negocio lo leía como «no sale a la hora que puse» (Aldehir, 2026-10-15).
+  // El cerrojo de abajo y el claim atómico siguen impidiendo el doble envío.
+  @Cron(CronExpression.EVERY_MINUTE)
   async dispatchScheduled() {
     // Cerrojo en memoria: además de la carrera por fila, evita que dos ticks
     // del mismo proceso se pisen recorriendo la misma lista. No sustituye al
