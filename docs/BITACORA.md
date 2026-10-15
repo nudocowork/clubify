@@ -8,6 +8,25 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-15 (133) — Datos de pago en los cobros manuales (SIN DESPLEGAR)
+
+**Pedido:** a los negocios con `manualPayment`, después del SMS de cobro, mandar una imagen con las cuentas y el aviso «consulta la tasa del día con el equipo». Debe poder editarse desde el panel.
+
+**Configuración**
+- Se guarda en `Setting` con la clave `cobros.manual.datosDePago`, en JSON: `{activo, imagenUrl, mensaje}`.
+- Sin fila guardada se usan los valores de fábrica: la imagen `app.soyclubify.com/cobros/metodos-de-pago-clubify.jpg` (está en `frontend/public/cobros/`) y el mensaje predeterminado.
+- La función pura y los tests están en `billing/datos-de-pago-manual.ts`.
+
+**Cómo se envía**
+- Se edita en `/admin/pagos-manuales`, en la tarjeta «Recordatorio con datos de pago»: interruptor, imagen y mensaje.
+- Los endpoints son `GET` y `PATCH /billing/datos-de-pago-manual`, con SUPER_ADMIN más `SoloPlataformaGuard`.
+- `sendSmsWithCreds` acepta `attachments`: solo https, y van a GHL en `attachments`.
+- `enviarDatosDePagoManual` se envía justo después del SMS de cobro en D-7, D-3, D-1, el día del cobro, D+1, D+2 y los avisos de gracia.
+- Condiciones: solo si el negocio es de pago manual y de la plataforma (una marca blanca nunca), y solo si el SMS de cobro salió.
+- El correo NO lleva la imagen: el editor regenera las plantillas.
+
+**Por confirmar:** que la pasarela de SMS (WhatsApp Gateway) entregue el adjunto. Si llega solo el texto, mandarlo por `sendWhatsAppWithCreds`.
+
 ## 2026-10-15 (132) — Avisos de Google Wallet que nadie mandó (Aldehir), SIN DESPLEGAR
 
 **Caso:** el 2026-10-14, a las 10:22 p. m. de Perú, Aldehir recibió en su casa un «Mensaje nuevo» de Google Wallet de Hacienda Don Antonio. Nadie mandó nada.

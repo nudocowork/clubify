@@ -1,9 +1,11 @@
-import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Body, Controller, ForbiddenException, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUrl, Max, MaxLength, Min } from 'class-validator';
 import { BillingService } from './billing.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { describirVentana } from './ventana-de-envio';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
+import { MAX_MENSAJE, MAX_URL } from './datos-de-pago-manual';
 
 class CancelDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
@@ -17,6 +19,18 @@ class VentanaDto {
   @IsOptional() @IsInt() @Min(0) @Max(23) desde?: number;
   @IsOptional() @IsInt() @Min(1) @Max(24) hasta?: number;
   @IsOptional() @IsString() zona?: string;
+}
+
+/** Lo que se edita en /admin/pagos-manuales. Todo opcional: se mezcla con lo guardado. */
+class DatosDePagoDto {
+  @IsOptional() @IsBoolean() activo?: boolean;
+  // Se valida aquí además de en el saneado para que el admin VEA el error: el
+  // saneado, por diseño, cae en silencio a la imagen de fábrica.
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { message: 'La imagen debe ser un enlace https://' })
+  @MaxLength(MAX_URL)
+  imagenUrl?: string;
+  @IsOptional() @IsString() @MaxLength(MAX_MENSAJE) mensaje?: string;
 }
 
 @Controller('billing')
@@ -87,6 +101,29 @@ export class BillingController {
     // corregirlo, y el panel tiene que pintar lo de verdad y no lo pedido.
     const ventana = await this.svc.setVentanaDeEnvio(dto);
     return { ventana, descripcion: describirVentana(ventana) };
+  }
+
+  /**
+   * Imagen + texto que reciben los negocios de PAGO MANUAL justo después de
+   * cada aviso de cobro (ver `datos-de-pago-manual.ts`).
+   *
+   * `SoloPlataformaGuard` además de `@Roles`: el admin de una marca blanca es
+   * un SUPER_ADMIN, y estos son los datos bancarios de Clubify. Una marca no
+   * puede leerlos ni —sobre todo— cambiarlos por los suyos.
+   */
+  @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
+  @Get('datos-de-pago-manual')
+  async getDatosDePago() {
+    return { datos: await this.svc.getDatosDePagoManual() };
+  }
+
+  @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
+  @Patch('datos-de-pago-manual')
+  async setDatosDePago(@Body() dto: DatosDePagoDto) {
+    // Devuelve lo que QUEDÓ guardado (el saneado puede recortar el texto).
+    return { datos: await this.svc.setDatosDePagoManual(dto) };
   }
 
   /** Fase 3 — envío de PRUEBA de las alertas de cobro a los 3 números. */

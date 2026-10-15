@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
+import { DatosDePagoCard } from './DatosDePagoCard';
 
 // =====================================================
 // Pagos por fuera — lista de revisión de cobranza manual
@@ -295,6 +296,8 @@ export default function PagosManualesPage() {
           </div>
         </div>
       )}
+
+      <DatosDePagoCard />
 
       {suspendTarget && (
         <SuspendModal

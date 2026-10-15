@@ -32,6 +32,14 @@ import {
   normalizarVentana,
   type VentanaDeEnvio,
 } from './ventana-de-envio';
+import {
+  CLAVE_DATOS_DE_PAGO,
+  TEMPLATE_DATOS_DE_PAGO,
+  debeEnviarDatosDePago,
+  leerDatosDePago,
+  normalizarDatosDePago,
+  type DatosDePagoManual,
+} from './datos-de-pago-manual';
 
 // Fase 3 (2026-08-31): alertas internas de cobro al equipo. Se envían por la
 // subcuenta GB del equipo (sendInternalAlert) — la misma probada con el SMS de
@@ -829,6 +837,95 @@ export class BillingService {
     return v;
   }
 
+  /** Datos de pago de los cobros manuales, o los de fábrica si no hay fila. */
+  async getDatosDePagoManual(): Promise<DatosDePagoManual> {
+    const row = await this.prisma.setting
+      .findUnique({ where: { key: CLAVE_DATOS_DE_PAGO } })
+      .catch(() => null);
+    return leerDatosDePago(row?.value);
+  }
+
+  /**
+   * Guarda los datos de pago ya saneados y devuelve lo que QUEDÓ guardado.
+   * Se mezcla con lo actual: el panel puede mandar solo el interruptor sin
+   * pisar el mensaje ni la imagen.
+   */
+  async setDatosDePagoManual(entrada: Partial<DatosDePagoManual>): Promise<DatosDePagoManual> {
+    const actual = await this.getDatosDePagoManual();
+    const v = normalizarDatosDePago({ ...actual, ...(entrada ?? {}) });
+    const value = JSON.stringify(v);
+    await this.prisma.setting.upsert({
+      where: { key: CLAVE_DATOS_DE_PAGO },
+      update: { value },
+      create: { key: CLAVE_DATOS_DE_PAGO, value },
+    });
+    return v;
+  }
+
+  /**
+   * Segundo mensaje, justo después de un aviso de cobro, con la imagen de las
+   * cuentas y la indicación de consultar la tasa del día. Ver
+   * `datos-de-pago-manual.ts` para el porqué y la regla de a quién va.
+   *
+   * Un solo helper para los seis avisos (D-7, D-3, D-1, día del cobro y mora)
+   * porque la regla tiene tres condiciones y copiarla seis veces es la forma
+   * segura de que un aviso acabe mandando las cuentas a quien paga con tarjeta.
+   *
+   * BEST-EFFORT: nunca lanza. El aviso de cobro ya salió y su marca de
+   * idempotencia depende SOLO de él; si esto fallara y lanzara, el ciclo no se
+   * marcaría y mañana el negocio recibiría el aviso repetido.
+   */
+  private async enviarDatosDePagoManual(
+    t: { id: string; brandName: string; manualPayment?: boolean | null },
+    target: { creds: { locationId: string; apiKey: string; switchNumber: number | null }; phone: string },
+    avisoDeCobro: { ok: boolean },
+    etapa: string,
+  ): Promise<boolean> {
+    // Corte barato primero: casi nadie paga por fuera, y así no se toca la
+    // base por cada negocio de Hotmart.
+    if (t.manualPayment !== true || !avisoDeCobro.ok) return false;
+    try {
+      const [config, tenant] = await Promise.all([
+        this.getDatosDePagoManual(),
+        this.prisma.tenant.findUnique({
+          where: { id: t.id },
+          select: { whiteLabelId: true, whiteLabel: { select: { slug: true } } },
+        }),
+      ]);
+      const esPlataforma = !tenant?.whiteLabelId || tenant?.whiteLabel?.slug === 'clubify';
+      if (
+        !debeEnviarDatosDePago({
+          manualPayment: t.manualPayment,
+          esPlataforma,
+          config,
+          avisoDeCobroSalio: avisoDeCobro.ok,
+        })
+      ) {
+        return false;
+      }
+      const r = await this.growBusiness.sendSmsWithCreds(
+        target.creds,
+        target.phone,
+        config.mensaje,
+        { tenantId: t.id, templateId: TEMPLATE_DATOS_DE_PAGO, feature: 'billing' },
+        { attachments: [config.imagenUrl] },
+      );
+      if (r.ok) {
+        this.logger.log(`Datos de pago (${etapa}) → ${t.brandName} (${target.phone})`);
+      } else {
+        this.logger.warn(
+          `Datos de pago (${etapa}) no salieron para ${t.brandName}: ${('message' in r && r.message) || 'error'}`,
+        );
+      }
+      return r.ok;
+    } catch (e: any) {
+      this.logger.warn(
+        `Datos de pago (${etapa}) fallaron para ${t.brandName}: ${e?.message ?? e}`,
+      );
+      return false;
+    }
+  }
+
   /**
    * Reclama el día para esta pasada. Devuelve true solo si ES ESTA corrida la
    * que se lo lleva.
@@ -1172,6 +1269,7 @@ export class BillingService {
         lastChargeAt: true,
         planPeriodicity: true,
         preReminder7dSentFor: true,
+        manualPayment: true,
       },
     });
     let sent = 0;
@@ -1206,6 +1304,7 @@ export class BillingService {
           notified = true;
           this.logger.log(`SMS D-7 → ${t.brandName} (${target.phone})`);
         }
+        await this.enviarDatosDePagoManual(t, target, r, 'D-7');
       }
       if (
         await this.mailReminder(t, 'email_payment_reminder_7d', 'D-7', {
@@ -1280,6 +1379,7 @@ export class BillingService {
         lastChargeAt: true,
         planPeriodicity: true,
         preReminder3dSentFor: true,
+        manualPayment: true,
       },
     });
     let sent = 0;
@@ -1314,6 +1414,7 @@ export class BillingService {
           notified = true;
           this.logger.log(`SMS D-3 → ${t.brandName} (${target.phone})`);
         }
+        await this.enviarDatosDePagoManual(t, target, r, 'D-3');
       }
       if (
         await this.mailReminder(t, 'email_payment_reminder_3d', 'D-3', {
@@ -1364,6 +1465,7 @@ export class BillingService {
         lastChargeAt: true,
         planPeriodicity: true,
         preReminderTodaySentFor: true,
+        manualPayment: true,
       },
     });
     let sent = 0;
@@ -1400,6 +1502,7 @@ export class BillingService {
             `SMS día-de-cobro → ${t.brandName} (${target.phone})`,
           );
         }
+        await this.enviarDatosDePagoManual(t, target, r, 'D-0');
       }
       if (
         await this.mailReminder(t, 'email_payment_due_today', 'D-0', {
@@ -1444,6 +1547,7 @@ export class BillingService {
         lastChargeAt: true,
         planPeriodicity: true,
         paymentReminderSentFor: true,
+        manualPayment: true,
       },
     });
 
@@ -1485,6 +1589,7 @@ export class BillingService {
             `SMS D-1 falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
           );
         }
+        await this.enviarDatosDePagoManual(t, target, r, 'D-1');
       }
       if (
         await this.mailReminder(t, 'email_payment_reminder_tomorrow', 'D-1', {
@@ -1682,6 +1787,7 @@ export class BillingService {
           notices++;
           this.logger.log(`SMS D+2 "no procesado" → ${t.brandName}`);
         }
+        await this.enviarDatosDePagoManual(t, target, r, 'D+2');
       } else if (action === 'grace' || action === 'last-call') {
         // Los dias 3, 4 y el ultimo de la gracia.
         //
@@ -1737,6 +1843,9 @@ export class BillingService {
             `SMS D+${daysOverdue} ${action === 'last-call' ? '"manana se pausa"' : 'gracia'} -> ${t.brandName}`,
           );
         }
+        // También en la gracia: son los días en que todavía puede pagar y
+        // evitar la pausa, y a quien paga por fuera es lo que le falta saber.
+        await this.enviarDatosDePagoManual(t, target, r, `D+${daysOverdue}`);
       } else if (action === 'reminder') {
         // Ya se avisó hoy: no repetimos el aviso al cliente.
         if (this.avisadoHoy(t.paymentFailureNoticeSentAt, now)) continue;
@@ -1769,6 +1878,7 @@ export class BillingService {
           reminders++;
           this.logger.log(`SMS D+1 recordatorio → ${t.brandName}`);
         }
+        await this.enviarDatosDePagoManual(t, target, r, 'D+1');
       }
     }
 

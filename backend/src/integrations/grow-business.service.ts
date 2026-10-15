@@ -456,6 +456,12 @@ export class GrowBusinessService {
     toPhone: string,
     body: string,
     ctx?: SendContext,
+    /**
+     * URLs públicas (https) que GHL adjunta al mensaje — p. ej. la imagen con
+     * las cuentas de pago que acompaña a los recordatorios de cobro manual.
+     * Opcional y al final para no tocar a ninguno de los llamadores de antes.
+     */
+    opts?: { attachments?: string[] },
   ) {
     if (!body?.trim()) {
       // Un cuerpo vacío es SIEMPRE un error de arriba: hoy, una plantilla que
@@ -621,11 +627,17 @@ export class GrowBusinessService {
       return { ok: false as const, message };
     }
 
+    // Solo se manda la clave si hay algo: un `attachments: []` en cada SMS de
+    // siempre sería un cambio de payload para los 40 llamadores que no lo piden.
+    const attachments = (opts?.attachments ?? []).filter(
+      (u) => typeof u === 'string' && /^https:\/\//i.test(u.trim()),
+    );
     const r = await this.postChannelMessage(
       creds.apiKey,
       contactId,
       'SMS',
       messageBody,
+      attachments.length ? { attachments: attachments.map((u) => u.trim()) } : undefined,
     );
     await this.registrarEnvio({
       channel: 'SMS',
