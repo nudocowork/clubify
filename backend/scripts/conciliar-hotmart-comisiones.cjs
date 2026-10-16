@@ -22,6 +22,15 @@ const arg = (n) => {
   return i > -1 ? process.argv[i + 1] : undefined;
 };
 const csv = arg('csv');
+// Con `--salida` se escribe en UTF-8 directo: redirigir con «>» en PowerShell 5.1
+// lo guardaba en UTF-16 con las tildes rotas (2026-10-16).
+const salida = arg('salida');
+const lineas = [];
+const log = (...a) => {
+  const l = a.join(' ');
+  lineas.push(l);
+  console.log(l);
+};
 const desde = new Date(`${arg('desde') || '2026-09-15'}T05:00:00Z`); // 00:00 Bogotá
 const hasta = new Date(`${arg('hasta') || '2026-10-16'}T05:00:00Z`);
 if (!csv || !fs.existsSync(csv)) {
@@ -54,10 +63,11 @@ function leerCsv(ruta) {
 
 (async () => {
   const filas = leerCsv(csv).filter((r) => /CLUBIFY/i.test(r.producto));
-  console.log(`Período ${f(desde)} → ${f(new Date(hasta.getTime() - 1))} · ${filas.length} suscripciones de Clubify en el CSV\n`);
+  log(`Período ${f(desde)} → ${f(new Date(hasta.getTime() - 1))} · ${filas.length} suscripciones de Clubify en el CSV\n`);
 
   const avisos = [];
   for (const r of filas) {
+   try {
     let t = await p.tenant.findFirst({
       where: { hotmartSubscriberCode: r.codigo },
       select: { id: true, brandName: true, status: true, planPeriodicity: true, manualPayment: true, businessGroupId: true },
@@ -92,23 +102,23 @@ function leerCsv(ruta) {
     const aprobados = eventos.filter((e) => /APPROVED|COMPLETE/i.test(e.eventType));
 
     const nueva = r.adhesion && r.adhesion >= desde && r.adhesion < hasta;
-    console.log(`● ${r.cliente} · ${r.codigo} · ${r.plan} · ${r.estatus}${r.cancelacion ? ` (cancelada ${r.cancelacion.split(' ')[0]})` : ''} · adhesión ${f(r.adhesion)}${nueva ? ' ← NUEVA EN EL PERÍODO' : ''}`);
-    console.log(`  avisos de Hotmart en el período: ${eventos.length ? eventos.map((e) => `${e.eventType} ${f(e.processedAt)}`).join(', ') : 'ninguno'}`);
+    log(`● ${r.cliente} · ${r.codigo} · ${r.plan} · ${r.estatus}${r.cancelacion ? ` (cancelada ${r.cancelacion.split(' ')[0]})` : ''} · adhesión ${f(r.adhesion)}${nueva ? ' ← NUEVA EN EL PERÍODO' : ''}`);
+    log(`  avisos de Hotmart en el período: ${eventos.length ? eventos.map((e) => `${e.eventType} ${f(e.processedAt)}`).join(', ') : 'ninguno'}`);
 
     if (!t) {
-      console.log('  ✗ SIN NEGOCIO en Clubify (ni por código ni por correo)');
+      log('  ✗ SIN NEGOCIO en Clubify (ni por código ni por correo)');
       if (aprobados.length || nueva) avisos.push(`${r.cliente} (${r.codigo}): pagó en el período y no tiene negocio`);
-      console.log('');
+      log('');
       continue;
     }
-    console.log(`  negocio: ${t.brandName} (${t.status}, ${t.planPeriodicity ?? 'sin periodicidad'}${t.manualPayment ? ', pago manual' : ''}) · encontrado por ${via}`);
+    log(`  negocio: ${t.brandName} (${t.status}, ${t.planPeriodicity ?? 'sin periodicidad'}${t.manualPayment ? ', pago manual' : ''}) · encontrado por ${via}`);
 
     const ingresos = await p.incomeRecord.findMany({
       where: { tenantId: t.id, saleDate: { gte: desde, lt: hasta } },
       select: { gateway: true, grossUsd: true, saleDate: true, status: true },
       orderBy: { saleDate: 'asc' },
     });
-    console.log(`  ingresos en Contabilidad: ${ingresos.length ? ingresos.map((i) => `${f(i.saleDate)} ${i.gateway} ${usd(i.grossUsd)} ${i.status}`).join(', ') : 'NINGUNO'}`);
+    log(`  ingresos en Contabilidad: ${ingresos.length ? ingresos.map((i) => `${f(i.saleDate)} ${i.gateway} ${usd(i.grossUsd)} ${i.status}`).join(', ') : 'NINGUNO'}`);
     if (aprobados.length && !ingresos.length) avisos.push(`${t.brandName}: Hotmart avisó pago aprobado y no hay ingreso en Contabilidad`);
     if (nueva && !ingresos.length && !aprobados.length) avisos.push(`${t.brandName}: adhesión nueva en el período sin aviso ni ingreso`);
 
@@ -127,12 +137,19 @@ function leerCsv(ruta) {
       select: { amount: true, status: true, businessDate: true, recipientCode: { select: { ownerName: true } } },
     }).catch(() => []);
     const referido = usos.map((u) => `${u.referralCode?.ownerName ?? '?'} (${u.referralCode?.code}, ${u.status})`).join(', ');
-    console.log(`  referido: ${referido || 'ninguno'}${t.businessGroupId ? ' · pertenece a un GRUPO' : ''}`);
-    console.log(`  comisiones del período: ${comisiones.length ? comisiones.map((c) => `${f(c.businessDate)} ${usd(c.amount)} ${c.status} → ${c.recipientCode?.ownerName ?? '?'}`).join(', ') : 'ninguna'}`);
+    log(`  referido: ${referido || 'ninguno'}${t.businessGroupId ? ' · pertenece a un GRUPO' : ''}`);
+    log(`  comisiones del período: ${comisiones.length ? comisiones.map((c) => `${f(c.businessDate)} ${usd(c.amount)} ${c.status} → ${c.recipientCode?.ownerName ?? '?'}`).join(', ') : 'ninguna'}`);
     if ((usos.length || t.businessGroupId) && ingresos.some((i) => i.status === 'PAGADO') && !comisiones.length) {
       avisos.push(`${t.brandName}: tiene referido y cobro en el período, pero NINGUNA comisión`);
     }
-    console.log('');
+    log('');
+   } catch (e) {
+    // Una fila rara no puede dejar sin revisar a las demás.
+    const motivo = String(e.message).split(/\r?\n/)[0];
+    log(`  ✗ ERROR revisando ${r.cliente} (${r.codigo}): ${motivo}`);
+    log('');
+    avisos.push(`${r.cliente} (${r.codigo}): no se pudo revisar — ${motivo}`);
+   }
   }
 
   // Al revés: comisiones del período cuyo negocio no tiene ingreso en el período.
@@ -146,7 +163,7 @@ function leerCsv(ruta) {
     },
     orderBy: { businessDate: 'asc' },
   });
-  console.log(`══ Comisiones con fecha de negocio en el período: ${todas.length}`);
+  log(`══ Comisiones con fecha de negocio en el período: ${todas.length}`);
   for (const c of todas) {
     const tid = c.referralUse?.tenantId;
     const nombre = c.referralUse?.tenant?.brandName ?? (c.businessGroup ? `${c.businessGroup.name} (grupo)` : '— sin negocio —');
@@ -158,11 +175,12 @@ function leerCsv(ruta) {
         avisos.push(`${nombre}: comisión ${usd(c.amount)} sin ingreso pagado en el período`);
       }
     }
-    console.log(`  ${f(c.businessDate)} ${usd(c.amount)} ${c.status} · ${nombre} → ${c.recipientCode?.ownerName ?? '?'}${marca}`);
+    log(`  ${f(c.businessDate)} ${usd(c.amount)} ${c.status} · ${nombre} → ${c.recipientCode?.ownerName ?? '?'}${marca}`);
   }
 
-  console.log(`\n══ PARA REVISAR (${avisos.length})`);
-  for (const a of avisos) console.log(`  - ${a}`);
+  log(`\n══ PARA REVISAR (${avisos.length})`);
+  for (const a of avisos) log(`  - ${a}`);
+  if (salida) fs.writeFileSync(salida, lineas.join('\r\n'), 'utf8');
   await p.$disconnect();
 })().catch(async (e) => {
   console.error('ERROR:', e.message);
