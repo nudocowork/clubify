@@ -8,6 +8,31 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-16 (134) — Conciliación 15-sep/15-oct: reparto de comisiones, venta directa y alertas de Hotmart (SIN DESPLEGAR)
+
+**La conciliación** (`scripts/conciliar-hotmart-comisiones.cjs`) cruzó el CSV de suscripciones de Hotmart con negocios, ingresos y comisiones. Todos los cobros quedaron registrados. Aparecieron 5 casos:
+- Enchurrados (reparto mal hecho).
+- Habibi (sin vendedor).
+- MOTILART (solo cobró el influencer).
+- Café Macondo (suscripción vieja cobrando).
+- La burguesía (próximo cobro y pago fallido mal).
+
+Los arreglos de datos están en `scripts/arreglos-conciliacion-2026-10-16.cjs`: Enchurrados 50/50, La burguesía con próximo cobro el 16-dic y Barbería Fénix en Elite. Los aplica Javier.
+
+**Reparto embajador / influencer** (`referrals/reparto-de-comision.ts`, puro):
+- **Causa:** el webhook elegía por FECHA el registro del vendedor (`findFirst` ordenado por `createdAt desc`). El «parent-use» del influencer se creaba de nuevo en cada cobro con un `upsert` sobre un id centinela, así que siempre era el más reciente. En las renovaciones el influencer se llevaba su % completo y el embajador nada. Es el bug de Birria León de junio, que solo se había corregido en el reconciliador.
+- **Arreglo:** `elegirUsoQueVendio` elige por rol (vendedor, luego embajador, luego influencer) y `repartoDeComision` hace la cuenta. Se aplica en el webhook, el pago manual, Pendientes de aprobación, «Generar comisión ahora», la comisión de implementación, el upgrade y el arqueo.
+- El parent-use ya no se duplica.
+- Un vendedor con el registro en SIGNED_UP ahora sí se reconoce.
+- Las comisiones históricas NO se tocaron. `scripts/diag-reparto-embajador-influencer.cjs` lista las que quedaron mal desde junio.
+
+**Pendientes por asignar y venta directa:**
+- `admin/pendientes-por-asignar` lista los negocios de la plataforma que pagaron y no tienen quien cobre comisión. Tiene contador en el menú de Comisiones y los botones «Asignar vendedor» y «Venta directa».
+- La venta directa es el código especial `VENTA_DIRECTA` (VENDOR, 0 %, inactivo, se crea solo). No genera filas de comisión por ningún camino.
+- Reemplaza el viejo aviso «Negocios sin afiliado», que no veía los pagos manuales (Habibi).
+
+**Alertas de suscripción** (commit 67f14aa4): una tarjeta en /admin y un resumen diario al equipo cuando hay suscripciones dobles o huérfanas cobrando.
+
 ## 2026-10-15 (133) — Datos de pago en los cobros manuales (SIN DESPLEGAR)
 
 **Pedido:** a los negocios con `manualPayment`, después del SMS de cobro, mandar una imagen con las cuentas y el aviso «consulta la tasa del día con el equipo». Debe poder editarse desde el panel.

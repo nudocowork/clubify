@@ -14,12 +14,20 @@ import { AuditService } from '../audit/audit.service';
 import { CommissionRecalcModule } from './commission-recalc.module';
 import { ComisionDeEquipoService } from './comision-de-equipo.service';
 import { CutoffService } from './cutoff.service';
+import { PendientesPorAsignarService } from './pendientes-por-asignar.service';
+import { PendientesPorAsignarController } from './pendientes-por-asignar.controller';
 
 @Module({
   imports: [AuthModule, AdminModule, CommissionRecalcModule],
   // CutoffService depende de ReferralsService (para el desbloqueo del hold),
   // nunca al revés → sin ciclo, inyección directa.
-  providers: [ReferralsService, AuditService, CutoffService, ComisionDeEquipoService],
+  providers: [
+    ReferralsService,
+    AuditService,
+    CutoffService,
+    ComisionDeEquipoService,
+    PendientesPorAsignarService,
+  ],
   controllers: [
     ReferralsController,
     AdminCommissionsController,
@@ -27,6 +35,7 @@ import { CutoffService } from './cutoff.service';
     AmbassadorRegistrationController,
     PublicAffiliateSignupController,
     AdminAffiliateRegistrationController,
+    PendientesPorAsignarController,
   ],
   exports: [ReferralsService, AuditService, CutoffService],
 })

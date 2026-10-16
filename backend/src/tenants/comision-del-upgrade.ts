@@ -34,6 +34,8 @@
  * y el Setting `referrals.indirectPercent`—, así que ahí no hay duplicado.
  */
 
+import { repartoDeComision } from '../referrals/reparto-de-comision';
+
 export type CadenaDeAtribucion = {
   influencer: { id: string } | null;
   embajador: { id: string } | null;
@@ -79,46 +81,10 @@ export function filasDeComisionDelUpgrade(args: {
   vendorPctCrudo: number;
   modo: ModoDeReparto;
 }): FilaDeComision[] {
-  const { base, cadena, influencerPct, embajadorPct, modo } = args;
-  const filas: FilaDeComision[] = [];
-  if (!(base > 0)) return filas;
-
-  const adicional = modo === 'ADDITIONAL_COMPANY_COMMISSION';
-  const vendorPct =
-    cadena.embajador && !adicional
-      ? Math.min(args.vendorPctCrudo, embajadorPct)
-      : args.vendorPctCrudo;
-
-  if (cadena.influencer && influencerPct > 0) {
-    filas.push({
-      recipientCodeId: cadena.influencer.id,
-      vendorCodeId: null,
-      amount: Math.round(base * influencerPct) / 100,
-      appliedPercent: influencerPct,
-    });
-  }
-  if (cadena.embajador) {
-    const embajadorEfectivo = adicional
-      ? embajadorPct
-      : Math.max(0, embajadorPct - vendorPct);
-    if (embajadorEfectivo > 0) {
-      filas.push({
-        recipientCodeId: cadena.embajador.id,
-        vendorCodeId: null,
-        amount: Math.round(base * embajadorEfectivo) / 100,
-        appliedPercent: embajadorEfectivo,
-      });
-    }
-  }
-  if (cadena.vendor && vendorPct > 0) {
-    filas.push({
-      recipientCodeId: cadena.vendor.id,
-      vendorCodeId: cadena.vendor.id,
-      amount: Math.round(base * vendorPct) / 100,
-      appliedPercent: vendorPct,
-    });
-  }
-  return filas;
+  // La aritmética ya no se copia: vive en `referrals/reparto-de-comision.ts`,
+  // la misma que usa el motor (`computeExpectedCommissionRows`). La prueba de no
+  // regresión de `comision-del-upgrade.spec.ts` sigue cruzando las dos salidas.
+  return repartoDeComision(args);
 }
 
 /**

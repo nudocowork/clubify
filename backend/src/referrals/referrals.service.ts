@@ -29,6 +29,14 @@ import {
   type TipoDeFecha,
 } from './rango-de-fechas';
 import { quedaSinAfiliado } from './sin-afiliado';
+import {
+  CADENA_VACIA,
+  cadenaDelCodigo,
+  elegirUsoQueVendio,
+  esVentaDirectaDelInfluencer,
+  pctDePartidaDelInfluencer,
+  repartoDeComision,
+} from './reparto-de-comision';
 import { esComisionDePagoManual } from './comision-de-pago-manual';
 import { MARGEN_MISMO_COBRO_MS, claveDelPeriodo } from './clave-del-periodo';
 import {
@@ -493,19 +501,39 @@ export class ReferralsService {
       },
     });
 
-    // % indirecto del influencer parent (Setting, default 5). Se lee una vez.
-    const indirectRow = await this.prisma.setting.findUnique({
-      where: { key: 'referrals.indirectPercent' },
-    });
-    const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
-
     // FIXED_ONCE (Sellea): esas marcas pagan comisión ÚNICA en el primer cobro;
     // el cron recurrente NO debe generarles NADA. Precomputamos sus whiteLabelIds
     // una sola vez → skip O(1) por tenant, sin query por-candidato.
     const fixedOnceWlIds = await this.fixedOnceWhiteLabelIds();
 
+    // Un negocio es UNA venta: de sus registros solo cuenta el de quien vendió
+    // (`elegirUsoQueVendio`). El parent-use del influencer —del que cuelga su
+    // indirecta— también es PAYING y antes se procesaba como si fuera suyo: le
+    // pagaba su % completo además de la indirecta (Birria León, MOTILART).
+    const ROLES_QUE_VENDEN = new Set(['INFLUENCER', 'AMBASSADOR', 'VENDOR']);
+    const quienVendio = new Map<string, string>();
+    {
+      const porNegocio = new Map<string, typeof candidates>();
+      for (const u of candidates) {
+        if (!u.tenantId) continue;
+        const lista = porNegocio.get(u.tenantId) ?? [];
+        lista.push(u);
+        porNegocio.set(u.tenantId, lista);
+      }
+      for (const [tid, us] of porNegocio) {
+        const elegido = elegirUsoQueVendio(us);
+        if (elegido) quienVendio.set(tid, elegido.id);
+      }
+    }
+
     let created = 0;
     for (const use of candidates) {
+      if (
+        use.tenantId &&
+        ROLES_QUE_VENDEN.has(use.referralCode.role) &&
+        quienVendio.get(use.tenantId) !== use.id
+      )
+        continue;
       const cpeDate = use.tenant?.currentPeriodEnd;
       if (!cpeDate) continue;
       if (!use.tenantId) continue;
@@ -577,10 +605,14 @@ export class ReferralsService {
       // businessDate caen al criterio viejo (createdAt) para no re-duplicarlas.
       const ensureCommission = async (recipientCodeId: string, amount: number) => {
         if (amount <= 0) return;
+        // Dedup por (negocio, beneficiario), no por registro: el webhook cuelga
+        // la indirecta de un parent-use aparte y el split del vendedor cuelga
+        // todo del registro del vendedor. Mirar solo `use.id` no veía esas filas
+        // y pagaba dos veces el mismo ciclo (fix 2026-06-16, ahora para todas).
         const existing = await this.prisma.commission.findFirst({
           where: {
-            referralUseId: use.id,
             recipientCodeId,
+            referralUse: { tenantId: use.tenantId },
             OR: [
               { businessDate: { gte: periodStart } },
               { businessDate: null, createdAt: { gte: periodStart } },
@@ -618,47 +650,26 @@ export class ReferralsService {
         }
       };
 
-      // DIRECTA: el % del embajador/influencer (con excepción por cliente si
-      // existe). Base = precio del BUNDLE según periodicidad.
-      const pct = await this.resolveExceptionPercent(
-        use.tenantId,
-        use.referralCode.id,
-        Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
-      );
-      await ensureCommission(use.referralCode.id, round2mod((price * pct) / 100));
+      if (!ROLES_QUE_VENDEN.has(use.referralCode.role)) {
+        // Registro que no es de venta (p. ej. SOCIO): su % sobre la base, como
+        // siempre.
+        const pct = await this.resolveExceptionPercent(
+          use.tenantId,
+          use.referralCode.id,
+          Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
+        );
+        await ensureCommission(use.referralCode.id, round2mod((price * pct) / 100));
+        continue;
+      }
 
-      // INDIRECTA: si el code es AMBASSADOR con un influencer parent, ese
-      // influencer cobra el % indirecto (5%) sobre el MISMO referido — NO su
-      // % propio. Antes el cron procesaba un "parent-use" del influencer y le
-      // pagaba su 25% completo en cada renovación (bug Birria León 2026-06-15).
-      if (
-        use.referralCode.role === 'AMBASSADOR' &&
-        use.referralCode.parentCodeId
-      ) {
-        const indirectAmount = round2mod((price * indirectPct) / 100);
-        if (indirectAmount > 0) {
-          // DEDUP CROSS-USE (fix 2026-06-16): el webhook Hotmart guarda el
-          // indirecto en un "parent-use" APARTE (referralUseId distinto al del
-          // embajador). El dedup de `ensureCommission` es por use.id → no lo
-          // ve → doble-pago del 5% en cada renovación. Acá buscamos CUALQUIER
-          // comisión del influencer parent para ESTE tenant dentro del ciclo,
-          // sin importar el referralUseId, y solo creamos si no existe.
-          const existingIndirect = await this.prisma.commission.findFirst({
-            where: {
-              recipientCodeId: use.referralCode.parentCodeId,
-              status: { not: 'REJECTED' },
-              createdAt: { gte: periodStart },
-              referralUse: { tenantId: use.tenantId },
-            },
-            select: { id: true },
-          });
-          if (!existingIndirect) {
-            await ensureCommission(
-              use.referralCode.parentCodeId,
-              indirectAmount,
-            );
-          }
-        }
+      // Venta: el reparto es el del motor (`computeExpectedCommissionRows`):
+      // directa de quien vendió, indirecta (5 %) del influencer si vendió su
+      // embajador, y el reparto del vendedor según el modo del negocio. Si la
+      // cadena que ve el motor no sale de ESTE registro, no se adivina.
+      const { chain, rows } = await this.computeExpectedCommissionRows(use.tenantId, price);
+      if (chain.sourceCodeId !== use.referralCode.id) continue;
+      for (const row of rows) {
+        await ensureCommission(row.recipientCodeId, row.amount);
       }
     }
 
@@ -2825,13 +2836,22 @@ export class ReferralsService {
     // comisión (y la del embajador). Sin él aquí, todo pago manual de un
     // negocio vendido por un vendedor —la mayoría de los closers— fallaba en
     // silencio y el closer se quedaba sin comisión (Sara, 2026-10-03).
-    const use = await this.prisma.referralUse.findFirst({
-      where: {
-        tenantId,
-        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    //
+    // Quién vendió se decide por ROL (`elegirUsoQueVendio`), no por fecha. Un
+    // negocio vendido por un embajador tiene también el registro de su
+    // influencer (el «parent-use» del que cuelga la indirecta) y ese es SIEMPRE
+    // el más reciente: elegir por fecha le pagaba al influencer su % completo
+    // en cada pago manual y nada al embajador (MOTILART, 2026-10-16).
+    const use = elegirUsoQueVendio(
+      await this.prisma.referralUse.findMany({
+        where: {
+          tenantId,
+          referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+        },
+        orderBy: { createdAt: 'desc' },
+        include: { referralCode: { select: { role: true } } },
+      }),
+    );
     if (!use) {
       throw new NotFoundException(
         'Este negocio no tiene un afiliado asignado (influencer, embajador o vendedor)',
@@ -4753,102 +4773,12 @@ export class ReferralsService {
         },
       },
     });
-    const ROLE_RANK: Record<string, number> = {
-      VENDOR: 3,
-      AMBASSADOR: 2,
-      INFLUENCER: 1,
-    };
-    const use = uses
-      .slice()
-      .sort((a, b) => {
-        const ra = ROLE_RANK[a.referralCode.role] ?? 0;
-        const rb = ROLE_RANK[b.referralCode.role] ?? 0;
-        if (rb !== ra) return rb - ra;
-        return b.createdAt.getTime() - a.createdAt.getTime();
-      })[0];
-    if (!use) {
-      return { influencer: null, embajador: null, vendor: null, sourceCodeId: null };
-    }
-    const code = use.referralCode;
-    const sourceCodeId = code.id;
-
-    if (code.role === 'VENDOR' && code.parentEmbajadorCode) {
-      const parent = code.parentEmbajadorCode;
-      // 2026-06-16: el vendedor puede colgar de un EMBAJADOR (3 niveles) o
-      // directo de un INFLUENCER (2 niveles). En el caso directo, el
-      // influencer ocupa el slot "embajador" (el que COMPARTE su % con su
-      // vendedor) para que el split le reste el % del vendedor — mismo modelo
-      // que embajador→vendedor, sin tocar la matemática del split.
-      if (parent.role === 'INFLUENCER') {
-        return {
-          influencer: null,
-          embajador: {
-            id: parent.id,
-            commissionPercent: Number(parent.commissionPercent ?? 0),
-            maxCommissionPercent: parent.maxCommissionPercent
-              ? Number(parent.maxCommissionPercent)
-              : 25,
-          },
-          vendor: {
-            id: code.id,
-            commissionPercent: Number(code.commissionPercent ?? 0),
-          },
-          sourceCodeId,
-        };
-      }
-      const embajador = parent;
-      const influencerSource = embajador.parentCode;
-      return {
-        influencer: influencerSource
-          ? {
-              id: influencerSource.id,
-              commissionPercent: Number(influencerSource.commissionPercent ?? 0),
-            }
-          : null,
-        embajador: {
-          id: embajador.id,
-          commissionPercent: Number(embajador.commissionPercent ?? 0),
-          maxCommissionPercent: embajador.maxCommissionPercent
-            ? Number(embajador.maxCommissionPercent)
-            : 25,
-        },
-        vendor: {
-          id: code.id,
-          commissionPercent: Number(code.commissionPercent ?? 0),
-        },
-        sourceCodeId,
-      };
-    }
-    if (code.role === 'AMBASSADOR') {
-      const influencerSource = code.parentCode;
-      return {
-        influencer: influencerSource
-          ? {
-              id: influencerSource.id,
-              commissionPercent: Number(influencerSource.commissionPercent ?? 0),
-            }
-          : null,
-        embajador: {
-          id: code.id,
-          commissionPercent: Number(code.commissionPercent ?? 0),
-          maxCommissionPercent: code.maxCommissionPercent
-            ? Number(code.maxCommissionPercent)
-            : 25,
-        },
-        vendor: null,
-        sourceCodeId,
-      };
-    }
-    // INFLUENCER directo
-    return {
-      influencer: {
-        id: code.id,
-        commissionPercent: Number(code.commissionPercent ?? 0),
-      },
-      embajador: null,
-      vendor: null,
-      sourceCodeId,
-    };
+    // El orden (rol, luego vivo, luego fecha) vive en `elegirUsoQueVendio`: es
+    // el MISMO que usan el webhook y «Generar comisión ahora», para que el
+    // motor, el arqueo y la generación nunca discrepen de quién vendió.
+    const use = elegirUsoQueVendio(uses);
+    if (!use) return { ...CADENA_VACIA };
+    return cadenaDelCodigo(use.referralCode);
   }
 
   /**
@@ -4961,16 +4891,15 @@ export class ReferralsService {
     // arqueo aplicaba el % completo siempre → "esperaba 10%" en ventas de
     // embajador y marcaba como mal la comisión correcta al 5% (caso Juan Camilo
     // / MOTILART). La excepción por-tenant, si existe, sigue teniendo prioridad.
-    const influencerIsIndirect =
-      !!chain.influencer && chain.influencer.id !== chain.sourceCodeId;
-    const influencerFallbackPct = influencerIsIndirect
-      ? await this.resolveIndirectPercent()
-      : chain.influencer?.commissionPercent ?? 0;
     const influencerPct = chain.influencer
       ? await this.resolveExceptionPercent(
           tenantId,
           chain.influencer.id,
-          influencerFallbackPct,
+          pctDePartidaDelInfluencer(
+            chain,
+            // Solo se lee el Setting si de verdad es indirecto.
+            esVentaDirectaDelInfluencer(chain) ? 0 : await this.resolveIndirectPercent(),
+          ),
         )
       : 0;
     const embajadorPct = chain.embajador
@@ -4988,46 +4917,19 @@ export class ReferralsService {
         )
       : 0;
 
-    const additional = mode === 'ADDITIONAL_COMPANY_COMMISSION';
-    // DISCOUNT (default): el % del vendedor SALE de la tajada del embajador →
-    // NUNCA puede excederla (clamp 2026-06-16) y el embajador recibe su % MENOS
-    // el del vendedor. Total a la chain = % del embajador (no sube el costo).
-    // ADDITIONAL: el vendedor es un costo ADICIONAL de la empresa → el embajador
-    // conserva su % completo y el vendedor cobra su % aparte (sube el total).
-    const vendorPct =
-      chain.embajador && !additional
-        ? Math.min(vendorPctRaw, embajadorPct)
-        : vendorPctRaw;
-
-    if (chain.influencer && influencerPct > 0) {
-      rows.push({
-        recipientCodeId: chain.influencer.id,
-        vendorCodeId: null,
-        amount: Math.round(amount * influencerPct) / 100,
-        appliedPercent: influencerPct,
-      });
-    }
-    if (chain.embajador) {
-      const embajadorEffectivePct = additional
-        ? embajadorPct
-        : Math.max(0, embajadorPct - vendorPct);
-      if (embajadorEffectivePct > 0) {
-        rows.push({
-          recipientCodeId: chain.embajador.id,
-          vendorCodeId: null,
-          amount: Math.round(amount * embajadorEffectivePct) / 100,
-          appliedPercent: embajadorEffectivePct,
-        });
-      }
-    }
-    if (chain.vendor && vendorPct > 0) {
-      rows.push({
-        recipientCodeId: chain.vendor.id,
-        vendorCodeId: chain.vendor.id,
-        amount: Math.round(amount * vendorPct) / 100,
-        appliedPercent: vendorPct,
-      });
-    }
+    // DISCOUNT (default): el % del vendedor SALE de la tajada del embajador
+    // (acotado a ella). ADDITIONAL: el vendedor es un costo extra de la empresa.
+    // La aritmética vive en `repartoDeComision`, la misma para todos los caminos.
+    rows.push(
+      ...repartoDeComision({
+        base: amount,
+        cadena: chain,
+        influencerPct,
+        embajadorPct,
+        vendorPctCrudo: vendorPctRaw,
+        modo: mode,
+      }),
+    );
     return { chain, rows, mode };
   }
 
@@ -5179,7 +5081,7 @@ export class ReferralsService {
     const use = await this.prisma.referralUse.findFirst({
       where: { tenantId: args.tenantId, referralCodeId: chain.sourceCodeId },
       orderBy: { createdAt: 'desc' },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!use) return { generated: 0, skipped: 0 };
 
@@ -5307,6 +5209,18 @@ export class ReferralsService {
       this.logger.warn(
         `generateCommissionsForPayment falló: ${e?.message}. Sin estado parcial creado.`,
       );
+    }
+    // Un cobro con comisión ES la conversión: el registro del que vendió pasa a
+    // PAYING, igual que hace el camino del embajador/influencer en el webhook.
+    // Sin esto el registro de un vendedor se quedaba en SIGNED_UP para siempre
+    // (nadie más lo convierte) y los paneles lo contaban como no convertido.
+    if (generated > 0 && use.status === 'SIGNED_UP') {
+      await this.prisma.referralUse
+        .update({
+          where: { id: use.id },
+          data: { status: 'PAYING', convertedAt: new Date() },
+        })
+        .catch(() => null);
     }
     return { generated, skipped };
   }
@@ -6030,7 +5944,12 @@ export class ReferralsService {
       );
     }
 
-    const chain = await this.getAttributionChain(tenantId);
+    // El reparto es el MISMO que el de un cobro (`computeExpectedCommissionRows`),
+    // con el valor de la implementación como base. Antes se copiaba a mano y se
+    // le escapaban dos reglas: el influencer cobraba su % COMPLETO aunque la
+    // venta fuera de su embajador (debía ser el 5 % indirecto), y el modo de
+    // reparto ADICIONAL del negocio se ignoraba.
+    const { chain, rows } = await this.computeExpectedCommissionRows(tenantId, amount);
     if (!chain.sourceCodeId) {
       throw new BadRequestException(
         'Este negocio no tiene un afiliado asignado — asigná influencer/embajador antes de generar la implementación.',
@@ -6043,59 +5962,6 @@ export class ReferralsService {
     });
     if (!use) {
       throw new BadRequestException('No se encontró el referralUse del negocio.');
-    }
-
-    // Mismo cálculo de % efectivo (con excepciones) que el split de ventas.
-    const influencerPct = chain.influencer
-      ? await this.resolveExceptionPercent(
-          tenantId,
-          chain.influencer.id,
-          chain.influencer.commissionPercent,
-        )
-      : 0;
-    const embajadorPct = chain.embajador
-      ? await this.resolveExceptionPercent(
-          tenantId,
-          chain.embajador.id,
-          chain.embajador.commissionPercent,
-        )
-      : 0;
-    const vendorPctRaw = chain.vendor
-      ? await this.resolveExceptionPercent(
-          tenantId,
-          chain.vendor.id,
-          chain.vendor.commissionPercent,
-        )
-      : 0;
-    // #8 (review): el vendor no puede exceder el slice del embajador.
-    const vendorPct = chain.embajador
-      ? Math.min(vendorPctRaw, embajadorPct)
-      : vendorPctRaw;
-
-    const rows: Array<{ recipientCodeId: string; vendorCodeId: string | null; amount: number }> = [];
-    if (chain.influencer && influencerPct > 0) {
-      rows.push({
-        recipientCodeId: chain.influencer.id,
-        vendorCodeId: null,
-        amount: Math.round(amount * influencerPct) / 100,
-      });
-    }
-    if (chain.embajador) {
-      const embajadorEffectivePct = Math.max(0, embajadorPct - vendorPct);
-      if (embajadorEffectivePct > 0) {
-        rows.push({
-          recipientCodeId: chain.embajador.id,
-          vendorCodeId: null,
-          amount: Math.round(amount * embajadorEffectivePct) / 100,
-        });
-      }
-    }
-    if (chain.vendor && vendorPct > 0) {
-      rows.push({
-        recipientCodeId: chain.vendor.id,
-        vendorCodeId: chain.vendor.id,
-        amount: Math.round(amount * vendorPct) / 100,
-      });
     }
 
     // periodKey único por implementación (no se deduplica con la suscripción
@@ -6155,6 +6021,10 @@ export class ReferralsService {
             vendorCodeId: row.vendorCodeId,
             externalTxId,
             periodKey,
+            // Con la base con la que NACIÓ: sin ella, un recálculo del reparto
+            // (`recalcTenantSplit`) la rehacía sobre el precio del plan.
+            baseAmountUsd: amount,
+            appliedPercent: row.appliedPercent,
             notes: `Implementación pagada · base $${amount.toFixed(2)}`,
           },
         });

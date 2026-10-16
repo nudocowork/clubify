@@ -19,6 +19,7 @@ import { LoginPopupBroadcast } from './LoginPopupBroadcast';
 import { useBranding } from '@/lib/useBranding';
 import { panelBrandCss } from '@/lib/panel-brand-theme';
 import { SECCIONES_ADMIN } from '@/lib/secciones-admin';
+import { EVENTO_PENDIENTES_POR_ASIGNAR } from '@/lib/pendientes-por-asignar';
 import {
   getCategoryBySlug,
   resolveMainSectionLabel,
@@ -225,6 +226,10 @@ export default function AppShell({
   // Clubify / PLATFORM_OWNER el endpoint da 403 y queda oculta.
   const [showCredits, setShowCredits] = useState(false);
   const [pendingCreditsCount, setPendingCreditsCount] = useState(0);
+  // Negocios que pagaron sin vendedor (ni venta directa). Va en el menú para que
+  // no dependa de que alguien abra Comisiones y despliegue el aviso: Habibi Bar
+  // Cantina estuvo un mes así sin que nadie lo viera (2026-10-16).
+  const [pendientesPorAsignar, setPendientesPorAsignar] = useState(0);
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
     /** Pasarela de la marca (HOTMART/STRIPE/…). Null para Clubify o marca sin
@@ -453,6 +458,28 @@ export default function AppShell({
       cancelled = true;
     };
     // whiteLabelId viene del JWT (estable por sesión) → 1 fetch, no por nav.
+  }, [variant]);
+
+  // Contador de «Pendientes por asignar vendedor». Solo la plataforma: a una
+  // marca blanca (o a marketing) el endpoint le da 403 y el contador queda en 0.
+  // Se vuelve a contar cuando una acción del panel o de la ficha avisa.
+  useEffect(() => {
+    if (variant !== 'admin') return;
+    let cancelled = false;
+    const contar = () =>
+      api<{ total: number }>('/admin/pendientes-por-asignar/contador')
+        .then((r) => {
+          if (!cancelled) setPendientesPorAsignar(r?.total ?? 0);
+        })
+        .catch(() => {
+          if (!cancelled) setPendientesPorAsignar(0);
+        });
+    contar();
+    window.addEventListener(EVENTO_PENDIENTES_POR_ASIGNAR, contar);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(EVENTO_PENDIENTES_POR_ASIGNAR, contar);
+    };
   }, [variant]);
 
   useEffect(() => {
@@ -750,7 +777,18 @@ export default function AppShell({
               section: tNav('secProgram'),
               items: [
                 { href: '/admin/referrals', label: tNav('referrals'), icon: 'gift', hideForMarketing: true },
-                { href: '/admin/commissions', label: tNav('commissions'), icon: 'trend-up', hideForMarketing: true },
+                {
+                  href: '/admin/commissions',
+                  label: tNav('commissions'),
+                  icon: 'trend-up',
+                  hideForMarketing: true,
+                  // Dentro de otra marca no se pinta: los pendientes son de la
+                  // plataforma, no de la marca que se está mirando.
+                  badge:
+                    pendientesPorAsignar > 0 && !(brandSlug && brandSlug !== 'clubify')
+                      ? String(pendientesPorAsignar)
+                      : undefined,
+                },
                 // Auditoría de duplicados: herramienta interna del ledger de
                 // comisiones de Clubify (cruces con Hotmart, códigos
                 // sintéticos, pagos que no casan). Una marca blanca no tiene

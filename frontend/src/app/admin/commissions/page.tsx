@@ -12,6 +12,7 @@ import {
 import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 import CurrentCutoffTab from './_components/CurrentCutoffTab';
 import BatchHistoryTab from './_components/BatchHistoryTab';
+import PendientesPorAsignarPanel from './_components/PendientesPorAsignarPanel';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -172,127 +173,6 @@ function fmtDate(d: string | null | undefined) {
 function toDateInputValue(d: string | null | undefined): string {
   if (!d) return '';
   return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
-}
-
-// Un negocio del aviso "sin afiliado". Si viene con `businessGroup` es que
-// pertenece a un grupo empresarial que TAMPOCO tiene afiliado: ahí la
-// asignación va en el grupo, porque la comisión de un grupo se genera una sola
-// vez sobre su bruto y una atribución por negocio pelearía con la del grupo.
-type NegocioSinAfiliado = {
-  tenantId: string;
-  brandName: string;
-  createdAt: string;
-  businessGroup?: { id: string; name: string } | null;
-};
-
-// PDF Soft(9): fila de un negocio SIN afiliado → asignar manualmente.
-function UnattributedRow({
-  row,
-  onDone,
-}: {
-  row: NegocioSinAfiliado;
-  onDone: () => void;
-}) {
-  const [codeId, setCodeId] = useState('');
-  const [saving, setSaving] = useState(false);
-  async function assign() {
-    if (!codeId) {
-      toast('Elegí un afiliado', 'info');
-      return;
-    }
-    setSaving(true);
-    try {
-      await api(`/admin/commissions/${row.tenantId}/assign-affiliate`, {
-        method: 'POST',
-        body: JSON.stringify({ codeId }),
-      });
-      toast('Afiliado asignado ✓', 'success');
-      onDone();
-    } catch (e: any) {
-      toast(e?.message ?? 'No se pudo asignar', 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line2 bg-white px-3 py-2">
-      <div className="min-w-[140px] flex-1">
-        <div className="text-sm font-medium">{row.brandName}</div>
-        <div className="text-[10px] text-mute">{fmtDate(row.createdAt)}</div>
-        {row.businessGroup && (
-          <div className="text-[10px] text-amber-700">
-            Pertenece al grupo «{row.businessGroup.name}»: asigna el afiliado en
-            el grupo, no en este negocio.
-          </div>
-        )}
-      </div>
-      {/* Con grupo empresarial NO se ofrece asignar aquí: la comisión de un
-          grupo se genera una sola vez sobre su bruto, así que una atribución
-          por negocio crearía dos recipientes para el mismo cobro. Dejar el
-          selector activo sería invitar justo a eso. */}
-      {!row.businessGroup && (
-        <>
-          <div className="min-w-[220px] flex-1">
-            <AffiliatePickerSearch value={codeId} onChange={setCodeId} />
-          </div>
-          <button
-            onClick={assign}
-            disabled={saving || !codeId}
-            className="text-sm px-3 py-1.5 rounded-md bg-brand text-white disabled:opacity-50"
-          >
-            {saving ? '…' : 'Asignar'}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-// PDF Soft(9): negocios que pagan Hotmart pero SIN afiliado → asignación manual.
-function UnattributedPanel() {
-  const [rows, setRows] = useState<NegocioSinAfiliado[]>([]);
-  const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    api<NegocioSinAfiliado[]>('/admin/commissions/unattributed')
-      .then((r) => setRows(r ?? []))
-      .catch(() => setRows([]))
-      .finally(() => setLoaded(true));
-  }, []);
-  if (!loaded || rows.length === 0) return null;
-  return (
-    <div className="card card-pad mb-4 border border-amber-200 bg-amber-50/40">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between text-left"
-      >
-        <span className="font-semibold text-amber-800">
-          ⚠️ Negocios sin afiliado ({rows.length})
-        </span>
-        <span className="text-xs text-amber-700">
-          {open ? '▲ ocultar' : '▼ asignar'}
-        </span>
-      </button>
-      {open && (
-        <div className="mt-3 space-y-2">
-          <p className="text-xs text-mute">
-            Pagan su suscripción pero no tienen embajador/influencer
-            atribuido. Asignalos manualmente para que su comisión se genere en el
-            próximo cobro.
-          </p>
-          {rows.map((r) => (
-            <UnattributedRow
-              key={r.tenantId}
-              row={r}
-              onDone={() =>
-                setRows((x) => x.filter((y) => y.tenantId !== r.tenantId))
-              }
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 type Tab = 'cutoff' | 'history' | 'advanced';
@@ -867,8 +747,10 @@ function AdvancedCommissionsView() {
         )}
       </div>
 
-      {/* PDF Soft(9): negocios que pagan sin afiliado → asignación manual. */}
-      <UnattributedPanel />
+      {/* Negocios que pagaron sin vendedor → asignar vendedor o venta directa
+          (reemplaza al aviso «Negocios sin afiliado», que no veía los pagos
+          manuales). Solo plataforma: a una marca blanca le responde 403. */}
+      <PendientesPorAsignarPanel />
 
       {/* Tabla */}
       <div className="card overflow-hidden p-0">

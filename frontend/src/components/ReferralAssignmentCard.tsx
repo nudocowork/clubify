@@ -13,6 +13,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { avisarCambioPendientesPorAsignar } from '@/lib/pendientes-por-asignar';
+
+/** Código de la plataforma que marca «lo vendió la empresa, sin comisión». */
+const CODIGO_VENTA_DIRECTA = 'VENTA_DIRECTA';
 
 type AffiliateRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR';
 
@@ -55,6 +59,10 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
   // plano largo.
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | AffiliateRole>('ALL');
+  // «Venta directa» solo existe para negocios de la plataforma. El endpoint
+  // responde 403 a una marca blanca → el botón no se enseña.
+  const [puedeVentaDirecta, setPuedeVentaDirecta] = useState(false);
+  const esVentaDirecta = current?.code.code === CODIGO_VENTA_DIRECTA;
 
   async function load() {
     setLoading(true);
@@ -64,7 +72,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
       // string (no nested `campaign: {id, name}` como en /assignment).
       // Inyectamos `role` al normalizar — el filtro del endpoint ya lo
       // garantiza pero el shape devuelto no lo incluye explícito.
-      const [assignmentRes, influencersArr, ambassadorsArr, vendorsArr] =
+      const [assignmentRes, influencersArr, ambassadorsArr, vendorsArr, estadoVd] =
         await Promise.all([
           api<{ assignment: Assignment | null }>(
             `/referrals/tenants/${tenantId}/assignment`,
@@ -73,7 +81,11 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
           api<any[]>('/referrals/ambassadors'),
           // #3 (2026-06-16): vendedores asignables directo a un negocio.
           api<any[]>('/referrals/vendors'),
+          api<{ puedeVentaDirecta: boolean }>(
+            `/admin/pendientes-por-asignar/${tenantId}/estado`,
+          ).catch(() => ({ puedeVentaDirecta: false })),
         ]);
+      setPuedeVentaDirecta(!!estadoVd?.puedeVentaDirecta);
       const codes: CodeOption[] = [
         ...(Array.isArray(influencersArr) ? influencersArr : []).map(
           (c: any) => ({
@@ -130,9 +142,43 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
     load();
   }, [tenantId]);
 
+  async function marcarVentaDirecta() {
+    const aviso = current
+      ? `Hoy está asignado a ${current.code.ownerName}. Al marcarlo como venta directa deja de generar comisión a nadie desde el próximo cobro (lo ya generado no se toca). ¿Seguir?`
+      : 'Lo vendió la empresa: no se genera comisión a nadie. Podrás pasarlo a un vendedor más adelante. ¿Seguir?';
+    if (!confirm(aviso)) return;
+    setSaving(true);
+    try {
+      await api(`/admin/pendientes-por-asignar/${tenantId}/venta-directa`, {
+        method: 'POST',
+      });
+      toast('Marcado como venta directa', 'success');
+      avisarCambioPendientesPorAsignar();
+      await load();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo marcar como venta directa', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save(nextCodeId: string | null) {
     setSaving(true);
     try {
+      // De «Venta directa» a un vendedor: NO por la reasignación de abajo, que
+      // solo cambia el código del registro y no genera la comisión del ciclo
+      // en curso. El endpoint de la plataforma quita la venta directa, crea la
+      // atribución y genera la comisión retroactiva como cualquier asignación.
+      if (esVentaDirecta && nextCodeId) {
+        await api(`/admin/pendientes-por-asignar/${tenantId}/vendedor`, {
+          method: 'POST',
+          body: JSON.stringify({ codeId: nextCodeId }),
+        });
+        toast('Vendedor asignado', 'success');
+        avisarCambioPendientesPorAsignar();
+        await load();
+        return;
+      }
       // Si hay assignment actual + nuevo código distinto → usamos el
       // endpoint de reasignación (Bloque 4 2026-06-12) que mantiene el
       // referralUseId existente, opcionalmente borra comisiones futuras
@@ -175,6 +221,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
         nextCodeId ? 'Asignación actualizada' : 'Asignación removida',
         'success',
       );
+      avisarCambioPendientesPorAsignar();
       await load();
     } catch (e: any) {
       toast(e?.message || 'No se pudo guardar la asignación', 'error');
@@ -208,7 +255,20 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      {current && (
+      {current && esVentaDirecta && (
+        <div className="rounded-lg border border-line bg-bg2 px-3 py-2 mb-3 text-sm">
+          <div className="flex items-center gap-2 flex-wrap">
+            <strong>Venta directa</strong>
+            <span className="badge text-[10px]">Sin comisión</span>
+          </div>
+          <p className="text-mute text-xs mt-1">
+            Lo vendió la empresa: sus cobros no generan comisión a nadie. Si en
+            realidad lo trajo alguien, elige su vendedor abajo.
+          </p>
+        </div>
+      )}
+
+      {current && !esVentaDirecta && (
         <div className="rounded-lg border border-line bg-bg2 px-3 py-2 mb-3 text-sm flex items-center gap-2 flex-wrap">
           <span className="text-mute">Asignado actualmente a:</span>
           <strong>{current.code.ownerName}</strong>
@@ -237,11 +297,21 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
       <div className="flex gap-2 mt-3">
         <button
           className="btn-primary"
-          disabled={saving || selected === (current?.code.id ?? '')}
+          disabled={saving || selected === (current?.code.id ?? '') || (esVentaDirecta && !selected)}
           onClick={() => save(selected || null)}
         >
-          {saving ? 'Guardando…' : current ? 'Reasignar' : 'Asignar'}
+          {saving ? 'Guardando…' : current && !esVentaDirecta ? 'Reasignar' : 'Asignar'}
         </button>
+        {puedeVentaDirecta && !esVentaDirecta && (
+          <button
+            className="btn-ghost"
+            disabled={saving}
+            onClick={marcarVentaDirecta}
+            title="Lo vendió la empresa: no se genera comisión a nadie"
+          >
+            Venta directa
+          </button>
+        )}
         {current && (
           <button
             className="btn-ghost text-bad"
@@ -264,7 +334,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
       {/* Bloque 4 (2026-06-12): cuando hay assignment y se selecciona OTRO
           código distinto al actual, mostrar opciones avanzadas de
           reasignación. PAID se mantiene intacta siempre. */}
-      {current && selected && selected !== current.code.id && (
+      {current && !esVentaDirecta && selected && selected !== current.code.id && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
           <div className="text-xs font-semibold text-amber-900">
             ⚠️ Estás reasignando este cliente a OTRO afiliado
@@ -304,7 +374,9 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
 
       {/* #5 (2026-06-16): implementación pagada — solo si hay afiliado
           asignado (necesita la cadena de atribución). */}
-      {current && <ImplementationFeeSection tenantId={tenantId} />}
+      {/* En venta directa no hay a quién repartirle: el botón solo crearía la
+          comisión del socio y diría «generada» como si fuera del vendedor. */}
+      {current && !esVentaDirecta && <ImplementationFeeSection tenantId={tenantId} />}
     </div>
   );
 }

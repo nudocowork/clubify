@@ -11,6 +11,13 @@ import {
 } from './anular-comisiones-de-reembolso';
 import { PendingActivationService } from './pending-activation.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import {
+  cadenaDelCodigo,
+  elegirUsoQueVendio,
+  esVentaDirectaDelInfluencer,
+  pctDePartidaDelInfluencer,
+  repartoDeComision,
+} from '../referrals/reparto-de-comision';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
@@ -2820,16 +2827,16 @@ export class HotmartService {
       //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
       //  2) Ordenamos por createdAt desc para tomar la atribución
       //     más reciente.
-      const vendorUse = await this.prisma.referralUse.findFirst({
-        where: {
-          tenantId: tenantId,
-          referralCode: { role: 'VENDOR' },
-          status: { in: ['PAYING', 'ACTIVE'] },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-      if (vendorUse) {
+      //
+      // 2026-10-16: la decisión «¿hay vendedor?» la toma la MISMA cadena que
+      // luego reparte (`getAttributionChain`), no una consulta aparte. La de
+      // antes solo miraba registros PAYING/ACTIVE, y el de un vendedor nace
+      // SIGNED_UP al registrarse el negocio por su enlace y nadie lo convertía:
+      // el primer cobro caía al flujo legacy, que no conoce vendedores, y el
+      // vendedor se quedaba sin comisión. La cadena sí ve SIGNED_UP, ya ordena
+      // por rol y ya excluye CHURNED (el bug #6 de arriba).
+      const cadena = await this.referralsService.getAttributionChain(tenantId);
+      if (cadena.vendor) {
         // Defensa FIXED_ONCE (Sellea): una marca en modo fijo paga monto
         // ÚNICO por el flujo legacy (generateReferralCommission), NUNCA el 3-way
         // de porcentaje. Sellea no tiene vendors, pero blindamos por si un code
@@ -2934,19 +2941,31 @@ export class HotmartService {
     const commissionBusinessDate = tenant?.lastChargeAt ?? null;
 
     // 1) Comisión DIRECTA (+ posible INDIRECTA al influencer parent).
-    const use = await this.prisma.referralUse.findFirst({
-      where: {
-        tenantId: opts.tenantId,
-        // El use del socio (creado abajo) tiene role=SOCIO; lo excluimos para
-        // que no se mezcle con la atribución directa del cliente.
-        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
-      },
-      include: {
-        referralCode: { include: { parentCode: true } },
-        commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    //
+    // QUIÉN VENDIÓ se decide por ROL, no por fecha (`elegirUsoQueVendio`). La
+    // indirecta del influencer cuelga de un «parent-use» suyo para este negocio
+    // (abajo), creado en el PRIMER cobro: desde ahí es el registro más reciente.
+    // Elegir «el más reciente» le pagaba al influencer su % completo en cada
+    // renovación y nada a su embajador. Caso MOTILART (22-sep): $12,50 = 25 %
+    // para Juan Camilo y $0 para Santiago, que fue quien vendió. Mismo bug en
+    // Enchurrados TEX-MEX (08-oct): $15 enteros para Nicolás, $0 para Gabriel.
+    // Sin filtro de estado, como antes: este camino también paga el cobro de un
+    // negocio que vuelve tras cancelar (todos sus registros quedan CHURNED).
+    const use = elegirUsoQueVendio(
+      await this.prisma.referralUse.findMany({
+        where: {
+          tenantId: opts.tenantId,
+          // El use del socio (creado abajo) tiene role=SOCIO; lo excluimos para
+          // que no se mezcle con la atribución directa del cliente.
+          referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+        },
+        include: {
+          referralCode: { include: { parentCode: true } },
+          commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
 
     // 2026-06-06 (bug item 7): la comisión se calcula sobre el MONTO
     // EFECTIVAMENTE PAGADO por Hotmart, no sobre `priceMonthly`. Con los 4
@@ -2978,12 +2997,25 @@ export class HotmartService {
       // backfill manual de convertToPaying generó esta misma comisión),
       // skip silencioso. Si no hay transactionId, el guard "<25 días"
       // sigue cubriendo el caso normal.
+      //
+      // Se busca en TODO el negocio para quien vendió y su influencer, no solo
+      // en este registro: un cobro ya devengado con la elección vieja (al
+      // parent-use del influencer) y re-entregado por Hotmart no debe pagarse
+      // otra vez ahora que el elegido es el embajador.
       let duplicateByTx = false;
       if (opts.transactionId) {
+        const beneficiarios = [use.referralCode.id];
+        if (use.referralCode.parentCode) beneficiarios.push(use.referralCode.parentCode.id);
         const existingTx = await this.prisma.commission.findFirst({
           where: {
             externalTxId: opts.transactionId,
-            referralUseId: use.id,
+            OR: [
+              { referralUseId: use.id },
+              {
+                referralUse: { tenantId: opts.tenantId },
+                recipientCodeId: { in: beneficiarios },
+              },
+            ],
           },
           select: { id: true },
         });
@@ -2995,6 +3027,9 @@ export class HotmartService {
         let direct: number;
         let periodKey: string;
         let logDetalle: string;
+        // La indirecta del influencer, si le toca. Solo existe cuando vendió su
+        // EMBAJADOR; nunca en una marca de pago único (rangos planos).
+        let filaIndirecta: { amount: number; appliedPercent: number } | null = null;
         if (fixedOnceBrand) {
           // Monto FIJO en USD, PAGO ÚNICO. La cantidad sale del propio código
           // (negocio = $30 seteado al crearlo) o, si no la trae, por rol desde
@@ -3011,16 +3046,47 @@ export class HotmartService {
           periodKey = 'ONCE';
           logDetalle = `$${direct} FIJO/único`;
         } else {
-          // Item 6 sprint: si el SUPER_ADMIN configuró una excepción para
-          // este (tenant, recipientCode), el % de la excepción gana.
-          const pct = await this.resolvePercent(
-            opts.tenantId,
-            use.referralCode.id,
-            Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
-          );
-          direct = round2((referralBase * pct) / 100);
+          // El reparto sale de la fuente única (`repartoDeComision`), igual que
+          // en el motor del vendedor y el arqueo: directa de quien vendió a SU
+          // %, e indirecta del influencer a `referrals.indirectPercent` cuando
+          // vendió su embajador. Las excepciones por negocio (item 6 sprint)
+          // ganan sobre los dos.
+          const cadena = cadenaDelCodigo(use.referralCode);
+          const influencerPct = cadena.influencer
+            ? await this.resolvePercent(
+                opts.tenantId,
+                cadena.influencer.id,
+                pctDePartidaDelInfluencer(
+                  cadena,
+                  esVentaDirectaDelInfluencer(cadena)
+                    ? 0
+                    : await this.getNumberSetting('referrals.indirectPercent', 5),
+                ),
+              )
+            : 0;
+          const embajadorPct = cadena.embajador
+            ? await this.resolvePercent(
+                opts.tenantId,
+                cadena.embajador.id,
+                cadena.embajador.commissionPercent,
+              )
+            : 0;
+          const filas = repartoDeComision({
+            base: referralBase,
+            cadena,
+            influencerPct,
+            embajadorPct,
+            vendorPctCrudo: 0,
+            modo: 'DISCOUNT_FROM_INFLUENCER',
+          });
+          const filaDirecta = filas.find((f) => f.recipientCodeId === use.referralCode.id);
+          direct = filaDirecta?.amount ?? 0;
+          if (cadena.embajador && cadena.influencer) {
+            const inf = cadena.influencer.id;
+            filaIndirecta = filas.find((f) => f.recipientCodeId === inf) ?? null;
+          }
           periodKey = monthKey();
-          logDetalle = `$${direct} (${pct}% sobre $${referralBase})`;
+          logDetalle = `$${direct} (${filaDirecta?.appliedPercent ?? 0}% sobre $${referralBase})`;
         }
 
         if (use.status === 'SIGNED_UP') {
@@ -3029,78 +3095,65 @@ export class HotmartService {
             data: { status: 'PAYING', convertedAt: new Date() },
           });
         }
-        await this.prisma.commission
-          .create({
-            data: {
-              referralUseId: use.id,
-              amount: direct,
-              status: 'PENDING',
-              externalTxId: opts.transactionId ?? null,
-              recipientCodeId: use.referralCode.id,
-              periodKey,
-              availableAt: commissionAvailableAt,
-              businessDate: commissionBusinessDate,
-            },
-          })
-          .catch((e: any) => {
-            if (e?.code === 'P2002') {
-              this.logger.warn(
-                `generateReferralCommission: skip dup directa (useId=${use.id}, code=${use.referralCode.id}, periodKey=${periodKey})`,
-              );
-              return null;
-            }
-            throw e;
-          });
-        this.logger.log(
-          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} ${logDetalle}`,
-        );
-
-        // Indirecta: si es embajador, su influencer parent gana 5% por default.
-        // Configurable más adelante via Setting key `referrals.indirectPercent`.
-        // FIXED_ONCE (Sellea) NO tiene indirecta: son rangos planos sin jerarquía.
-        if (!fixedOnceBrand && use.referralCode.role === 'AMBASSADOR' && use.referralCode.parentCode) {
-          const parent = use.referralCode.parentCode;
-          const fallbackIndirect = await this.getNumberSetting(
-            'referrals.indirectPercent',
-            5,
-          );
-          // Item 6 sprint: el influencer parent también puede tener su
-          // propia excepción configurada para este tenant.
-          const indirectPct = await this.resolvePercent(
-            opts.tenantId,
-            parent.id,
-            fallbackIndirect,
-          );
-          const indirect = round2((referralBase * indirectPct) / 100);
-          // Necesitamos un ReferralUse del parent para colgar la comisión.
-          // Match-or-create: uno por tenantId+codeId.
-          const parentUse = await this.prisma.referralUse.upsert({
-            where: {
-              // Sin unique compuesto en schema → fallback al patrón findFirst+create.
-              // Usamos un id sintético via findFirst.
-              id: 'sentinel-not-used',
-            },
-            create: {
-              referralCodeId: parent.id,
-              tenantId: opts.tenantId,
-              status: 'PAYING',
-              convertedAt: new Date(),
-            },
-            update: {},
-          }).catch(async () => {
-            const existing = await this.prisma.referralUse.findFirst({
-              where: { referralCodeId: parent.id, tenantId: opts.tenantId },
+        // Una fila al 0 % no es una comisión de $0: no le toca nada.
+        if (direct > 0) {
+          await this.prisma.commission
+            .create({
+              data: {
+                referralUseId: use.id,
+                amount: direct,
+                status: 'PENDING',
+                externalTxId: opts.transactionId ?? null,
+                recipientCodeId: use.referralCode.id,
+                periodKey,
+                availableAt: commissionAvailableAt,
+                businessDate: commissionBusinessDate,
+              },
+            })
+            .catch((e: any) => {
+              if (e?.code === 'P2002') {
+                this.logger.warn(
+                  `generateReferralCommission: skip dup directa (useId=${use.id}, code=${use.referralCode.id}, periodKey=${periodKey})`,
+                );
+                return null;
+              }
+              throw e;
             });
-            if (existing) return existing;
-            return this.prisma.referralUse.create({
+          this.logger.log(
+            `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} ${logDetalle}`,
+          );
+        }
+
+        // Indirecta: vendió un embajador → su influencer cobra el % indirecto
+        // (5 % por defecto, Setting `referrals.indirectPercent`, o su excepción
+        // para este negocio). Ya viene calculada en `filaIndirecta`.
+        // FIXED_ONCE (Sellea) NO tiene indirecta: son rangos planos sin jerarquía.
+        if (filaIndirecta && use.referralCode.parentCode) {
+          const parent = use.referralCode.parentCode;
+          const indirectPct = filaIndirecta.appliedPercent;
+          const indirect = filaIndirecta.amount;
+          // Necesitamos un ReferralUse del parent para colgar la comisión.
+          // Match-or-create: UNO por tenantId+codeId.
+          //
+          // Antes era un `upsert` con `where: { id: 'sentinel-not-used' }`,
+          // pensado para fallar y caer al findFirst. No falla: un upsert que no
+          // encuentra el id CREA. Cada cobro de un embajador dejaba un parent-use
+          // nuevo del influencer —siempre el más reciente del negocio, que es lo
+          // que hacía ganar al influencer en la renovación— y la UNIQUE por ciclo
+          // de la indirecta nunca lo veía, porque cada vez era otro registro.
+          const parentUse =
+            (await this.prisma.referralUse.findFirst({
+              where: { referralCodeId: parent.id, tenantId: opts.tenantId },
+              orderBy: { createdAt: 'asc' },
+            })) ??
+            (await this.prisma.referralUse.create({
               data: {
                 referralCodeId: parent.id,
                 tenantId: opts.tenantId,
                 status: 'PAYING',
                 convertedAt: new Date(),
               },
-            });
-          });
+            }));
           await this.prisma.commission
             .create({
               data: {
