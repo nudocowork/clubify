@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { PremiumDashboard } from '@/components/admin-dashboard/PremiumDashboard';
+import { AlertasDeSuscripcion } from '@/components/admin-dashboard/AlertasDeSuscripcion';
 
 type Metrics = { expiringSoon: number };
 
@@ -53,6 +54,10 @@ export default function AdminDashboard() {
           </Link>
         </div>
       )}
+
+      {/* Arriba del todo: es accionable y, si nadie la mira, Hotmart sigue
+          cobrando (o reintentando) a quien no debe. */}
+      <AlertasDeSuscripcion />
 
       <PremiumDashboard />
     </div>

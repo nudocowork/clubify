@@ -18,6 +18,8 @@ import { PendingActivationService } from './pending-activation.service';
 import { RecordatorioDeActivacionService } from './recordatorio-de-activacion.service';
 import { PendingAssignmentService } from './pending-assignment.service';
 import { PendingPaymentsController } from './pending-payments.controller';
+import { AlertasDeSuscripcionService } from './alertas-de-suscripcion.service';
+import { AlertasDeSuscripcionController } from './alertas-de-suscripcion.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { EmailModule } from '../email/email.module';
 import { ReferralsModule } from '../referrals/referrals.module';
@@ -46,8 +48,9 @@ import { FinanceModule } from '../finance/finance.module';
     CrossCheckoutController,
     SmsTemplatesController,
     PendingPaymentsController,
+    AlertasDeSuscripcionController,
   ],
-  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, HotmartApiService, PendingActivationService, PendingAssignmentService, RecordatorioDeActivacionService],
+  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, HotmartApiService, PendingActivationService, PendingAssignmentService, RecordatorioDeActivacionService, AlertasDeSuscripcionService],
   exports: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService, HotmartApiService],
 })
 export class BillingModule {}
