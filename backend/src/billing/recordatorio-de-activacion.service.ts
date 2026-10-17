@@ -251,6 +251,8 @@ export class RecordatorioDeActivacionService {
             llegoAlCliente: r.ok,
           }),
           'implementacion',
+          // Un cliente de Sellea es de Humberto, no del equipo de Clubify.
+          { whiteLabelId: fila.whiteLabelId ?? wl?.id ?? null },
         )
         .catch((e) =>
           this.logger.warn(

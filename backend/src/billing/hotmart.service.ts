@@ -3466,8 +3466,17 @@ export class HotmartService {
         email: true,
         whatsappPhone: true,
         plan: { select: { name: true } },
+        whiteLabelId: true,
+        whiteLabel: { select: { name: true, slug: true } },
       },
     });
+    // La compra de un negocio de una marca blanca la avisa esa marca, con su
+    // nombre: «Nueva compra Clubify» en el SMS de Humberto delataba la
+    // plataforma y además le llegaba al equipo de Clubify (2026-10-17).
+    const marcaAjena =
+      fullTenant?.whiteLabel && fullTenant.whiteLabel.slug !== 'clubify'
+        ? fullTenant.whiteLabel.name
+        : null;
     const planName = fullTenant?.plan?.name ?? 'Elite';
     const email = fullTenant?.email ?? '';
     const whatsappPhone = fullTenant?.whatsappPhone ?? null;
@@ -3478,8 +3487,9 @@ export class HotmartService {
     if (!isRenewal) {
       await this.alerts
         .sendTeamAlert(
-          `🎉 Nueva compra Clubify\nCliente: ${brandName}\nEmail: ${email}\nPlan: ${planName}\nPróximo cobro: ${nextCharge.toLocaleDateString('es-CO')}`,
+          `🎉 Nueva compra ${marcaAjena ?? 'Clubify'}\nCliente: ${brandName}\nEmail: ${email}\nPlan: ${planName}\nPróximo cobro: ${nextCharge.toLocaleDateString('es-CO')}`,
           'nueva_compra',
+          { whiteLabelId: fullTenant?.whiteLabelId ?? null },
         )
         .catch((e) =>
           this.logger.warn(

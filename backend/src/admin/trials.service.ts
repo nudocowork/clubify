@@ -47,6 +47,7 @@ export class TrialsService {
         trialSource: true,
         trialCompany: true,
         trialCity: true,
+        whiteLabelId: true,
       },
     });
     if (trials.length === 0) return;
@@ -63,7 +64,10 @@ export class TrialsService {
       );
       if (!threshold) continue;
       const body = this.buildBody(t, threshold);
-      const res = await this.alerts.sendTeamAlert(body, 'trial');
+      // La prueba de un negocio de una marca blanca la sigue esa marca.
+      const res = await this.alerts.sendTeamAlert(body, 'trial', {
+        whiteLabelId: t.whiteLabelId,
+      });
       if (res.ok || res.total === 0) {
         // Si total=0 (sin teléfonos configurados) también marcamos para
         // no loop infinito; el logger.warn ya advirtió.

@@ -120,6 +120,8 @@ export class PendingActivationService {
           `${buyerNotify.ok ? `${buyerNotify.channel} ✅` : 'WhatsApp/SMS ❌'}\n` +
           `Link: ${activateUrl}`,
         'pago_sin_cuenta',
+        // El pago de un cliente de una marca blanca lo atiende esa marca.
+        { whiteLabelId: opts.whiteLabelId ?? wl?.id ?? null },
       )
       .catch(() => null);
 

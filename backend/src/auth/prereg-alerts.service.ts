@@ -254,11 +254,20 @@ export class PreregAlertsService {
   async sendTeamAlert(
     body: string,
     tipo?: TipoAviso,
+    opts?: { whiteLabelId?: string | null },
   ): Promise<{
     ok: boolean;
     sent: number;
     total: number;
   }> {
+    // Un aviso sobre un cliente de una MARCA BLANCA no es del equipo de
+    // Clubify: le llegaban a Javier y a Jhon los «Cliente sin registrarse» de
+    // Sellea (2026-10-17), que son de Humberto. Va al dueño de esa marca, por
+    // la línea de esa marca. Clubify y «sin marca» siguen como siempre.
+    if (opts?.whiteLabelId) {
+      const destino = await this.destinoDeMarca(opts.whiteLabelId);
+      if (destino) return this.avisarAMarca(destino, body);
+    }
     try {
       // Anti-repetición: no reenviar una alerta idéntica (mismo tipo+email)
       // dentro de la ventana. Corta bursts de "Nueva compra"/"Pago SIN cuenta"
@@ -308,6 +317,62 @@ export class PreregAlertsService {
    * equipo. Sin anti-dup: cada evento de pago es distinto y debe avisar.
    * Fire-and-forget: captura sus errores.
    */
+  /**
+   * Destino de un aviso de una marca blanca: su dueño (`notifyPhone`) y su
+   * propia subcuenta de Grow. Si la línea de la marca no está conectada se usa
+   * la de la plataforma, como los avisos de créditos: el dueño de la marca sabe
+   * quién le presta el sistema; lo que no puede pasar es que el aviso acabe en
+   * el equipo de Clubify. Null = es Clubify (o no existe): flujo normal.
+   */
+  private async destinoDeMarca(whiteLabelId: string): Promise<
+    | { marca: string; telefono: string | null; creds: { locationId: string; apiKey: string; switchNumber: number | null } | null }
+    | null
+  > {
+    const wl = await this.prisma.whiteLabel
+      .findUnique({
+        where: { id: whiteLabelId },
+        select: { slug: true, name: true, notifyPhone: true, ...BRAND_GROW_SELECT },
+      })
+      .catch(() => null);
+    if (!wl || wl.slug === 'clubify') return null;
+    let creds: { locationId: string; apiKey: string; switchNumber: number | null } | null = null;
+    try {
+      creds = brandGrowCreds(wl);
+    } catch {
+      creds = null;
+    }
+    return { marca: wl.name, telefono: wl.notifyPhone?.trim() || null, creds };
+  }
+
+  private async avisarAMarca(
+    destino: { marca: string; telefono: string | null; creds: { locationId: string; apiKey: string; switchNumber: number | null } | null },
+    body: string,
+  ): Promise<{ ok: boolean; sent: number; total: number }> {
+    if (!destino.telefono) {
+      // Sin teléfono de la marca NO se cae al equipo de Clubify: ese era el bug.
+      this.logger.warn(
+        `Aviso de la marca ${destino.marca} sin teléfono de aviso (notifyPhone): no se envía a nadie`,
+      );
+      return { ok: false, sent: 0, total: 0 };
+    }
+    if (this.isDuplicateAlert(`marca::${destino.marca}::${this.alertKey(body)}`)) {
+      return { ok: true, sent: 0, total: 0 };
+    }
+    const creds = destino.creds ?? (await this.resolveAccount());
+    if (!creds) {
+      this.logger.warn(`Aviso de la marca ${destino.marca}: sin subcuenta para enviarlo`);
+      return { ok: false, sent: 0, total: 1 };
+    }
+    const r = await this.growBusiness
+      .sendSmsWithCreds(
+        { locationId: creds.locationId, apiKey: creds.apiKey, switchNumber: creds.switchNumber },
+        destino.telefono,
+        body,
+      )
+      .catch((e) => ({ ok: false, message: (e as Error).message }));
+    return { ok: r.ok, sent: r.ok ? 1 : 0, total: 1 };
+  }
+
   async sendInternalAlert(
     phone: string,
     body: string,
