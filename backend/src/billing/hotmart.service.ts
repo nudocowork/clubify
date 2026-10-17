@@ -3608,10 +3608,17 @@ export class HotmartService {
         // Hotmart manda el monto en la moneda del país del comprador
         // (COP para Colombia, BRL para Brasil, etc.). Si no viene
         // currency_code fallback a USD que es el plan default.
-        const currency =
-          (raw?.data?.purchase?.price?.currency_code ??
-            raw?.data?.purchase?.original_offer_price?.currency_code ??
-            'USD') as string;
+        // Y en producción la moneda llega en `currency_value`, no en
+        // `currency_code` (ver clubify-cobros-trampas). Leyendo solo el
+        // segundo caía siempre en «USD» y el aviso decía «USD 498,684.38»
+        // por un trimestral pagado en pesos (Henry Giraldo, 2026-10-17).
+        // Sin moneda en el aviso NO se adivina: se dice que es local.
+        const precio = raw?.data?.purchase?.price ?? {};
+        const original = raw?.data?.purchase?.original_offer_price ?? {};
+        const currency: string | null =
+          precio.currency_code || precio.currency_value ||
+          original.currency_code || original.currency_value || null;
+        const planName: string | null = raw?.data?.subscription?.plan?.name ?? null;
         const ageMinutes = Math.floor(
           (Date.now() - p.createdAt.getTime()) / 60000,
         );
@@ -3621,8 +3628,11 @@ export class HotmartService {
           `Cliente: ${buyerName}\n` +
           `Email: ${p.email}\n` +
           `Producto: ${productName}\n` +
+          (planName ? `Plan: ${planName}\n` : '') +
           (purchaseValue
-            ? `Monto: ${currency} ${formatMoneyForSms(purchaseValue, currency)}\n`
+            ? currency
+              ? `Monto: ${currency} ${formatMoneyForSms(purchaseValue, currency)}\n`
+              : `Monto: ${formatMoneyForSms(purchaseValue, 'USD')} (moneda local del comprador; Hotmart no la indicó)\n`
             : '') +
           `\nContactar manualmente.\n` +
           `Link directo: https://soyclubify.com/activar?email=${encodeURIComponent(p.email)}`;
