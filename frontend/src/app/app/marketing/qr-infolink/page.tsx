@@ -74,6 +74,7 @@ export default function QrInfolinkPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="qr"
         title={<><Link href="/app/marketing" className="text-mute hover:text-ink">
             {t('marketing')}
           </Link></>}

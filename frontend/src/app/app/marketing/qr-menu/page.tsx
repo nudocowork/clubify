@@ -90,6 +90,7 @@ export default function QrMenuPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="qr"
         title={<><Link href="/app/marketing" className="text-mute hover:text-ink">
             {t('marketing')}
           </Link></>}
