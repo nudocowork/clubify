@@ -25,6 +25,7 @@ export const ACADEMY_MODULES: AcademyModuleDef[] = [
   { key: 'reservas-online', label: 'Reservas Online', where: 'Barra superior, junto al buscador' },
   { key: 'reportes', label: 'Reportes', where: 'Barra superior, junto al buscador' },
   { key: 'qr', label: 'QR (Menú, Mostrador, Descuento, InfoLink)', where: 'Barra superior, junto al buscador' },
+  { key: 'infolink', label: 'InfoLink', where: 'Barra superior, junto al buscador' },
   { key: 'menu', label: 'Menú', where: 'Barra superior, junto al buscador' },
   { key: 'menu-libro', label: 'Menú Libro', where: 'Barra superior, junto al buscador' },
   { key: 'traducciones', label: 'Traducciones', where: 'Barra superior, junto al buscador' },

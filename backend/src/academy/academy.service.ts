@@ -16,6 +16,7 @@ export const ACADEMY_MODULE_KEYS = [
   'reservas-online',
   'reportes',
   'qr',
+  'infolink',
   'menu',
   'menu-libro',
   'traducciones',

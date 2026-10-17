@@ -87,6 +87,7 @@ export default function InfoLinksList() {
   return (
     <div>
       <PanelHeader
+        tutorial="infolink"
         title={t('heading')}
         crumb={<>/ {t('countCrumb', { count: list.length })}</>}
       />
