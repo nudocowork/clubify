@@ -3030,6 +3030,10 @@ export class HotmartService {
         // La indirecta del influencer, si le toca. Solo existe cuando vendió su
         // EMBAJADOR; nunca en una marca de pago único (rangos planos).
         let filaIndirecta: { amount: number; appliedPercent: number } | null = null;
+        // Base, % y regla con que NACE la directa. Este camino no los guardaba
+        // (las demás rutas sí): sin ellos, un cambio de % posterior no puede
+        // saber con qué se calculó y la «rehace» con el precio de hoy.
+        let snapshotDirecta: { baseAmountUsd: number; appliedPercent: number; reglaColaboradorId?: string } | null = null;
         if (fixedOnceBrand) {
           // Monto FIJO en USD, PAGO ÚNICO. La cantidad sale del propio código
           // (negocio = $30 seteado al crearlo) o, si no la trae, por rol desde
@@ -3071,16 +3075,41 @@ export class HotmartService {
                 cadena.embajador.commissionPercent,
               )
             : 0;
+          // Reglas de colaborador de ESTE cobro (fija, nueva/renovación,
+          // periodicidad, plan). La excepción por negocio sigue ganando. La del
+          // influencer solo en SU venta directa: la indirecta no es «su comisión».
+          const aj = await this.referralsService.ajustesDeReglas(
+            opts.tenantId,
+            {
+              influencer: cadena.influencer && esVentaDirectaDelInfluencer(cadena) ? cadena.influencer : null,
+              embajador: cadena.embajador,
+              vendor: null,
+            },
+            await this.referralsService.ventaParaReglas(
+              opts.tenantId,
+              opts.transactionId ?? null,
+              commissionBusinessDate ?? new Date(),
+            ),
+          );
           const filas = repartoDeComision({
             base: referralBase,
             cadena,
-            influencerPct,
-            embajadorPct,
+            influencerPct: aj.pct.influencer ?? influencerPct,
+            embajadorPct: aj.pct.embajador ?? embajadorPct,
             vendorPctCrudo: 0,
             modo: 'DISCOUNT_FROM_INFLUENCER',
+            fijos: aj.fijos,
+            reglas: aj.reglas,
           });
           const filaDirecta = filas.find((f) => f.recipientCodeId === use.referralCode.id);
           direct = filaDirecta?.amount ?? 0;
+          if (filaDirecta) {
+            snapshotDirecta = {
+              baseAmountUsd: referralBase,
+              appliedPercent: filaDirecta.appliedPercent,
+              ...(filaDirecta.reglaId ? { reglaColaboradorId: filaDirecta.reglaId } : {}),
+            };
+          }
           if (cadena.embajador && cadena.influencer) {
             const inf = cadena.influencer.id;
             filaIndirecta = filas.find((f) => f.recipientCodeId === inf) ?? null;
@@ -3108,6 +3137,7 @@ export class HotmartService {
                 periodKey,
                 availableAt: commissionAvailableAt,
                 businessDate: commissionBusinessDate,
+                ...(snapshotDirecta ?? {}),
               },
             })
             .catch((e: any) => {
@@ -3218,6 +3248,15 @@ export class HotmartService {
       where: { id: socioRow.value },
     });
     if (!socio || socio.role !== 'SOCIO' || !socio.isActive) return;
+    // EL SOCIO ÚNICO PASÓ A SER UNA LISTA (2026-10-17, `ParticipacionGlobal`).
+    // Si el socio de este ajuste ya tiene una participación (activa o no), la
+    // lista manda y aquí no se genera nada: si no, el mismo 10 % saldría dos
+    // veces —una por aquí y otra por el motor de participaciones— sobre el
+    // mismo cobro. Sin participación, el ajuste viejo sigue funcionando igual.
+    const migrado = await this.prisma.participacionGlobal
+      .findFirst({ where: { beneficiarioCodeId: socio.id }, select: { id: true } })
+      .catch(() => null);
+    if (migrado) return;
 
     const pct = Number(socio.commissionPercent ?? COMMISSION_DEFAULTS.socioPct);
     const amount = round2((amountPaid * pct) / 100);

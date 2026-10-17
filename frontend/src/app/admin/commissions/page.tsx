@@ -13,6 +13,7 @@ import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 import CurrentCutoffTab from './_components/CurrentCutoffTab';
 import BatchHistoryTab from './_components/BatchHistoryTab';
 import PendientesPorAsignarPanel from './_components/PendientesPorAsignarPanel';
+import ReglasTab from './_components/ReglasTab';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -28,6 +29,8 @@ type CommissionRow = {
   esRenovacion?: boolean;
   /** La venta se cobró por fuera (Nequi, efectivo, transferencia). */
   esPagoManual?: boolean;
+  /** Participación global (socio, PM) de la que salió; null en las de venta. */
+  participacion?: { id: string; nombre: string } | null;
   status: string;
   createdAt: string;
   // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª, cobro real para
@@ -175,7 +178,7 @@ function toDateInputValue(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
-type Tab = 'cutoff' | 'history' | 'advanced';
+type Tab = 'cutoff' | 'history' | 'advanced' | 'rules';
 
 /**
  * Shell de /admin/commissions. Abre SIEMPRE en la vista ESTÁNDAR ("Detalle
@@ -193,6 +196,8 @@ export default function AdminCommissionsPage() {
     { key: 'advanced', label: t('navAdvancedDetail') },
     { key: 'cutoff', label: t('tabCurrentCutoff') },
     { key: 'history', label: t('tabHistory') },
+    // Participaciones globales y reglas por colaborador.
+    { key: 'rules', label: t('tabRules') },
   ];
 
   return (
@@ -278,6 +283,7 @@ export default function AdminCommissionsPage() {
       {tab === 'cutoff' && <CurrentCutoffTab />}
       {tab === 'history' && <BatchHistoryTab />}
       {tab === 'advanced' && <AdvancedCommissionsView />}
+      {tab === 'rules' && <ReglasTab />}
     </div>
   );
 }
@@ -915,6 +921,16 @@ function AdvancedCommissionsView() {
                           {c.esPagoManual && (
                             <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-info-soft text-info-ink">
                               Pago manual
+                            </span>
+                          )}
+                          {/* Participación global: no es comisión de quien vendió
+                              sino la parte del socio / PM sobre esa venta. */}
+                          {c.participacion && (
+                            <span
+                              title={c.participacion.nombre}
+                              className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-warn-soft text-warn-ink"
+                            >
+                              Participación
                             </span>
                           )}
                         </div>

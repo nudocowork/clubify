@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
@@ -44,8 +44,11 @@ import {
   NO_ES_DE_EQUIPO,
   esDeMontoLibre,
   esDelUpgrade,
+  tieneReglaPropia,
 } from './comisiones-de-monto-libre';
 import { cambiarSlugConAlias } from './slug-alias';
+import { ReglasDeComisionService } from './reglas-de-comision.service';
+import type { AjusteDeRegla, VentaParaRegla } from './reglas-de-comision';
 import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
@@ -159,7 +162,70 @@ export class ReferralsService {
     private commissionExceptions: CommissionExceptionsService,
     private recalc: CommissionRecalcService,
     private audit: AuditService,
+    // Reglas por colaborador (fija, nueva/renovación…). Opcional: las pruebas
+    // construyen este servicio sin él, y sin él todo cobra como siempre.
+    @Optional() private reglas?: ReglasDeComisionService,
   ) {}
+
+  /**
+   * Las reglas de colaborador que mandan en ESTA venta para la cadena, en la
+   * forma que entiende `repartoDeComision`. Sin venta (arqueo, recálculo) no
+   * se aplica ninguna: ese «esperado» es el del código, y por eso las filas con
+   * regla quedan fuera de ambos (`tieneReglaPropia`).
+   */
+  async ajustesDeReglas(
+    tenantId: string,
+    cadena: { influencer: { id: string } | null; embajador: { id: string } | null; vendor: { id: string } | null },
+    venta: VentaParaRegla | null | undefined,
+  ): Promise<{
+    pct: { influencer?: number; embajador?: number; vendor?: number };
+    fijos: { influencer?: number; embajador?: number; vendor?: number };
+    reglas: { influencer?: string; embajador?: string; vendor?: string };
+  }> {
+    const vacio = { pct: {}, fijos: {}, reglas: {} };
+    if (!venta || !this.reglas) return vacio;
+    const mapa = await this.reglas
+      .ajustesParaCadena({
+        tenantId,
+        codeIds: [cadena.influencer?.id, cadena.embajador?.id, cadena.vendor?.id],
+        venta,
+      })
+      .catch(() => new Map<string, AjusteDeRegla>());
+    const out: {
+      pct: { influencer?: number; embajador?: number; vendor?: number };
+      fijos: { influencer?: number; embajador?: number; vendor?: number };
+      reglas: { influencer?: string; embajador?: string; vendor?: string };
+    } = { pct: {}, fijos: {}, reglas: {} };
+    for (const rol of ['influencer', 'embajador', 'vendor'] as const) {
+      const id = cadena[rol]?.id;
+      const a = id ? mapa.get(id) : undefined;
+      if (!a) continue;
+      out.reglas[rol] = a.reglaId;
+      if (a.fijo != null) out.fijos[rol] = a.fijo;
+      else if (a.pct != null) out.pct[rol] = a.pct;
+    }
+    return out;
+  }
+
+  /** NUEVA / RENOVACION / UPGRADE de un cobro (ver `ReglasDeComisionService`). */
+  async tipoDeVentaDelCobro(tenantId: string, tx: string | null | undefined, fecha: Date) {
+    if (!this.reglas) return 'NUEVA' as const;
+    return this.reglas.tipoDeVentaDelCobro(tenantId, tx, fecha).catch(() => 'NUEVA' as const);
+  }
+
+  /** La venta que leen las reglas de colaborador, armada desde el negocio. */
+  async ventaParaReglas(tenantId: string, tx: string | null | undefined, fecha: Date): Promise<VentaParaRegla | null> {
+    if (!this.reglas) return null;
+    const t = await this.prisma.tenant
+      .findUnique({ where: { id: tenantId }, select: { planPeriodicity: true, planId: true } })
+      .catch(() => null);
+    return {
+      fecha,
+      tipo: await this.tipoDeVentaDelCobro(tenantId, tx, fecha),
+      periodicidad: t?.planPeriodicity ?? null,
+      planId: t?.planId ?? null,
+    };
+  }
 
   /**
    * SUPER_ADMIN entra al panel /affiliate de un influencer/embajador como
@@ -3127,12 +3193,22 @@ export class ReferralsService {
     // Esta ruta era la única que la ignoraba, y es la que dispara el pago
     // manual: con una excepción al 20% el cobro por fuera devengaba el % del
     // código (25%) y el arqueo lo marcaba después como monto incorrecto.
-    const pct = await this.resolveExceptionPercent(
+    const pctDelCodigo = await this.resolveExceptionPercent(
       tenantId,
       code.id,
       Number(code.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
     );
-    const direct = round2((price * pct) / 100);
+    // Regla de colaborador del que cobra la directa (la excepción por cliente
+    // gana: con excepción no vuelve ninguna). Va en el hueco «embajador» porque
+    // aquí no hay reparto: la directa es entera suya.
+    const aj = await this.ajustesDeReglas(
+      tenantId,
+      { influencer: null, embajador: { id: code.id }, vendor: null },
+      await this.ventaParaReglas(tenantId, tenant.hotmartTransactionId ?? null, businessDate),
+    );
+    const pct = aj.pct.embajador ?? pctDelCodigo;
+    const direct =
+      aj.fijos.embajador != null ? round2(aj.fijos.embajador) : round2((price * pct) / 100);
 
     await this.prisma.commission
       .create({
@@ -3145,12 +3221,15 @@ export class ReferralsService {
           businessDate,
           availableAt,
           // Snapshot contable: con qué base y qué % se calculó. Sin él, el
-          // panel del afiliado deduce el % dividiendo monto entre base.
+          // panel del afiliado deduce el % dividiendo monto entre base. Con
+          // monto fijo, el % equivalente (informativo).
           baseAmountUsd: price,
-          appliedPercent: pct,
+          appliedPercent:
+            aj.fijos.embajador != null ? Math.min(999.99, round2((direct / price) * 100)) : pct,
           // Mismo motivo que en el branch VENDOR: sin el recibo del cobro que
           // paga esta comisión, un re-anuncio del mismo pago la duplica.
           externalTxId: tenant.hotmartTransactionId ?? null,
+          ...(aj.reglas.embajador ? { reglaColaboradorId: aj.reglas.embajador } : {}),
         },
       })
       .catch((e: any) => {
@@ -4837,6 +4916,12 @@ export class ReferralsService {
   private async computeExpectedCommissionRows(
     tenantId: string,
     amount: number,
+    /**
+     * La venta concreta, SOLO al generar: con ella entran las reglas de
+     * colaborador. El arqueo y el recálculo no la pasan (su esperado es el del
+     * código) y por eso dejan fuera las filas con regla (`tieneReglaPropia`).
+     */
+    venta?: VentaParaRegla | null,
   ) {
     const chain = await this.getAttributionChain(tenantId);
     const rows: Array<{
@@ -4844,6 +4929,7 @@ export class ReferralsService {
       vendorCodeId: string | null;
       amount: number;
       appliedPercent: number;
+      reglaId?: string | null;
     }> = [];
     // Modo de reparto del negocio (Fase 3). Default histórico = descuento del
     // upline. Se devuelve para congelarlo (snapshot) en cada comisión.
@@ -4917,6 +5003,20 @@ export class ReferralsService {
         )
       : 0;
 
+    // Reglas de colaborador de ESTA venta (fija, nueva/renovación, periodicidad,
+    // plan). La excepción por cliente sigue ganando: `ajustesParaCadena` no
+    // devuelve nada para quien la tenga. La regla de un influencer solo cuenta
+    // en SU venta directa: la indirecta (5 %) no es «su comisión».
+    const aj = await this.ajustesDeReglas(
+      tenantId,
+      {
+        influencer: chain.influencer && esVentaDirectaDelInfluencer(chain) ? chain.influencer : null,
+        embajador: chain.embajador,
+        vendor: chain.vendor,
+      },
+      venta,
+    );
+
     // DISCOUNT (default): el % del vendedor SALE de la tajada del embajador
     // (acotado a ella). ADDITIONAL: el vendedor es un costo extra de la empresa.
     // La aritmética vive en `repartoDeComision`, la misma para todos los caminos.
@@ -4924,10 +5024,12 @@ export class ReferralsService {
       ...repartoDeComision({
         base: amount,
         cadena: chain,
-        influencerPct,
-        embajadorPct,
-        vendorPctCrudo: vendorPctRaw,
+        influencerPct: aj.pct.influencer ?? influencerPct,
+        embajadorPct: aj.pct.embajador ?? embajadorPct,
+        vendorPctCrudo: aj.pct.vendor ?? vendorPctRaw,
         modo: mode,
+        fijos: aj.fijos,
+        reglas: aj.reglas,
       }),
     );
     return { chain, rows, mode };
@@ -5064,15 +5166,23 @@ export class ReferralsService {
     // ignora para la base; se mantiene en la firma por compatibilidad).
     const tBase = await this.prisma.tenant.findUnique({
       where: { id: args.tenantId },
-      select: { subscriptionPriceUsd: true, planPeriodicity: true },
+      select: { subscriptionPriceUsd: true, planPeriodicity: true, lastChargeAt: true },
     });
     const base = await this.recalc.getCommissionBase(
       tBase?.subscriptionPriceUsd ?? null,
       tBase?.planPeriodicity ?? null,
     );
+    // La venta que leen las reglas de colaborador: ESTE cobro (su fecha, si es
+    // nueva o renovación, su periodicidad). Misma fecha que se congela abajo.
+    const venta = await this.ventaParaReglas(
+      args.tenantId,
+      args.hotmartTransactionId ?? null,
+      args.businessDate ?? tBase?.lastChargeAt ?? new Date(),
+    );
     const { chain, rows, mode } = await this.computeExpectedCommissionRows(
       args.tenantId,
       base,
+      venta,
     );
     if (!chain.sourceCodeId) return { generated: 0, skipped: 0 };
 
@@ -5188,6 +5298,8 @@ export class ReferralsService {
                 distributionMode: mode,
                 baseAmountUsd: base,
                 appliedPercent: row.appliedPercent,
+                // Con regla de colaborador: el arqueo y los recálculos la dejan en paz.
+                ...(row.reglaId ? { reglaColaboradorId: row.reglaId } : {}),
               },
             });
             g++;
@@ -5364,6 +5476,7 @@ export class ReferralsService {
         status: true,
         periodKey: true,
         recipientCodeId: true,
+        reglaColaboradorId: true,
         createdAt: true,
         recipientCode: {
           select: { ownerName: true, role: true, isActive: true },
@@ -5510,6 +5623,11 @@ export class ReferralsService {
         // al mensual de 68. Si no la tiene, no se puede decir nada de ella y se
         // deja en paz — inventarle un esperado es exactamente el error que
         // convertía una comisión de $17 en una de $125.
+        // Una comisión nacida de una REGLA de colaborador (fija, renovación…)
+        // no tiene esperado deducible desde el código: el arqueo la daría por
+        // mal importe y «Corregir todo» la devolvería al % del código. La
+        // juzga su regla, que ya se aplicó al crearla.
+        if (tieneReglaPropia(c)) continue;
         let tabla = expected;
         if (esDeMontoLibre(c.periodKey)) {
           const propia = Number(c.baseAmountUsd);
@@ -5583,6 +5701,8 @@ export class ReferralsService {
         status: true,
         periodKey: true,
         recipientCodeId: true,
+        reglaColaboradorId: true,
+        participacionId: true,
         referralUse: {
           select: {
             tenant: {
@@ -5609,6 +5729,14 @@ export class ReferralsService {
     if (c.status === 'REJECTED' || c.status === 'ADJUSTMENT') {
       throw new BadRequestException(
         'Las comisiones canceladas o de ajuste no se recalculan.',
+      );
+    }
+    // Las reglas nunca cambian comisiones ya creadas, y este botón tampoco puede
+    // cambiar lo que creó una regla: recalcular la llevaría al % del código.
+    if (tieneReglaPropia(c)) {
+      throw new BadRequestException(
+        'Esta comisión salió de una regla (de colaborador o una participación global) con su propia ' +
+          'base y su propio %. No se recalcula automáticamente; si el importe está mal, ajústalo a mano.',
       );
     }
     const tenant = c.referralUse?.tenant;
@@ -6501,6 +6629,8 @@ export class ReferralsService {
         // parecían huérfanas. En producción son las dos de "Aldehir - Grupo
         // Mistika". Con esto el panel puede decir de qué grupo son.
         businessGroup: { select: { id: true, name: true } },
+        // Participación global (socio, PM): de qué regla salió esta fila.
+        participacion: { select: { id: true, nombre: true } },
         payoutBatch: {
           select: {
             code: true,
@@ -6602,6 +6732,23 @@ export class ReferralsService {
           : undefined,
       );
 
+    // Las participaciones no cuelgan de un referido: su negocio está en
+    // `ventaTenantId`. Una consulta para la página, para que la columna NEGOCIO
+    // no las pinte «—» como si fueran huérfanas.
+    const idsDeParticipacion = [
+      ...new Set(rows.map((r) => (r.referralUse ? null : r.ventaTenantId)).filter((x): x is string => !!x)),
+    ];
+    const negocioDeParticipacion = new Map(
+      idsDeParticipacion.length
+        ? (
+            await this.prisma.tenant.findMany({
+              where: { id: { in: idsDeParticipacion } },
+              select: { id: true, brandName: true, planPeriodicity: true, currentPeriodEnd: true, plan: { select: { name: true } } },
+            })
+          ).map((t) => [t.id, t])
+        : [],
+    );
+
     const items = rows.map((c) => {
       const amount = Number(c.amount);
       const amountPaid = Number(c.amountPaid);
@@ -6681,7 +6828,20 @@ export class ReferralsService {
               planPeriodicity: c.referralUse.tenant.planPeriodicity ?? null,
               currentPeriodEnd: c.referralUse.tenant.currentPeriodEnd,
             }
-          : null,
+          : c.ventaTenantId && negocioDeParticipacion.get(c.ventaTenantId)
+            ? (() => {
+                const t = negocioDeParticipacion.get(c.ventaTenantId as string)!;
+                return {
+                  id: t.id,
+                  brandName: t.brandName,
+                  planName: t.plan?.name ?? null,
+                  planPeriodicity: t.planPeriodicity ?? null,
+                  currentPeriodEnd: t.currentPeriodEnd,
+                };
+              })()
+            : null,
+        // Participación global de la que salió (null en las comisiones de venta).
+        participacion: c.participacion ? { id: c.participacion.id, nombre: c.participacion.nombre } : null,
         // Comisión de GRUPO empresarial (sin negocio propio): para que el panel
         // diga de qué grupo es en vez de un guion.
         businessGroup: c.businessGroup

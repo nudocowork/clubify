@@ -142,8 +142,10 @@ export async function revisarConsistencia(
 
   // A + D: cada comisión, contra el ingreso de SU cobro.
   for (const c of comisiones) {
-    // Implementación, upgrade y equipo tienen su propio dinero (no un cobro de plan).
-    if (c.periodKey && /^(UPG|IMPL|ONCE|EQUIPO)/.test(c.periodKey)) continue;
+    // Implementación, upgrade, equipo y las manuales del reporte de comisiones
+    // tienen su propio dinero (no un cobro de plan).
+    // Las participaciones (PART-) cuelgan de su ingreso por `ingresoId`, no de un referido.
+    if (c.periodKey && /^(UPG|IMPL|ONCE|EQUIPO|MANUAL|PART)/.test(c.periodKey)) continue;
     const fecha = c.businessDate ?? c.createdAt;
     const quien = c.businessGroup?.name ?? c.referralUse?.tenant?.brandName ?? '—';
     const porTx = c.hotmartTransactionId ? ingresoPorTx.get(c.hotmartTransactionId) : undefined;

@@ -535,6 +535,8 @@ export default function AppShell({
       // route guard no lo bloqueaba — MARKETING podía entrar por URL
       // directa. Ahora también está bloqueado.
       '/admin/payouts',
+      // Reporte de comisiones: vive fuera de /admin, pero es el mismo dinero.
+      '/reporte-comisiones',
     ];
     if (blocked.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
       router.replace('/admin');
@@ -794,6 +796,10 @@ export default function AppShell({
                 // sintéticos, pagos que no casan). Una marca blanca no tiene
                 // ese historial ni nada que auditar ahí.
                 { href: '/admin/commissions/audit', label: tNav('duplicatesAudit'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                // Reporte de comisiones: ventas, estados, equipos, cierre y
+                // liquidaciones de la PLATAFORMA. El backend corta a las marcas
+                // con `SoloPlataformaGuard`; aquí solo se esconde.
+                { href: '/reporte-comisiones', label: tNav('commissionReport'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/payouts', label: tNav('affiliatePayouts'), icon: 'card', hideForMarketing: true },
                 { href: '/admin/reports/ambassadors', label: tNav('ambassadorReport'), icon: 'trend-up', hideForMarketing: true },
                 { href: '/admin/reports/vendors', label: tNav('sellerReport'), icon: 'trend-up', hideForMarketing: true },

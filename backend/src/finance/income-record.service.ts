@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { mesContable } from '../common/periodo-contable';
 import { enRango } from './where-periodo';
@@ -9,6 +9,7 @@ import {
 import type { PaymentGateway } from '@prisma/client';
 import { alcanceDeMarca, combinar } from './alcance-de-marca';
 import { baseDelSocio } from './socio';
+import { ParticipacionesService } from '../referrals/participaciones.service';
 
 /** Entrada para registrar un ingreso real. `grossUsd` = lo que pagó el cliente. */
 export interface RecordIncomeInput {
@@ -78,7 +79,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export class IncomeRecordService {
   private readonly logger = new Logger(IncomeRecordService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // Opcional: las pruebas construyen este servicio solo con el prisma.
+    @Optional() private participaciones?: ParticipacionesService,
+  ) {}
 
   /** Lee una tasa (%) de Settings; devuelve `fallback` si no está o es inválida. */
   private async pct(key: string, fallback: number): Promise<number> {
@@ -300,7 +305,7 @@ export class IncomeRecordService {
       // la noche pertenece a ESE mes, no al siguiente. Ver `periodo-contable.ts`.
       const periodKey = mesContable(input.saleDate);
 
-      await this.prisma.incomeRecord.create({
+      const creado = await this.prisma.incomeRecord.create({
         data: {
           gateway: input.gateway,
           externalTxId: txId,
@@ -328,6 +333,10 @@ export class IncomeRecordService {
       this.logger.log(
         `IncomeRecord +$${gross} ${input.gateway} tx=${txId} (fee $${fee} · tax $${tax} · neto $${netExpected})`,
       );
+      // Participaciones globales (socio, PM) de ESTE cobro. Sin await: el
+      // ingreso ya quedó escrito y nada de lo que pase ahí debe frenarlo. Si
+      // falla, el repaso de cada 15 minutos lo recoge (es idempotente).
+      if (creado?.id && this.participaciones) void this.participaciones.procesarIngreso(creado.id);
     } catch (e: any) {
       // P2002 = carrera (otro webhook creó la misma tx) → no es error.
       if (e?.code !== 'P2002') {

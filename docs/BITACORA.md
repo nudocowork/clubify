@@ -8,6 +8,46 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-17 (135) — Participaciones globales y reglas por colaborador (SIN DESPLEGAR + migración + backfill)
+
+**Reglas del dueño:** Javier, socio comercial, 10 %. Sara Plata (MJUBQ8H8), 2 % ADEMÁS de su comisión de equipo. Base = precio pactado del plan en USD. Ventas nuevas y renovaciones pagadas, solo de Clubify. Son adicionales a la del vendedor: $100 con closer al 5 % → Javier 10 + Sara 2 + closer 5.
+
+**Diseño:** el «socio único» (`referrals.socioCodeId`) pasa a ser una LISTA, `ParticipacionGlobal`. El motor (`referrals/participaciones-motor.ts` + la parte pura `reglas-de-comision.ts`) NO se engancha en cada pasarela: lee el LIBRO DE INGRESOS (`IncomeRecord`). Todos los caminos de cobro escriben ahí (Hotmart primer cobro y renovación, Stripe, Cross, pago manual, pendientes de aprobación, upgrade). Se dispara al registrar el ingreso (`IncomeRecordService.record`) y en un repaso cada 15 min (`ParticipacionesCron`, ingresos tocados en 7 días).
+- Una fila de `Commission` por (regla, ingreso): `referralUseId` null, `participacionId`, `ingresoId`, `ventaTenantId`, `periodKey` `PART-<mes>`, `externalTxId` del cobro (así la anulación por reembolso de Hotmart también la encuentra).
+- Dedup = UNIQUE (participacionId, ingresoId) + `createMany skipDuplicates`.
+- Reembolso o cancelación por cualquier pasarela: el repaso anula (REJECTED con nota) las vivas sin pagar.
+- En vivo, una regla solo cubre los cobros que llegan DESPUÉS de crearla. El histórico es del backfill.
+- `PART-` es monto libre y `NO_ES_DEL_UPGRADE` / `NO_ES_DE_EQUIPO` las excluyen: ningún recálculo ni «Corregir todo» las toca.
+- **Socio viejo:** `generateSocioCommission` sigue funcionando, pero no genera nada si su código ya tiene una participación (para no pagar dos veces).
+
+**Reglas por colaborador** (`ReglaComisionColaborador`): % o fijo, nueva/renovación/ambas, periodicidad, plan, vigencia y prioridad. Orden: excepción por cliente > regla > % del código. Se aplican en `computeExpectedCommissionRows` (cuando hay venta), en el webhook legacy y en el backfill de asignación (influencer/embajador). La comisión nace con `reglaColaboradorId`, y el arqueo, `recalcTenantSplit`, `recalcForRecipientCode` y «recalcular al esperado» la dejan en paz. La regla de un influencer NO toca su indirecta del 5 %. El camino legacy ahora guarda también `baseAmountUsd` y `appliedPercent`. NO aplican a la implementación ni a la comisión del upgrade (son monto libre).
+
+**Pantalla:** /admin/commissions → pestaña «Reglas». Endpoints en `admin/reglas-de-comision` (SUPER_ADMIN + SoloPlataformaGuard). Motivo obligatorio y auditoría en `ReglaDeComisionHistorial`. La lista de comisiones marca «Participación» y pinta el negocio.
+
+**Orden para ponerlo en marcha** (lo corre Javier):
+1. `railway run node scripts/apply-participaciones-migration.cjs --aplicar`, ANTES del backend: sin las columnas, Prisma rompe toda lectura de Commission.
+2. Desplegar el backend y el frontend con `desplegar.cjs`.
+3. `railway run node scripts/sembrar-participaciones.cjs` (simula), luego `--aplicar`. Busca a Javier por `javier@gmail.com` → su código SOCIO; si no lo tiene, lo crea. Acepta `--javier-email` y `--javier-codigo`.
+4. `railway run node scripts/backfill-participaciones.cjs` (simula), luego `--aplicar --retener`.
+
+**ABIERTO, decide el dueño:**
+- Contabilidad ya resta una línea «Socio» del 10 % (`finance/socio.ts`). Si ese socio es Javier, se le pagaría dos veces.
+- Sara ya cobra 2 % de todas las ventas por quincena: con esto cobra 2 % más (el dueño dijo «además»).
+- El cron de las 3:00 aprueba las PENDING con el desbloqueo vencido: el histórico con PENDING entra al corte al día siguiente. Por eso se recomienda `--retener`.
+- Lo que pagan las marcas blancas (créditos) es ingreso de Clubify pero no participa: el backfill lo lista aparte.
+
+## 2026-10-17 — Reporte de comisiones en /reporte-comisiones (SIN DESPLEGAR + migración)
+
+**Qué es:** fase 1 del «Prompt maestro sistema de comisiones»: ver y gestionar, sin cambiar cómo se calculan. Página `frontend/src/app/reporte-comisiones/` (resumen con 7 estados, colaboradores, equipos, cierre con Excel/CSV/PDF/imprimir, historial de liquidaciones, «+ Nueva comisión»). Backend en `backend/src/reporte-comisiones/` (`admin/reporte-comisiones/*`, SUPER_ADMIN + `SoloPlataformaGuard`). Enlace en el menú, sección Programa, solo Clubify.
+
+**Antes de desplegar:** correr `railway run node scripts/apply-reporte-comisiones-migration.cjs` (3 tablas nuevas: `CommissionNote`, `CommissionAuditLog`, `CommissionManual`; aditiva, sin FK). Sin ella la página carga y avisa, pero notas, cambios de estado y comisiones manuales fallan.
+
+**Reglas que conviene saber:**
+- Los 7 estados salen de UNA función (`reporte-comisiones/estados.ts`). «En revisión» no existe en el modelo: es una RETAINED que se retuvo desde el reporte con «Enviar a revisión» (queda en `CommissionAuditLog`).
+- Las acciones (aprobar, retener, reversar, pago por persona) llaman a `enableCommission` / `setCommissionStatus` / `markPersonPaid` de siempre y añaden motivo obligatorio + bitácora.
+- La comisión manual nace SIN `referralUseId` y con `periodKey` `MANUAL-…`: colgada del referido, el webhook de Hotmart se saltaba el cobro real (`sameCycle` a ±3 días). Se añadió `MANUAL-` a `comisiones-de-monto-libre.ts` (recálculo y arqueo no la tocan) y a `consistencia-del-dinero.ts`.
+- Lee las columnas del motor de participaciones (`ventaTenantId`, `participacionId`, `ingresoId`) solo a través de `reporte-comisiones/participaciones.ts`.
+
 ## 2026-10-16 (134) — Conciliación 15-sep/15-oct: reparto de comisiones, venta directa y alertas de Hotmart (SIN DESPLEGAR)
 
 **La conciliación** (`scripts/conciliar-hotmart-comisiones.cjs`) cruzó el CSV de suscripciones de Hotmart con negocios, ingresos y comisiones. Todos los cobros quedaron registrados. Aparecieron 5 casos:

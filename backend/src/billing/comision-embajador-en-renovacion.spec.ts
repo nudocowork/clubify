@@ -53,6 +53,9 @@ function servicio(opts: {
   svc.referralsService = {
     slugForWhiteLabelId: vi.fn(async () => 'clubify'),
     getBrandCommissionMode: vi.fn(async () => 'PERCENT_RECURRING'),
+    // Sin reglas de colaborador: el reparto de siempre.
+    ventaParaReglas: vi.fn(async () => null),
+    ajustesDeReglas: vi.fn(async () => ({ pct: {}, fijos: {}, reglas: {} })),
   };
   svc.commissionExceptions = {
     resolvePercent: vi.fn(

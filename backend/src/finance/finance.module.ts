@@ -12,6 +12,7 @@ import { FinanceReportService } from './finance-report.service';
 import { ConciliadorDeIngresosService } from './conciliador-de-ingresos.service';
 import { IngresosDeMarcasService } from './ingresos-de-marcas.service';
 import { IngresosDeMarcasController } from './ingresos-de-marcas.controller';
+import { ParticipacionesService } from '../referrals/participaciones.service';
 
 /**
  * CONTABILIDAD — Fase 1. Módulo de finanzas: captura del ingreso REAL por
@@ -33,6 +34,9 @@ import { IngresosDeMarcasController } from './ingresos-de-marcas.controller';
     FinanceReportService,
     ConciliadorDeIngresosService,
     IngresosDeMarcasService,
+    // Participaciones globales al registrar un cobro (sin estado: también lo
+    // provee ReferralsModule, que es donde vive su cron).
+    ParticipacionesService,
   ],
   controllers: [FinanceController, ExpensesController, PayrollController, MovementsController, IngresosDeMarcasController],
   exports: [IncomeRecordService, ExpenseService, PayrollService],

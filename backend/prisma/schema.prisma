@@ -3663,6 +3663,11 @@ model ReferralCode {
   /// Item 6 sprint: excepciones de comisión cuya recipientCodeId apunta
   /// a este code (= aplican al % que ESTE code cobraría normalmente).
   commissionExceptions   CommissionException[]
+  /// Participaciones globales de las que este código es el beneficiario
+  /// (socio comercial, PM…). Ver model ParticipacionGlobal.
+  participaciones        ParticipacionGlobal[] @relation("ParticipacionBeneficiario")
+  /// Reglas de comisión propias de este colaborador (fija, nueva/renovación…).
+  reglasDeComision       ReglaComisionColaborador[] @relation("ReglaDelColaborador")
 
   @@index([parentCodeId])
   @@index([parentEmbajadorCodeId])
@@ -3820,8 +3825,28 @@ model Commission {
   // Nullable por backwards-compat con filas pre-migration que tienen
   // recipientCodeId también null. Los inserts nuevos siempre lo setean.
   periodKey            String?
+  // PARTICIPACIÓN GLOBAL (2026-10-17): si viene, esta fila NO es la comisión de
+  // quien vendió sino la parte de un beneficiario global (socio, PM) sobre ESE
+  // cobro. Nace del libro de ingresos (`IncomeRecord`), no de un referido: por
+  // eso `referralUseId` va en null y el negocio se guarda en `ventaTenantId`
+  // (no se llama `tenantId` a propósito: el middleware filtraría la tabla por
+  // negocio). La UNIQUE (participacionId, ingresoId) es el candado de dedup:
+  // un webhook repetido, el cron o el backfill corrido dos veces no duplican.
+  participacionId      String?
+  participacion        ParticipacionGlobal?        @relation("ComisionDeParticipacion", fields: [participacionId], references: [id], onDelete: Restrict)
+  /// IncomeRecord del cobro que originó la participación.
+  ingresoId            String?
+  /// Negocio de la venta (solo participaciones; las demás lo leen del referido).
+  ventaTenantId        String?
+  /// Regla de colaborador con la que se calculó esta comisión. Si viene, la
+  /// fila NO se recalcula nunca (arqueo, «Corregir todo», cambio de %): su
+  /// monto salió de una regla que el recálculo no conoce.
+  reglaColaboradorId   String?
   createdAt            DateTime                    @default(now())
 
+  @@unique([participacionId, ingresoId])
+  @@index([ingresoId])
+  @@index([reglaColaboradorId])
   // 2026-06-12: previene duplicados a nivel DB. PostgreSQL trata NULLs
   // como distintos, así que filas legacy con recipientCodeId/periodKey
   // null no chocan. Para filas nuevas (ambos NOT NULL) garantiza
@@ -5741,6 +5766,93 @@ model CommissionExceptionHistory {
   changedAt       DateTime            @default(now())
 
   @@index([exceptionId, changedAt])
+}
+
+/// PARTICIPACIONES GLOBALES (2026-10-17). Generaliza el «socio único»
+/// (`referrals.socioCodeId`) a una LISTA: cada fila es «X cobra Y sobre las
+/// ventas de Clubify», ADICIONAL a la comisión de quien vendió. El motor vive en
+/// `referrals/participaciones-motor.ts` y lee el libro de ingresos, así que
+/// cubre por igual Hotmart, Stripe, Cross, pago manual, pendientes y upgrade.
+///
+/// Los campos de tipo son TEXTO (no enum de Postgres), como en IncomeRecord:
+/// añadir un valor no exige migración. Las listas vacías significan «todos».
+/// Una regla nunca se borra (la FK de Commission es Restrict): se desactiva.
+model ParticipacionGlobal {
+  id                 String       @id @default(uuid())
+  nombre             String
+  beneficiarioCodeId String
+  beneficiarioCode   ReferralCode @relation("ParticipacionBeneficiario", fields: [beneficiarioCodeId], references: [id], onDelete: Restrict)
+  /// PORCENTAJE | FIJO (USD por venta)
+  tipo               String       @default("PORCENTAJE")
+  valor              Decimal      @db.Decimal(10, 2)
+  /// PRECIO_PLAN: el precio pactado del plan en USD. Es la única base hoy.
+  base               String       @default("PRECIO_PLAN")
+  /// NUEVAS | RENOVACIONES | AMBAS
+  aplicaA            String       @default("AMBAS")
+  periodicidades     String[]     @default([])
+  planIds            String[]     @default([])
+  negociosIncluidos  String[]     @default([])
+  negociosExcluidos  String[]     @default([])
+  /// null = desde siempre.
+  vigenteDesde       DateTime?
+  /// Exclusiva: la venta debe ser ANTERIOR. null = sin fin.
+  vigenteHasta       DateTime?
+  activo             Boolean      @default(true)
+  creadoPorId        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  comisiones Commission[] @relation("ComisionDeParticipacion")
+
+  @@index([activo])
+  @@index([beneficiarioCodeId])
+}
+
+/// REGLAS DE COMISIÓN POR COLABORADOR (2026-10-17). Por encima del
+/// `commissionPercent` del código y por debajo de la excepción por cliente
+/// (`CommissionException`, que sigue ganando). Solo se leen al CREAR una
+/// comisión: cambiar una regla jamás toca las ya creadas.
+model ReglaComisionColaborador {
+  id             String       @id @default(uuid())
+  codeId         String
+  code           ReferralCode @relation("ReglaDelColaborador", fields: [codeId], references: [id], onDelete: Cascade)
+  nombre         String?
+  /// Mayor = gana. A igualdad, la más específica y luego la más nueva.
+  prioridad      Int          @default(0)
+  /// PORCENTAJE | FIJO (USD por venta)
+  tipo           String       @default("PORCENTAJE")
+  valor          Decimal      @db.Decimal(10, 2)
+  /// NUEVAS | RENOVACIONES | AMBAS
+  aplicaA        String       @default("AMBAS")
+  periodicidades String[]     @default([])
+  planIds        String[]     @default([])
+  vigenteDesde   DateTime?
+  vigenteHasta   DateTime?
+  activo         Boolean      @default(true)
+  creadoPorId    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([codeId, activo])
+}
+
+/// Auditoría de las dos clases de regla: quién, cuándo, antes/después y por qué.
+/// El motivo es obligatorio (lo exige el servicio).
+model ReglaDeComisionHistorial {
+  id         String   @id @default(uuid())
+  /// PARTICIPACION | COLABORADOR
+  ambito     String
+  reglaId    String
+  /// CREADA | EDITADA | ACTIVADA | DESACTIVADA
+  accion     String
+  antes      Json?
+  despues    Json?
+  motivo     String   @db.Text
+  actorId    String?
+  actorEmail String?
+  createdAt  DateTime @default(now())
+
+  @@index([ambito, reglaId, createdAt])
 }
 
 // ============================================================
@@ -8549,4 +8661,82 @@ model WhiteLabelSale {
   nota          String?   @db.Text
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+// ============================================================
+//         REPORTE DE COMISIONES (/reporte-comisiones, 2026-10-17)
+// ============================================================
+// Tres tablas de SOLO ESCRITURA/ANULACIÓN para el módulo de reporte. Ninguna
+// lleva relación Prisma con `Commission` a propósito (igual que
+// `BatchPersonPayment.recipientCodeId`): así no se toca ese modelo, que es del
+// motor de cálculo. Tampoco llevan un campo `tenantId`: el middleware las
+// filtraría por negocio (ver prisma-tenant-middleware.ts); el negocio va en
+// `ownerTenantId`. Migración aditiva: scripts/apply-reporte-comisiones-migration.cjs.
+
+/// Nota o comprobante adjunto a una comisión. No se borra: se ANULA (queda quién,
+/// cuándo y por qué). El archivo vive en S3/R2; aquí solo la URL.
+model CommissionNote {
+  id               String    @id @default(uuid())
+  commissionId     String
+  texto            String    @db.Text
+  adjuntoUrl       String?
+  adjuntoMime      String?
+  autorUserId      String?
+  autorNombre      String?
+  createdAt        DateTime  @default(now())
+  anuladaEl        DateTime?
+  anuladaPorUserId String?
+  motivoAnulacion  String?   @db.Text
+
+  @@index([commissionId, createdAt])
+}
+
+/// Bitácora de TODO cambio hecho desde el reporte de comisiones: quién, cuándo,
+/// antes, después y motivo (obligatorio). Append-only: nunca se edita ni borra.
+model CommissionAuditLog {
+  id              String   @id @default(uuid())
+  /// Null cuando el cambio no es de una comisión (p. ej. el pago de una persona
+  /// en un corte, que abarca varias).
+  commissionId    String?
+  recipientCodeId String?
+  batchId         String?
+  /// CREAR_MANUAL · CREAR_EN_REVISION · APROBAR · ENVIAR_A_REVISION · RETENER ·
+  /// REVERSAR · NOTA_AGREGADA · NOTA_ANULADA · PAGO_PERSONA
+  accion          String
+  motivo          String   @db.Text
+  valorAnterior   Json?
+  valorNuevo      Json?
+  actorUserId     String?
+  actorEmail      String?
+  createdAt       DateTime @default(now())
+
+  @@index([commissionId, createdAt])
+  @@index([recipientCodeId, createdAt])
+  @@index([createdAt])
+}
+
+/// Datos de una comisión creada a mano desde «+ Nueva comisión». La comisión en
+/// sí es una fila normal de `Commission` (sin `referralUseId`, `periodKey`
+/// `MANUAL-…`); esto guarda lo que esa fila no puede guardar sin tocar el motor:
+/// el negocio, la venta relacionada, la base y el % con que se calculó, y la
+/// clave que impide crearla dos veces con un doble clic.
+model CommissionManual {
+  id                String   @id @default(uuid())
+  commissionId      String   @unique
+  claveIdempotencia String   @unique
+  ownerTenantId     String?
+  incomeRecordId    String?
+  /// VENTA · RENOVACION · BONO · AJUSTE · OTRO
+  tipo              String
+  baseUsd           Decimal  @db.Decimal(10, 2)
+  porcentaje        Decimal? @db.Decimal(5, 2)
+  montoFijoUsd      Decimal? @db.Decimal(10, 2)
+  descripcion       String   @db.Text
+  /// GENERADA · EN_REVISION
+  estadoInicial     String
+  creadoPorUserId   String?
+  createdAt         DateTime @default(now())
+
+  @@index([ownerTenantId])
+  @@index([incomeRecordId])
 }

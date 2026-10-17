@@ -196,6 +196,28 @@ export type FilaDeReparto = {
   vendorCodeId: string | null;
   amount: number;
   appliedPercent: number;
+  /**
+   * Regla de colaborador (`ReglaComisionColaborador`) de la que salió el monto
+   * de esta fila. Se guarda en la comisión: una fila con regla no la recalcula
+   * nadie, porque el recálculo no conoce reglas.
+   */
+  reglaId?: string | null;
+};
+
+/**
+ * Monto FIJO (USD) que una regla de colaborador le pone a un miembro de la
+ * cadena, en vez de su %. Ver `reglas-de-comision.ts`.
+ */
+export type FijosDelReparto = {
+  influencer?: number | null;
+  embajador?: number | null;
+  vendor?: number | null;
+};
+
+export type ReglasDelReparto = {
+  influencer?: string | null;
+  embajador?: string | null;
+  vendor?: string | null;
 };
 
 export type ModoDeRepartoDeComision =
@@ -227,10 +249,21 @@ export function repartoDeComision(args: {
   /** % del vendedor SIN acotar al del embajador (se acota aquí). */
   vendorPctCrudo: number;
   modo: ModoDeRepartoDeComision | string;
+  /** Montos fijos por regla de colaborador. Sin ninguno, la cuenta de siempre. */
+  fijos?: FijosDelReparto;
+  /** Regla de la que sale cada miembro (fija o %), para etiquetar su fila. */
+  reglas?: ReglasDelReparto;
 }): FilaDeReparto[] {
   const { base, cadena, influencerPct, embajadorPct, modo } = args;
   const filas: FilaDeReparto[] = [];
   if (!(base > 0)) return filas;
+  const fijos = args.fijos ?? {};
+  // Con algún monto fijo la cuenta se hace en DINERO; sin ninguno, en
+  // porcentajes, exactamente como siempre (no se mueve un centavo de lo actual).
+  if ([fijos.influencer, fijos.embajador, fijos.vendor].some((v) => v != null)) {
+    return repartoConFijos({ ...args, fijos });
+  }
+  const regla = args.reglas ?? {};
 
   const adicional = modo === 'ADDITIONAL_COMPANY_COMMISSION';
   const vendorPct =
@@ -244,6 +277,7 @@ export function repartoDeComision(args: {
       vendorCodeId: null,
       amount: Math.round(base * influencerPct) / 100,
       appliedPercent: influencerPct,
+      ...conRegla(regla.influencer),
     });
   }
   if (cadena.embajador) {
@@ -256,6 +290,9 @@ export function repartoDeComision(args: {
         vendorCodeId: null,
         amount: Math.round(base * embajadorEfectivo) / 100,
         appliedPercent: embajadorEfectivo,
+        // El embajador queda «con regla» también si la regla era del vendedor:
+        // su parte es la resta, y un recálculo sin la regla la cambiaría.
+        ...conRegla(regla.embajador ?? (!adicional && vendorPct > 0 ? regla.vendor : null)),
       });
     }
   }
@@ -265,6 +302,80 @@ export function repartoDeComision(args: {
       vendorCodeId: cadena.vendor.id,
       amount: Math.round(base * vendorPct) / 100,
       appliedPercent: vendorPct,
+      ...conRegla(regla.vendor),
+    });
+  }
+  return filas;
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** La propiedad solo existe si hay regla: las filas de siempre no cambian de forma. */
+function conRegla(reglaId: string | null | undefined): { reglaId?: string } {
+  return reglaId ? { reglaId } : {};
+}
+
+/**
+ * El mismo reparto cuando alguna regla pone un monto FIJO. Las reglas del
+ * reparto no cambian, solo la unidad:
+ *  · el vendedor sigue saliendo de la tajada del embajador (modo DISCOUNT) y
+ *    nunca la excede;
+ *  · una fila de $0 no se crea.
+ * `appliedPercent` de una fila fija es el % equivalente (informativo, para el
+ * panel): lo que manda es el monto, y por eso la fila lleva su `reglaId`.
+ */
+function repartoConFijos(args: {
+  base: number;
+  cadena: { influencer: { id: string } | null; embajador: { id: string } | null; vendor: { id: string } | null };
+  influencerPct: number;
+  embajadorPct: number;
+  vendorPctCrudo: number;
+  modo: ModoDeRepartoDeComision | string;
+  fijos: FijosDelReparto;
+  reglas?: ReglasDelReparto;
+}): FilaDeReparto[] {
+  const { base, cadena, fijos } = args;
+  const regla = args.reglas ?? {};
+  const adicional = args.modo === 'ADDITIONAL_COMPANY_COMMISSION';
+  const pctDe = (monto: number) => Math.min(999.99, r2((monto / base) * 100));
+  const monto = (fijo: number | null | undefined, pct: number) =>
+    fijo != null ? r2(Math.max(0, fijo)) : Math.round(base * pct) / 100;
+  const filas: FilaDeReparto[] = [];
+
+  if (cadena.influencer) {
+    const m = monto(fijos.influencer, args.influencerPct);
+    if (m > 0) {
+      filas.push({
+        recipientCodeId: cadena.influencer.id,
+        vendorCodeId: null,
+        amount: m,
+        appliedPercent: fijos.influencer != null ? pctDe(m) : args.influencerPct,
+        ...conRegla(regla.influencer),
+      });
+    }
+  }
+  let vendorMonto = cadena.vendor ? monto(fijos.vendor, args.vendorPctCrudo) : 0;
+  if (cadena.embajador) {
+    const bruto = monto(fijos.embajador, args.embajadorPct);
+    if (!adicional) vendorMonto = Math.min(vendorMonto, bruto);
+    const efectivo = adicional ? bruto : r2(Math.max(0, bruto - vendorMonto));
+    if (efectivo > 0) {
+      filas.push({
+        recipientCodeId: cadena.embajador.id,
+        vendorCodeId: null,
+        amount: efectivo,
+        appliedPercent: pctDe(efectivo),
+        ...conRegla(regla.embajador ?? (!adicional && vendorMonto > 0 ? regla.vendor : null)),
+      });
+    }
+  }
+  if (cadena.vendor && vendorMonto > 0) {
+    filas.push({
+      recipientCodeId: cadena.vendor.id,
+      vendorCodeId: cadena.vendor.id,
+      amount: vendorMonto,
+      appliedPercent: pctDe(vendorMonto),
+      ...conRegla(regla.vendor),
     });
   }
   return filas;

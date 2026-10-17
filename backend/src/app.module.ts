@@ -19,6 +19,7 @@ import { StampsModule } from './stamps/stamps.module';
 import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { ReporteComisionesModule } from './reporte-comisiones/reporte-comisiones.module';
 import { PagosPorAprobarModule } from './pagos-por-aprobar/pagos-por-aprobar.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { FinanceModule } from './finance/finance.module';
@@ -103,6 +104,8 @@ import { VigilanciaModule } from './vigilancia/vigilancia.module';
     LocationsModule,
     NotificationsModule,
     ReferralsModule,
+    // Reporte de comisiones (/reporte-comisiones): solo lee y reusa el motor.
+    ReporteComisionesModule,
     PagosPorAprobarModule,
     AccountingModule,
     FinanceModule,
