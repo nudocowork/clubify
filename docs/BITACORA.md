@@ -8,6 +8,14 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-17 (136) — DECISIÓN: NO activar las participaciones de Javier ni de Sara
+
+Ya está desplegado (e205f6d): `/reporte-comisiones`, la pestaña «Reglas» y las migraciones aplicadas. Javier decidió:
+- **Javier (10 %):** NO se crea la participación. Su 10 % ya se descuenta en Contabilidad con la línea «Socio» (`finance/socio.ts`, se paga a fin de mes). Si además existiera como comisión, se le pagaría dos veces.
+- **Sara Plata:** NO se le crea un 2 % nuevo. Cobra solo su 2 % de equipo quincenal (`comision-de-equipo.service.ts`), como hasta ahora.
+- Por lo tanto NO se corren `sembrar-participaciones.cjs` ni `backfill-participaciones.cjs`. Sin reglas sembradas, el motor no genera nada.
+- **No activar esas dos reglas desde la pestaña «Reglas»** sin hablarlo antes con Javier. La pestaña queda para reglas de closers o para un socio futuro.
+
 ## 2026-10-17 (135) — Participaciones globales y reglas por colaborador (SIN DESPLEGAR + migración + backfill)
 
 **Reglas del dueño:** Javier, socio comercial, 10 %. Sara Plata (MJUBQ8H8), 2 % ADEMÁS de su comisión de equipo. Base = precio pactado del plan en USD. Ventas nuevas y renovaciones pagadas, solo de Clubify. Son adicionales a la del vendedor: $100 con closer al 5 % → Javier 10 + Sara 2 + closer 5.
