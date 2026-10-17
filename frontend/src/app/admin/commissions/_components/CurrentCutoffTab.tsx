@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { FileUploader } from '@/components/FileUploader';
+import { descargarCsv, descargarXlsx, type Celda } from '@/lib/exportar-hoja';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PESTAÑA "CORTE ACTUAL"
@@ -211,6 +212,51 @@ export default function CurrentCutoffTab() {
   const batch = data.openBatch;
   const openBatches = data.openBatches ?? [];
 
+  // Exportar el corte tal como se ve: un resumen por persona (a quién se le
+  // gira y cuánto) y el detalle comisión por comisión, que es el respaldo que
+  // pide la contadora. Excel con las dos hojas; CSV con el detalle, que trae
+  // también la persona en cada fila.
+  const estadoDePago = (p: CutoffPerson) =>
+    p.canTransfer
+      ? p.paymentMethod === 'BANK'
+        ? t('methodBank')
+        : t('methodBinance')
+      : p.profileStatus === 'MISSING_USER'
+        ? t('profileMissingUser')
+        : p.profileStatus === 'PENDING_REVIEW'
+          ? t('profilePendingReview')
+          : p.profileStatus === 'REJECTED'
+            ? t('profileRejected')
+            : t('profileNone');
+  const rol = (r: string) => (ROLE_KEY[r] ? t(ROLE_KEY[r]) : r);
+  const fecha = (d: string | null | undefined) =>
+    d ? new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }) : '';
+  const codigoCorte = batch?.code ?? `CORTE-${todayInput()}`;
+  function exportar(formato: 'xlsx' | 'csv') {
+    const personas = data?.people ?? [];
+    const resumen: Celda[][] = [
+      [t('thPerson'), 'Código', 'Correo', t('thRole'), t('thPaymentMethod'), t('thCommissions'), `${t('thTotal')} (USD)`],
+      ...personas.map((p) => [p.ownerName, p.code, p.ownerEmail, rol(p.role), estadoDePago(p), p.commissionsCount, p.totalUsd]),
+    ];
+    const detalle: Celda[][] = [
+      [t('thPerson'), 'Código', t('thRole'), t('thPaymentMethod'), 'Negocio', 'Plan', 'Fecha', 'Disponible desde', 'Monto (USD)', 'Corte'],
+      ...personas.flatMap((p) =>
+        p.commissions.map((c) => [
+          p.ownerName, p.code, rol(p.role), estadoDePago(p), c.businessName, c.planName ?? '',
+          fecha(c.date), fecha(c.availableAt), c.amount, c.batchCode ?? codigoCorte,
+        ]),
+      ),
+    ];
+    if (formato === 'xlsx') {
+      descargarXlsx(`${codigoCorte}.xlsx`, [
+        { nombre: 'Resumen', filas: resumen },
+        { nombre: 'Detalle', filas: detalle },
+      ]);
+    } else {
+      descargarCsv(`${codigoCorte}.csv`, detalle);
+    }
+  }
+
   return (
     <div className="pb-24">
       {/* Alerta por corte estancado: exactamente lo que habría evitado el caso
@@ -369,6 +415,22 @@ export default function CurrentCutoffTab() {
           {/* Un botón de cierre POR corte abierto: con dos abiertos, cada uno
               se cierra con su propia fecha de transferencia. */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => exportar('xlsx')}
+              disabled={!data.people.length}
+              className="text-sm px-3.5 py-1.5 rounded-pill border border-line bg-white font-semibold hover:bg-bg2 transition disabled:opacity-50"
+              title="Resumen por persona y detalle de cada comisión"
+            >
+              ⬇ Excel
+            </button>
+            <button
+              onClick={() => exportar('csv')}
+              disabled={!data.people.length}
+              className="text-sm px-3.5 py-1.5 rounded-pill border border-line bg-white font-semibold hover:bg-bg2 transition disabled:opacity-50"
+              title="Detalle de cada comisión, con la persona en cada fila"
+            >
+              ⬇ CSV
+            </button>
             {openBatches.map((b) => (
               <button
                 key={b.id}
