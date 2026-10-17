@@ -12,6 +12,8 @@ import { TenantContext } from '../common/tenant/tenant-context';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { brandWhiteLabelWhere, resolveBrandScope } from '../common/white-label/brand-scope.util';
 import { alcanceDeMarca, combinar } from '../finance/alcance-de-marca';
+import { IncomeRecordService } from '../finance/income-record.service';
+import { porcentajeDelSocio } from '../finance/socio';
 import { ReferralsService } from '../referrals/referrals.service';
 import { CutoffService } from '../referrals/cutoff.service';
 import { recalcBatchTotal } from '../referrals/payout-batch.util';
@@ -72,6 +74,7 @@ import {
   ingresoDeParticipacion,
   negocioDeParticipacion,
 } from './participaciones';
+import { socioDeContabilidad, type SocioDeContabilidad } from './socio-de-contabilidad';
 
 /** Filtros del reporte. Todas las fechas son días de Bogotá (YYYY-MM-DD). */
 export type Filtros = {
@@ -142,6 +145,7 @@ export class ReporteComisionesService {
     private prisma: PrismaService,
     private referrals: ReferralsService,
     private cutoff: CutoffService,
+    private income: IncomeRecordService,
   ) {}
 
   // ── Utilidades ─────────────────────────────────────────────────────────
@@ -539,6 +543,44 @@ export class ReporteComisionesService {
     return { totalUsd: round2(Number(agg._sum.grossUsd ?? 0)), cantidad: agg._count._all };
   }
 
+  /**
+   * La línea «Socio» de Contabilidad para el período, como DATO (ver
+   * `socio-de-contabilidad.ts`): nunca entra en `consolidar` ni en el cuadre.
+   *
+   * Solo responde a las fechas. La base del socio es TODA venta de Clubify del
+   * período; acotarla por negocio, periodicidad o tipo de venta enseñaría un
+   * monto que Contabilidad no paga. Con un filtro de colaborador o de otro
+   * equipo no se muestra: no es de ese colaborador ni de ese equipo.
+   */
+  private async socioDelPeriodo(f: Filtros): Promise<SocioDeContabilidad | null> {
+    if (f.colaborador || (f.equipo && f.equipo !== 'SOCIOS')) return null;
+    const rango = rangoBogota(f.desde, f.hasta);
+    // `summary` acota con [gte, lte]; el rango de Bogotá es [gte, lt).
+    const to = rango?.lt ? new Date(rango.lt.getTime() - 1) : undefined;
+    try {
+      const [inc, porcentaje] = await this.sinTenant(() =>
+        Promise.all([
+          // La MISMA consulta con la que Contabilidad calcula la línea «Socio»
+          // (`FinanceReportService.summary`, solo Clubify): así el número del
+          // reporte y el de Contabilidad no pueden discrepar.
+          this.income.summary({ from: rango?.gte, to, onlyClubify: true }),
+          porcentajeDelSocio(this.prisma),
+        ]),
+      );
+      return socioDeContabilidad({
+        baseUsd: inc.baseDelSocioUsd,
+        porcentaje,
+        desde: f.desde,
+        hasta: f.hasta,
+        hoy: bogotaYmd(new Date()),
+      });
+    } catch (e) {
+      // Es un dato de referencia: si falla, el reporte de comisiones sigue.
+      this.logger.warn(`no se pudo leer la parte del socio: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   /** Cortes abiertos con dinero por pagar de cada colaborador (para «Registrar pago»). */
   private cortesAbiertosPorColaborador(filas: FilaReporte[]) {
     const out = new Map<string, Map<string, { batchId: string; code: string; pendienteUsd: number }>>();
@@ -562,7 +604,11 @@ export class ReporteComisionesService {
 
   /** Dashboard + equipos + cierre consolidado del período, en una respuesta. */
   async resumen(f: Filtros) {
-    const [ctx, ventas] = await Promise.all([this.cargar(f), this.ventasDelPeriodo(f)]);
+    const [ctx, ventas, socioContabilidad] = await Promise.all([
+      this.cargar(f),
+      this.ventasDelPeriodo(f),
+      this.socioDelPeriodo(f),
+    ]);
     const { general, porColaborador, porEquipo } = consolidar(ctx.paraTotales);
     const suma = sumaDeIndividuales(porColaborador);
     const cortes = this.cortesAbiertosPorColaborador(ctx.filas);
@@ -608,6 +654,9 @@ export class ReporteComisionesService {
           },
         ]),
       ),
+      // Dentro de «Socios comerciales», pero FUERA de `general`, `porEquipo` y
+      // `cuadre`: sumarlo ahí pagaría dos veces al socio (bitácora 136).
+      socioContabilidad,
       colaboradoresComisionando: comisionando,
       colaboradores,
       porMes: porMes(ctx.filas.map((x) => ({ fecha: x.fecha, amount: x.montoUsd, estado: x.estado }))),

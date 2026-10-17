@@ -63,11 +63,29 @@ export type ColaboradorResumen = {
   cortesAbiertos: Array<{ batchId: string; code: string; pendienteUsd: number }>;
 };
 
+/**
+ * La parte del socio que calcula Contabilidad (línea «Socio»). Es un DATO: ya
+ * se paga desde Contabilidad a fin de mes, así que no está en `general`,
+ * `porEquipo` ni el cuadre, y la pantalla tampoco debe sumarlo a nada.
+ */
+export type SocioContabilidad = {
+  nombre: string;
+  montoUsd: number;
+  porcentaje: number;
+  baseUsd: number;
+  base: 'BRUTO' | 'NETO' | 'MIXTA';
+  baseEtiqueta: string;
+  nota: string;
+  informativo: true;
+};
+
 export type Resumen = {
   periodo: { desde: string | null; hasta: string | null };
   ventas: { totalUsd: number; cantidad: number };
   general: Totales;
   porEquipo: Record<Equipo, Totales & { etiqueta: string; colaboradores: number }>;
+  /** null con filtro de colaborador o de otro equipo, o si no se pudo leer. */
+  socioContabilidad: SocioContabilidad | null;
   colaboradoresComisionando: number;
   colaboradores: ColaboradorResumen[];
   porMes: Array<{ mes: string; comisionesUsd: number; pagadoUsd: number }>;

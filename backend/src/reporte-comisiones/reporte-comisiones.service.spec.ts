@@ -87,7 +87,7 @@ function base() {
     }),
   };
   const cutoff = { markPersonPaid: vi.fn() };
-  const svc = new ReporteComisionesService(prisma, referrals as any, cutoff as any);
+  const svc = new ReporteComisionesService(prisma, referrals as any, cutoff as any, { summary: vi.fn() } as any);
   return { svc, db, prisma, referrals };
 }
 

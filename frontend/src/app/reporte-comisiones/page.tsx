@@ -22,6 +22,7 @@ import {
   type Filtros,
   type Preset,
   type Resumen,
+  type SocioContabilidad,
   type Totales,
 } from './_lib';
 import { GraficaBarras, BarrasPorEquipo } from './_components/GraficaBarras';
@@ -654,6 +655,7 @@ export default function ReporteComisionesPage() {
                         </tbody>
                       </table>
                     </div>
+                    {e === 'SOCIOS' && resumen.socioContabilidad && <SocioDeContabilidad s={resumen.socioContabilidad} />}
                   </div>
                 )}
               </div>
@@ -816,6 +818,33 @@ function Mini({ k, v }: { k: string; v: string }) {
     <div className="rounded-lg bg-bg2 px-3 py-2 min-w-0">
       <div className="text-[11px] text-mute">{k}</div>
       <div className="font-semibold text-ink break-words">{v}</div>
+    </div>
+  );
+}
+
+/**
+ * La línea «Socio» de Contabilidad, aparte de la tabla y con borde punteado a
+ * propósito: no es una comisión del corte y no entra en ningún total de esta
+ * página. Se paga desde Contabilidad; sumarla aquí pagaría dos veces.
+ */
+function SocioDeContabilidad({ s }: { s: SocioContabilidad }) {
+  return (
+    <div className="rounded-lg border border-dashed border-line2 p-3 space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="font-semibold text-ink">
+          {s.nombre} <span className="text-mute text-xs font-normal">· informativo</span>
+        </span>
+        <span className="font-semibold text-ink">{usd(s.montoUsd)}</span>
+      </div>
+      <div className="grid gap-2 grid-cols-1 sm:grid-cols-3 text-sm">
+        <Mini k="Porcentaje aplicado" v={`${s.porcentaje} %`} />
+        <Mini k="Base" v={usd(s.baseUsd)} />
+        <Mini k="Sobre qué se calcula" v={s.baseEtiqueta} />
+      </div>
+      <p className="text-[11px] text-mute">
+        {s.nota} No se suma al comisionado, al pendiente ni al cierre. Sale de todas las ventas de Clubify del
+        período, sin los demás filtros.
+      </p>
     </div>
   );
 }
