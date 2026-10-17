@@ -42,12 +42,15 @@ const OFERTAS = [
     activo: true,
   },
   {
+    // Mismo id que la versión de 135 USD a propósito: así el script la
+    // REEMPLAZA en vez de dejar las dos. El trimestral con abono es de 130 USD
+    // y los siguientes trimestres salen a 150 (Javier, 2026-10-16).
     id: 'trimestral-abono-135',
     nombre: 'Plan Trimestral + Abono',
     tipo: 'NORMAL',
     periodicidad: 'TRIMESTRAL',
-    precioUsd: 135,
-    url: 'https://pay.hotmart.com/U102596072A?off=2oxitibw&bid=1780088368942',
+    precioUsd: 130,
+    url: 'https://pay.hotmart.com/U102596072A?off=iqbgp4fq',
     activo: true,
   },
   {
