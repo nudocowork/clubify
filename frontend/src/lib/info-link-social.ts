@@ -11,7 +11,7 @@
  * la lleva el negocio.
  */
 
-export type RedSocial = 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube';
+export type RedSocial = 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube' | 'x';
 
 export const REDES: RedSocial[] = [
   'instagram',
@@ -21,6 +21,9 @@ export const REDES: RedSocial[] = [
   // Al FINAL a propósito: este orden es el orden en que se pintan, y meterla
   // en medio movería los iconos de todos los infolinks ya publicados.
   'youtube',
+  // X (antes Twitter), pedida en «MODIFICACIONES CLIENTES (1)», 2026-10-19.
+  // También al final, por lo mismo que YouTube.
+  'x',
 ];
 
 export const RED_LABEL: Record<RedSocial, string> = {
@@ -29,6 +32,7 @@ export const RED_LABEL: Record<RedSocial, string> = {
   whatsapp: 'WhatsApp',
   tiktok: 'TikTok',
   youtube: 'YouTube',
+  x: 'X (Twitter)',
 };
 
 /** Qué escribir en el campo, en el idioma del negocio. */
@@ -38,6 +42,7 @@ export const RED_PLACEHOLDER: Record<RedSocial, string> = {
   whatsapp: '+57 300 123 4567  ·  o  wa.me/573001234567',
   tiktok: '@minegocio  ·  o  tiktok.com/@minegocio',
   youtube: '@minegocio  ·  o  youtube.com/@minegocio',
+  x: '@minegocio  ·  o  x.com/minegocio',
 };
 
 export type RedConfig = {
@@ -61,6 +66,8 @@ const DOMINIO: Record<RedSocial, RegExp> = {
   // youtu.be es el enlace corto que da el propio botón «Compartir» de
   // YouTube: es lo primero que va a pegar alguien.
   youtube: /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\//i,
+  // twitter.com sigue redirigiendo a x.com: la gente pega cualquiera de los dos.
+  x: /^(https?:\/\/)?(www\.|mobile\.)?(x\.com|twitter\.com)\//i,
 };
 
 /** Un usuario de red: letras, números, punto, guion y guion bajo. */
@@ -98,6 +105,7 @@ export function enlaceDeRed(red: RedSocial, valor: string | null | undefined): s
   if (red === 'instagram') return `https://instagram.com/${usuario}`;
   if (red === 'facebook') return `https://facebook.com/${usuario}`;
   if (red === 'youtube') return `https://youtube.com/@${usuario}`;
+  if (red === 'x') return `https://x.com/${usuario}`;
   return `https://tiktok.com/@${usuario}`;
 }
 
@@ -144,17 +152,18 @@ export function colorDeIconos(
 }
 
 /** Icono de marca de cada red, en `Icon.tsx`. */
-export const RED_ICONO: Record<RedSocial, 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube'> = {
+export const RED_ICONO: Record<RedSocial, 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube' | 'x'> = {
   instagram: 'instagram',
   facebook: 'facebook',
   whatsapp: 'whatsapp',
   tiktok: 'tiktok',
   youtube: 'youtube',
+  x: 'x',
 };
 
 /** Lo que la fila de iconos necesita para pintarse, venga de donde venga. */
 export type IconoSocial = {
-  icono: 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube' | 'pin';
+  icono: 'instagram' | 'facebook' | 'whatsapp' | 'tiktok' | 'youtube' | 'x' | 'pin';
   href: string;
   label: string;
 };

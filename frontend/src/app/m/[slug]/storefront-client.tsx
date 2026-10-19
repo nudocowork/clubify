@@ -1238,6 +1238,11 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
             backButtonConfig={s.backButtonConfig}
             mode={mode}
             categoryColor={colorDeTitulos(s.theme?.categoryTitleColor)}
+            // El color que el negocio eligió para sus títulos ya está pensado
+            // para su fondo; si no eligió, blanco sobre fondo oscuro o foto.
+            textColor={
+              colorDeTitulos(s.theme?.categoryTitleColor) ?? (pageIsDark ? '#ffffff' : null)
+            }
           />
           {/* Popups opcionales por categoría — auto al entrar a la
               sección via IntersectionObserver, o click si el header
@@ -3730,6 +3735,11 @@ type RenderProps = {
    *  null = el de cada layout. Existe porque ese default es un gris pensado
    *  para fondo claro, y sobre un fondo oscuro o una foto no se leía. */
   categoryColor?: string | null;
+  /** Color del NOMBRE y la DESCRIPCIÓN de los productos en los diseños donde
+   *  van directamente sobre el fondo del menú (cuadrícula, carruseles,
+   *  limpio). null = el de siempre. Sobre una foto o un fondo oscuro el texto
+   *  oscuro de siempre no se leía (Rápidos y Fabulosos, 2026-10-19). */
+  textColor?: string | null;
 };
 
 /** Solo un color con pinta de color: el valor viene de un JSON que se guarda
@@ -3740,13 +3750,13 @@ function colorDeTitulos(v: unknown): string | null {
   return c && c.length <= 40 ? c : null;
 }
 
-function MenuRenderer({ layout, menu, primary, currency, currencySymbol, onPick, backButtonConfig, mode, categoryColor }: RenderProps) {
+function MenuRenderer({ layout, menu, primary, currency, currencySymbol, onPick, backButtonConfig, mode, categoryColor, textColor }: RenderProps) {
   if (layout === 'GRID')
-    return <LayoutGrid menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
+    return <LayoutGrid menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} textColor={textColor} />;
   if (layout === 'CAROUSELS')
-    return <LayoutCarousels menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
+    return <LayoutCarousels menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} textColor={textColor} />;
   if (layout === 'CLEAN')
-    return <LayoutClean menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
+    return <LayoutClean menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} textColor={textColor} />;
   if (layout === 'COMPACT')
     return <LayoutCompact menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} categoryColor={categoryColor} />;
   if (layout === 'CLUVI')
@@ -3932,7 +3942,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, catego
 }
 
 // 2️⃣ GRID — 2 columnas con foto cuadrada grande (Instagram)
-function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryColor, textColor }: LP) {
   const prioritarios = idsPrioritarios(menu);
   return (
     <>
@@ -3998,7 +4008,22 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
                   </div>
                 </div>
                 <div className="mt-1.5 px-1">
-                  <div className="text-sm font-semibold leading-tight line-clamp-1">{p.name}</div>
+                  <div
+                    className="text-sm font-semibold leading-tight line-clamp-2"
+                    style={textColor ? { color: textColor } : undefined}
+                  >
+                    {p.name}
+                  </div>
+                  {/* La cuadrícula no mostraba la descripción: el cliente
+                      tenía que abrir cada producto para saber qué era. */}
+                  {p.description && (
+                    <div
+                      className="text-[11px] leading-snug mt-0.5 line-clamp-2 text-mute"
+                      style={textColor ? { color: textColor, opacity: 0.75 } : undefined}
+                    >
+                      {p.description}
+                    </div>
+                  )}
                   <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
                     {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
@@ -4015,7 +4040,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
 }
 
 // 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
-function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, categoryColor, textColor }: LP) {
   const prioritarios = idsPrioritarios(menu);
   // Cada categoría se vuelve N carruseles: 1 por productos directos +
   // 1 por subsección con productos. Cada carrusel mantiene su scroll
@@ -4077,7 +4102,10 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, cate
                       <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                     </div>
                     <div className="mt-1 px-0.5">
-                      <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
+                      <div
+                        className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]"
+                        style={textColor ? { color: textColor } : undefined}
+                      >
                         {p.name}
                       </div>
                       <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
@@ -4096,7 +4124,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, cate
 }
 
 // 4️⃣ CLEAN — sin fotos, serif elegante (boutique)
-function LayoutClean({ menu, primary, currency, currencySymbol, onPick, categoryColor }: LP) {
+function LayoutClean({ menu, primary, currency, currencySymbol, onPick, categoryColor, textColor }: LP) {
   return (
     <div className="font-serif">
       {menu.map((cat) => (
@@ -4139,14 +4167,22 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick, category
                 onClick={() => onPick(p)}
                 className="block w-full text-left px-1 hover:bg-bg2/50 rounded-md py-2 transition"
               >
-                <div className="flex items-baseline justify-between gap-3">
+                <div
+                  className="flex items-baseline justify-between gap-3"
+                  style={textColor ? { color: textColor } : undefined}
+                >
                   <div className="text-[15px] font-semibold">{p.name}</div>
                   <div className="text-sm tracking-tight">
                     {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
                 </div>
                 {p.description && (
-                  <div className="text-[12px] text-mute mt-1 italic">{p.description}</div>
+                  <div
+                    className="text-[12px] text-mute mt-1 italic"
+                    style={textColor ? { color: textColor, opacity: 0.75 } : undefined}
+                  >
+                    {p.description}
+                  </div>
                 )}
                 {/* `|| p.isRecommended`: el guard miraba solo los tags libres,
                     así que un producto marcado como recomendado y SIN etiquetas

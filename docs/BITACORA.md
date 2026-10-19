@@ -8,6 +8,14 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-19 (137) — «MODIFICACIONES CLIENTES (1)»: X en el InfoLink y textos del menú sobre fondo oscuro (SIN DESPLEGAR, solo frontend)
+
+Las páginas 1 a 5 del PDF son las mismas del (7) y del (8), ya en producción.
+
+- **InfoLink:** se añadió la red **X (Twitter)** (`lib/info-link-social.ts` + ícono en `Icon.tsx`). Va al final de la lista de redes para no mover los íconos de los infolinks ya publicados. Acepta `@usuario`, `x.com/…` y `twitter.com/…`.
+- **Menú (Rápidos y Fabulosos):** en los diseños cuadrícula, carruseles y limpio, el nombre y la descripción del producto iban en color oscuro fijo sobre el fondo del menú, y sobre una foto o un fondo oscuro no se leían. Ahora usan el color de títulos que eligió el negocio (`theme.categoryTitleColor`) o, si no eligió ninguno, blanco cuando `pageIsDark`. Además, la cuadrícula muestra una descripción de 2 líneas, que antes no salía.
+- **Riesgo conocido:** `isDarkBackground` da por oscura cualquier foto de fondo. Si un negocio tiene una foto clara y no eligió color de títulos, verá el texto en blanco. Se arregla eligiendo el color de títulos en su panel.
+
 ## 2026-10-17 (136) — DECISIÓN: NO activar las participaciones de Javier ni de Sara
 
 Ya está desplegado (e205f6d): `/reporte-comisiones`, la pestaña «Reglas» y las migraciones aplicadas. Javier decidió:
