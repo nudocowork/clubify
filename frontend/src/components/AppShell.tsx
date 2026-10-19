@@ -750,6 +750,9 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: tNav('dashboard'), icon: 'grid' },
                 { href: '/admin/tenants', label: tNav('businesses'), icon: 'store' },
+                // Rankings de pases y pedidos + métricas generales. Mismo alcance que
+                // el ranking que vivía en Negocios (SUPER_ADMIN y MARKETING, por marca).
+                { href: '/admin/metricas', label: tNav('metrics'), icon: 'trend-up' },
                 // Lo que las marcas blancas le pagan a la plataforma (rebranding,
                 // créditos, servicios) y cuál ingresa más. Dinero de la
                 // plataforma: solo dentro de Clubify, como Contabilidad.

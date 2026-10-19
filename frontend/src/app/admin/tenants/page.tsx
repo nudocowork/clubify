@@ -106,7 +106,6 @@ export default function TenantsPage() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [duplicateTarget, setDuplicateTarget] = useState<any | null>(null);
-  const [showRanking, setShowRanking] = useState(false); // #11
   // Pagos por fuera que registraron los closers y esperan que alguien
   // compruebe la transferencia. El número va en el botón para que no se queden
   // olvidados ahí dentro.
@@ -326,13 +325,12 @@ export default function TenantsPage() {
               )}
             </Link>
           )}
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => setShowRanking(true)}
-          >
+          {/* El ranking era un modal aquí (#11) y se quedó pequeño: ahora es
+              una pestaña de la página «Métricas» (2026-10-19). El botón se
+              queda porque es donde la gente lo busca. */}
+          <Link className="btn-ghost" href="/admin/metricas?tab=pases">
             🏆 {t('ranking')}
-          </button>
+          </Link>
           {!isMarketing && (
             <Link className="btn-primary" href="/admin/tenants/new">
               <Icon name="plus" /> {t('newBusiness')}
@@ -340,8 +338,6 @@ export default function TenantsPage() {
           )}
         </div>
       </div>
-
-      {showRanking && <PassesRankingModal onClose={() => setShowRanking(false)} />}
 
       <div className="mb-3.5 flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex items-center gap-2 flex-1 bg-bg2 rounded-pill px-4 py-2.5">
@@ -691,267 +687,6 @@ export default function TenantsPage() {
           onConfirm={(opts) => deleteTenant(deleteTarget, opts)}
         />
       )}
-    </div>
-  );
-}
-
-/**
- * #11 (2026-06-16): ranking de negocios por pases emitidos (mayor a menor,
- * con botón para invertir). Modal sobre la lista de negocios.
- */
-type RankingRow = {
-  id: string;
-  brandName: string;
-  status: string;
-  passCount: number;
-  passTotal: number;
-  createdAt: string;
-};
-
-/** Períodos del filtro. `null` = todo el histórico. */
-const PERIODOS: { dias: number | null; label: string }[] = [
-  { dias: null, label: 'Todo' },
-  { dias: 30, label: '30 días' },
-  { dias: 90, label: '90 días' },
-  { dias: 365, label: '1 año' },
-];
-
-/** «hace 2 años y 3 meses», que se lee mejor que una fecha suelta. */
-function antiguedadTexto(desde: string): string {
-  const meses = Math.max(
-    0,
-    Math.round((Date.now() - new Date(desde).getTime()) / (30.44 * 86_400_000)),
-  );
-  if (meses < 1) return 'este mes';
-  if (meses < 12) return `${meses} ${meses === 1 ? 'mes' : 'meses'}`;
-  const anios = Math.floor(meses / 12);
-  const resto = meses % 12;
-  const a = `${anios} ${anios === 1 ? 'año' : 'años'}`;
-  return resto === 0 ? a : `${a} y ${resto} ${resto === 1 ? 'mes' : 'meses'}`;
-}
-
-function PassesRankingModal({ onClose }: { onClose: () => void }) {
-  const t = useTranslations('admin_tenants');
-  // Métrica del ranking: 'pases' (Pass emitidos) o 'pedidos' (Order de los menús
-  // de domicilios). Misma lógica de período/antigüedad para ambas.
-  const [metrica, setMetrica] = useState<'pases' | 'pedidos'>('pases');
-  const [order, setOrder] = useState<'desc' | 'asc'>('desc');
-  const [criterio, setCriterio] = useState<'pases' | 'antiguedad'>('pases');
-  const [dias, setDias] = useState<number | null>(null);
-  const [rows, setRows] = useState<RankingRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  // Buscar una marca en el ranking (Sara, PDF 13): saber cuántos pases o
-  // pedidos lleva un negocio concreto sin bajar por la lista. Se conserva al
-  // cambiar de ranking, y el puesto que se muestra es el REAL en el ranking
-  // completo, no el de la lista filtrada.
-  const [busqueda, setBusqueda] = useState('');
-
-  useEffect(() => {
-    setLoading(true);
-    api<RankingRow[]>(
-      `/tenants/ranking?order=${order}&criterio=${criterio}&metric=${metrica}` +
-        (dias ? `&dias=${dias}` : ''),
-    )
-      .then((r) => setRows(r ?? []))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
-  }, [order, criterio, dias, metrica]);
-
-  // Etiquetas según la métrica (el producto está en español; textos dinámicos
-  // para no duplicar claves i18n por métrica).
-  const unidad = metrica === 'pases' ? 'pases' : 'pedidos';
-  const unidadCap = metrica === 'pases' ? 'Pases' : 'Pedidos';
-  const unidadVerbo = metrica === 'pases' ? 'emitidos' : 'realizados';
-
-  // El total de pases emitidos, que es el dato que faltaba: sin él, el
-  // ranking dice quién va primero pero no de cuánto estamos hablando.
-  const totalPases = rows.reduce((s, r) => s + r.passTotal, 0);
-  const totalPeriodo = rows.reduce((s, r) => s + r.passCount, 0);
-  const sinTildes = (x: string) =>
-    x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
-  const q = sinTildes(busqueda);
-  const visibles = rows
-    .map((r, puesto) => ({ r, puesto }))
-    .filter(({ r }) => !q || sinTildes(r.brandName ?? '').includes(q));
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-line">
-          <h3 className="text-lg font-bold">🏆 Ranking de {unidad}</h3>
-          <button
-            onClick={onClose}
-            className="text-mute hover:text-ink text-xl leading-none"
-          >
-            ×
-          </button>
-        </div>
-        <div className="px-4 py-2.5 border-b border-line space-y-2">
-          {/* Selector de ranking: pases emitidos vs pedidos de los menús de
-              domicilios. Dos vistas con la misma lógica de período/antigüedad. */}
-          <div className="flex rounded-lg bg-bg2 p-0.5">
-            {(
-              [
-                ['pases', '🎫 Ranking de pases'],
-                ['pedidos', '🛵 Ranking de pedidos'],
-              ] as const
-            ).map(([k, label]) => (
-              <button
-                key={k}
-                onClick={() => setMetrica(k)}
-                className={`flex-1 px-3 py-1.5 text-xs rounded-md font-semibold ${
-                  metrica === k ? 'bg-white shadow-sm text-ink' : 'text-mute'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* Por qué se ordena. «Antigüedad» responde una pregunta distinta a
-              la métrica: quién lleva más tiempo con nosotros no suele ser quien
-              más emite/pide. */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex rounded-lg bg-bg2 p-0.5">
-              {(
-                [
-                  ['pases', `Por ${unidad}`],
-                  ['antiguedad', 'Por antigüedad'],
-                ] as ['pases' | 'antiguedad', string][]
-              ).map(([k, label]) => (
-                <button
-                  key={k}
-                  onClick={() => setCriterio(k)}
-                  className={`px-2.5 py-1 text-xs rounded-md font-medium ${
-                    criterio === k ? 'bg-white shadow-sm' : 'text-mute'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              className="btn-ghost text-xs ml-auto"
-              onClick={() => setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
-            >
-              ⇅ {t('rankingInvert')}
-            </button>
-          </div>
-
-          {/* El período acota SOLO el conteo de pases; el orden por antigüedad
-              no depende de él, así que ahí no se ofrece y no confunde. */}
-          {criterio === 'pases' && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-mute">{unidadCap} {unidadVerbo} en:</span>
-              {PERIODOS.map((p) => (
-                <button
-                  key={p.label}
-                  onClick={() => setDias(p.dias)}
-                  className={`px-2 py-0.5 text-[11px] rounded-full border ${
-                    dias === p.dias
-                      ? 'border-brand text-brand font-semibold bg-brand-soft'
-                      : 'border-line text-mute'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="relative">
-            <input
-              type="search"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Buscar marca…"
-              aria-label="Buscar marca en el ranking"
-              className="input w-full h-9 text-sm pl-8"
-            />
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mute text-sm pointer-events-none" aria-hidden>
-              🔍
-            </span>
-          </div>
-
-          <div className="text-xs text-mute">
-            {q && (
-              <>
-                <b className="text-ink">{visibles.length}</b>{' '}
-                {visibles.length === 1 ? 'coincide' : 'coinciden'} ·{' '}
-              </>
-            )}
-            {t('rankingCount', { count: rows.length })} ·{' '}
-            <b className="text-ink">{totalPases.toLocaleString('es-CO')}</b>{' '}
-            {unidad} {unidadVerbo} en total
-            {dias != null && criterio === 'pases' && (
-              <>
-                {' '}
-                · <b className="text-ink">{totalPeriodo.toLocaleString('es-CO')}</b>{' '}
-                en el período
-              </>
-            )}
-            {criterio === 'antiguedad' && (
-              <>
-                {' '}
-                ·{' '}
-                {order === 'desc'
-                  ? 'los más antiguos primero'
-                  : 'los más nuevos primero'}
-              </>
-            )}
-          </div>
-        </div>
-        <div className="overflow-y-auto p-2">
-          {loading ? (
-            <div className="text-center text-mute text-sm py-8">{t('loading')}</div>
-          ) : rows.length === 0 ? (
-            <div className="text-center text-mute text-sm py-8">{t('noData')}</div>
-          ) : visibles.length === 0 ? (
-            <div className="text-center text-mute text-sm py-8">
-              Ninguna marca coincide con «{busqueda.trim()}».
-            </div>
-          ) : (
-            <div className="divide-y divide-line">
-              {visibles.map(({ r, puesto: i }) => (
-                <Link
-                  key={r.id}
-                  href={`/admin/tenants/${r.id}`}
-                  className="flex items-center gap-3 px-2 py-2.5 hover:bg-bg2 rounded-lg"
-                >
-                  <div className="w-7 text-center font-bold">
-                    {order === 'desc' && i < 3
-                      ? ['🥇', '🥈', '🥉'][i]
-                      : `${i + 1}`}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{r.brandName}</div>
-                    <div className="text-[11px] text-mute">
-                      {r.status} · lleva {antiguedadTexto(r.createdAt)}
-                    </div>
-                  </div>
-                  <div className="text-right whitespace-nowrap">
-                    <div className="font-bold text-brand">
-                      {r.passCount.toLocaleString('es-CO')} {unidad}
-                    </div>
-                    {/* Con período activo, el total al lado: "40" no se puede
-                        leer sin saber si viene de 50 o de 5.000. */}
-                    {dias != null && criterio === 'pases' && (
-                      <div className="text-[10px] text-mute">
-                        de {r.passTotal.toLocaleString('es-CO')} en total
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

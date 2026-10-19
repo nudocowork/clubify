@@ -8,6 +8,23 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-19 (138) — Página «Métricas» en el admin (SIN DESPLEGAR)
+
+- **Ubicación:** `/admin/metricas`, en el menú justo debajo de «Negocios».
+- **Pestañas:** «Ranking de pases» y «Ranking de pedidos» (el antiguo modal de Negocios, ahora el componente `RankingNegocios.tsx`; el botón «🏆 Ranking» lleva aquí) y «Métricas generales».
+- **Qué muestra «Métricas generales»:**
+  - Pases emitidos, tarjetas, pedidos (por moneda: no hay tasa de cambio en el sistema) y clientes nuevos.
+  - Negocios sin clientes nuevos en el rango, exportable a Excel/CSV.
+  - Negocios que usan el sistema frente a los que no.
+  - Sellos y canjes.
+  - Wallet: Apple frente a Google y el % de pases guardados.
+  - Push enviados.
+  - Promedio de pases por negocio y el top 5.
+  - Gráfica combinada, y comparación con el período anterior.
+- **Implementación:** endpoint `GET /admin/metricas/generales` con el mismo alcance y los mismos roles que el ranking (SUPER_ADMIN y MARKETING; una marca blanca solo ve sus negocios).
+- **SQL directo con `"tenantId" = ANY(ids)` explícito**, porque el middleware no cubre el SQL directo.
+- **PENDIENTE:** el SQL no se probó contra la base real. Hay que abrir la pestaña en producción tras desplegar.
+
 ## 2026-10-19 (137) — «MODIFICACIONES CLIENTES (1)»: X en el InfoLink y textos del menú sobre fondo oscuro (SIN DESPLEGAR, solo frontend)
 
 Las páginas 1 a 5 del PDF son las mismas del (7) y del (8), ya en producción.

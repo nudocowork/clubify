@@ -16,7 +16,7 @@ export const SECCIONES_ADMIN: ReadonlySet<string> = new Set([
   'audit', 'automatizaciones', 'branding', 'business-categories',
   'business-groups', 'commissions', 'contabilidad', 'creditos', 'industries',
   'infolinks', 'integrations', 'lab', 'maintenance', 'map', 'marcas-blancas',
-  'mensajes', 'pagos', 'pagos-manuales', 'payouts', 'pending-payments',
+  'mensajes', 'metricas', 'pagos', 'pagos-manuales', 'payouts', 'pending-payments',
   'rankings', 'referrals', 'reports', 'reviews', 'sales-leaderboard',
   'sales-teams', 'settings', 'support-materials', 'tenants', 'trials',
   'upgrades', 'users', 'ventas',
