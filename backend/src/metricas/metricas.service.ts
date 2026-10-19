@@ -60,8 +60,12 @@ function serie(filas: Array<{ dia: Date | string }>, campo: string): Map<string,
 export class MetricasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Negocios del alcance. `tenantId` acota a uno (filtro futuro por negocio). */
-  private async negociosDelAlcance(user: AuthUser | undefined, tenantId?: string) {
+  /**
+   * Negocios del alcance. `tenantId` acota a uno (filtro futuro por negocio).
+   * Público porque el desglose por negocio (`desglose.service.ts`) TIENE que
+   * mirar exactamente los mismos negocios que la tarjeta que explica.
+   */
+  async negociosDelAlcance(user: AuthUser | undefined, tenantId?: string) {
     const scope = await resolveBrandScope(this.prisma, user?.whiteLabelId ?? null);
     const filas = await this.prisma.tenant.findMany({
       where: {

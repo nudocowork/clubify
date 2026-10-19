@@ -1,9 +1,10 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { descargarCsv, descargarXlsx, type Celda } from '@/lib/exportar-hoja';
 import { GraficaCombinada, GraficaSerie, diaCorto } from './Graficas';
+import { DesgloseMetrica, type MetricaDesglose } from './DesgloseMetrica';
 
 // ── Tipos de la respuesta de GET /admin/metricas/generales ─────────────────
 
@@ -152,23 +153,42 @@ function Tarjeta({
   variacion,
   anterior,
   sub,
+  onAbrir,
 }: {
   titulo: string;
   valor: string;
   variacion?: Variacion;
   anterior?: string;
   sub?: React.ReactNode;
+  /** Abre el detalle por negocio. Con él, la tarjeta entera es un botón. */
+  onAbrir?: () => void;
 }) {
-  return (
-    <div className="kpi">
-      <div className="kpi-lbl">{titulo}</div>
-      <div className="kpi-val text-2xl sm:text-3xl mt-2 tabular-nums">{valor}</div>
-      <div className="mt-1 flex items-center gap-2 flex-wrap">
+  // `span` y no `div` dentro: un botón solo admite contenido en línea.
+  const cuerpo = (
+    <>
+      <span className="kpi-lbl">{titulo}</span>
+      <span className="kpi-val block text-2xl sm:text-3xl mt-2 tabular-nums">{valor}</span>
+      <span className="mt-1 flex items-center gap-2 flex-wrap">
         {variacion && <Cambio v={variacion} anterior={anterior} />}
         {anterior && <span className="text-[11px] text-mute">vs {anterior}</span>}
-      </div>
-      {sub && <div className="kpi-sub mt-1">{sub}</div>}
-    </div>
+      </span>
+      {sub && <span className="kpi-sub block mt-1">{sub}</span>}
+    </>
+  );
+  if (!onAbrir) return <div className="kpi">{cuerpo}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onAbrir}
+      aria-haspopup="dialog"
+      aria-label={`${titulo}: ${valor}. Ver el detalle por negocio`}
+      className="kpi group block w-full text-left cursor-pointer transition-colors hover:border-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+    >
+      {cuerpo}
+      <span className="block mt-2 text-[11px] font-semibold text-brand opacity-70 group-hover:opacity-100 group-focus-visible:opacity-100">
+        Ver por negocio →
+      </span>
+    </button>
   );
 }
 
@@ -227,25 +247,31 @@ export function MetricasGenerales() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verSinUso, setVerSinUso] = useState(false);
+  const [desglose, setDesglose] = useState<MetricaDesglose | null>(null);
+  const cerrarDesglose = useCallback(() => setDesglose(null), []);
+
+  // La MISMA consulta para la tarjeta y para su detalle: si el detalle pidiera
+  // otro rango, su suma no cuadraría con el número que se quiere confirmar.
+  const q = new URLSearchParams({ preset });
+  if (preset === 'personalizado' && aplicado) {
+    q.set('desde', aplicado.desde);
+    q.set('hasta', aplicado.hasta);
+  }
+  const consulta = q.toString();
 
   useEffect(() => {
     if (preset === 'personalizado' && !aplicado) return;
     let vivo = true;
     setCargando(true);
     setError(null);
-    const q = new URLSearchParams({ preset });
-    if (preset === 'personalizado' && aplicado) {
-      q.set('desde', aplicado.desde);
-      q.set('hasta', aplicado.hasta);
-    }
-    api<Respuesta>(`/admin/metricas/generales?${q.toString()}`)
+    api<Respuesta>(`/admin/metricas/generales?${consulta}`)
       .then((r) => vivo && setDatos(r))
       .catch((e: unknown) => vivo && setError(e instanceof Error ? e.message : 'No se pudieron cargar las métricas.'))
       .finally(() => vivo && setCargando(false));
     return () => {
       vivo = false;
     };
-  }, [preset, aplicado]);
+  }, [preset, aplicado, consulta]);
 
   const hoy = hoyBogota();
   const puedeAplicar = !!desde && !!hasta && desde <= hasta;
@@ -306,21 +332,56 @@ export function MetricasGenerales() {
         <div className="card card-pad text-sm text-mute">Cargando…</div>
       ) : (
         <div className={`space-y-4 ${cargando ? 'opacity-60 pointer-events-none' : ''}`} aria-busy={cargando}>
-          <Contenido d={datos} verSinUso={verSinUso} setVerSinUso={setVerSinUso} />
+          <Contenido d={datos} verSinUso={verSinUso} setVerSinUso={setVerSinUso} abrir={setDesglose} />
         </div>
+      )}
+
+      {desglose && datos && (
+        <DesgloseMetrica
+          metrica={desglose}
+          consulta={consulta}
+          totalTarjeta={totalDeTarjeta(datos, desglose)}
+          onCerrar={cerrarDesglose}
+        />
       )}
     </div>
   );
+}
+
+/** El número que enseña cada tarjeta, para que el detalle diga si cuadra con ella. */
+function totalDeTarjeta(d: Respuesta, m: MetricaDesglose): number {
+  switch (m) {
+    case 'pases':
+      return d.pases.valor;
+    case 'clientes':
+      return d.clientes.valor;
+    case 'sellos':
+      return d.sellos.valor;
+    case 'canjes':
+      return d.sellos.canjes.valor;
+    case 'pedidos':
+      return d.pedidos.valor;
+    case 'tarjetas':
+      return d.tarjetas.creadas;
+    case 'push':
+      return d.push.envios.valor;
+    case 'wallet':
+      return d.wallet.guardados;
+    case 'uso':
+      return d.negocios.usan;
+  }
 }
 
 function Contenido({
   d,
   verSinUso,
   setVerSinUso,
+  abrir,
 }: {
   d: Respuesta;
   verSinUso: boolean;
   setVerSinUso: (v: boolean) => void;
+  abrir: (m: MetricaDesglose) => void;
 }) {
   const ant = rangoTexto(d.anterior);
   const porSemana = d.granularidad === 'semana';
@@ -331,14 +392,36 @@ function Contenido({
   return (
     <>
       <div className="grid grid-cols-1 min-[420px]:grid-cols-2 xl:grid-cols-4 gap-3">
-        <Tarjeta titulo="Pases emitidos" valor={num(d.pases.valor)} variacion={d.pases.variacion} anterior={num(d.pases.anterior)} />
-        <Tarjeta titulo="Clientes nuevos" valor={num(d.clientes.valor)} variacion={d.clientes.variacion} anterior={num(d.clientes.anterior)} />
-        <Tarjeta titulo="Sellos otorgados" valor={num(Math.round(d.sellos.valor))} variacion={d.sellos.variacion} anterior={num(Math.round(d.sellos.anterior))} />
+        <Tarjeta
+          titulo="Pases emitidos"
+          valor={num(d.pases.valor)}
+          variacion={d.pases.variacion}
+          anterior={num(d.pases.anterior)}
+          onAbrir={() => abrir('pases')}
+        />
+        <Tarjeta
+          titulo="Clientes nuevos"
+          valor={num(d.clientes.valor)}
+          variacion={d.clientes.variacion}
+          anterior={num(d.clientes.anterior)}
+          onAbrir={() => abrir('clientes')}
+        />
+        <Tarjeta
+          titulo="Sellos otorgados"
+          valor={num(Math.round(d.sellos.valor))}
+          variacion={d.sellos.variacion}
+          anterior={num(Math.round(d.sellos.anterior))}
+          onAbrir={() => abrir('sellos')}
+        />
+        {/* Cuenta TODAS las filas REDEEM: premios de sellos y también cupones.
+            El detalle los separa por tipo de tarjeta. */}
         <Tarjeta
           titulo="Premios canjeados"
           valor={num(d.sellos.canjes.valor)}
           variacion={d.sellos.canjes.variacion}
           anterior={num(d.sellos.canjes.anterior)}
+          sub="Premios de sellos y cupones"
+          onAbrir={() => abrir('canjes')}
         />
         <Tarjeta
           titulo="Pedidos por el menú"
@@ -346,6 +429,7 @@ function Contenido({
           variacion={d.pedidos.variacion}
           anterior={num(d.pedidos.anterior)}
           sub={d.pedidos.cancelados > 0 ? `${num(d.pedidos.cancelados)} cancelados aparte` : undefined}
+          onAbrir={() => abrir('pedidos')}
         />
         <Tarjeta
           titulo="Tarjetas creadas"
@@ -353,6 +437,7 @@ function Contenido({
           variacion={d.tarjetas.variacion}
           anterior={num(d.tarjetas.anterior)}
           sub={`${num(d.tarjetas.total)} tarjetas en total`}
+          onAbrir={() => abrir('tarjetas')}
         />
         <Tarjeta
           titulo="Push enviados"
@@ -364,12 +449,14 @@ function Contenido({
               ? `${num(d.push.entregados)} entregas registradas`
               : 'Sin entregas registradas'
           }
+          onAbrir={() => abrir('push')}
         />
         <Tarjeta
           titulo="Guardados en Wallet"
           valor={d.wallet.porcentajeGuardados == null ? '—' : `${d.wallet.porcentajeGuardados.toLocaleString('es-CO')} %`}
           sub={`${num(d.wallet.guardados)} de ${num(d.wallet.emitidos)} pases emitidos`}
           anterior={d.wallet.porcentajeAnterior == null ? undefined : `${d.wallet.porcentajeAnterior.toLocaleString('es-CO')} %`}
+          onAbrir={() => abrir('wallet')}
         />
       </div>
 
@@ -439,7 +526,15 @@ function Contenido({
           </p>
         </Bloque>
 
-        <Bloque titulo="Pases guardados en Wallet" ayuda="De los pases emitidos en el rango, cuántos terminaron guardados en el teléfono.">
+        <Bloque
+          titulo="Pases guardados en Wallet"
+          ayuda="De los pases emitidos en el rango, cuántos terminaron guardados en el teléfono."
+          acciones={
+            <button type="button" className="btn-ghost text-xs" aria-haspopup="dialog" onClick={() => abrir('wallet')}>
+              Por negocio
+            </button>
+          }
+        >
           <BarraWallet w={d.wallet} />
         </Bloque>
       </div>
@@ -449,11 +544,16 @@ function Contenido({
           titulo="Negocios que usan el sistema"
           ayuda="Activos con al menos un movimiento del escáner (sello, puntos, visita o canje) o un pedido en el rango."
           acciones={
-            d.negocios.sinUso.length > 0 ? (
-              <button type="button" className="btn-ghost text-xs" onClick={() => setVerSinUso(!verSinUso)}>
-                {verSinUso ? 'Ocultar lista' : `Ver los ${num(d.negocios.sinUso.length)} sin uso`}
+            <div className="flex gap-2 flex-wrap">
+              {d.negocios.sinUso.length > 0 && (
+                <button type="button" className="btn-ghost text-xs" onClick={() => setVerSinUso(!verSinUso)}>
+                  {verSinUso ? 'Ocultar lista' : `Ver los ${num(d.negocios.sinUso.length)} sin uso`}
+                </button>
+              )}
+              <button type="button" className="btn-ghost text-xs" aria-haspopup="dialog" onClick={() => abrir('uso')}>
+                Detalle por negocio
               </button>
-            ) : undefined
+            </div>
           }
         >
           <div className="flex items-baseline gap-2 flex-wrap">
@@ -489,6 +589,11 @@ function Contenido({
         <Bloque
           titulo="Pases por negocio activo"
           ayuda="Top 5 por pases emitidos en el rango, con la variación frente al período anterior."
+          acciones={
+            <button type="button" className="btn-ghost text-xs" aria-haspopup="dialog" onClick={() => abrir('pases')}>
+              Ver todos
+            </button>
+          }
         >
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>

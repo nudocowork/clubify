@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MetricasController } from './metricas.controller';
 import { MetricasService } from './metricas.service';
+import { MetricasDesgloseService } from './desglose.service';
 
 /**
  * Métricas globales del panel /admin (página «Métricas»). Solo lee.
@@ -10,6 +11,6 @@ import { MetricasService } from './metricas.service';
  */
 @Module({
   controllers: [MetricasController],
-  providers: [MetricasService],
+  providers: [MetricasService, MetricasDesgloseService],
 })
 export class MetricasModule {}

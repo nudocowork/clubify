@@ -8,6 +8,17 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-19 (139) — Métricas: cada tarjeta abre su desglose por negocio (SIN DESPLEGAR)
+
+- **Qué hace:** endpoint `GET /admin/metricas/desglose?metrica=…`, con el mismo alcance y los mismos roles que `generales`. Cada tarjeta abre una tabla por negocio que indica si cuadra con el total de la tarjeta, con buscador, enlace a la ficha y exportación a Excel/CSV.
+- **«Premios canjeados» no es «tarjetas completadas»:** cuenta toda fila `Stamp` con REDEEM, que solo crea `StampsService.record`.
+  - `redeemKind` distingue REWARD (premio) de COUPON (cupón).
+  - Solo el premio de una tarjeta de sellos o de visitas exige tener todos los sellos.
+  - En puntos, cashback y otras se acepta el canje sin verificar nada.
+  - El duplicador copia los REDEEM sin `redeemKind`, y quedan como «sin clasificar».
+  - El desglose de canjes muestra ese reparto. La tarjeta dice ahora «Premios de sellos y cupones».
+- **Pruebas:** en `desglose.spec.ts`, la suma por negocio coincide con el total de la tarjeta en todos los períodos predefinidos.
+
 ## 2026-10-19 (138) — Página «Métricas» en el admin (SIN DESPLEGAR)
 
 - **Ubicación:** `/admin/metricas`, en el menú justo debajo de «Negocios».
