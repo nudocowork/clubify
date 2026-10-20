@@ -7167,6 +7167,7 @@
     "loading": "Loading the menu…",
     "pageRetrying": "This page couldn't load. Retrying…",
     "preparing": "The menu is still being prepared",
+    "seeMenu": "See the menu",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "zoomReset": "Fit the whole page"

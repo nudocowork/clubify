@@ -130,8 +130,14 @@ export function MenuBookViewer({
   primary,
   initialSectionSlug,
   urlPrefix = '/book',
+  cartaHref = null,
 }: {
   slug: string;
+  /** Adónde mandar al cliente si el libro no tiene páginas. Rápidos y
+   *  Fabulosos encendió el Menú libro sin subirle nada y el QR dejaba al
+   *  cliente en «se está preparando» con 19 productos publicados en la carta
+   *  (2026-10-20). Null = no hay carta digital, se queda el aviso. */
+  cartaHref?: string | null;
   primary: string;
   /** Si viene, arranca el viewer en la primera página de esa sección y
    *  no actualiza la URL al cargar. Cualquier cambio posterior sí. */
@@ -460,6 +466,15 @@ export function MenuBookViewer({
         <div className="text-3xl mb-2">📖</div>
         <div className="font-semibold">{t('preparing')}</div>
         <div className="text-xs text-mute mt-1">{t('comeBack')}</div>
+        {cartaHref && (
+          <a
+            href={cartaHref}
+            className="inline-flex items-center justify-center mt-5 px-5 py-2.5 rounded-pill text-sm font-semibold text-white"
+            style={{ background: primary }}
+          >
+            {t('seeMenu')} →
+          </a>
+        )}
       </div>
     );
   }

@@ -162,6 +162,7 @@ export default function BookClient() {
         primary={primary}
         initialSectionSlug={initialSectionSlug}
         urlPrefix="/book"
+        cartaHref={s.digitalMenuEnabled !== false ? `/m/${slug}` : null}
       />
       {firma &&
         (firma.enlace ? (
