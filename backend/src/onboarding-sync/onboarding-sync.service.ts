@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { aplicarEstiloDelOnboarding } from './estilo-del-onboarding';
 import {
   TOPE_POR_DEFECTO,
   conTopeNormalizado,
@@ -320,7 +321,14 @@ export class OnboardingSyncService {
       sf.heroImageUrl = b.heroImageUrl ? String(b.heroImageUrl) : null;
     if (b.menuLayout !== undefined) {
       const layout = mapMenuLayout(b.menuLayout);
-      if (layout) sf.menuLayout = layout;
+      if (layout) {
+        // «libro» no es un diseño de la carta: ver estilo-del-onboarding.ts.
+        const actual = await this.prisma.storefront.findUnique({
+          where: { tenantId },
+          select: { menuLayout: true },
+        });
+        Object.assign(sf, aplicarEstiloDelOnboarding(layout, actual?.menuLayout ?? null));
+      }
     }
     if (b.popupImageUrl !== undefined)
       sf.popupImageUrl = b.popupImageUrl ? String(b.popupImageUrl) : null;

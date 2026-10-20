@@ -8,6 +8,20 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-20 (140) — Menú libro: «libro» del Onboarding y libro sin páginas (SIN DESPLEGAR backend; frontend parcial)
+
+**Caso Rápidos y Fabulosos Gourmet:** /m y /book mostraban «La carta todavía se está preparando» con 19 productos publicados.
+- **Causa 1 (Onboarding):** el formulario ofrece «flipbook» como estilo de menú y la sincronización lo guardaba como `menuLayout = FLIPBOOK` (legado: «en vez de la carta, el libro»). El panel no ofrece ese valor, y cada resincronización lo volvía a poner aunque en el panel ya hubieran elegido otro diseño (se vio pasar de SECTIONS a FLIPBOOK el mismo día).
+- **Causa 2 (panel):** el Menú libro se encendió a mano sin subirle páginas; un libro vacío encendido escondía la carta.
+
+**Arreglos:**
+- `onboarding-sync`: «libro» ya no se escribe como diseño. Enciende `bookMenuEnabled` y deja la carta en el diseño que tenía, o CLASSIC si era FLIPBOOK (`estilo-del-onboarding.ts`, con spec).
+- `public-menu.controller` (payload público del negocio): `bookMenuEnabled` es lo que el cliente puede ver: un libro encendido SIN páginas no cuenta si hay carta digital (`libro-utilizable.ts`, con spec). Así /m no redirige al libro vacío y /book vuelve a la carta.
+- Frontend (ya en main, 228550a3 y 8a8a2959): FLIPBOOK con libro apagado cae a CLASSIC; /book sin páginas ofrece el botón «Ver la carta».
+- **Pendiente para el Onboarding (otro repo):** dejar de ofrecer «libro» como estilo, o pedir las páginas del libro.
+
+**Comprobado en el navegador:** la carta de Rápidos carga (todos los recursos 200, sin errores de consola). Las fotos de producto vienen de Supabase del Onboarding (118–256 KB cada una, 2,8 MB en total) y pasan por `/_next/image`; las categorías no tienen imagen (el Onboarding no las manda), por eso las portadas del diseño «Secciones» salen en color plano.
+
 ## 2026-10-19 (139) — Métricas: cada tarjeta abre su desglose por negocio (SIN DESPLEGAR)
 
 - **Qué hace:** endpoint `GET /admin/metricas/desglose?metrica=…`, con el mismo alcance y los mismos roles que `generales`. Cada tarjeta abre una tabla por negocio que indica si cuadra con el total de la tarjeta, con buscador, enlace a la ficha y exportación a Excel/CSV.

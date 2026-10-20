@@ -6,6 +6,7 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
+import { libroUtilizable } from './libro-utilizable';
 
 // Cache para endpoints públicos read-only (menú/storefront). El contenido es
 // el mismo para todos los visitantes (varía solo por slug + locale en la URL),
@@ -101,6 +102,23 @@ export class PublicMenuController {
     return this.memo.obtener(`negocio|${slug}|${localeRaw ?? ''}|${oficinaRaw ?? ''}`, armar);
   }
 
+  private async libroUtilizable(
+    tenantId: string,
+    sf: { bookMenuEnabled?: boolean | null; digitalMenuEnabled?: boolean | null } | null,
+  ): Promise<boolean> {
+    const bookMenuEnabled = sf?.bookMenuEnabled ?? false;
+    if (!bookMenuEnabled) return false;
+    // `MenuBookPage` no tiene tenantId: se acota por su sección.
+    const paginas = await this.prisma.menuBookPage.count({
+      where: { isActive: true, section: { tenantId, isActive: true } },
+    });
+    return libroUtilizable({
+      bookMenuEnabled,
+      tienePaginas: paginas > 0,
+      digitalMenuEnabled: sf?.digitalMenuEnabled ?? true,
+    });
+  }
+
   private async armarStorefront(slug: string, localeRaw?: string, oficinaRaw?: string) {
     const locale = normalizeLocale(localeRaw);
     const t = await this.prisma.tenant.findUnique({
@@ -113,6 +131,7 @@ export class PublicMenuController {
     // Marca blanca del negocio (fuente única). Hereda atribución/logo/favicon
     // /web de SU marca — nunca de otra ni de Clubify por defecto.
     const brand = await this.brand.resolveByWhiteLabelId(t.whiteLabelId);
+    const libroVisible = await this.libroUtilizable(t.id, t.storefront ?? null);
 
     // La oficina del enlace. Solo su nombre: el checkout se lo enseña al
     // cliente como destino en vez de pedirle una dirección de calle. Carta
@@ -213,11 +232,11 @@ export class PublicMenuController {
           if (p.description)
             p.description = get('promotion', p.id, 'description', p.description);
         }
-        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut, brand, oficina);
+        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut, brand, oficina, libroVisible);
       }
     }
 
-    return this.buildStorefrontResponse(t, description, locations, promotionsOut, brand, oficina);
+    return this.buildStorefrontResponse(t, description, locations, promotionsOut, brand, oficina, libroVisible);
   }
 
   private buildStorefrontResponse(
@@ -227,6 +246,8 @@ export class PublicMenuController {
     promotions: PublicPromotion[],
     brand: ResolvedBrand,
     oficina: { id: string; nombre: string } | null,
+    /** El libro tal como lo ve el cliente (ver `libroUtilizable`). */
+    libroVisible: boolean,
   ) {
     return {
       id: t.id,
@@ -298,7 +319,9 @@ export class PublicMenuController {
       // exista en DB (instalación nueva); migration 20260625 setea valores
       // reales y vuelve `?? defaults` un no-op.
       digitalMenuEnabled: t.storefront?.digitalMenuEnabled ?? true,
-      bookMenuEnabled: t.storefront?.bookMenuEnabled ?? false,
+      // Lo que ve el cliente, no lo que dice el interruptor: un libro sin
+      // páginas no esconde la carta (ver libro-utilizable.ts).
+      bookMenuEnabled: libroVisible,
       ordersEnabled: t.storefront?.ordersEnabled ?? true,
       // Solo aplica a la vista delivery (link público sin ?mesa). La vista
       // mesa SIEMPRE se renderiza informativa, sin importar este flag.
