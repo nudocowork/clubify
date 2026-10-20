@@ -969,8 +969,13 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
   // Y si la carta llegó VACÍA pero hay libro: Habibi tenía los dos encendidos
   // y la carta sin productos, y el cliente se quedaba en «Cargando menú
   // digital» con el libro publicado en /book (2026-10-04).
+  // `FLIPBOOK` en el diseño es LEGADO (hoy lo pone la sincronización del
+    // Onboarding cuando el negocio elige «libro»). Solo manda al libro si el
+    // libro no está APAGADO: Rápidos y Fabulosos tenía FLIPBOOK, el libro
+    // apagado y sin páginas, y su carta de 19 productos salía como «La carta
+    // todavía se está preparando» (2026-10-20).
   const shouldRedirectToBook =
-    s.menuLayout === 'FLIPBOOK' ||
+    (s.menuLayout === 'FLIPBOOK' && s.bookMenuEnabled !== false) ||
     (s.bookMenuEnabled === true && s.digitalMenuEnabled === false) ||
     (s.bookMenuEnabled === true && estadoCarta === 'lista' && menu.length === 0);
   if (shouldRedirectToBook) {
@@ -1229,7 +1234,8 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
             </div>
           )}
           <MenuRenderer
-            layout={s.menuLayout ?? 'CLASSIC'}
+            // FLIPBOOK sin libro cae al diseño clásico (ver shouldRedirectToBook).
+            layout={s.menuLayout && s.menuLayout !== 'FLIPBOOK' ? s.menuLayout : 'CLASSIC'}
             menu={localizedMenu}
             primary={primary}
             currency={s.currency}

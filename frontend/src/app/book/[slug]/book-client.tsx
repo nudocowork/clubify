@@ -99,7 +99,11 @@ export default function BookClient() {
     const digitalOn = s.digitalMenuEnabled !== false;
     // menuLayout=FLIPBOOK legacy → tratamos como bookOn (pre-migration).
     const legacyFlipbook = s.menuLayout === 'FLIPBOOK';
-    if (bookOff && !legacyFlipbook && digitalOn) {
+    // Con el libro APAGADO se vuelve a la carta aunque el diseño diga
+    // FLIPBOOK (legado): si no, un libro sin páginas dejaba al cliente en
+    // «La carta todavía se está preparando» (Rápidos y Fabulosos, 2026-10-20).
+    void legacyFlipbook;
+    if (bookOff && digitalOn) {
       if (typeof window !== 'undefined') {
         window.location.replace(`/m/${slug}${initialSectionSlug ? `/${initialSectionSlug}` : ''}`);
       }
@@ -126,7 +130,8 @@ export default function BookClient() {
     );
   }
 
-  const bookOn = s.bookMenuEnabled === true || s.menuLayout === 'FLIPBOOK';
+  const bookOn =
+    s.bookMenuEnabled === true || (s.menuLayout === 'FLIPBOOK' && s.bookMenuEnabled !== false);
   if (!bookOn) {
     // bookOff && !digitalOn → mostramos placeholder. (Si digital sí está,
     // el useEffect de arriba ya redirigió.)

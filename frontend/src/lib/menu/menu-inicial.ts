@@ -143,8 +143,13 @@ export function rutaDelLibro(
     | null
     | undefined;
   if (!s) return null;
+  // `FLIPBOOK` en el diseño es LEGADO (hoy lo pone la sincronización del
+  // Onboarding cuando el negocio elige «libro»). Solo manda al libro si el
+  // libro no está APAGADO: Rápidos y Fabulosos tenía FLIPBOOK, el libro
+  // apagado y sin páginas, y su carta de 19 productos salía como «La carta
+  // todavía se está preparando» (2026-10-20).
   const libro =
-    s.menuLayout === 'FLIPBOOK' ||
+    (s.menuLayout === 'FLIPBOOK' && s.bookMenuEnabled !== false) ||
     (s.bookMenuEnabled === true && s.digitalMenuEnabled === false) ||
     (s.bookMenuEnabled === true && Array.isArray(inicial?.menu) && inicial!.menu.length === 0);
   if (!libro) return null;
