@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { sinIndicativoRepetido } from '@/lib/telefono/sin-indicativo-repetido';
 
 /**
  * Selector de prefijo de país (bandera + código) + input de número.
@@ -50,6 +51,24 @@ const COUNTRIES: Country[] = [
   { code: 'CA', flag: '🇨🇦', name: 'Canadá', dial: '+1' },
   { code: 'BR', flag: '🇧🇷', name: 'Brasil', dial: '+55' },
 ];
+
+/** El país cuyo indicativo encabeza un texto «+507…» (el más largo gana). */
+function paisDelPrefijo(cleaned: string): Country | undefined {
+  return [...COUNTRIES]
+    .sort((a, b) => b.dial.length - a.dial.length)
+    .find((c) => cleaned.startsWith(c.dial));
+}
+
+/**
+ * Lo que se guarda en el campo del número. Si el cliente escribió el
+ * indicativo a mano («507 66793699» con la bandera ya en +507) se le quita;
+ * si no sobra nada, se deja como lo escribió, con sus espacios o guiones.
+ */
+function limpiarIndicativo(escrito: string, dial: string): string {
+  const digitos = escrito.replace(/\D/g, '');
+  const sinRepetir = sinIndicativoRepetido(digitos, dial);
+  return sinRepetir === digitos ? escrito : sinRepetir;
+}
 
 function parseValue(value: string, preferredCode?: string): { country: Country; rest: string } {
   const v = (value ?? '').trim();
@@ -106,6 +125,7 @@ export function PhoneInput({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const numeroRef = useRef<HTMLInputElement>(null);
 
   // Sync con cambios EXTERNOS del value (modo controlado). Si el padre
   // resetea form.whatsapp = '' tras submit, el input también se limpia.
@@ -149,14 +169,44 @@ export function PhoneInput({
     const pasted = e.clipboardData.getData('text');
     if (!pasted.trim().startsWith('+')) return; // sigue camino normal
     const cleaned = pasted.replace(/[^\d+]/g, '');
-    const matched = [...COUNTRIES]
-      .sort((a, b) => b.dial.length - a.dial.length)
-      .find((c) => cleaned.startsWith(c.dial));
+    const matched = paisDelPrefijo(cleaned);
     if (matched) {
       e.preventDefault();
       setCountry(matched);
       setNumber(cleaned.slice(matched.dial.length));
     }
+  }
+
+  /** Cada cambio del campo del número. El autocompletado del navegador no es
+   *  un pegado pero trae lo mismo («+507 6679 3699»): se trata igual, y si el
+   *  cliente escribe el indicativo a mano no se duplica. */
+  function cambiarNumero(raw: string) {
+    if (raw.includes('+')) {
+      const cleaned = raw.replace(/[^\d+]/g, '');
+      const matched = paisDelPrefijo(cleaned);
+      if (matched) {
+        setCountry(matched);
+        setNumber(sinIndicativoRepetido(cleaned.slice(matched.dial.length), matched.dial));
+        return;
+      }
+    }
+    setNumber(limpiarIndicativo(raw.replace(/[^\d\s-]/g, ''), country.dial));
+  }
+
+  /** Lo que se escribe en el buscador de países. Cuatro o más dígitos seguidos
+   *  no son un indicativo: es el número del cliente en la caja equivocada (el
+   *  buscador se abre con el foco, y en móvil no se distingue del campo). Va al
+   *  campo del número, que es donde el cliente cree que está escribiendo. */
+  function buscarPais(q: string) {
+    const soloDigitos = q.replace(/[\s-]/g, '');
+    if (/^\d{4,}$/.test(soloDigitos)) {
+      setOpen(false);
+      setSearch('');
+      setNumber(limpiarIndicativo(soloDigitos, country.dial));
+      requestAnimationFrame(() => numeroRef.current?.focus());
+      return;
+    }
+    setSearch(q);
   }
 
   // Click fuera para cerrar dropdown
@@ -209,26 +259,34 @@ export function PhoneInput({
 
   return (
     <div ref={ref} className="relative">
+      {/* El número va PRIMERO en el DOM y el selector de país se pone delante
+          con `order-first`. Cuando el campo vive dentro de un <label> (el
+          formulario de alianzas, el alta de marca), tocar la etiqueta activa
+          el primer control del label: antes era el botón del país, se abría
+          el buscador de países con el foco y el cliente escribía su número
+          ahí —«Sin resultados»— y al tocar fuera lo perdía. Altieri lo
+          reportó como «escribía y le borraba» (2026-10-22). */}
       <div className="flex items-stretch gap-1.5">
+        <input
+          ref={numeroRef}
+          className={cx.num}
+          inputMode="tel"
+          placeholder={placeholder}
+          value={number}
+          onChange={(e) => cambiarNumero(e.target.value)}
+          onPaste={handlePaste}
+          disabled={disabled}
+        />
         <button
           type="button"
           disabled={disabled}
           onClick={() => setOpen((v) => !v)}
-          className={cx.trigger}
+          className={`${cx.trigger} order-first`}
         >
           <span className="text-base leading-none">{country.flag}</span>
           <span className="font-medium text-sm">{country.dial}</span>
           <span className={cx.chev}>▾</span>
         </button>
-        <input
-          className={cx.num}
-          inputMode="tel"
-          placeholder={placeholder}
-          value={number}
-          onChange={(e) => setNumber(e.target.value.replace(/[^\d\s-]/g, ''))}
-          onPaste={handlePaste}
-          disabled={disabled}
-        />
       </div>
 
       {open && (
@@ -239,7 +297,7 @@ export function PhoneInput({
               type="text"
               placeholder={t('searchCountry')}
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => buscarPais(e.target.value)}
               className={cx.search}
             />
           </div>

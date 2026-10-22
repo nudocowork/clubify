@@ -14,6 +14,7 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLocale, useT, type MessageKey } from '@/lib/i18n';
 import { DAY_OPTIONS, monthOptionsFor } from '@/lib/opciones-cumple';
 import { urlDeLaTarjeta } from '@/lib/api-publica.mjs';
+import { sinIndicativoRepetido } from '@/lib/telefono/sin-indicativo-repetido';
 
 // Para el alta (POST) y la métrica: no se cachean y van directos a la API. El
 // GET de la tarjeta va por la ruta relativa (ver `api-publica.mjs`).
@@ -325,7 +326,7 @@ const FormFields = memo(function FormFields({
     // Validaciones de submit (NUNCA en cada keystroke). Phone replace
     // del onChange es cosmético — la validación de longitud va acá.
     const dial = selectedCountry?.dial ?? '57';
-    const phoneFull = `+${dial}${phone.replace(/\D/g, '')}`;
+    const phoneFull = `+${dial}${sinIndicativoRepetido(phone, dial)}`;
     if (phoneFull.length < 10) {
       setErr(tt('card.invalid_phone'));
       return;
@@ -409,7 +410,23 @@ const FormFields = memo(function FormFields({
               value={phone}
               onChange={(e) => {
                 onFirstInput();
-                setPhone(e.target.value.replace(/\D/g, ''));
+                // El autocompletado del navegador trae el indicativo («+507
+                // 6679 3699»): se adopta ese país y no se duplica. Y si el
+                // cliente lo escribe a mano, se quita (ver el helper).
+                const raw = e.target.value;
+                const digitos = raw.replace(/\D/g, '');
+                const conPrefijo = raw.trim().startsWith('+')
+                  ? COUNTRIES.filter((c) => digitos.startsWith(c.dial)).sort(
+                      (a, b) => b.dial.length - a.dial.length,
+                    )[0]
+                  : undefined;
+                if (conPrefijo) {
+                  countryTouched.current = true;
+                  setCountry(conPrefijo.code);
+                  setPhone(sinIndicativoRepetido(digitos.slice(conPrefijo.dial.length), conPrefijo.dial));
+                  return;
+                }
+                setPhone(sinIndicativoRepetido(digitos, selectedCountry?.dial ?? '57'));
               }}
               required
               autoComplete="tel"

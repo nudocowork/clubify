@@ -8,6 +8,27 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-22 (144) — Altieri: «escribía el teléfono y se borraba» (SIN DESPLEGAR frontend)
+
+**Reporte:** el formulario de Altieri Specialty Coffee (Panamá, 8 alianzas con empresas: Mapfre, Morgan & Morgan, Banco Aliado…) no dejaba escribir el número de contacto del cliente: «escribía y le borraba».
+
+**Causa, reproducida en `/alianza/altieri-specialty-coffee/mapfre`:** el campo de teléfono es `PhoneInput` (bandera + indicativo + número) y en esa página va DENTRO de un `<label>`. Tocar la palabra «Teléfono» activa el primer control del label, que era el BOTÓN del país: se abría el buscador de países con el foco, el cliente escribía su número ahí («Sin resultados») y al tocar fuera se cerraba y el número desaparecía. En móvil, tocar la etiqueta para entrar al campo es lo normal. Mismo envoltorio en `i-registro/[brand]/SignupForm.tsx` (alta de marca). En Chrome de escritorio escribiendo directamente en el campo no fallaba, por eso no se veía.
+
+**De paso, en los datos:** 3 clientes de Altieri guardados como `+507507…` (indicativo repetido: lo escribieron o lo autocompletó el navegador y el formulario lo volvió a poner). Con ese número no se les encuentra, no vuelven a su tarjeta desde el enlace y no les llega nada.
+
+**Arreglo (commit de esta entrada):**
+- `components/PhoneInput.tsx`: el `<input>` del número va primero en el DOM y el botón del país se pone delante con `order-first` → un `<label>` que lo envuelva enfoca el número. Si en el buscador de países se escriben 4+ dígitos seguidos, se cierra y esos dígitos pasan al campo del número con el foco. El autocompletado con indicativo («+507 6679 3699») se trata como un pegado (adopta el país, quita el prefijo) y el indicativo escrito a mano no se duplica.
+- `lib/telefono/sin-indicativo-repetido.ts`: `«50766793699», 507 → «66793699»`; solo actúa cuando sobran dígitos (>10 en total, resto 7–10).
+- `c/[cardId]/page.tsx` (alta normal de tarjeta): autocompletado con `+` adopta el país; indicativo repetido fuera al escribir y al enviar.
+- Scripts nuevos: `buscar-negocio.cjs <texto>` (ubicar un negocio y qué tiene), `diag-telefonos-negocio.cjs <slug>` (teléfonos por prefijo y rarezas), `corregir-indicativo-repetido.cjs <slug> [--aplicar]` (simulado en Altieri: 3 a corregir, sin choques).
+
+**Verificado:** `tsc` y eslint en verde; helper probado con 10 casos (PA, CO, US/DO, MX).
+
+**Pendiente:**
+1. `node scripts/desplegar.cjs frontend` (solo frontend).
+2. Corregir los 3 teléfonos: `cd backend && railway run --service backend --environment production node scripts/corregir-indicativo-repetido.cjs altieri-specialty-coffee --aplicar`.
+3. Avisar a Samu y Javi (SMS) — hecho desde la sesión al cerrar el bloque.
+
 ## 2026-10-22 (143) — «MODIFICACIONES CLIENTES (2)»: panel sin botones, exportación completa, difuminados (SIN DESPLEGAR)
 
 PDF de Javier con 4 puntos. El 3.º (monto y motivo en «Actividad de sellos») ya salió en la entrada 142 y está en producción.
