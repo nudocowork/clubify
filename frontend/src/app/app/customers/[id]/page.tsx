@@ -40,6 +40,14 @@ type Stamp = {
   action: string;
   amount: number;
   note: string | null;
+  /** COURTESY | SPECIAL_DATE cuando el sello fue regalado. */
+  giftReason?: string | null;
+  /** COUPON | REWARD en un canje. */
+  redeemKind?: string | null;
+  orderId?: string | null;
+  operator?: { fullName: string } | null;
+  location?: { name: string } | null;
+  order?: { code: string } | null;
   /** Monto de la compra que motivó el sello. Informativo (no afecta sellos).
    *  Se usa para calcular ticket promedio y total gastado por cliente. */
   purchaseAmount: number | string | null;
@@ -1615,18 +1623,18 @@ export default function CustomerDetail() {
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{s.action}</span>
+                          <span className="font-medium">{tituloDelSello(s, t)}</span>
                           {amt && amt > 0 && (
                             <span className="text-xs font-semibold text-brand">
                               {COP(amt, tenantMoney.currency, tenantMoney.currencySymbol)}
                             </span>
                           )}
                         </div>
-                        {s.note && (
-                          <div className="text-[11px] text-mute mt-0.5 truncate">
-                            {s.note}
-                          </div>
-                        )}
+                        {/* El motivo y quién lo dio: sin esto un sello de
+                            cortesía parecía una compra. */}
+                        <div className="text-[11px] text-mute mt-0.5 truncate">
+                          {motivoDelSello(s, amt, t)}
+                        </div>
                       </div>
                       <div className="flex items-center gap-3 text-xs text-mute shrink-0">
                         <span className="font-medium text-ink">
@@ -1648,6 +1656,43 @@ export default function CustomerDetail() {
 }
 
 const TAG_PRESETS = ['VIP', 'Vegano', 'Sin gluten', 'Cumple este mes', 'Reseña 5⭐', 'Bloqueado'];
+
+type Traductor = ReturnType<typeof useTranslations<'app_customers_id'>>;
+
+const ACCIONES_DE_SELLO = new Set([
+  'STAMP', 'VISIT', 'REDEEM', 'POINTS_ADD', 'POINTS_DEDUCT', 'REFUND',
+  'CASHBACK_ADD', 'CASHBACK_REDEEM', 'STAMP_REMOVE',
+]);
+
+/** «Sello», «Canje», «Visita»… en vez del código interno (STAMP, REDEEM). */
+function tituloDelSello(s: Stamp, t: Traductor): string {
+  return ACCIONES_DE_SELLO.has(s.action) ? t(`act_${s.action}` as never) : s.action;
+}
+
+/**
+ * Por qué se dio el sello y quién lo dio, en una línea: «Cortesía · por
+ * Andrés · Sede Centro». Misma lógica que el historial de sellos del panel
+ * (StampAuditTable), pero traducida.
+ */
+function motivoDelSello(s: Stamp, monto: number | null, t: Traductor): string {
+  const partes: string[] = [];
+  if (s.giftReason === 'COURTESY') partes.push(t('reason_COURTESY'));
+  else if (s.giftReason === 'SPECIAL_DATE') partes.push(t('reason_SPECIAL_DATE'));
+  if (s.action === 'REDEEM') {
+    if (s.redeemKind === 'COUPON') partes.push(t('reason_COUPON'));
+    else if (s.redeemKind === 'REWARD') partes.push(t('reason_REWARD'));
+  }
+  if (s.orderId) partes.push(t('reason_ORDER', { code: s.order?.code ?? '' }).trim());
+  if (s.note) partes.push(s.note === 'Por automation' ? t('reason_AUTOMATION') : s.note);
+  if (partes.length === 0) {
+    if (monto && monto > 0) partes.push(t('reason_PURCHASE'));
+    else if (s.operator) partes.push(t('reason_SCAN'));
+  }
+  if (s.operator?.fullName) partes.push(t('byOperator', { name: s.operator.fullName }));
+  else if (s.orderId || s.note === 'Por automation') partes.push(t('bySystem'));
+  if (s.location?.name) partes.push(s.location.name);
+  return partes.join(' · ');
+}
 
 function CustomerNotesAndTags({
   customer,

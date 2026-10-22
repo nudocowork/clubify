@@ -151,7 +151,18 @@ export class CustomersService {
       where: { id },
       include: {
         passes: { include: { card: true } },
-        stamps: { orderBy: { createdAt: 'desc' }, take: 50 },
+        // Con quién lo dio, en qué sede y de qué pedido: la ficha pintaba
+        // «STAMP +1» y nada más, y un sello de cortesía o de fecha especial
+        // no se distinguía de una compra (Javier, 2026-10-22).
+        stamps: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: {
+            operator: { select: { fullName: true } },
+            location: { select: { name: true } },
+            order: { select: { code: true } },
+          },
+        },
       },
     });
     if (!c) throw new NotFoundException('Customer');

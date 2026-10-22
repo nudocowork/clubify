@@ -8,6 +8,19 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-22 (142) — Ficha del cliente: la actividad de sellos dice el motivo y quién lo dio (SIN DESPLEGAR)
+
+**Qué pedía Javier:** «si doy un sello por cortesía u otro motivo no se ve reflejado en el historial de sellos del cliente». La ficha (`/app/customers/<id>`, «Actividad de sellos») pintaba el código interno (`STAMP +1`) y solo la nota libre; el `giftReason` ya se guardaba desde el 2026-09 pero nadie lo leía ahí. El historial del panel (`StampAuditTable`) sí lo mostraba.
+
+**Hecho (commit de esta entrada):**
+- Backend `customers.service.ts` `findOne`: los 50 sellos del detalle vienen con `operator.fullName`, `location.name` y `order.code` (antes solo la fila de `Stamp`). Sin esquema nuevo.
+- Frontend `customers/[id]/page.tsx`: título traducido («Sello», «Canje», «Visita», «Puntos sumados»…) y debajo una línea con el motivo y quién: «Cortesía · por Andrés · Sede Centro», «Fecha especial · por …», «Canje de premio · por …», «Por pedido ABC123 · Automático», «Compra · por …», «Escaneo en caja · por …». La nota libre sigue saliendo; «Por automation» se traduce como «Automatización». Misma lógica que `StampAuditTable`, pero con claves i18n.
+- 19 claves nuevas en `app_customers_id` (es/en/pt): `act_*`, `reason_*`, `byOperator`, `bySystem`.
+
+**Verificado:** `tsc` backend y frontend en verde; eslint sin errores. Al regalar un sello no se manda nota, así que no sale «Cortesía · Cortesía».
+
+**Pendiente:** desplegar backend y frontend (`node scripts/desplegar.cjs backend` y `frontend`). El frontend solo necesita el backend para ver operador/sede/pedido; sin él ya muestra el motivo (`giftReason` ya venía).
+
 ## 2026-10-22 (141) — Restaurante Ricuras: fusionado el negocio duplicado (APLICADO en producción)
 
 **Qué pasó:** Ricuras renovó su trimestral en Hotmart (17-oct, HP2572146263) con el correo `dmoreno758@unab.edu.co`. El webhook casa por `hotmartSubscriberCode` y luego por el correo del usuario dueño; no reconoció ninguno y creó `restaurante-ricuras-1` (vacío, con el pago de julio HP0243420764 que estaba «sin activar» y el de octubre). El real (`restaurante-ricuras`, 58 clientes, 42 pases, `Ricuraspaisasi@gmail.com`, pago manual) quedó SUSPENDIDO el 22-oct por «falta de pago».
