@@ -8,6 +8,20 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-22 (141) — Restaurante Ricuras: fusionado el negocio duplicado (APLICADO en producción)
+
+**Qué pasó:** Ricuras renovó su trimestral en Hotmart (17-oct, HP2572146263) con el correo `dmoreno758@unab.edu.co`. El webhook casa por `hotmartSubscriberCode` y luego por el correo del usuario dueño; no reconoció ninguno y creó `restaurante-ricuras-1` (vacío, con el pago de julio HP0243420764 que estaba «sin activar» y el de octubre). El real (`restaurante-ricuras`, 58 clientes, 42 pases, `Ricuraspaisasi@gmail.com`, pago manual) quedó SUSPENDIDO el 22-oct por «falta de pago».
+
+**Aplicado con `scripts/fusionar-negocio-duplicado.cjs` (una transacción):**
+- Real: ACTIVE, correo → `dmoreno758@unab.edu.co`, suscriptor Hotmart `TPJNY5FO`, último cobro 17-oct, vence 17-ene-2027, pago manual → false, comprado → 17-jul.
+- Se movieron al real los 2 ingresos de Hotmart (jul $156,72 y oct $150). El ingreso MANUAL de $150 del 16-jul del real quedó CANCELADO: era el mismo pago de julio registrado a mano cuando el de Hotmart «no tenía negocio». Julio ya no cuenta doble.
+- Mismo vendedor en los dos (Nicolás Quintero): la comisión de octubre ($15 PENDING) pasó al registro del real, que queda PAYING; la de julio ($15 PAID) ya estaba ahí.
+- El usuario `dmoreno758@unab.edu.co` pasó al real como TENANT_OWNER adicional (así la próxima renovación casa por código o por correo). `ricuraspaisasi@gmail.com` sigue entrando.
+- Duplicado: `deletedAt`, SUSPENDED, sin código de Hotmart, correo y slug renombrados (`restaurante-ricuras-1-retirado-2026-10-22`).
+- Verificado por la API pública: `restaurante-ricuras` 200, `restaurante-ricuras-1` 404.
+
+**Lección:** el 2026-10-13 se pidió conectar el pago de julio de David Moreno a Ricuras con «Asignar a negocio» y no se hizo; al llegar la renovación, el sistema creó el duplicado. Un pago «sin activar» que corresponde a un negocio existente hay que asignarlo antes de su próxima renovación.
+
 ## 2026-10-20 (140) — Menú libro: «libro» del Onboarding y libro sin páginas (SIN DESPLEGAR backend; frontend parcial)
 
 **Caso Rápidos y Fabulosos Gourmet:** /m y /book mostraban «La carta todavía se está preparando» con 19 productos publicados.

@@ -72,7 +72,11 @@ async function radiografia(t) {
     }),
     p.referralUse.findMany({
       where: { tenantId: t.id },
-      select: { id: true, status: true, referralCode: { select: { code: true, ownerName: true } }, _count: { select: { commissions: true } } },
+      select: {
+        id: true, status: true, referralCodeId: true,
+        referralCode: { select: { code: true, ownerName: true } },
+        commissions: { select: { id: true, amount: true, status: true, periodKey: true, businessDate: true, recipientCodeId: true } },
+      },
     }),
     p.hotmartWebhookEvent.count({ where: { tenantId: t.id } }),
     p.manualPayment.count({ where: { tenantId: t.id } }),
@@ -88,7 +92,10 @@ function pintar(titulo, t, r) {
   console.log(`  clientes ${r.clientes} · pases ${r.pases} · avisos Hotmart ${r.avisos} · pagos manuales ${r.manuales}`);
   console.log(`  usuarios: ${r.usuarios.map((u) => `${u.email} (${u.role}${u.isActive ? '' : ', inactivo'})`).join(', ') || 'ninguno'}`);
   console.log(`  ingresos: ${r.ingresos.map((i) => `${f(i.saleDate)} ${i.gateway} $${Number(i.grossUsd)} ${i.status} ${i.externalTxId}`).join(' | ') || 'ninguno'}`);
-  console.log(`  referidos: ${r.usos.map((u) => `${u.referralCode?.ownerName} (${u.referralCode?.code}, ${u.status}, ${u._count.commissions} comisiones)`).join(', ') || 'ninguno'}`);
+  for (const u of r.usos) {
+    console.log(`  referido: ${u.referralCode?.ownerName} (${u.referralCode?.code}, ${u.status}) · comisiones: ${u.commissions.map((c) => `${f(c.businessDate)} $${Number(c.amount)} ${c.status} [${c.periodKey ?? '—'}]`).join(' | ') || 'ninguna'}`);
+  }
+  if (!r.usos.length) console.log('  referido: ninguno');
 }
 
 (async () => {
@@ -123,6 +130,40 @@ function pintar(titulo, t, r) {
   const ultimoCobro =
     dup.lastChargeAt && (!real.lastChargeAt || dup.lastChargeAt > real.lastChargeAt) ? dup.lastChargeAt : real.lastChargeAt;
   const moverReferido = rDup.usos.length > 0 && rReal.usos.length === 0;
+  // Mismo vendedor en los dos (pasa cuando el duplicado nació por el enlace o
+  // el código del mismo afiliado): sus comisiones se juntan bajo el registro
+  // del negocio real y el registro del duplicado se borra. Si chocaran en el
+  // mismo período para el mismo beneficiario, se frena: eso sería una
+  // comisión doble y hay que mirarla a mano.
+  const usoReal = rReal.usos[0] ?? null;
+  const usoDup = rDup.usos[0] ?? null;
+  const unirReferido = !!(usoReal && usoDup && usoReal.referralCodeId === usoDup.referralCodeId);
+  if (unirReferido) {
+    const claves = new Set(usoReal.commissions.map((c) => `${c.recipientCodeId}|${c.periodKey}`));
+    const choque = usoDup.commissions.filter((c) => claves.has(`${c.recipientCodeId}|${c.periodKey}`));
+    if (choque.length) frenos.push(`comisión doble para el mismo período en los dos negocios: ${choque.map((c) => `${f(c.businessDate)} $${Number(c.amount)} [${c.periodKey}]`).join(', ')}`);
+  }
+  // El mismo pago registrado dos veces: a mano en el real (cuando el de
+  // Hotmart «no tenía negocio») y por Hotmart en el duplicado, con 3 días y
+  // un 10 % de diferencia como mucho. El manual se anula; el de Hotmart manda
+  // (es el que concilia el conciliador nocturno). Precedente: Drive Pizza.
+  const manualesDuplicados = rReal.ingresos.filter((m) =>
+    m.gateway === 'MANUAL' && m.status === 'PAGADO' &&
+    rDup.ingresos.some((h) =>
+      h.gateway === 'HOTMART' && h.status === 'PAGADO' &&
+      Math.abs(new Date(h.saleDate) - new Date(m.saleDate)) <= 3 * 86400000 &&
+      Math.abs(Number(h.grossUsd) - Number(m.grossUsd)) <= 0.1 * Number(h.grossUsd),
+    ),
+  );
+  // La PRIMERA compra en Hotmart (orden numérico: `.sort()` a secas ordenaba
+  // las fechas como texto y ponía octubre antes que julio).
+  const fechasHotmart = rDup.ingresos.filter((i) => i.gateway === 'HOTMART').map((i) => new Date(i.saleDate).getTime()).sort((x, y) => x - y);
+  const compradoEn = real.purchasedAt ?? (fechasHotmart.length ? new Date(fechasHotmart[0]) : null);
+  if (frenos.length) {
+    console.log('\n✗ NO SE APLICA:');
+    for (const x of frenos) console.log(`  - ${x}`);
+    return p.$disconnect();
+  }
 
   console.log(`\n${APLICAR ? 'APLICO' : 'Simulo'}:`);
   console.log(`  1. ${real.brandName}: ${real.status} → ACTIVE, sin suspensión ni cancelación, pagos fallidos 0`);
@@ -131,7 +172,9 @@ function pintar(titulo, t, r) {
   console.log(`     último cobro → ${f(ultimoCobro)} · vence → ${f(vence)} · plan → ${dup.planPeriodicity ?? real.planPeriodicity ?? '—'} · pago manual → ${dup.hotmartSubscriberCode ? 'false' : String(real.manualPayment)}`);
   if (!vence || vence <= ahora) console.log('     ⚠ no hay un vencimiento futuro: revisar a mano el próximo cobro');
   console.log(`  2. Muevo al real: ${rDup.ingresos.length} ingreso(s), ${rDup.avisos} aviso(s) de Hotmart, ${rDup.manuales} pago(s) manual(es)`);
-  console.log(`     referido: ${moverReferido ? `se mueve ${rDup.usos.map((u) => u.referralCode?.ownerName).join(', ')}` : rDup.usos.length ? 'el real ya tiene el suyo: el del duplicado se queda y se retira con él (revisar comisiones)' : 'ninguno'}`);
+  console.log(`     referido: ${moverReferido ? `se mueve ${rDup.usos.map((u) => u.referralCode?.ownerName).join(', ')}` : unirReferido ? `mismo vendedor (${usoReal.referralCode?.ownerName}): ${usoDup.commissions.length} comisión(es) del duplicado pasan al registro del real, que queda ${usoDup.status === 'PAYING' ? 'PAYING' : usoReal.status}` : rDup.usos.length ? 'vendedores distintos: el del duplicado se queda y se retira con él (revisar comisiones)' : 'ninguno'}`);
+  console.log(`     pagos registrados dos veces: ${manualesDuplicados.length ? manualesDuplicados.map((m) => `manual ${f(m.saleDate)} $${Number(m.grossUsd)} → CANCELADO (lo cubre el de Hotmart)`).join(', ') : 'ninguno'}`);
+  console.log(`     comprado → ${f(compradoEn)}`);
   console.log(`  3. Usuarios del duplicado pasan al real: ${rDup.usuarios.map((u) => `${u.email} (${u.role})`).join(', ') || 'ninguno'}`);
   console.log(`  4. ${dup.brandName} [${dup.slug}]: se retira (eliminado, SUSPENDED, sin código de Hotmart, correo renombrado)`);
 
@@ -158,6 +201,7 @@ function pintar(titulo, t, r) {
         planPeriodicity: dup.planPeriodicity ?? real.planPeriodicity,
         subscriptionPriceUsd: dup.subscriptionPriceUsd ?? real.subscriptionPriceUsd,
         ...(dup.hotmartSubscriberCode ? { manualPayment: false } : {}),
+        ...(compradoEn && !real.purchasedAt ? { purchasedAt: compradoEn } : {}),
       },
     });
     if (n.count !== 1) throw new Error('El negocio real cambió mientras tanto: no se aplicó nada.');
@@ -167,6 +211,18 @@ function pintar(titulo, t, r) {
     await tx.manualPayment.updateMany({ where: { tenantId: dup.id }, data: { tenantId: real.id } });
     if (moverReferido) {
       await tx.referralUse.updateMany({ where: { tenantId: dup.id }, data: { tenantId: real.id } });
+    } else if (unirReferido) {
+      await tx.commission.updateMany({ where: { referralUseId: usoDup.id }, data: { referralUseId: usoReal.id } });
+      if (usoDup.status === 'PAYING') {
+        await tx.referralUse.update({ where: { id: usoReal.id }, data: { status: 'PAYING' } });
+      }
+      await tx.referralUse.delete({ where: { id: usoDup.id } });
+    }
+    for (const m of manualesDuplicados) {
+      await tx.incomeRecord.update({
+        where: { id: m.id },
+        data: { status: 'CANCELADO', note: `Mismo pago que el de Hotmart del duplicado (fusión ${f(ahora)}). ${nota}`.slice(0, 1000) },
+      });
     }
     await tx.user.updateMany({ where: { tenantId: dup.id }, data: { tenantId: real.id } });
 
@@ -191,6 +247,7 @@ function pintar(titulo, t, r) {
       data: {
         tenantId: real.id,
         action: 'tenant.fusion_duplicado',
+        resource: 'tenant',
         metadata: { duplicado: dup.id, slugDuplicado: dup.slug, correoAnterior: real.email, nota },
       },
     });
