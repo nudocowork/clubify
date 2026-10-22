@@ -9,6 +9,7 @@ import { plural } from '@/lib/plural';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
+import { motivoDelSello, tituloDelSello } from '@/lib/sellos/motivo-del-sello';
 
 type Pass = {
   id: string;
@@ -1656,43 +1657,6 @@ export default function CustomerDetail() {
 }
 
 const TAG_PRESETS = ['VIP', 'Vegano', 'Sin gluten', 'Cumple este mes', 'Reseña 5⭐', 'Bloqueado'];
-
-type Traductor = ReturnType<typeof useTranslations<'app_customers_id'>>;
-
-const ACCIONES_DE_SELLO = new Set([
-  'STAMP', 'VISIT', 'REDEEM', 'POINTS_ADD', 'POINTS_DEDUCT', 'REFUND',
-  'CASHBACK_ADD', 'CASHBACK_REDEEM', 'STAMP_REMOVE',
-]);
-
-/** «Sello», «Canje», «Visita»… en vez del código interno (STAMP, REDEEM). */
-function tituloDelSello(s: Stamp, t: Traductor): string {
-  return ACCIONES_DE_SELLO.has(s.action) ? t(`act_${s.action}` as never) : s.action;
-}
-
-/**
- * Por qué se dio el sello y quién lo dio, en una línea: «Cortesía · por
- * Andrés · Sede Centro». Misma lógica que el historial de sellos del panel
- * (StampAuditTable), pero traducida.
- */
-function motivoDelSello(s: Stamp, monto: number | null, t: Traductor): string {
-  const partes: string[] = [];
-  if (s.giftReason === 'COURTESY') partes.push(t('reason_COURTESY'));
-  else if (s.giftReason === 'SPECIAL_DATE') partes.push(t('reason_SPECIAL_DATE'));
-  if (s.action === 'REDEEM') {
-    if (s.redeemKind === 'COUPON') partes.push(t('reason_COUPON'));
-    else if (s.redeemKind === 'REWARD') partes.push(t('reason_REWARD'));
-  }
-  if (s.orderId) partes.push(t('reason_ORDER', { code: s.order?.code ?? '' }).trim());
-  if (s.note) partes.push(s.note === 'Por automation' ? t('reason_AUTOMATION') : s.note);
-  if (partes.length === 0) {
-    if (monto && monto > 0) partes.push(t('reason_PURCHASE'));
-    else if (s.operator) partes.push(t('reason_SCAN'));
-  }
-  if (s.operator?.fullName) partes.push(t('byOperator', { name: s.operator.fullName }));
-  else if (s.orderId || s.note === 'Por automation') partes.push(t('bySystem'));
-  if (s.location?.name) partes.push(s.location.name);
-  return partes.join(' · ');
-}
 
 function CustomerNotesAndTags({
   customer,

@@ -2,10 +2,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
-import { api, downloadFile } from '@/lib/api';
+import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
+import { ActionsMenu } from '@/components/ActionsMenu';
+import { descargarCsv, descargarXlsx, type Celda } from '@/lib/exportar-hoja';
+import {
+  motivoBase,
+  notaDelSello,
+  quienDioElSello,
+  tituloDelSello,
+  type SelloConMotivo,
+  type TraductorDeSellos,
+} from '@/lib/sellos/motivo-del-sello';
 
 type Customer = {
   id: string;
@@ -33,6 +43,138 @@ type Customer = {
 };
 
 type StaffOption = { id: string; fullName: string; email: string };
+
+type Traductor = ReturnType<typeof useTranslations<'app_customers'>>;
+
+/** Lo que devuelve `/customers/export-datos`. Los decimales llegan como texto. */
+type DatosExportables = {
+  clientes: Array<Customer & { tags?: string[] | null; marketingOptIn?: boolean | null }>;
+  sellos: Array<
+    SelloConMotivo & {
+      id: string;
+      customerId: string;
+      createdAt: string;
+      amount: number | string;
+      purchaseAmount: number | string | null;
+      pass?: { card?: { name: string } | null } | null;
+    }
+  >;
+};
+
+/** «2026-10-22 14:35» en la hora del navegador: ordena bien en Excel. */
+function fechaHora(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Cumpleaños DD/MM: el año guardado (2000) es un centinela, no se exporta. */
+function diaMes(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(5, 10).split('-').reverse().join('/');
+}
+
+const aNumero = (v: number | string | null | undefined): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Dos hojas: una fila por cliente (ficha + resumen de sus sellos y compras) y
+ * una fila por movimiento de sellos. Mismos textos que la ficha del cliente.
+ */
+function filasParaExportar(
+  datos: DatosExportables,
+  t: Traductor,
+  tSello: TraductorDeSellos,
+): { clientes: Celda[][]; sellos: Celda[][] } {
+  type Resumen = {
+    sellos: number;
+    cortesia: number;
+    fechaEspecial: number;
+    canjes: number;
+    compras: number;
+    gastado: number;
+    ultimo: string | null;
+  };
+  const porCliente = new Map<string, Resumen>();
+  const resumenDe = (id: string): Resumen => {
+    let r = porCliente.get(id);
+    if (!r) {
+      r = { sellos: 0, cortesia: 0, fechaEspecial: 0, canjes: 0, compras: 0, gastado: 0, ultimo: null };
+      porCliente.set(id, r);
+    }
+    return r;
+  };
+  for (const s of datos.sellos) {
+    const r = resumenDe(s.customerId);
+    const cantidad = aNumero(s.amount) ?? 0;
+    const monto = aNumero(s.purchaseAmount);
+    if (s.action === 'STAMP' || s.action === 'VISIT') {
+      r.sellos += cantidad;
+      if (s.giftReason === 'COURTESY') r.cortesia += cantidad;
+      else if (s.giftReason === 'SPECIAL_DATE') r.fechaEspecial += cantidad;
+      // ISO ordena como texto.
+      if (!r.ultimo || s.createdAt > r.ultimo) r.ultimo = s.createdAt;
+    }
+    if (s.action === 'REDEEM') r.canjes += 1;
+    if (monto && monto > 0) {
+      r.compras += 1;
+      r.gastado += monto;
+    }
+  }
+  const si = t('expYes');
+  const no = t('expNo');
+  const redondear = (n: number) => Math.round(n * 100) / 100;
+
+  const clientes: Celda[][] = [
+    [
+      t('expc_name'), t('expc_email'), t('expc_phone'), t('expc_birthday'), t('expc_since'),
+      t('expc_tags'), t('expc_marketing'), t('expc_passes'), t('expc_installed'),
+      t('expc_stamps'), t('expc_courtesy'), t('expc_specialDate'), t('expc_redeems'),
+      t('expc_purchases'), t('expc_spent'), t('expc_avgTicket'), t('expc_lastStamp'),
+      t('expc_orders'), t('expc_ordersAmount'), t('expc_lastOrder'),
+    ],
+    ...datos.clientes.map((c) => {
+      const r = resumenDe(c.id);
+      const instalada = (c.passes ?? []).some((p) => !!p.walletInstalledAt);
+      return [
+        c.fullName, c.email ?? '', c.phone ?? '', diaMes(c.birthday), fechaHora(c.createdAt),
+        (c.tags ?? []).join(' | '), c.marketingOptIn === false ? no : si,
+        c._count?.passes ?? c.passes?.length ?? 0, instalada ? si : no,
+        r.sellos, r.cortesia, r.fechaEspecial, r.canjes,
+        r.compras, redondear(r.gastado), r.compras ? redondear(r.gastado / r.compras) : '',
+        fechaHora(r.ultimo),
+        c.totalOrdersCount ?? 0, aNumero(c.totalOrdersAmount) ?? 0, fechaHora(c.lastOrderAt),
+      ];
+    }),
+  ];
+
+  const clientePorId = new Map(datos.clientes.map((c) => [c.id, c] as const));
+  const sellos: Celda[][] = [
+    [
+      t('exps_date'), t('exps_customer'), t('exps_email'), t('exps_phone'), t('exps_card'),
+      t('exps_action'), t('exps_amount'), t('exps_purchase'), t('exps_reason'), t('exps_note'),
+      t('exps_operator'), t('exps_location'),
+    ],
+    ...datos.sellos.map((s) => {
+      const c = clientePorId.get(s.customerId);
+      const monto = aNumero(s.purchaseAmount);
+      return [
+        fechaHora(s.createdAt), c?.fullName ?? '', c?.email ?? '', c?.phone ?? '',
+        s.pass?.card?.name ?? '', tituloDelSello(s, tSello), aNumero(s.amount) ?? 0,
+        monto && monto > 0 ? monto : '', motivoBase(s, monto, tSello).join(' · '),
+        notaDelSello(s), quienDioElSello(s, tSello), s.location?.name ?? '',
+      ];
+    }),
+  ];
+  return { clientes, sellos };
+}
 
 type Segment =
   | 'all'
@@ -146,6 +288,8 @@ function COP(n: number) {
 
 export default function CustomersPage() {
   const t = useTranslations('app_customers');
+  // Los textos de los movimientos de sellos viven en la ficha del cliente.
+  const tSello = useTranslations('app_customers_id');
   const [list, setList] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [locationId, setLocationId] = useState<string>('');
@@ -207,24 +351,29 @@ export default function CustomersPage() {
       .catch(() => {});
   }, []);
 
+  /** Los mismos filtros que la lista: la exportación saca lo que se ve. */
+  function filtrosActuales(term: string = search): string {
+    const qs = new URLSearchParams();
+    if (term) qs.set('search', term);
+    if (locationId) qs.set('locationId', locationId);
+    if (operatorId) qs.set('operatorId', operatorId);
+    if (sinceDays) {
+      const days = Number(sinceDays);
+      if (Number.isFinite(days) && days > 0) {
+        qs.set(
+          'since',
+          new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
+        );
+      }
+    }
+    return qs.toString() ? `?${qs}` : '';
+  }
+
   async function load(term: string = search) {
     setLoading(true);
     const myId = ++requestIdRef.current;
     try {
-      const qs = new URLSearchParams();
-      if (term) qs.set('search', term);
-      if (locationId) qs.set('locationId', locationId);
-      if (operatorId) qs.set('operatorId', operatorId);
-      if (sinceDays) {
-        const days = Number(sinceDays);
-        if (Number.isFinite(days) && days > 0) {
-          qs.set(
-            'since',
-            new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
-          );
-        }
-      }
-      const params = qs.toString() ? `?${qs}` : '';
+      const params = filtrosActuales(term);
       const res = await api<Customer[]>(`/customers${params}`);
       // Solo aplicar si seguimos siendo la última request — sino una
       // respuesta lenta de filtros viejos pisaría la nueva.
@@ -239,6 +388,35 @@ export default function CustomersPage() {
       if (myId === requestIdRef.current) {
         setLoading(false);
       }
+    }
+  }
+
+  /**
+   * Excel con dos hojas (clientes y cada movimiento de sellos) o un CSV por
+   * hoja. El CSV de antes solo llevaba la ficha del cliente: el dueño no podía
+   * ver en qué compra se dio cada sello ni cuáles fueron de cortesía.
+   */
+  async function exportar(formato: 'xlsx' | 'csv-clientes' | 'csv-sellos') {
+    try {
+      const datos = await api<DatosExportables>(`/customers/export-datos${filtrosActuales()}`);
+      if (!datos?.clientes?.length) {
+        toast(t('exportNothing'), 'info');
+        return;
+      }
+      const hojas = filasParaExportar(datos, t, tSello);
+      const dia = new Date().toISOString().slice(0, 10);
+      if (formato === 'xlsx') {
+        descargarXlsx(`clientes-${dia}.xlsx`, [
+          { nombre: t('expSheetCustomers'), filas: hojas.clientes },
+          { nombre: t('expSheetStamps'), filas: hojas.sellos },
+        ]);
+      } else if (formato === 'csv-clientes') {
+        descargarCsv(`clientes-${dia}.csv`, hojas.clientes);
+      } else {
+        descargarCsv(`sellos-${dia}.csv`, hojas.sellos);
+      }
+    } catch (e: any) {
+      toast(e.message || t('exportFailed'), 'error');
     }
   }
 
@@ -451,18 +629,35 @@ export default function CustomersPage() {
           <option value="30">📅 {t('last30Days')}</option>
           <option value="90">📅 {t('last90Days')}</option>
         </select>
-        <button
-          className="btn-ghost text-xs shrink-0 whitespace-nowrap"
-          title={t('downloadCsvTitle')}
-          onClick={() =>
-            downloadFile(
-              `/customers/export.csv${search ? `?search=${encodeURIComponent(search)}` : ''}`,
-              `clientes-${new Date().toISOString().slice(0, 10)}.csv`,
-            )
-          }
+        <ActionsMenu
+          label={<>⤓ {t('export')} ▾</>}
+          buttonClassName="btn-ghost text-xs shrink-0 whitespace-nowrap"
+          menuWidth={240}
         >
-          ⤓ {t('exportCsv')}
-        </button>
+          {(close) => (
+            <>
+              {(
+                [
+                  ['xlsx', t('exportExcelAll')],
+                  ['csv-clientes', t('exportCsvCustomers')],
+                  ['csv-sellos', t('exportCsvStamps')],
+                ] as const
+              ).map(([formato, etiqueta]) => (
+                <button
+                  key={formato}
+                  type="button"
+                  onClick={() => {
+                    close();
+                    void exportar(formato);
+                  }}
+                  className="block w-full text-left text-xs font-semibold px-3 py-2 text-ink transition hover:bg-gray-50"
+                >
+                  {etiqueta}
+                </button>
+              ))}
+            </>
+          )}
+        </ActionsMenu>
         <button
           className="btn-primary shrink-0 whitespace-nowrap ml-auto"
           onClick={() => setShowForm(!showForm)}

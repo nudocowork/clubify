@@ -8,6 +8,29 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-22 (143) — «MODIFICACIONES CLIENTES (2)»: panel sin botones, exportación completa, difuminados (SIN DESPLEGAR)
+
+PDF de Javier con 4 puntos. El 3.º (monto y motivo en «Actividad de sellos») ya salió en la entrada 142 y está en producción.
+
+**1. Panel sin «Push» ni «Crear tarjeta».** `frontend/src/app/app/page.tsx`: fuera la fila de botones bajo el encabezado. Las acciones siguen en su sección del menú.
+
+**4. Exportar: clientes + TODOS los sellos.** Antes el CSV sacaba solo la ficha (nombre, correo, pedidos…).
+- Backend `GET /customers/export-datos` (`customers.controller.ts` → `datosParaExportar` en `customers.service.ts`): los clientes de la lista con los MISMOS filtros de la pantalla (búsqueda, sede, escáner, fecha) y cada `Stamp` de esos clientes con monto, `giftReason`, `redeemKind`, nota, operador, sede, pedido y tarjeta. JSON; las hojas las arma el frontend con los textos del idioma del negocio. Sin cambio de esquema.
+- Frontend lista de clientes: el botón «Exportar CSV» pasa a un menú «Exportar ▾» con tres opciones: **Excel: clientes y sellos** (dos hojas), **CSV: solo clientes**, **CSV: solo sellos**. Usa `lib/exportar-hoja.ts` (el mismo del corte de comisiones).
+  - Hoja Clientes: ficha + resumen por cliente (sellos, de cortesía, de fecha especial, canjes, compras con sello, gastado, ticket promedio, último sello, tarjeta instalada).
+  - Hoja Sellos: una fila por movimiento (fecha, cliente, tarjeta, movimiento, cantidad, monto de compra, motivo, nota, operador, sede).
+- La lógica del motivo («Cortesía», «Canje de premio», «Por pedido X»…) se movió a `frontend/src/lib/sellos/motivo-del-sello.ts`, compartida por la ficha del cliente y la exportación. 42 claves nuevas en `app_customers` (es/en/pt).
+- El endpoint viejo `export.csv` sigue existiendo; ya nadie lo llama desde la interfaz.
+
+**2. «Difuminados de colores en las tarjetas».** Respuesta, no código:
+- El área de sellos YA tiene degradado: Tarjetas → editar → «Fondo del área de sellos» → **Degradado** (color principal → secundario, en diagonal). Es el estilo «Clásico» de las tarjetas viejas; las nuevas nacen en «Color sólido».
+- El resto del pase (cabecera, campos, zona del QR) NO puede llevar degradado: Apple Wallet y Google Wallet aceptan un solo color de fondo plano por pase. Es restricción de ellos, no nuestra.
+- Ojo: si la tarjeta tiene configurado el «color del centro» (colores avanzados), «Degradado» pinta ese color plano con brillo, no el degradado (`wallet.service.ts`, `legacyBgFill`). Es comportamiento legado; no se tocó para no cambiar tarjetas existentes.
+
+**Verificado:** `tsc` backend y frontend en verde; eslint sin errores nuevos (2 avisos previos de variables sin usar).
+
+**Pendiente:** desplegar backend y frontend (`node scripts/desplegar.cjs backend` y `frontend`). Sin el backend, el menú «Exportar» da error 404.
+
 ## 2026-10-22 (142) — Ficha del cliente: la actividad de sellos dice el motivo y quién lo dio (SIN DESPLEGAR)
 
 **Qué pedía Javier:** «si doy un sello por cortesía u otro motivo no se ve reflejado en el historial de sellos del cliente». La ficha (`/app/customers/<id>`, «Actividad de sellos») pintaba el código interno (`STAMP +1`) y solo la nota libre; el `giftReason` ya se guardaba desde el 2026-09 pero nadie lo leía ahí. El historial del panel (`StampAuditTable`) sí lo mostraba.

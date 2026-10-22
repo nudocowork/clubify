@@ -73,6 +73,19 @@ export class CustomersController {
     return this.svc.merge(user, body.keepId, body.mergeIds);
   }
 
+  /** Clientes + todos sus sellos, en JSON: el frontend arma el Excel/CSV. */
+  @Get('export-datos')
+  exportarDatos(
+    @CurrentUser() user: AuthUser,
+    @Query('search') search?: string,
+    @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
+    @Query('operatorId') operatorId?: string,
+    @Query('since') since?: string,
+  ) {
+    return this.svc.datosParaExportar(user, search, tenantId, locationId, operatorId, since);
+  }
+
   @Get('export.csv')
   async export(
     @CurrentUser() user: AuthUser,

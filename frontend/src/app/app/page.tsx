@@ -357,16 +357,9 @@ export default function TenantDashboard() {
         title={t('dashboard')}
         crumb={<>/ {today}</>}
       />
-      <div className="page-head justify-end">
-        <div className="flex gap-2 flex-wrap">
-          <Link className="btn-ghost" href="/app/notifications">
-            <Icon name="bell" /> {t('push')}
-          </Link>
-          <Link className="btn-primary" href="/app/cards/new">
-            <Icon name="plus" /> {t('createCard')}
-          </Link>
-        </div>
-      </div>
+      {/* Sin «Push» ni «Crear tarjeta» aquí: el panel es para leer cómo va el
+          negocio, y esas acciones viven en su sección del menú. Un dueño
+          creaba tarjetas de más desde aquí (pedido del 2026-10-22). */}
 
       {/* Pendientes destacados */}
       {m && m.pendingOrders > 0 && (

@@ -146,6 +146,52 @@ export class CustomersService {
     });
   }
 
+  /**
+   * Lo que el negocio se lleva al exportar: los clientes de la lista (mismos
+   * filtros que la pantalla) y CADA movimiento de sellos de esos clientes, con
+   * monto de compra, motivo del regalo, operador y sede.
+   *
+   * El CSV de antes sacaba solo la ficha: el dueño no podía ver en Excel por
+   * qué compra se dio cada sello ni cuáles fueron de cortesía (pedido del
+   * 2026-10-22). El armado de las hojas lo hace el frontend, que es quien
+   * tiene los textos en el idioma del negocio.
+   */
+  async datosParaExportar(
+    user: AuthUser,
+    search?: string,
+    override?: string,
+    locationId?: string,
+    operatorId?: string,
+    sinceISO?: string,
+  ) {
+    const clientes = await this.list(user, search, override, locationId, operatorId, sinceISO);
+    const ids = clientes.map((c) => c.id);
+    const sellos =
+      ids.length === 0
+        ? []
+        : await this.prisma.stamp.findMany({
+            where: { tenantId: this.tenantId(user, override), customerId: { in: ids } },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              customerId: true,
+              createdAt: true,
+              action: true,
+              amount: true,
+              purchaseAmount: true,
+              giftReason: true,
+              redeemKind: true,
+              note: true,
+              orderId: true,
+              order: { select: { code: true } },
+              operator: { select: { fullName: true } },
+              location: { select: { name: true } },
+              pass: { select: { card: { select: { name: true } } } },
+            },
+          });
+    return { clientes, sellos };
+  }
+
   async get(user: AuthUser, id: string) {
     const c = await this.prisma.customer.findUnique({
       where: { id },
