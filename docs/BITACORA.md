@@ -8,6 +8,14 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-23 (145) — Aviso «Nuevo preregistro»: la fecha en hora de Colombia (SIN DESPLEGAR backend)
+
+El aviso decía «Fecha: 23/10/26, 1:24 p. m.» para un registro de las 8:24 a. m. en Bogotá: `toLocaleString` sin `timeZone` usa la zona del servidor (UTC). Ahora `fechaHoraColombia()` en `auth/prereg-alerts.service.ts` fija `America/Bogota` y el aviso dice «Fecha: 23/10/2026, 8:24 a. m. (hora Colombia)». Tres pruebas nuevas en `aviso-cliente-nuevo.spec.ts` (incluye el cambio de día cerca de medianoche UTC).
+
+Quedan otras fechas sin zona en avisos (p. ej. «Próximo cobro» de `hotmart.service.ts` con `toLocaleDateString`): solo fecha, se desvían únicamente entre las 7 p. m. y medianoche de Colombia. No se tocaron.
+
+**Pendiente:** `node scripts/desplegar.cjs backend` y avisar a Jhon.
+
 ## 2026-10-22 (144) — Altieri: «escribía el teléfono y se borraba» (SIN DESPLEGAR frontend)
 
 **Reporte:** el formulario de Altieri Specialty Coffee (Panamá, 8 alianzas con empresas: Mapfre, Morgan & Morgan, Banco Aliado…) no dejaba escribir el número de contacto del cliente: «escribía y le borraba».

@@ -694,12 +694,11 @@ export class PreregAlertsService {
     if (opts.campaignName) {
       lines.push(`Campaña: ${opts.campaignName}`);
     }
-    lines.push(
-      `Fecha: ${new Date().toLocaleString('es-CO', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      })}`,
-    );
+    // Hora de COLOMBIA, siempre. El servidor corre en UTC y sin `timeZone`
+    // el aviso decía «1:24 p. m.» para un registro de las 8:24 a. m. en Bogotá
+    // (Javier, 2026-10-23). Es la hora del equipo que lo recibe, no la del
+    // cliente (que puede estar en México o Panamá).
+    lines.push(`Fecha: ${fechaHoraColombia(new Date())} (hora Colombia)`);
     lines.push('', `Revisar en ${plataforma}.`);
     return lines.join('\n');
   }
@@ -741,4 +740,19 @@ function normalizeBuyerPhone(raw: string | null | undefined): string | null {
     return '+' + digits;
   }
   return null;
+}
+
+/**
+ * «23/10/2026, 8:24 a. m.» en hora de Bogotá, sin importar la zona del servidor.
+ */
+export function fechaHoraColombia(fecha: Date): string {
+  return fecha.toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }

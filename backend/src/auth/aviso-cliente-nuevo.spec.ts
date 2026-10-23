@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PreregAlertsService } from './prereg-alerts.service';
+import { PreregAlertsService, fechaHoraColombia } from './prereg-alerts.service';
 
 /**
  * El aviso de cliente nuevo.
@@ -56,5 +56,25 @@ describe('aviso de cliente nuevo', () => {
     const m: string = mensaje({ brandName: 'Sellea', businessName: 'Laly.com' });
     expect(m).toContain('Nuevo preregistro en Sellea');
     expect(m).toContain('Negocio: Laly.com');
+  });
+});
+
+describe('fecha del aviso en hora de Colombia', () => {
+  it('13:24 UTC se lee como 8:24 a. m. en Bogotá', () => {
+    // El caso real: el servidor está en UTC y el aviso decía «1:24 p. m.».
+    const t = fechaHoraColombia(new Date('2026-10-23T13:24:00Z'));
+    expect(t).toContain('23/10/2026');
+    expect(t).toMatch(/8:24\s*a/);
+  });
+
+  it('cerca de medianoche UTC cambia de día', () => {
+    // 03:10 UTC del 24 = 10:10 p. m. del 23 en Colombia.
+    const t = fechaHoraColombia(new Date('2026-10-24T03:10:00Z'));
+    expect(t).toContain('23/10/2026');
+    expect(t).toMatch(/10:10\s*p/);
+  });
+
+  it('el aviso dice que es hora Colombia', () => {
+    expect(mensaje({})).toMatch(/Fecha: .+ \(hora Colombia\)/);
   });
 });
