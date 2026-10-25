@@ -968,6 +968,24 @@ export class HotmartService {
     });
     if (productLinks.length === 0) return null; // no es pack de créditos
 
+    // Una oferta de PLAN que vive en el producto de servicios adicionales.
+    // La «Mensualidad básica» de USD 25 se vende con una oferta de ese
+    // producto («Implementacion Oferta 25 USD», ui48vhsp), y aquí se tomaba
+    // por un pack de créditos sin dueño: ni negocio, ni enlace de activación,
+    // ni aviso. 27 Grados Licores pagó el 2026-10-25 y nadie se enteró. Si la
+    // oferta no es de ningún pack y SÍ es de un plan configurado en los enlaces
+    // de venta, sigue el camino de cualquier suscripción.
+    if (
+      offerCode &&
+      !productLinks.some((l) => l.hotmartOfferCode === offerCode) &&
+      (await this.periodicidadPorOferta(offerCode))
+    ) {
+      this.logger.log(
+        `[CREDITOS] oferta ${offerCode} del producto ${productId} es un PLAN, no un pack — sigue como suscripción`,
+      );
+      return null;
+    }
+
     this.logger.log(
       `[CREDITOS] WEBHOOK RECIBIDO · tx=${transactionId} producto=${productId} ` +
         `offer=${offerCode ?? '-'} buyer=${buyerEmail ?? '-'} ` +

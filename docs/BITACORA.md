@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (147) — 27 Grados Licores pagó la Mensualidad básica y nadie se enteró (SIN DESPLEGAR + script pendiente)
+
+**Caso:** Rodrigo Rodríguez Villamizar (`27gradoslicores@gmail.com`, +57 320 876 5891) pagó el 25-oct 4:09 p. m. la oferta «Implementacion Oferta 25 USD» (`off=ui48vhsp`, tx HP0666996116, Bancolombia, ~USD 26,12). Javier confirma: es la **Mensualidad básica**, suscripción mensual.
+
+**Por qué se perdió:** esa oferta vive en el producto de Hotmart «CLUBIFY - SERVICIOS ADICIONALES» (7929341), el mismo de los packs de créditos. `tryHandleCreditPurchase` la tomó por un pack de oferta desconocida: compra de créditos `UNASSIGNED`, ingreso «Servicios adicionales» sin negocio, y fin. Ni negocio, ni enlace de activación, ni aviso al equipo. La «Mensualidad básica» configurada en Clubify es OTRA oferta (`shoro1ov`).
+
+**Arreglo de código (commit de esta entrada):** si la oferta no es de ningún pack y SÍ es de un plan de los enlaces de venta (`periodicidadPorOferta`), `tryHandleCreditPurchase` devuelve null y la compra sigue como suscripción (pago pendiente → enlace de activación → avisos).
+
+**Script `scripts/recuperar-compra-de-plan.cjs <tx> <oferta> [--aplicar]`** (simulado OK, NO aplicado — el modo auto bloquea escrituras a prod):
+1. agrega `ui48vhsp` a los enlaces de venta como «Mensualidad básica (oferta en Servicios adicionales)», MENSUAL, USD 25, **inactivo** (no sale a afiliados pero el sistema la reconoce);
+2. crea el `PendingHotmartPayment` con el payload original → aparece en Admin → «Pagos sin activar» (no avisa al comprador);
+3. la compra de créditos `UNASSIGNED` pasa a `IGNORED`.
+Al activarse, el ingreso ya registrado se adopta al negocio (dedup por transacción).
+
+**Ojo:** el pago entró como pago único (Bancolombia, sin `subscription` en el payload). Hotmart podría no cobrarle el mes siguiente; revisar en Hotmart si esa oferta está configurada como suscripción.
+
+**Prueba rota ajena:** `billing/aviso-de-cancelacion.spec.ts` «en PRUEBA cancelada…» falla por fecha fija (2026-10-05 ya pasó). No se tocó.
+
+**Pendiente:** correr el script con `--aplicar`, desplegar backend, reenviar el enlace desde «Pagos sin activar».
+
 ## 2026-10-25 (146) — «Biblioteca de Infolinks» en el panel /admin (SIN DESPLEGAR)
 
 Pedido de Javier: una sección «Biblioteca de Infolinks» en el admin que muestre cada negocio con su logo y los enlaces de sus InfoLinks.
