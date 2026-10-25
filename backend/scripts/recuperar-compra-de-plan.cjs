@@ -7,9 +7,11 @@
  * activación.
  *
  * Qué hace (simula sin --aplicar):
- *  1. Registra la oferta en los enlaces de venta como «Mensualidad básica»
- *     MENSUAL, INACTIVA (no aparece en el panel de afiliados, pero el sistema
- *     la reconoce como plan para activar y fijar la periodicidad).
+ *  1. Registra la oferta en los enlaces de venta como «Mensualidad básica
+ *     (última opción)», MENSUAL y ACTIVA: los afiliados la tienen a la mano
+ *     con su código, y el sistema la reconoce como plan al activar.
+ *     El checkout es el del producto de servicios adicionales (X106312639E),
+ *     no el de la suscripción (U102596072A): con el otro, la oferta no abre.
  *  2. Crea el PendingHotmartPayment con el payload original, para que el pago
  *     salga en Admin → «Pagos sin activar» y se pueda reenviar el enlace.
  *     NO le manda nada al comprador: el reenvío lo decide el equipo.
@@ -45,15 +47,15 @@ async function main() {
   if (ya) console.log('  1. la oferta ya está en los enlaces de venta');
   else {
     const nueva = {
-      id: 'mensualidad-basica-25-servicios',
-      nombre: 'Mensualidad básica (oferta en Servicios adicionales)',
+      id: 'mensualidad-basica-ultima-opcion',
+      nombre: 'Mensualidad básica (última opción)',
       tipo: 'NORMAL',
       periodicidad: 'MENSUAL',
       precioUsd: 25,
-      url: `https://pay.hotmart.com/U102596072A?off=${oferta}`,
-      activo: false,
+      url: `https://pay.hotmart.com/X106312639E?off=${oferta}`,
+      activo: true,
     };
-    console.log('  1. agrego enlace de venta INACTIVO:', JSON.stringify(nueva));
+    console.log('  1. agrego enlace de venta ACTIVO (visible para afiliados):', JSON.stringify(nueva));
     if (aplicar) {
       const valor = JSON.stringify([...lista, nueva]);
       await prisma.setting.upsert({ where: { key: 'landing.enlacesDeVenta' }, update: { value: valor }, create: { key: 'landing.enlacesDeVenta', value: valor } });
