@@ -55,7 +55,8 @@ export class PendingAssignmentService {
    * origina todo es justamente que el correo del pago no es el de la cuenta,
    * así que el admin puede buscar por cualquiera de los dos).
    */
-  async searchTenants(q: string) {
+  /** `alcance`: WHERE de marca; cada marca busca solo entre sus negocios. */
+  async searchTenants(q: string, alcance: Record<string, unknown> = {}) {
     const query = (q ?? '').trim();
     if (query.length < 2) return [];
     const contains = { contains: query, mode: 'insensitive' as const };
@@ -63,6 +64,8 @@ export class PendingAssignmentService {
       where: {
         deletedAt: null,
         isCampaignHost: false,
+        // En AND: el alcance de marca también es un OR y se pisarían.
+        AND: [alcance],
         OR: [
           { brandName: contains },
           { name: contains },

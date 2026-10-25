@@ -2412,7 +2412,12 @@ export class HotmartService {
    * comprador (nombre/correo/teléfono/monto/fecha real) + link de activación
    * para reenviar. Solo lectura.
    */
-  async listPendingPayments() {
+  /**
+   * `alcance`: WHERE de marca (`brandWhiteLabelWhere`). Cada marca ve los pagos
+   * de SU pasarela. Sin él salían en el panel de Clubify los pagos de Stripe de
+   * Sellea (Javier, 2026-10-25).
+   */
+  async listPendingPayments(alcance: Record<string, unknown> = {}) {
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
     const link = (email: string) =>
       `${appUrl}/activar?email=${encodeURIComponent(email)}`;
@@ -2422,17 +2427,17 @@ export class HotmartService {
 
     const [hot, stripe, cross] = await Promise.all([
       this.prisma.pendingHotmartPayment.findMany({
-        where: { consumedAt: null },
+        where: { consumedAt: null, ...alcance },
         orderBy: { createdAt: 'desc' },
         take: 200,
       }),
       this.prisma.pendingStripePayment.findMany({
-        where: { consumedAt: null },
+        where: { consumedAt: null, ...alcance },
         orderBy: { createdAt: 'desc' },
         take: 200,
       }),
       this.prisma.pendingCrossPayment.findMany({
-        where: { consumedAt: null },
+        where: { consumedAt: null, ...alcance },
         orderBy: { createdAt: 'desc' },
         take: 200,
       }),

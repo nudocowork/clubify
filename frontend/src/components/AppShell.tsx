@@ -763,7 +763,9 @@ export default function AppShell({
                 // Exclusivo Sellea: lista SOLO los negocios "Solo InfoLink"
                 // (Gratis y PRO), definidos por su plan. Freemium Sellea.
                 { href: '/admin/infolinks', label: tNav('infoLink'), icon: 'spark', selleaOnly: true },
-                { href: '/admin/pending-payments', label: tNav('unactivatedPayments'), icon: 'bell', hideForMarketing: true, clubifyOnly: true },
+                // Por marca: el backend filtra los pagos de cada una según su
+                // pasarela (Sellea los de Stripe de Sellea; Clubify los suyos).
+                { href: '/admin/pending-payments', label: tNav('unactivatedPayments'), icon: 'bell', hideForMarketing: true },
                 // Cobranza manual (Nequi/efectivo/transferencia): vencidos que
                 // hay que perseguir o desconectar a mano. Vale para TODAS las
                 // marcas (el backend aísla por marca) → sin clubifyOnly.

@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (150) — «Pagos sin activar» por marca, según su pasarela (SIN DESPLEGAR)
+
+Javier: en el panel de Clubify salían 8 pagos de Stripe de Sellea. La lista no filtraba por marca y el menú solo la mostraba a Clubify.
+
+- `GET /admin/pending-payments` filtra las tres tablas (Hotmart, Stripe, cruzados) con `brandWhiteLabelWhere`: Clubify ve los suyos y los legacy sin marca; cada marca blanca, los de su pasarela. Hoy: Hotmart 14 (sin marca → Clubify), Stripe 8 (Sellea).
+- «Reenviar», «Asignar a negocio» (vista previa y aplicar) y el buscador de negocios también se acotan: 404 si el pago o el negocio son de otra marca. `@Roles('SUPER_ADMIN')` no aislaba (el admin de marca también es SUPER_ADMIN).
+- Menú: «Pagos sin activar» ya no es `clubifyOnly`; Sellea lo ve con su lista.
+
+**Verificado:** tsc backend y frontend, eslint, vitest billing (solo falla la prueba de fecha vencida de `aviso-de-cancelacion.spec.ts`, ajena).
+
+**Pendiente:** desplegar backend y frontend.
+
 ## 2026-10-25 (149) — La Mensualidad básica se registraba como plan de USD 68 (SIN DESPLEGAR + script pendiente)
 
 «Pagos sin activar» mostraba $68 en el pago de Rodrigo (27 Grados Licores). No era solo la pantalla: al activar, una oferta mensual sin precio propio cae al canónico MENSUAL (68) para contabilidad y comisión. La Mensualidad básica (USD 25) se contabilizaba y comisionaba como 68.

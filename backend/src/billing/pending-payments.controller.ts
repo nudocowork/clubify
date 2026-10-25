@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Post, Query } from '@nestjs/common';
 import { IsEmail, IsIn, IsOptional, IsString } from 'class-validator';
 import { HotmartService } from './hotmart.service';
 import { StripeService } from './stripe.service';
@@ -7,6 +7,8 @@ import {
   PendingGateway,
 } from './pending-assignment.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { brandWhiteLabelWhere, resolveBrandScope } from '../common/white-label/brand-scope.util';
 import {
   CurrentUser,
   AuthUser,
@@ -40,27 +42,65 @@ export class PendingPaymentsController {
     private hotmart: HotmartService,
     private stripe: StripeService,
     private assignment: PendingAssignmentService,
+    private prisma: PrismaService,
   ) {}
+
+  /**
+   * Cada marca ve y toca SOLO sus pagos sin activar, los de la pasarela que
+   * tiene conectada: Clubify los suyos (y los legacy sin marca), Sellea los
+   * suyos. Antes la lista no filtraba y el panel de Clubify enseñaba los pagos
+   * de Stripe de Sellea (Javier, 2026-10-25). `@Roles('SUPER_ADMIN')` no
+   * aísla marcas: el admin de una marca blanca también es SUPER_ADMIN.
+   */
+  private async alcance(user: AuthUser | undefined) {
+    return brandWhiteLabelWhere(await resolveBrandScope(this.prisma, user?.whiteLabelId ?? null));
+  }
+
+  /** 404 si la fila pendiente o el negocio no son de la marca de la sesión. */
+  private async exigirAlcance(
+    user: AuthUser | undefined,
+    gateway: PendingGateway,
+    pendingId: string,
+    tenantId?: string,
+  ) {
+    const alcance = await this.alcance(user);
+    const where = { id: pendingId, ...alcance };
+    const fila =
+      gateway === 'STRIPE'
+        ? await this.prisma.pendingStripePayment.findFirst({ where, select: { id: true } })
+        : gateway === 'CROSS'
+          ? await this.prisma.pendingCrossPayment.findFirst({ where, select: { id: true } })
+          : await this.prisma.pendingHotmartPayment.findFirst({ where, select: { id: true } });
+    if (!fila) throw new NotFoundException('Pago no encontrado.');
+    if (tenantId) {
+      const t = await this.prisma.tenant.findFirst({
+        where: { id: tenantId, AND: [alcance] },
+        select: { id: true },
+      });
+      if (!t) throw new NotFoundException('Negocio no encontrado.');
+    }
+  }
 
   @Roles('SUPER_ADMIN')
   @Get()
-  list() {
-    return this.hotmart.listPendingPayments();
+  async list(@CurrentUser() user: AuthUser) {
+    return this.hotmart.listPendingPayments(await this.alcance(user));
   }
 
   /** Buscador de negocios para «Asignar a negocio»: por marca, nombre, slug
    *  o correo (del tenant O del dueño — el correo del pago suele ser otro). */
   @Roles('SUPER_ADMIN')
   @Get('tenants')
-  searchTenants(@Query('q') q?: string) {
-    return this.assignment.searchTenants(q ?? '');
+  async searchTenants(@CurrentUser() user: AuthUser, @Query('q') q?: string) {
+    return this.assignment.searchTenants(q ?? '', await this.alcance(user));
   }
 
   /** Vista previa de la asignación: fechas exactas que quedarían, contraste
    *  de correos y cuántos pagos del comprador se aplicarían. No escribe. */
   @Roles('SUPER_ADMIN')
   @Post('assign/preview')
-  previewAssign(@Body() body: AssignBody) {
+  async previewAssign(@CurrentUser() user: AuthUser, @Body() body: AssignBody) {
+    await this.exigirAlcance(user, body.gateway, body.pendingId, body.tenantId);
     return this.assignment.preview(body.gateway, body.pendingId, body.tenantId);
   }
 
@@ -68,7 +108,8 @@ export class PendingPaymentsController {
    *  reales: queda auditado con el admin que lo hizo. */
   @Roles('SUPER_ADMIN')
   @Post('assign')
-  assign(@CurrentUser() user: AuthUser, @Body() body: AssignBody) {
+  async assign(@CurrentUser() user: AuthUser, @Body() body: AssignBody) {
+    await this.exigirAlcance(user, body.gateway, body.pendingId, body.tenantId);
     return this.assignment.assign({
       gateway: body.gateway,
       pendingId: body.pendingId,
@@ -79,7 +120,19 @@ export class PendingPaymentsController {
 
   @Roles('SUPER_ADMIN')
   @Post('resend')
-  async resend(@Body() body: ResendBody) {
+  async resend(@CurrentUser() user: AuthUser, @Body() body: ResendBody) {
+    // Solo se reenvía un pago de la marca de la sesión.
+    const alcance = await this.alcance(user);
+    const email = { equals: body.email.trim(), mode: 'insensitive' as const };
+    const [h, s] = await Promise.all([
+      body.gateway === 'STRIPE'
+        ? null
+        : this.prisma.pendingHotmartPayment.findFirst({ where: { email, consumedAt: null, ...alcance }, select: { id: true } }),
+      body.gateway === 'HOTMART'
+        ? null
+        : this.prisma.pendingStripePayment.findFirst({ where: { email, consumedAt: null, ...alcance }, select: { id: true } }),
+    ]);
+    if (!h && !s) throw new NotFoundException('Pago no encontrado.');
     // El reenvío usa el MISMO camino que el aviso automático del webhook
     // (correo por la subcuenta de la marca + WhatsApp/SMS): reenviar sirve de
     // verdad, no repite un canal muerto.
