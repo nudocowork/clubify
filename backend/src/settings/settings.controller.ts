@@ -163,6 +163,16 @@ export class SettingsController {
     return this.svc.getEnlacesDeVenta();
   }
 
+  /**
+   * Los mismos enlaces más los EXCLUSIVOS de los códigos de quien pregunta.
+   * Con sesión: el código sale de la cuenta, no de la URL, para que nadie vea
+   * la oferta de otro afiliado poniendo su código a mano.
+   */
+  @Get('enlaces-de-venta/mios')
+  getEnlacesDeVentaMios(@CurrentUser() user: AuthUser) {
+    return this.svc.getEnlacesDeVentaDelUsuario(user.id);
+  }
+
   /** Los enlaces AÑADIDOS a mano, para editarlos desde /admin/branding. */
   @Get('admin/enlaces-de-venta')
   @Roles('SUPER_ADMIN', 'MARKETING')

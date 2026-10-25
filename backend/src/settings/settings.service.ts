@@ -422,7 +422,7 @@ export class SettingsService {
    * los añadidos. Es lo que pinta el panel del afiliado (con su código dentro) y
    * lo que evita que una oferta nueva tarde un despliegue en llegarle.
    */
-  async getEnlacesDeVenta(): Promise<EnlaceDeVenta[]> {
+  async getEnlacesDeVenta(codigosDelQueMira: string[] = []): Promise<EnlaceDeVenta[]> {
     const [planes, extras, ajustes] = await Promise.all([
       this.getLandingPlans(),
       this.getEnlacesExtra(),
@@ -443,7 +443,17 @@ export class SettingsService {
       urlDePrueba: mapa.get(KEYS.trialCheckoutUrl) ?? null,
       diasDePrueba: Number.isFinite(dias) && dias > 0 ? dias : null,
       extras,
+      codigosDelQueMira,
     });
+  }
+
+  /** Los enlaces que ve un afiliado: los de todos más los exclusivos de sus códigos. */
+  async getEnlacesDeVentaDelUsuario(userId: string): Promise<EnlaceDeVenta[]> {
+    const codigos = await this.prisma.referralCode.findMany({
+      where: { ownerUserId: userId },
+      select: { code: true },
+    });
+    return this.getEnlacesDeVenta(codigos.map((c) => c.code));
   }
 
   /** Update parcial de los planes. Permite mandar solo los planes que

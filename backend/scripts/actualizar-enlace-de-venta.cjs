@@ -2,7 +2,9 @@
  * Cambia un enlace de venta EXTRA (los de /admin/branding) buscándolo por su
  * código de oferta (`off=`). Simula sin --aplicar.
  *
- *   node scripts/actualizar-enlace-de-venta.cjs <oferta> [--nombre "..."] [--url "..."] [--activo si|no] [--aplicar]
+ *   node scripts/actualizar-enlace-de-venta.cjs <oferta> [--nombre "..."] [--url "..."] [--activo si|no] [--solo "COD1,COD2" | --solo todos] [--aplicar]
+ *
+ * `--solo` deja el enlace exclusivo de esos códigos de afiliado (`todos` lo abre a todos).
  */
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
@@ -20,6 +22,11 @@ async function main() {
   if (arg('--nombre')) lista[i].nombre = arg('--nombre');
   if (arg('--url')) { const u = new URL(arg('--url')); if (u.searchParams.get('off') !== oferta) throw new Error('La URL nueva no lleva la misma oferta'); lista[i].url = u.toString(); }
   if (arg('--activo')) lista[i].activo = arg('--activo') === 'si';
+  if (arg('--solo')) {
+    const v = arg('--solo');
+    if (v === 'todos') delete lista[i].soloParaCodigos;
+    else lista[i].soloParaCodigos = v.split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+  }
   console.log(`${aplicar ? 'APLICANDO' : 'SIMULACIÓN'}\n  antes:   ${JSON.stringify(antes)}\n  después: ${JSON.stringify(lista[i])}`);
   if (aplicar) await prisma.setting.update({ where: { key: 'landing.enlacesDeVenta' }, data: { value: JSON.stringify(lista) } });
 }

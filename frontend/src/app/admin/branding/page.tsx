@@ -18,6 +18,8 @@ type EnlaceDeVenta = {
   precioUsd: number | null;
   url: string;
   activo: boolean;
+  /** Códigos de afiliado que lo ven. Vacío = todos. */
+  soloParaCodigos?: string[];
 };
 type LandingPlans = Record<PlanId, LandingPlan>;
 
@@ -427,6 +429,29 @@ export default function AdminBrandingPage() {
                     placeholder="https://pay.hotmart.com/..."
                     value={e.url}
                     onChange={(ev) => setEnlaces(enlaces.map((x, k) => (k === i ? { ...x, url: ev.target.value } : x)))}
+                  />
+                </div>
+                <div className="col-span-12">
+                  <label className="label">Solo para estos afiliados (códigos, separados por coma)</label>
+                  <input
+                    className="input font-mono text-xs"
+                    placeholder="Vacío = lo ven todos. Ej: QZ4ZYHDZ, TAFMPWK5"
+                    value={(e.soloParaCodigos ?? []).join(', ')}
+                    onChange={(ev) =>
+                      setEnlaces(
+                        enlaces.map((x, k) =>
+                          k === i
+                            ? {
+                                ...x,
+                                soloParaCodigos: ev.target.value
+                                  .split(',')
+                                  .map((c) => c.trim().toUpperCase())
+                                  .filter((c, j, arr) => c !== '' || j === arr.length - 1),
+                              }
+                            : x,
+                        ),
+                      )
+                    }
                   />
                 </div>
                 <div className="col-span-12 flex items-center justify-between">

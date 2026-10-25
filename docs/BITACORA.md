@@ -8,6 +8,23 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (148) — Enlaces de venta exclusivos de un afiliado (SIN DESPLEGAR + script pendiente)
+
+Javier: el pago único de USD 25 (`off=ui48vhsp`, producto Servicios adicionales `X106312639E`) debe verlo SOLO Nicolás Quintero, con el nombre «(Implementación Estrategia 2) - 25$ Único pago». La Mensualidad básica recurrente que ven todos es `off=shoro1ov` (comprobado: sus ventas llegan como suscripción; las de ui48vhsp, como pago único).
+
+- `EnlaceDeVenta.soloParaCodigos` (códigos de ReferralCode). `normalizarEnlaces` lo conserva —si se perdiera al guardar desde Branding, la oferta quedaría a la vista de todos—; `componerEnlaces` lo filtra por los códigos de quien mira.
+- `GET /enlaces-de-venta` (público) ya no trae exclusivos. Nuevo `GET /enlaces-de-venta/mios` (con sesión): los códigos salen de la cuenta (`ReferralCode.ownerUserId`), no de la URL.
+- Panel del afiliado usa `/mios` (respaldo: el público) y marca «Solo tuyo». Branding: campo «Solo para estos afiliados».
+- Nicolás tiene DOS códigos: QZ4ZYHDZ (vendedor) y TAFMPWK5 (influencer), cuentas distintas. Van los dos.
+- `scripts/actualizar-enlace-de-venta.cjs` gana `--solo "COD1,COD2"` / `--solo todos`.
+- 5 pruebas nuevas en `settings/enlaces-exclusivos.spec.ts`.
+
+**ORDEN:** desplegar backend y frontend ANTES de correr el script. Con el backend viejo `soloParaCodigos` se ignora y la oferta, activa, la ven todos (hoy ya está activa y visible para todos).
+
+```
+railway run … node scripts/actualizar-enlace-de-venta.cjs ui48vhsp --nombre "(Implementación Estrategia 2) - 25$ Único pago" --activo si --solo "QZ4ZYHDZ,TAFMPWK5" --aplicar
+```
+
 ## 2026-10-25 (147) — 27 Grados Licores pagó la Mensualidad básica y nadie se enteró (SIN DESPLEGAR + script pendiente)
 
 **Caso:** Rodrigo Rodríguez Villamizar (`27gradoslicores@gmail.com`, +57 320 876 5891) pagó el 25-oct 4:09 p. m. la oferta «Implementacion Oferta 25 USD» (`off=ui48vhsp`, tx HP0666996116, Bancolombia, ~USD 26,12). Javier confirma: es la **Mensualidad básica**, suscripción mensual.

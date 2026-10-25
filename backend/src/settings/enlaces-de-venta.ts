@@ -26,6 +26,34 @@ export interface EnlaceDeVenta {
   precioUsd: number | null;
   url: string;
   activo: boolean;
+  /**
+   * Códigos de afiliado (ReferralCode.code) que pueden ver este enlace. Vacío o
+   * ausente = todos. Para ofertas de una sola persona: el pago único de la
+   * «Implementación Estrategia 2» es solo de Nicolás Quintero (Javier,
+   * 2026-10-25). Se guarda con el enlace para que editar la lista desde
+   * /admin/branding no lo borre y deje la oferta a la vista de todos.
+   */
+  soloParaCodigos?: string[];
+}
+
+/** Códigos en mayúsculas, sin espacios ni repetidos. Acepta lista o texto «A, B». */
+export function normalizarCodigos(v: unknown): string[] {
+  const crudos = Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[\s,;]+/) : [];
+  const out = new Set<string>();
+  for (const x of crudos) {
+    const c = typeof x === 'string' ? x.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '') : '';
+    if (c) out.add(c.slice(0, 40));
+    if (out.size >= 20) break;
+  }
+  return [...out];
+}
+
+/** Si quien mira (por sus códigos) puede ver el enlace. */
+export function enlaceVisiblePara(e: Pick<EnlaceDeVenta, 'soloParaCodigos'>, codigos: string[] = []): boolean {
+  const solo = e.soloParaCodigos ?? [];
+  if (solo.length === 0) return true;
+  const mios = new Set(codigos.map((c) => c.toUpperCase()));
+  return solo.some((c) => mios.has(c));
 }
 
 export const CLAVE_ENLACES_DE_VENTA = 'landing.enlacesDeVenta';
@@ -101,6 +129,9 @@ export function normalizarEnlaces(raw: unknown): EnlaceDeVenta[] {
       precioUsd: Number.isFinite(precio) && precio > 0 ? Math.round(precio * 100) / 100 : null,
       url,
       activo: o.activo !== false,
+      ...(normalizarCodigos(o.soloParaCodigos).length
+        ? { soloParaCodigos: normalizarCodigos(o.soloParaCodigos) }
+        : {}),
     });
     if (out.length >= MAX_ENLACES) break;
   }
@@ -125,6 +156,8 @@ export function componerEnlaces(args: {
   urlDePrueba?: string | null;
   diasDePrueba?: number | null;
   extras?: EnlaceDeVenta[];
+  /** Códigos de afiliado de quien mira. Sin ellos no sale ningún enlace exclusivo. */
+  codigosDelQueMira?: string[];
 }): EnlaceDeVenta[] {
   const out: EnlaceDeVenta[] = [];
   for (const id of ['mensual', 'trimestral', 'semestral', 'anual']) {
@@ -157,6 +190,7 @@ export function componerEnlaces(args: {
   const ids = new Set(out.map((e) => e.id));
   for (const extra of args.extras ?? []) {
     if (!extra.activo || ids.has(extra.id)) continue;
+    if (!enlaceVisiblePara(extra, args.codigosDelQueMira)) continue;
     ids.add(extra.id);
     out.push(extra);
   }

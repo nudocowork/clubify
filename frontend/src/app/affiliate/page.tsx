@@ -3379,6 +3379,8 @@ function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug
     periodicidad: string | null;
     precioUsd: number | null;
     url: string;
+    /** Si viene, el enlace es exclusivo de algunos afiliados (entre ellos este). */
+    soloParaCodigos?: string[];
   };
   const [enlaces, setEnlaces] = useState<Enlace[]>([]);
   useEffect(() => {
@@ -3386,7 +3388,10 @@ function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug
     // Del listado ÚNICO de enlaces de venta: planes, pagos parciales y los que
     // llevan prueba. Así, una oferta nueva le aparece al afiliado en cuanto se
     // configura, sin esperar a un despliegue (Javier, 2026-09-17).
-    api<Enlace[]>('/enlaces-de-venta')
+    // `/mios` suma los enlaces exclusivos de los códigos de esta cuenta. Si
+    // falla, la lista general: mejor sin el exclusivo que sin ninguno.
+    api<Enlace[]>('/enlaces-de-venta/mios')
+      .catch(() => api<Enlace[]>('/enlaces-de-venta'))
       .then((d) => setEnlaces(Array.isArray(d) ? d : []))
       .catch(() => setEnlaces([]));
   }, [esClubify]);
@@ -3406,6 +3411,11 @@ function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug
               <span className="text-xs flex-1 truncate">
                 {e.nombre}
                 {e.precioUsd ? <span className="text-mute"> · ${e.precioUsd} USD</span> : null}
+                {e.soloParaCodigos?.length ? (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-brand-soft text-brand text-[9px] uppercase tracking-wide">
+                    Solo tuyo
+                  </span>
+                ) : null}
                 {ETIQUETA[e.tipo] ? (
                   <span className="ml-1 px-1.5 py-0.5 rounded-full bg-bg2 text-[9px] uppercase tracking-wide text-mute">
                     {ETIQUETA[e.tipo]}
