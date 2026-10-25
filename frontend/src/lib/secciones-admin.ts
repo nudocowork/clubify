@@ -13,6 +13,7 @@
  */
 export const SECCIONES_ADMIN: ReadonlySet<string> = new Set([
   'academia', 'accounting', 'affiliate-registration', 'ai-knowledge',
+  'biblioteca-infolinks',
   'audit', 'automatizaciones', 'branding', 'business-categories',
   'business-groups', 'commissions', 'contabilidad', 'creditos', 'industries',
   'infolinks', 'integrations', 'lab', 'maintenance', 'map', 'marcas-blancas',

@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (146) — «Biblioteca de Infolinks» en el panel /admin (SIN DESPLEGAR)
+
+Pedido de Javier: una sección «Biblioteca de Infolinks» en el admin que muestre cada negocio con su logo y los enlaces de sus InfoLinks.
+
+- Backend: `GET /admin/biblioteca-infolinks` (módulo `biblioteca-infolinks/`). Roles y alcance de marca IGUALES que Métricas (SUPER_ADMIN y MARKETING, `resolveBrandScope`). Devuelve los negocios con al menos un InfoLink, sus enlaces ya armados y el de «todos sus enlaces» (`/i/<negocio>`). El dominio sigue la regla del panel del negocio: dominio propio → app de la marca → dominio de la marca → soyclubify.com (un negocio de Sellea nunca recibe un enlace de soyclubify.com). Reglas puras en `enlaces.ts` con 5 pruebas.
+- Frontend: `/admin/biblioteca-infolinks`, en el menú debajo de «Métricas». Buscador (negocio, título o enlace), «Solo activos», vista cuadrícula o lista (se recuerda por navegador), botones Copiar y Abrir. Logo con `<img>` (no next/image, por la lista de hosts) e iniciales si no hay logo. Sección añadida a `SECCIONES_ADMIN`.
+- No es la página `/admin/infolinks` existente: esa es la de usuarios «Solo InfoLink» de Sellea.
+
+**Verificado:** tsc backend y frontend en verde, vitest 5/5, eslint sin errores.
+
+**Pendiente:** `node scripts/desplegar.cjs backend` y `frontend`.
+
 ## 2026-10-23 (145) — Aviso «Nuevo preregistro»: la fecha en hora de Colombia (SIN DESPLEGAR backend)
 
 El aviso decía «Fecha: 23/10/26, 1:24 p. m.» para un registro de las 8:24 a. m. en Bogotá: `toLocaleString` sin `timeZone` usa la zona del servidor (UTC). Ahora `fechaHoraColombia()` en `auth/prereg-alerts.service.ts` fija `America/Bogota` y el aviso dice «Fecha: 23/10/2026, 8:24 a. m. (hora Colombia)». Tres pruebas nuevas en `aviso-cliente-nuevo.spec.ts` (incluye el cambio de día cerca de medianoche UTC).

@@ -21,6 +21,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { ReporteComisionesModule } from './reporte-comisiones/reporte-comisiones.module';
 import { MetricasModule } from './metricas/metricas.module';
+import { BibliotecaInfolinksModule } from './biblioteca-infolinks/biblioteca-infolinks.module';
 import { PagosPorAprobarModule } from './pagos-por-aprobar/pagos-por-aprobar.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { FinanceModule } from './finance/finance.module';
@@ -109,6 +110,7 @@ import { VigilanciaModule } from './vigilancia/vigilancia.module';
     ReporteComisionesModule,
     // Página «Métricas» del panel /admin: agregados de todos los negocios de la marca.
     MetricasModule,
+    BibliotecaInfolinksModule,
     PagosPorAprobarModule,
     AccountingModule,
     FinanceModule,
