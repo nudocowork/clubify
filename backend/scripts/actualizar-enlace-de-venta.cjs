@@ -22,6 +22,10 @@ async function main() {
   if (arg('--nombre')) lista[i].nombre = arg('--nombre');
   if (arg('--url')) { const u = new URL(arg('--url')); if (u.searchParams.get('off') !== oferta) throw new Error('La URL nueva no lleva la misma oferta'); lista[i].url = u.toString(); }
   if (arg('--activo')) lista[i].activo = arg('--activo') === 'si';
+  if (arg('--precio-del-plan')) {
+    if (arg('--precio-del-plan') === 'si') lista[i].precioEsElDelPlan = true;
+    else delete lista[i].precioEsElDelPlan;
+  }
   if (arg('--solo')) {
     const v = arg('--solo');
     if (v === 'todos') delete lista[i].soloParaCodigos;

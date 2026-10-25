@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (149) — La Mensualidad básica se registraba como plan de USD 68 (SIN DESPLEGAR + script pendiente)
+
+«Pagos sin activar» mostraba $68 en el pago de Rodrigo (27 Grados Licores). No era solo la pantalla: al activar, una oferta mensual sin precio propio cae al canónico MENSUAL (68) para contabilidad y comisión. La Mensualidad básica (USD 25) se contabilizaba y comisionaba como 68.
+
+- `EnlaceDeVenta.precioEsElDelPlan`: el `precioUsd` del enlace ES el precio del plan. `precioPactadoDeLaOferta` lo resuelve por `off=`.
+- `activatePurchase`: si el negocio no tiene override manual, fija `subscriptionPriceUsd` con ese precio (antes de generar comisiones) y el ingreso sale con él. Un override ya puesto no se pisa.
+- `listPendingPayments`: el monto mostrado usa ese precio.
+- NO se marca en los de abono: ahí lo pactado sigue siendo el plan completo.
+- `actualizar-enlace-de-venta.cjs --precio-del-plan si|no`. 4 pruebas nuevas.
+
+**Pendiente (después de desplegar):** marcar `shoro1ov` y `ui48vhsp` con `--precio-del-plan si`. Carlos Horneffer (shoro1ov, 22-oct) también está en «Pagos sin activar».
+
 ## 2026-10-25 (148) — Enlaces de venta exclusivos de un afiliado (SIN DESPLEGAR + script pendiente)
 
 Javier: el pago único de USD 25 (`off=ui48vhsp`, producto Servicios adicionales `X106312639E`) debe verlo SOLO Nicolás Quintero, con el nombre «(Implementación Estrategia 2) - 25$ Único pago». La Mensualidad básica recurrente que ven todos es `off=shoro1ov` (comprobado: sus ventas llegan como suscripción; las de ui48vhsp, como pago único).

@@ -34,6 +34,37 @@ export interface EnlaceDeVenta {
    * /admin/branding no lo borre y deje la oferta a la vista de todos.
    */
   soloParaCodigos?: string[];
+  /**
+   * El `precioUsd` de este enlace ES el precio del plan: la base de la comisión
+   * y lo que se contabiliza. Sin esto un plan de precio propio (Mensualidad
+   * básica, USD 25) se registraba como el mensual canónico de USD 68.
+   * NO se marca en los de abono: ahí lo pactado sigue siendo el plan completo.
+   */
+  precioEsElDelPlan?: boolean;
+}
+
+/**
+ * El precio pactado de una oferta, si su enlace lo declara (`precioEsElDelPlan`).
+ * Null si la oferta no está o su precio no es el del plan.
+ */
+export function precioPactadoDeLaOferta(
+  codigoDeOferta: string | null | undefined,
+  enlaces: Array<{ url: string; precioUsd?: number | null; precioEsElDelPlan?: boolean }>,
+): number | null {
+  const codigo = (codigoDeOferta ?? '').trim().toLowerCase();
+  if (!codigo) return null;
+  for (const e of enlaces) {
+    let off: string | null = null;
+    try {
+      off = new URL(e.url).searchParams.get('off');
+    } catch {
+      continue;
+    }
+    if (off && off.trim().toLowerCase() === codigo) {
+      return e.precioEsElDelPlan && e.precioUsd != null && e.precioUsd > 0 ? e.precioUsd : null;
+    }
+  }
+  return null;
 }
 
 /** Códigos en mayúsculas, sin espacios ni repetidos. Acepta lista o texto «A, B». */
@@ -132,6 +163,7 @@ export function normalizarEnlaces(raw: unknown): EnlaceDeVenta[] {
       ...(normalizarCodigos(o.soloParaCodigos).length
         ? { soloParaCodigos: normalizarCodigos(o.soloParaCodigos) }
         : {}),
+      ...(o.precioEsElDelPlan === true ? { precioEsElDelPlan: true } : {}),
     });
     if (out.length >= MAX_ENLACES) break;
   }

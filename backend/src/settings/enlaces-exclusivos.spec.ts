@@ -40,3 +40,30 @@ describe('enlaces de venta exclusivos de un afiliado', () => {
     expect(normalizarCodigos(null)).toEqual([]);
   });
 });
+
+import { precioPactadoDeLaOferta } from './enlaces-de-venta';
+
+describe('precio pactado de la oferta (Mensualidad básica)', () => {
+  const enlaces = normalizarEnlaces([
+    { id: 'basica', nombre: 'Mensualidad básica', periodicidad: 'MENSUAL', precioUsd: 25, url: 'https://pay.hotmart.com/U102596072A?off=shoro1ov', precioEsElDelPlan: true },
+    { id: 'abono', nombre: 'Plan Trimestral + Abono', periodicidad: 'TRIMESTRAL', precioUsd: 130, url: 'https://pay.hotmart.com/U102596072A?off=iqbgp4fq' },
+  ]);
+
+  it('la básica cuenta como USD 25, no como el mensual de 68', () => {
+    expect(precioPactadoDeLaOferta('SHORO1OV', enlaces)).toBe(25);
+  });
+
+  it('un abono NO cambia el precio del plan (sigue el canónico)', () => {
+    expect(precioPactadoDeLaOferta('iqbgp4fq', enlaces)).toBeNull();
+  });
+
+  it('una oferta desconocida, null', () => {
+    expect(precioPactadoDeLaOferta('nada', enlaces)).toBeNull();
+    expect(precioPactadoDeLaOferta(null, enlaces)).toBeNull();
+  });
+
+  it('guardar desde Branding conserva la marca', () => {
+    expect(enlaces[0].precioEsElDelPlan).toBe(true);
+    expect(enlaces[1].precioEsElDelPlan).toBeUndefined();
+  });
+});

@@ -27,6 +27,7 @@ import {
   CLAVE_ENLACES_DE_VENTA,
   normalizarEnlaces,
   periodicidadDeLaOferta,
+  precioPactadoDeLaOferta,
 } from '../settings/enlaces-de-venta';
 import { getCanonicalBundlePrice } from '../common/plan-pricing';
 import { SmsTemplatesService } from './sms-templates.service';
@@ -329,6 +330,24 @@ export class HotmartService {
    */
   private async periodicidadPorOferta(codigo: string | null | undefined) {
     if (!codigo) return null;
+    const enlaces = await this.enlacesConfigurados();
+    return enlaces ? periodicidadDeLaOferta(codigo, enlaces) : null;
+  }
+
+  /**
+   * Precio del plan declarado en el enlace de venta de la oferta
+   * (`precioEsElDelPlan`). Ver `precioPactadoDeLaOferta`. Best-effort.
+   */
+  private async precioPactadoPorOferta(codigo: string | null | undefined) {
+    if (!codigo) return null;
+    const enlaces = await this.enlacesConfigurados();
+    return enlaces ? precioPactadoDeLaOferta(codigo, enlaces) : null;
+  }
+
+  /** Los 4 planes y los enlaces añadidos en /admin/branding. Null si falla. */
+  private async enlacesConfigurados(): Promise<
+    Array<{ url: string; periodicidad: string | null; precioUsd?: number | null; precioEsElDelPlan?: boolean }> | null
+  > {
     try {
       const filas = await this.prisma.setting.findMany({
         where: {
@@ -344,7 +363,7 @@ export class HotmartService {
         },
         select: { key: true, value: true },
       });
-      const enlaces: Array<{ url: string; periodicidad: string | null }> = [];
+      const enlaces: Array<{ url: string; periodicidad: string | null; precioUsd?: number | null; precioEsElDelPlan?: boolean }> = [];
       for (const f of filas) {
         if (f.key === CLAVE_ENLACES_DE_VENTA) {
           enlaces.push(...normalizarEnlaces(f.value));
@@ -353,7 +372,7 @@ export class HotmartService {
           if (plan && f.value) enlaces.push({ url: f.value, periodicidad: plan.toUpperCase() });
         }
       }
-      return periodicidadDeLaOferta(codigo, enlaces);
+      return enlaces;
     } catch {
       return null;
     }
@@ -1980,12 +1999,22 @@ export class HotmartService {
     // Trimestral $150, Semestral $278, Anual $500). Es la MISMA base que la
     // comisión. `realPriceUsd` (lo realmente pagado) YA NO alimenta el ingreso;
     // sigue yendo SOLO a auditoría en `lastPaymentAmountUsd` (más abajo).
+    // Plan de precio propio (Mensualidad básica, USD 25): su enlace de venta
+    // declara que ese precio ES el del plan. Se fija como `subscriptionPriceUsd`
+    // la primera vez —sin pisar un override puesto a mano— y así la comisión y
+    // la contabilidad salen sobre 25 y no sobre el mensual canónico de 68.
+    const precioDeLaOferta =
+      planForBase?.subscriptionPriceUsd == null
+        ? await this.precioPactadoPorOferta(payload.data?.purchase?.offer?.code)
+        : null;
     const incomeGrossUsd =
       planForBase?.subscriptionPriceUsd != null
         ? Number(planForBase.subscriptionPriceUsd)
-        : canonicalUsd > 0
-          ? canonicalUsd
-          : null;
+        : precioDeLaOferta != null
+          ? precioDeLaOferta
+          : canonicalUsd > 0
+            ? canonicalUsd
+            : null;
 
     // CONTABILIDAD (Fase 1): registrar el ingreso de Hotmart con su desglose
     // (bruto/fee/impuesto/neto). El servicio deduplica por transactionId y salta
@@ -2015,6 +2044,7 @@ export class HotmartService {
         // de una. Como el canónico del plan ES la base de comisión cuando no
         // hay override manual, sin esto un trimestral cobraba sobre $68.
         ...(periodFromHotmart ? { planPeriodicity: periodFromHotmart } : {}),
+        ...(precioDeLaOferta != null ? { subscriptionPriceUsd: precioDeLaOferta } : {}),
         // 2026-07-31: el monto crudo (FX) va a auditoría, NO a la base de
         // comisiones. subscriptionPriceUsd es override MANUAL only; si está
         // vacío las comisiones usan el canónico del plan. Antes se pisaba acá
@@ -2447,7 +2477,9 @@ export class HotmartService {
       const periodicity = parsePlanPeriodLabel(
         raw?.data?.subscription?.plan?.name ?? '',
       );
-      const canonico = await this.getCanonicalBundlePrice(periodicity);
+      // Plan de precio propio (Mensualidad básica): su precio, no el canónico.
+      const pactadoOferta = await this.precioPactadoPorOferta(raw?.data?.purchase?.offer?.code);
+      const canonico = pactadoOferta ?? (await this.getCanonicalBundlePrice(periodicity));
       // Se acepta el valor del payload solo si dice USD y cae en la banda del
       // plan; si no, se muestra el pactado. Nunca una cifra inventada.
       const enBanda =
