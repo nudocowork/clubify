@@ -18,7 +18,7 @@ Diseño de Claude Design («Clubify Sales Wall.dc.html», zip en Descargas «For
 - Sonido: el navegador lo bloquea hasta que alguien pulsa «ACTIVAR SONIDO» una vez en la TV.
 - Logo en `frontend/public/sales-wall/clubify-logo.png`. 4 pruebas nuevas (`sales-wall/eventos.spec.ts`).
 
-**Pendiente:** desplegar backend y frontend; definir la meta mensual real.
+**Actualización (mismo día):** desplegado; Javier pidió «más amigable, menos IA», modo claro/oscuro y que se pudiera bajar. Rediseño con la estética de Clubify: Inter, verde Clubify para ventas y azul para renovaciones, tarjetas blancas (claro) o grafito (oscuro), etiquetas en minúscula, sin neón ni glow; botón «Modo claro/oscuro» (se recuerda por navegador, o `?tema=`); la página ya hace scroll y en pantallas angostas pasa a una columna. Meta por defecto USD 4.000 (octubre).
 
 ## 2026-10-25 (150) — «Pagos sin activar» por marca, según su pasarela (SIN DESPLEGAR)
 

@@ -5,35 +5,53 @@ import { api } from '@/lib/api';
 /**
  * Clubify Sales Wall — la pantalla de ventas para la TV de la oficina.
  *
- * Diseño de Claude Design («Clubify Sales Wall.dc.html», 2026-10-25), pasado
- * a React tal cual. Los datos salen de `GET /admin/sales-wall`: ventas y
- * renovaciones del mes en hora de Bogotá, desde Contabilidad (lo cobrado de
- * verdad, cuadrado con Hotmart). Se consulta cada `?cada=` segundos (15 por
- * defecto) y cada operación nueva dispara la celebración.
+ * Nació del diseño de Claude Design («Clubify Sales Wall.dc.html»,
+ * 2026-10-25). El 2026-10-25 Javier pidió que fuera «más amigable, menos IA»,
+ * con modo claro y oscuro, y que se pudiera bajar en pantallas pequeñas: se
+ * cambió el neón sobre negro y las etiquetas en mayúsculas espaciadas por la
+ * estética de Clubify (Inter, verde #22C55E, tarjetas blancas o grafito).
+ *
+ * Datos: `GET /admin/sales-wall` — ventas y renovaciones del mes en hora de
+ * Bogotá, desde Contabilidad (lo cobrado de verdad, cuadrado con Hotmart).
+ * Se consulta cada `?cada=` segundos (15 por defecto); la primera respuesta
+ * cuenta sin celebrar y las siguientes celebran lo nuevo.
  *
  * Opciones por URL, para no tocar código desde la TV:
  *   ?meta=4000    meta mensual en USD (sin ella, la de octubre 2026: 4.000)
  *   ?cada=15      segundos entre consultas
- *   ?demo=1       datos simulados (etiqueta DEMO visible)
+ *   ?tema=oscuro  o claro; si no, el último elegido o el del sistema
+ *   ?demo=1       datos simulados (etiqueta «Demo» visible)
  */
 
 const TZ = 'America/Bogota';
-const C_V = '#CAFF00';
-const C_R = '#5FD4FF';
 const MSG_V = '¡Bienvenido a Clubify!';
-const MSG_R = '¡Un cliente más que continúa creciendo con Clubify!';
-const fmtTime = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-const fmtHM = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
-const fmtDate = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-const fmtDM = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, day: '2-digit', month: 'short' });
+const MSG_R = 'Sigue creciendo con Clubify';
+const fmtTime = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: true });
+const fmtHM = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: true });
+const fmtDate = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' });
+const fmtDM = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, day: 'numeric', month: 'short' });
 const fmtMonth = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, month: 'long', year: 'numeric' });
 const fmtKey = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 const dayKey = (ts: number) => fmtKey.format(new Date(ts));
 const monthKey = (ts: number) => dayKey(ts).slice(0, 7);
-const fmtUSD = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
+const fmtUSD = (n: number) => 'US$ ' + Math.round(n).toLocaleString('es-CO');
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const iniciales = (n: string) =>
+  n
+    .replace(/[^\p{L}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join('') || '·';
 
-const MONO = "'JetBrains Mono', ui-monospace, monospace";
+type Tema = 'claro' | 'oscuro';
+/** Colores por tema. Venta = verde Clubify; renovación = azul. */
+const PALETA: Record<Tema, { venta: string; ventaRgb: string; renov: string; renovRgb: string; confeti: string[] }> = {
+  claro: { venta: '#16A34A', ventaRgb: '22,163,74', renov: '#2563EB', renovRgb: '37,99,235', confeti: ['#22C55E', '#16A34A', '#86EFAC', '#FACC15', '#38BDF8'] },
+  oscuro: { venta: '#22C55E', ventaRgb: '34,197,94', renov: '#60A5FA', renovRgb: '96,165,250', confeti: ['#22C55E', '#4ADE80', '#BBF7D0', '#FDE047', '#7DD3FC'] },
+};
 
 const DEMO_AF = ['Juan Pérez', 'María Gómez', 'Andrés Ramírez', 'Laura Castillo', 'Santiago Torres', 'Valentina Ríos'];
 const DEMO_NEG = ['Restaurante El Sabor', 'Café Central', 'Panadería La Espiga', 'Barbería Clásica', 'Pizzería Napoli', 'Spa Armonía', 'Heladería Polar'];
@@ -49,7 +67,6 @@ type Evento = {
   negocio: string;
   plan: string;
   confirmed: boolean;
-  estado: string;
 };
 type Raw = Record<string, any>;
 
@@ -67,18 +84,29 @@ function normalize(raw: Raw): Evento | null {
   const plan = typeof raw.plan === 'string' ? raw.plan : '';
   const id = String(raw.id ?? `${type}-${ts}-${afiliado}-${negocio}`);
   const usd = Number(raw.monto_usd ?? raw.monto ?? raw.amount ?? 0) || 0;
-  return {
-    id,
-    type,
-    usd,
-    ts: Number.isNaN(ts) ? Date.now() : ts,
-    afiliado,
-    negocio,
-    plan,
-    confirmed,
-    estado: confirmed ? 'CONFIRMADA' : estadoRaw.toUpperCase().slice(0, 14),
-  };
+  return { id, type, usd, ts: Number.isNaN(ts) ? Date.now() : ts, afiliado, negocio, plan, confirmed };
 }
+
+const CSS = `
+.sw{--bg:#F4F6F5;--card:#FFFFFF;--ink:#0F172A;--ink2:#334155;--mute:#64748B;--line:#E5E7EB;--soft:#F1F5F3;--track:#E9EEEB;
+  --venta:#16A34A;--venta-soft:#DCFCE7;--renov:#2563EB;--renov-soft:#DBEAFE;--brand:#22C55E;--shadow:0 1px 2px rgba(15,23,42,.04),0 8px 24px rgba(15,23,42,.06)}
+.sw[data-tema="oscuro"]{--bg:#0B1110;--card:#121A18;--ink:#ECF2EF;--ink2:#C7D2CD;--mute:#8A9A93;--line:#1F2A27;--soft:#16201D;--track:#1C2724;
+  --venta:#22C55E;--venta-soft:rgba(34,197,94,.14);--renov:#60A5FA;--renov-soft:rgba(96,165,250,.14);--shadow:0 1px 2px rgba(0,0,0,.3)}
+.sw{min-height:100vh;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;position:relative;
+  display:flex;flex-direction:column;gap:clamp(12px,1.2vw,28px);padding:clamp(14px,1.6vw,40px);transition:background .3s,color .3s}
+.sw *{box-sizing:border-box}
+.sw-card{background:var(--card);border:1px solid var(--line);border-radius:clamp(14px,1vw,22px);box-shadow:var(--shadow)}
+.sw-label{font-size:clamp(13px,.95vw,22px);font-weight:600;color:var(--mute)}
+.sw-num{font-variant-numeric:tabular-nums}
+.sw-btn{display:inline-flex;align-items:center;gap:8px;cursor:pointer;background:var(--card);color:var(--ink2);border:1px solid var(--line);
+  border-radius:999px;padding:clamp(7px,.5vw,12px) clamp(12px,1vw,22px);font:600 clamp(12px,.85vw,18px) 'Inter',system-ui,sans-serif;white-space:nowrap}
+.sw-btn:hover{border-color:var(--brand)}
+.sw-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.sw-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-weight:600;font-size:clamp(11px,.8vw,18px);white-space:nowrap}
+@keyframes sw-pulse{0%{box-shadow:0 0 0 0 currentColor}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (max-width:900px){.sw-stats{grid-template-columns:1fr!important}.sw-bottom{grid-template-columns:1fr!important}.sw-col-plan,.sw-col-hora{display:none!important}}
+@media (prefers-reduced-motion:reduce){.sw *{animation:none!important;transition:none!important}}
+`;
 
 type Particula = Record<string, any>;
 type Estado = {
@@ -94,18 +122,18 @@ type Estado = {
   cel: Evento | null;
   soundOn: boolean;
   flashId: string | null;
+  tema: Tema;
 };
-type Opciones = { demo: boolean; meta: number; cada: number };
+type Opciones = { demo: boolean; meta: number; cada: number; tema: Tema };
 
 class SalesWall extends React.Component<Opciones, Estado> {
-  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null };
+  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema };
   vNumRef = React.createRef<HTMLDivElement>();
   rNumRef = React.createRef<HTMLDivElement>();
   tNumRef = React.createRef<HTMLDivElement>();
   vCardRef = React.createRef<HTMLDivElement>();
   rCardRef = React.createRef<HTMLDivElement>();
   tCardRef = React.createRef<HTMLDivElement>();
-  glowRef = React.createRef<HTMLDivElement>();
   celRef = React.createRef<HTMLDivElement>();
   trackRef = React.createRef<HTMLDivElement>();
   canvasRef = React.createRef<HTMLCanvasElement>();
@@ -184,8 +212,6 @@ class SalesWall extends React.Component<Opciones, Estado> {
 
   start() {
     if (this.props.demo) return this.startDemo();
-    // La primera respuesta trae el mes entero: cuenta, pero no celebra.
-    // Las siguientes solo celebran lo que no se había visto.
     let primera = true;
     const poll = async () => {
       try {
@@ -280,27 +306,19 @@ class SalesWall extends React.Component<Opciones, Estado> {
     this.celBusy = true;
     this.setState({ cel: ev, flashId: ev.id }, () => {
       const isV = ev.type === 'venta';
-      const col = isV ? C_V : C_R;
-      const rgb = isV ? '202,255,0' : '95,212,255';
+      const pal = PALETA[this.state.tema];
+      const rgb = isV ? pal.ventaRgb : pal.renovRgb;
       this.celRef.current?.animate(
-        isV
-          ? [{ transform: 'scale(0.6) translateY(40px)', opacity: 0, filter: 'blur(8px)' }, { transform: 'scale(1.06)', opacity: 1, filter: 'blur(0)', offset: 0.6 }, { transform: 'scale(1)', opacity: 1 }]
-          : [{ transform: 'translateX(-60px) rotateY(25deg)', opacity: 0 }, { transform: 'translateX(0) rotateY(0)', opacity: 1 }],
-        { duration: isV ? 650 : 800, easing: 'cubic-bezier(.2,.9,.25,1.1)' },
+        [{ transform: 'translateY(24px) scale(.96)', opacity: 0 }, { transform: 'translateY(0) scale(1)', opacity: 1 }],
+        { duration: 500, easing: 'cubic-bezier(.2,.9,.3,1)' },
       );
-      const g = this.glowRef.current;
-      if (g) {
-        g.style.boxShadow = `inset 0 0 140px rgba(${rgb},0.55), inset 0 0 18px rgba(${rgb},0.9)`;
-        g.animate([{ opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 0.5, offset: 0.5 }, { opacity: 0 }], { duration: 2600, easing: 'ease-out' });
-      }
       this.later(() => {
         this.tweenCounts();
         const num = isV ? this.vNumRef.current : this.rNumRef.current;
         const cardEl = isV ? this.vCardRef.current : this.rCardRef.current;
-        num?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)', textShadow: `0 0 60px ${col}` }, { transform: 'scale(1)' }], { duration: 900, easing: 'ease-out' });
-        this.tNumRef.current?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 900, easing: 'ease-out' });
+        num?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 700, easing: 'ease-out' });
         [cardEl, this.tCardRef.current].forEach((c) =>
-          c?.animate([{ boxShadow: `0 0 0 0 rgba(${rgb},0)` }, { boxShadow: `0 0 60px 4px rgba(${rgb},0.35), inset 0 0 40px rgba(${rgb},0.12)` }, { boxShadow: `0 0 0 0 rgba(${rgb},0)` }], { duration: 1800, easing: 'ease-out' }),
+          c?.animate([{ boxShadow: `0 0 0 0 rgba(${rgb},0)` }, { boxShadow: `0 0 0 4px rgba(${rgb},.25)` }, { boxShadow: `0 0 0 0 rgba(${rgb},0)` }], { duration: 1600, easing: 'ease-out' }),
         );
       }, 300);
       this.burst(ev.type);
@@ -312,7 +330,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
           this.later(() => this.showNext(), 450);
         };
         if (c) {
-          const a = c.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.94)' }], { duration: 350, easing: 'ease-in', fill: 'forwards' });
+          const a = c.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.97)' }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
           a.onfinish = done;
         } else done();
       }, 6000);
@@ -320,6 +338,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
     });
   }
 
+  /** Confeti en la venta, un brillo suave de puntos en la renovación. */
   burst(type: Tipo) {
     const c = this.canvasRef.current;
     if (!c) return;
@@ -327,20 +346,16 @@ class SalesWall extends React.Component<Opciones, Estado> {
     const W = c.width;
     const H = c.height;
     const s = W / 1920;
+    const pal = PALETA[this.state.tema];
     if (type === 'venta') {
-      const cols = ['#CAFF00', '#CAFF00', '#E6FF80', '#FFFFFF', '#7FD000'];
-      for (let side = 0; side < 2; side++)
-        for (let i = 0; i < 70; i++) {
-          const fromLeft = side === 0;
-          this.particles.push({ k: 'conf', x: fromLeft ? W * 0.12 : W * 0.88, y: H * 0.62, vx: (fromLeft ? 1 : -1) * (6 + Math.random() * 14) * s, vy: (-10 - Math.random() * 16) * s, g: 0.32 * s, w: (6 + Math.random() * 8) * s, h: (10 + Math.random() * 10) * s, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, col: pick(cols), life: 1, decay: 0.006 + Math.random() * 0.005 });
-        }
-      for (let i = 0; i < 40; i++) this.particles.push({ k: 'spark', x: W / 2 + (Math.random() - 0.5) * W * 0.5, y: H / 2 + (Math.random() - 0.5) * H * 0.4, r: (1.5 + Math.random() * 3) * s, col: '#F4FFD0', life: 1, decay: 0.012 + Math.random() * 0.015, delay: Math.random() * 40 });
+      for (let i = 0; i < 160; i++) {
+        this.particles.push({ k: 'conf', x: W * (0.2 + Math.random() * 0.6), y: -20 * s, vx: (Math.random() - 0.5) * 6 * s, vy: (2 + Math.random() * 5) * s, g: 0.12 * s, w: (7 + Math.random() * 7) * s, h: (10 + Math.random() * 8) * s, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.25, col: pick(pal.confeti), life: 1, decay: 0.004 + Math.random() * 0.003, delay: Math.random() * 30 });
+      }
     } else {
-      for (let i = 0; i < 4; i++) this.particles.push({ k: 'ring', x: W / 2, y: H / 2, r: 40 * s, vr: 9 * s, col: C_R, life: 1, decay: 0.011, delay: i * 14 });
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 60; i++) {
         const a = Math.random() * Math.PI * 2;
-        const d = (200 + Math.random() * 500) * s;
-        this.particles.push({ k: 'orb', x: W / 2 + Math.cos(a) * d, y: H / 2 + Math.sin(a) * d * 0.6, vx: 0, vy: (-0.6 - Math.random() * 1.6) * s, r: (2 + Math.random() * 4) * s, col: Math.random() < 0.7 ? C_R : '#FFFFFF', life: 1, decay: 0.006 + Math.random() * 0.008, delay: Math.random() * 60 });
+        const d = (180 + Math.random() * 420) * s;
+        this.particles.push({ k: 'orb', x: W / 2 + Math.cos(a) * d, y: H / 2 + Math.sin(a) * d * 0.6, vy: (-0.5 - Math.random() * 1.2) * s, r: (3 + Math.random() * 4) * s, col: pal.renov, life: 1, decay: 0.007 + Math.random() * 0.008, delay: Math.random() * 50 });
       }
     }
     if (!this.pRaf) this.pRaf = requestAnimationFrame(this.draw);
@@ -361,43 +376,25 @@ class SalesWall extends React.Component<Opciones, Estado> {
       }
       p.life -= p.decay;
       if (p.life <= 0) return false;
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.4));
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.5));
+      ctx.fillStyle = p.col;
       if (p.k === 'conf') {
         p.vy += p.g;
-        p.vx *= 0.985;
-        p.x += p.vx;
+        p.vx *= 0.99;
+        p.x += p.vx + Math.sin(p.rot) * 0.6;
         p.y += p.vy;
         p.rot += p.vr;
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
-        ctx.scale(1, Math.cos(p.rot * 3));
-        ctx.fillStyle = p.col;
+        ctx.scale(1, Math.cos(p.rot * 2));
         ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
         ctx.restore();
-      } else if (p.k === 'ring') {
-        p.r += p.vr;
-        p.vr *= 0.985;
-        ctx.strokeStyle = p.col;
-        ctx.lineWidth = 3 * p.life + 1;
-        ctx.shadowColor = p.col;
-        ctx.shadowBlur = 20;
-        ctx.beginPath();
-        ctx.ellipse(p.x, p.y, p.r, p.r * 0.62, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
       } else {
-        if (p.vy) {
-          p.x += p.vx || 0;
-          p.y += p.vy;
-        }
-        ctx.fillStyle = p.col;
-        ctx.shadowColor = p.col;
-        ctx.shadowBlur = 12;
+        p.y += p.vy;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * (0.6 + 0.4 * Math.sin(p.life * 20)), 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
       }
       return true;
     });
@@ -414,7 +411,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
       const el = this.trackRef.current;
       if (el) {
         const half = el.scrollWidth / 2;
-        this.x -= 90 * dt * Math.max(0.5, window.innerWidth / 1920);
+        this.x -= 70 * dt * Math.max(0.5, window.innerWidth / 1920);
         if (half > 0 && -this.x >= half) this.x += half;
         el.style.transform = `translate3d(${this.x}px,0,0)`;
       }
@@ -423,8 +420,16 @@ class SalesWall extends React.Component<Opciones, Estado> {
     this.raf = requestAnimationFrame(step);
   }
 
+  cambiarTema = () => {
+    const tema: Tema = this.state.tema === 'oscuro' ? 'claro' : 'oscuro';
+    this.setState({ tema });
+    try {
+      localStorage.setItem('sales-wall:tema', tema);
+    } catch {}
+  };
+
   /** Los navegadores bloquean el audio hasta que alguien toca la página:
-   *  en la TV se pulsa una vez «ACTIVAR SONIDO». */
+   *  en la TV se pulsa una vez «Activar sonido». */
   toggleSound = () => {
     if (!this.ac) {
       const AC = window.AudioContext || (window as any).webkitAudioContext;
@@ -458,31 +463,26 @@ class SalesWall extends React.Component<Opciones, Estado> {
       o.stop(t + st + d + 0.05);
     };
     if (type === 'venta') {
-      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(f, i * 0.085, 0.45, 'triangle', 0.22));
-      note(1318.5, 0.34, 1.0, 'sine', 0.12);
-      note(1567.98, 0.38, 1.1, 'sine', 0.1);
-      note(2093, 0.42, 1.2, 'sine', 0.06);
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(f, i * 0.085, 0.45, 'triangle', 0.2));
+      note(1318.5, 0.34, 1.0, 'sine', 0.1);
     } else {
-      note(659.25, 0, 1.4, 'sine', 0.24);
-      note(1318.5, 0, 0.9, 'sine', 0.05);
-      note(987.77, 0.22, 1.6, 'sine', 0.2);
-      note(1975.5, 0.22, 1.0, 'sine', 0.04);
+      note(659.25, 0, 1.2, 'sine', 0.2);
+      note(987.77, 0.2, 1.4, 'sine', 0.16);
     }
   }
 
   render() {
     const s = this.state;
     const now = s.now;
-    const ST = ({ live: ['EN VIVO', C_V], connecting: ['CONECTANDO', '#9BA295'], reconnecting: ['RECONECTANDO', '#FFB020'], offline: ['SIN CONEXIÓN', '#FF5A4D'] } as const)[s.status];
+    const pal = PALETA[s.tema];
+    const ST = ({ live: ['En vivo', pal.venta], connecting: ['Conectando…', '#94A3B8'], reconnecting: ['Reconectando…', '#D97706'], offline: ['Sin conexión', '#DC2626'] } as const)[s.status];
     const total = s.ventas + s.renov;
-    const dTotal = s.dV + s.dR;
     const pctV = total ? Math.round((s.ventas / total) * 100) : 0;
     const pctR = total ? 100 - pctV : 0;
     const today = dayKey(now);
     const conf = s.events.filter((e) => e.confirmed);
     const todayEv = conf.filter((e) => dayKey(e.ts) === today);
-    const label = (e: Evento) => (e.type === 'venta' ? '¡NUEVA VENTA!' : '¡NUEVA RENOVACIÓN!');
-    const when = (e: Evento) => (dayKey(e.ts) === today ? 'Hoy ' : fmtDM.format(new Date(e.ts)) + ' · ') + fmtHM.format(new Date(e.ts));
+    const when = (e: Evento) => (dayKey(e.ts) === today ? 'Hoy, ' : fmtDM.format(new Date(e.ts)).replace('.', '') + ', ') + fmtHM.format(new Date(e.ts));
 
     let tick = conf.slice(0, 12).reverse();
     if (tick.length) {
@@ -508,179 +508,180 @@ class SalesWall extends React.Component<Opciones, Estado> {
     const remaining = goal - s.usd;
     const cel = s.cel;
     const cv = cel?.type === 'venta';
-    const period = fmtMonth.format(new Date(now));
-    const celColor = cv ? C_V : C_R;
-    const celHalo = cv ? 'rgba(202,255,0,0.22)' : 'rgba(95,212,255,0.2)';
-    const cols = 'minmax(max-content,1.3fr) 1.6fr 2fr 1.1fr 0.9fr minmax(max-content,1fr)';
+    const celColor = cv ? 'var(--venta)' : 'var(--renov)';
 
     return (
-      <div style={{ position: 'relative', width: '100%', height: '100vh', minHeight: 620, display: 'grid', gridTemplateRows: 'auto auto auto minmax(0,1fr)', background: 'radial-gradient(ellipse 80% 60% at 50% -25%, rgba(202,255,0,0.07), transparent 70%), #060708', color: '#F2F4F0', fontFamily: "'Archivo', system-ui, sans-serif", overflow: 'hidden' }}>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=JetBrains+Mono:wght@400;600;700&display=swap" />
-        <style>{`html,body{margin:0;padding:0;background:#060708;overflow:hidden}*{box-sizing:border-box}@keyframes livepulse{0%{box-shadow:0 0 0 0 currentColor;opacity:1}70%{box-shadow:0 0 0 10px transparent;opacity:.7}100%{box-shadow:0 0 0 0 transparent;opacity:1}}`}</style>
+      <div className="sw" data-tema={s.tema}>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+        <style>{CSS}</style>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: 10, alignItems: 'center', gap: 'clamp(14px,1.8vw,48px)', padding: 'clamp(12px,1.3vw,32px) clamp(16px,2vw,48px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/sales-wall/clubify-logo.png" alt="Clubify" style={{ height: 'clamp(22px,2.3vw,60px)', width: 'auto', display: 'block' }} />
-          <div style={{ width: 1, height: 'clamp(22px,2.3vw,60px)', background: 'rgba(255,255,255,0.14)' }} />
-          <div style={{ fontSize: 'clamp(14px,1.45vw,38px)', fontWeight: 800, fontStretch: '118%', letterSpacing: '0.2em', whiteSpace: 'nowrap' }}>SALES WALL</div>
-          <div style={{ flex: 1, minWidth: 0 }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'clamp(6px,0.5vw,12px) clamp(12px,1vw,24px)', border: `1px solid ${ST[1]}55`, borderRadius: 999, background: `${ST[1]}12` }}>
-            <div style={{ width: 'clamp(8px,0.6vw,14px)', height: 'clamp(8px,0.6vw,14px)', borderRadius: '50%', background: ST[1], color: ST[1], animation: 'livepulse 1.6s infinite' }} />
-            <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(11px,0.9vw,22px)', letterSpacing: '0.14em', color: ST[1], whiteSpace: 'nowrap' }}>{ST[0]}</div>
-            {this.props.demo && <div style={{ fontFamily: MONO, fontSize: 'clamp(10px,0.7vw,18px)', letterSpacing: '0.12em', color: '#0B0C0A', background: '#FFB020', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>DEMO</div>}
+        {/* Cabecera */}
+        <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'clamp(10px,1.2vw,28px)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(8px,.6vw,14px)' }}>
+            <svg viewBox="0 0 280 280" style={{ width: 'clamp(30px,2.2vw,54px)', height: 'clamp(30px,2.2vw,54px)', display: 'block' }} aria-hidden>
+              <defs>
+                <linearGradient id="swMark" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#4FE83F" />
+                  <stop offset="100%" stopColor="#00B23A" />
+                </linearGradient>
+              </defs>
+              <rect width="280" height="280" rx="62" fill="url(#swMark)" />
+              <g transform="translate(140 140) scale(0.547) translate(-256 -256)">
+                <path d="M 352 141 A 150 150 0 1 0 352 371" fill="none" stroke="#FFFFFF" strokeWidth="76" strokeLinecap="round" />
+              </g>
+            </svg>
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+              <span style={{ fontWeight: 800, fontSize: 'clamp(18px,1.4vw,34px)', letterSpacing: '-0.02em' }}>Clubify</span>
+              <span style={{ fontSize: 'clamp(12px,.85vw,18px)', color: 'var(--mute)', fontWeight: 500 }}>Ventas en vivo</span>
+            </div>
           </div>
-          <button onClick={this.toggleSound} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 999, padding: 'clamp(6px,0.5vw,12px) clamp(12px,1vw,24px)', color: s.soundOn ? C_V : '#9BA295', fontFamily: MONO, fontSize: 'clamp(10px,0.75vw,18px)', letterSpacing: '0.12em', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            {s.soundOn ? '♪ SONIDO ON' : 'ACTIVAR SONIDO'}
+          <div style={{ flex: 1 }} />
+          <span className="sw-pill" style={{ color: ST[1], background: 'var(--card)', border: '1px solid var(--line)' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: ST[1], color: ST[1], animation: s.status === 'live' ? 'sw-pulse 1.8s infinite' : undefined }} />
+            {ST[0]}
+            {this.props.demo && <span style={{ marginLeft: 4, background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '0 6px' }}>Demo</span>}
+          </span>
+          <button type="button" className="sw-btn" onClick={this.toggleSound} aria-pressed={s.soundOn}>
+            {s.soundOn ? '🔔 Sonido activo' : '🔕 Activar sonido'}
           </button>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, paddingLeft: 'clamp(10px,1vw,28px)', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontFamily: MONO, fontSize: 'clamp(10px,0.7vw,18px)', letterSpacing: '0.14em', color: '#7C8378' }}>PERIODO</div>
-            <div style={{ fontSize: 'clamp(13px,1.05vw,28px)', fontWeight: 700, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{period.toUpperCase()}</div>
+          <button type="button" className="sw-btn" onClick={this.cambiarTema} aria-label="Cambiar entre modo claro y oscuro">
+            {s.tema === 'oscuro' ? '☀️ Modo claro' : '🌙 Modo oscuro'}
+          </button>
+          <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
+            <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)' }}>{fmtTime.format(new Date(now))}</div>
+            <div style={{ fontSize: 'clamp(12px,.85vw,18px)', color: 'var(--mute)' }}>{capital(fmtDate.format(new Date(now)))} · {capital(fmtMonth.format(new Date(now)))}</div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, paddingLeft: 'clamp(10px,1vw,28px)', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(18px,1.85vw,48px)', letterSpacing: '0.04em', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmtTime.format(new Date(now))}</div>
-            <div style={{ fontFamily: MONO, fontSize: 'clamp(10px,0.7vw,18px)', letterSpacing: '0.1em', color: '#7C8378', whiteSpace: 'nowrap' }}>{fmtDate.format(new Date(now)).toUpperCase().replace(/\./g, '')} · BOGOTÁ</div>
-          </div>
-        </div>
+        </header>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 'clamp(10px,1.2vw,32px)', padding: 'clamp(12px,1.3vw,32px) clamp(16px,2vw,48px)' }}>
-          <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="VENTAS DEL MES" color={C_V} borde="rgba(202,255,0,0.18)" fondo="linear-gradient(180deg,#101310,#0B0D0B)" sombra="0 0 40px rgba(202,255,0,0.25)" valor={s.dV.toLocaleString('es-CO')} icono="venta">
-            Nuevas ventas confirmadas · <span style={{ color: '#F2F4F0', fontWeight: 700 }}>+{todayEv.filter((e) => e.type === 'venta').length} hoy</span>
-          </Contador>
-          <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="RENOVACIONES DEL MES" color={C_R} borde="rgba(95,212,255,0.18)" fondo="linear-gradient(180deg,#0E1214,#0B0D0E)" sombra="0 0 40px rgba(95,212,255,0.22)" valor={s.dR.toLocaleString('es-CO')} icono="renov">
-            Renovaciones confirmadas · <span style={{ color: '#F2F4F0', fontWeight: 700 }}>+{todayEv.filter((e) => e.type === 'renov').length} hoy</span>
-          </Contador>
-          <div ref={this.tCardRef} style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.5vw,14px)', padding: 'clamp(14px,1.4vw,36px) clamp(16px,1.6vw,40px)', background: 'linear-gradient(180deg,#111311,#0C0D0C)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'clamp(10px,0.8vw,20px)', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '4px 12px' }}>
-              <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.9vw,24px)', letterSpacing: '0.18em', fontWeight: 700 }}>ACTIVIDAD TOTAL</div>
-              <div style={{ fontFamily: MONO, fontSize: 'clamp(10px,0.75vw,20px)', color: '#7C8378', letterSpacing: '0.1em' }}>VENTAS + RENOVACIONES</div>
+        {/* Contadores */}
+        <section className="sw-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 'clamp(12px,1.2vw,28px)' }}>
+          <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="Ventas nuevas" color="var(--venta)" soft="var(--venta-soft)" icono="venta" valor={s.dV} hoy={todayEv.filter((e) => e.type === 'venta').length} />
+          <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} hoy={todayEv.filter((e) => e.type === 'renov').length} />
+          <div ref={this.tCardRef} className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
+            <span className="sw-label">Total del mes</span>
+            <div ref={this.tNumRef} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', transformOrigin: 'left center' }}>{(s.dV + s.dR).toLocaleString('es-CO')}</div>
+            <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--track)', gap: 3 }}>
+              <div style={{ width: pctV + '%', background: 'var(--venta)', borderRadius: 999, transition: 'width .8s ease' }} />
+              <div style={{ width: pctR + '%', background: 'var(--renov)', borderRadius: 999, transition: 'width .8s ease' }} />
             </div>
-            <div ref={this.tNumRef} style={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(48px,6vw,168px)', lineHeight: 1, fontVariantNumeric: 'tabular-nums', transformOrigin: 'left center' }}>{dTotal.toLocaleString('es-CO')}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', height: 'clamp(6px,0.5vw,12px)', borderRadius: 999, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', gap: 2 }}>
-                <div style={{ width: total ? pctV + '%' : '0%', background: C_V, transition: 'width 800ms ease' }} />
-                <div style={{ width: total ? pctR + '%' : '0%', background: C_R, transition: 'width 800ms ease' }} />
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', justifyContent: 'space-between', fontFamily: MONO, fontSize: 'clamp(10px,0.85vw,22px)', fontWeight: 600 }}>
-                <div style={{ color: C_V }}>VENTAS {pctV}%</div>
-                <div style={{ color: C_R }}>RENOVACIONES {pctR}%</div>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'clamp(12px,.85vw,18px)', color: 'var(--mute)', fontWeight: 500 }}>
+              <span><b style={{ color: 'var(--venta)' }}>{pctV}%</b> ventas</span>
+              <span><b style={{ color: 'var(--renov)' }}>{pctR}%</b> renovaciones</span>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div style={{ display: 'flex', alignItems: 'stretch', height: 'clamp(64px,5.4vw,150px)', borderTop: '1px solid rgba(202,255,0,0.22)', borderBottom: '1px solid rgba(202,255,0,0.22)', background: '#090B08' }}>
-          <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '0 clamp(14px,1.4vw,36px)', background: C_V, color: '#0A0B07', fontWeight: 900, fontStretch: '115%', fontSize: 'clamp(12px,1vw,28px)', letterSpacing: '0.14em', whiteSpace: 'nowrap' }}>ACTIVIDAD EN VIVO</div>
+        {/* Actividad en vivo */}
+        <section className="sw-card" style={{ display: 'flex', alignItems: 'stretch', overflow: 'hidden', height: 'clamp(56px,4.4vw,110px)' }}>
+          <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '0 clamp(14px,1.2vw,28px)', background: 'var(--venta-soft)', color: 'var(--venta)', fontWeight: 700, fontSize: 'clamp(13px,.95vw,22px)', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--venta)' }} /> Actividad reciente
+          </div>
           <div style={{ position: 'relative', flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', inset: '0 auto 0 0', width: '6vw', background: 'linear-gradient(90deg,#090B08,transparent)', zIndex: 2, pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', inset: '0 0 0 auto', width: '6vw', background: 'linear-gradient(270deg,#090B08,transparent)', zIndex: 2, pointerEvents: 'none' }} />
-            {!tick.length && <div style={{ height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '2vw', fontFamily: MONO, color: '#7C8378', fontSize: 'clamp(12px,1vw,26px)', letterSpacing: '0.1em' }}>Esperando la primera operación del mes…</div>}
+            <div style={{ position: 'absolute', inset: '0 auto 0 0', width: '5vw', background: 'linear-gradient(90deg,var(--card),transparent)', zIndex: 2, pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', inset: '0 0 0 auto', width: '5vw', background: 'linear-gradient(270deg,var(--card),transparent)', zIndex: 2, pointerEvents: 'none' }} />
+            {!tick.length && <div style={{ height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '2vw', color: 'var(--mute)', fontSize: 'clamp(13px,.95vw,22px)' }}>Aquí aparecerá cada venta y renovación del mes.</div>}
             <div ref={this.trackRef} style={{ position: 'absolute', top: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', willChange: 'transform' }}>
               {tick.map((e, i) => {
                 const isV = e.type === 'venta';
-                const color = isV ? C_V : C_R;
-                const soft = isV ? 'rgba(202,255,0,0.14)' : 'rgba(95,212,255,0.14)';
                 return (
-                  <div key={i} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'clamp(10px,1vw,26px)', padding: '0 clamp(18px,2vw,52px)', borderRight: '1px solid rgba(255,255,255,0.08)', height: '100%' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 'clamp(26px,2.2vw,58px)', height: 'clamp(26px,2.2vw,58px)', borderRadius: '50%', background: soft, color, fontWeight: 900, fontSize: 'clamp(13px,1.1vw,30px)' }}>{isV ? '★' : '↻'}</div>
-                    <div style={{ fontWeight: 900, fontStretch: '112%', fontSize: 'clamp(15px,1.35vw,36px)', letterSpacing: '0.06em', color }}>{label(e)}</div>
-                    <div style={{ fontSize: 'clamp(14px,1.2vw,32px)', color: '#9BA295' }}>Afiliado: <span style={{ color: '#F2F4F0', fontWeight: 700 }}>{e.afiliado}</span></div>
-                    <div style={{ fontSize: 'clamp(14px,1.2vw,32px)', color: '#9BA295' }}>Negocio: <span style={{ color: '#F2F4F0', fontWeight: 700 }}>{e.negocio}</span></div>
-                    {e.plan && <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.85vw,22px)', color, border: `1px solid ${soft}`, borderRadius: 4, padding: '3px 8px', letterSpacing: '0.06em' }}>{e.plan}</div>}
-                    <div style={{ fontSize: 'clamp(14px,1.15vw,30px)', color, fontStyle: 'italic' }}>{isV ? MSG_V : MSG_R}</div>
-                    <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.85vw,22px)', color: '#7C8378' }}>{when(e)}</div>
+                  <div key={i} style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 'clamp(8px,.7vw,16px)', padding: '0 clamp(18px,1.6vw,40px)', borderRight: '1px solid var(--line)', height: '60%', fontSize: 'clamp(14px,1vw,24px)' }}>
+                    <span className="sw-pill" style={{ background: isV ? 'var(--venta-soft)' : 'var(--renov-soft)', color: isV ? 'var(--venta)' : 'var(--renov)' }}>{isV ? 'Nueva venta' : 'Renovación'}</span>
+                    <span style={{ color: 'var(--ink2)' }}>
+                      <b style={{ color: 'var(--ink)' }}>{e.negocio}</b>
+                      {e.plan ? ` · ${e.plan}` : ''} · vendido por <b style={{ color: 'var(--ink)' }}>{e.afiliado}</b>
+                    </span>
+                    <span style={{ color: 'var(--mute)', fontSize: '.85em' }}>{when(e)}</span>
                   </div>
                 );
               })}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div style={{ minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(0,7fr) minmax(0,5fr)', gap: 'clamp(10px,1.2vw,32px)', padding: 'clamp(12px,1.3vw,32px) clamp(16px,2vw,48px) clamp(14px,1.5vw,36px)' }}>
-          <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', background: '#0C0E0C', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'clamp(10px,0.8vw,20px)', overflow: 'hidden' }}>
-            <Cabecera titulo="ÚLTIMOS MOVIMIENTOS" nota="MÁS RECIENTE PRIMERO" />
-            <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, padding: 'clamp(8px,0.6vw,16px) clamp(14px,1.4vw,36px)', fontFamily: MONO, fontSize: 'clamp(9px,0.7vw,18px)', letterSpacing: '0.14em', color: '#646B61' }}>
-              <div>TIPO</div><div>AFILIADO</div><div>NEGOCIO</div><div>PLAN</div><div>HORA</div><div style={{ textAlign: 'right' }}>ESTADO</div>
+        {/* Movimientos, meta y ranking */}
+        <section className="sw-bottom" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,7fr) minmax(0,5fr)', gap: 'clamp(12px,1.2vw,28px)', alignItems: 'start' }}>
+          <div className="sw-card" style={{ overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: 'clamp(14px,1.2vw,28px) clamp(16px,1.4vw,32px)' }}>
+              <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Últimos movimientos</h2>
+              <span className="sw-label" style={{ fontWeight: 500 }}>Lo más reciente primero</span>
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              {s.events.slice(0, 12).map((e) => {
+            <div>
+              {s.events.slice(0, 10).map((e) => {
                 const isV = e.type === 'venta';
-                const color = isV ? C_V : C_R;
                 const flash = e.id === s.flashId;
                 return (
-                  <div key={e.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center', padding: 'clamp(8px,0.75vw,20px) clamp(14px,1.4vw,36px)', borderTop: '1px solid rgba(255,255,255,0.05)', background: flash ? (isV ? 'rgba(202,255,0,0.09)' : 'rgba(95,212,255,0.09)') : 'transparent', transition: 'background 1.2s ease' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      <div style={{ flex: 'none', width: 'clamp(7px,0.5vw,12px)', height: 'clamp(7px,0.5vw,12px)', borderRadius: isV ? '50%' : 2, background: color }} />
-                      <div style={{ fontWeight: 800, fontSize: 'clamp(12px,0.95vw,26px)', letterSpacing: '0.04em', color, whiteSpace: 'nowrap' }}>{isV ? 'VENTA NUEVA' : 'RENOVACIÓN'}</div>
-                    </div>
-                    <div style={{ fontSize: 'clamp(13px,1vw,28px)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.afiliado}</div>
-                    <div style={{ fontSize: 'clamp(13px,1vw,28px)', color: '#C9CEC4', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.negocio}</div>
-                    <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.8vw,22px)', color: '#9BA295', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.plan || '—'}</div>
-                    <div style={{ fontFamily: MONO, fontSize: 'clamp(12px,0.9vw,24px)', color: '#C9CEC4', fontVariantNumeric: 'tabular-nums' }}>{when(e)}</div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <div style={{ fontFamily: MONO, fontSize: 'clamp(10px,0.72vw,20px)', fontWeight: 700, letterSpacing: '0.08em', color: e.confirmed ? color : '#FFB020', border: `1px solid ${e.confirmed ? (isV ? 'rgba(202,255,0,0.35)' : 'rgba(95,212,255,0.35)') : 'rgba(255,176,32,0.4)'}`, borderRadius: 4, padding: '3px 8px', whiteSpace: 'nowrap' }}>{e.estado}</div>
-                    </div>
+                  <div key={e.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(max-content,auto) minmax(0,1.6fr) minmax(0,1.3fr) minmax(0,1fr) minmax(max-content,auto)', gap: 'clamp(10px,1vw,24px)', alignItems: 'center', padding: 'clamp(10px,.8vw,18px) clamp(16px,1.4vw,32px)', borderTop: '1px solid var(--line)', background: flash ? (isV ? 'var(--venta-soft)' : 'var(--renov-soft)') : 'transparent', transition: 'background 1.2s ease', fontSize: 'clamp(13px,.95vw,22px)' }}>
+                    <span className="sw-pill" style={{ background: isV ? 'var(--venta-soft)' : 'var(--renov-soft)', color: isV ? 'var(--venta)' : 'var(--renov)', justifySelf: 'start' }}>{isV ? 'Venta nueva' : 'Renovación'}</span>
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={e.negocio}>{e.negocio}</span>
+                    <span style={{ color: 'var(--ink2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={e.afiliado}>{e.afiliado}</span>
+                    <span className="sw-col-plan" style={{ color: 'var(--mute)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.plan || '—'}</span>
+                    <span className="sw-col-hora sw-num" style={{ color: 'var(--mute)', whiteSpace: 'nowrap', textAlign: 'right' }}>{when(e)}</span>
                   </div>
                 );
               })}
+              {!s.events.length && <div style={{ padding: 'clamp(16px,1.4vw,32px)', color: 'var(--mute)', borderTop: '1px solid var(--line)' }}>Todavía no hay movimientos este mes.</div>}
             </div>
           </div>
 
-          <div style={{ minHeight: 0, display: 'grid', gridTemplateRows: 'auto minmax(0,1fr)', gap: 'clamp(10px,1.2vw,32px)' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(8px,0.7vw,18px)', padding: 'clamp(12px,1.2vw,30px) clamp(14px,1.4vw,36px)', background: '#0C0E0C', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'clamp(10px,0.8vw,20px)' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: '4px 12px' }}>
-                <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.9vw,24px)', letterSpacing: '0.18em', fontWeight: 700 }}>META MENSUAL · USD</div>
-                <div style={{ fontFamily: MONO, fontSize: 'clamp(12px,0.95vw,26px)', color: '#9BA295' }}><span style={{ color: '#F2F4F0', fontWeight: 700 }}>{fmtUSD(s.dU)}</span> / {fmtUSD(goal)}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(12px,1.2vw,28px)' }}>
+            <div className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(10px,.8vw,18px)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Meta del mes</h2>
+                <span className="sw-num" style={{ color: 'var(--mute)', fontSize: 'clamp(13px,.95vw,22px)' }}>
+                  <b style={{ color: 'var(--ink)' }}>{fmtUSD(s.dU)}</b> de {fmtUSD(goal)}
+                </span>
               </div>
-              <div style={{ position: 'relative', height: 'clamp(12px,1vw,26px)', borderRadius: 999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', inset: '0 auto 0 0', width: Math.min(100, goalPct) + '%', background: 'linear-gradient(90deg,#7FB300,#CAFF00)', borderRadius: 999, boxShadow: '0 0 24px rgba(202,255,0,0.45)', transition: 'width 900ms cubic-bezier(.2,.8,.2,1)' }} />
+              <div style={{ height: 'clamp(12px,.9vw,22px)', borderRadius: 999, background: 'var(--track)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: Math.min(100, goalPct) + '%', background: 'linear-gradient(90deg,#4FE83F,#16A34A)', borderRadius: 999, transition: 'width .9s cubic-bezier(.2,.8,.2,1)' }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-                <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(20px,1.9vw,52px)', color: C_V }}>{goalPct}%</div>
-                <div style={{ fontSize: 'clamp(12px,0.95vw,26px)', color: '#9BA295', textAlign: 'right' }}>{remaining > 0 ? `Faltan ${fmtUSD(remaining)} USD` : '¡Meta superada!'}</div>
+                <span className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(24px,2vw,48px)', color: 'var(--venta)' }}>{goalPct}%</span>
+                <span style={{ color: 'var(--mute)', fontSize: 'clamp(13px,.95vw,22px)', textAlign: 'right' }}>{remaining > 0 ? `Faltan ${fmtUSD(remaining)}` : '🎉 ¡Meta cumplida!'}</span>
               </div>
             </div>
-            <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', background: '#0C0E0C', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'clamp(10px,0.8vw,20px)', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'clamp(10px,1vw,26px) clamp(14px,1.4vw,36px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.9vw,24px)', letterSpacing: '0.18em', fontWeight: 700 }}>RANKING DE AFILIADOS</div>
-                <div style={{ display: 'flex', gap: 14, fontFamily: MONO, fontSize: 'clamp(9px,0.7vw,18px)', letterSpacing: '0.1em' }}><div style={{ color: C_V }}>■ VENTAS</div><div style={{ color: C_R }}>■ RENOV.</div></div>
+
+            <div className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(12px,1vw,22px)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Ranking de afiliados</h2>
+                <span style={{ display: 'flex', gap: 12, fontSize: 'clamp(12px,.85vw,18px)', color: 'var(--mute)' }}>
+                  <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--venta)', marginRight: 5 }} />Ventas</span>
+                  <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--renov)', marginRight: 5 }} />Renovaciones</span>
+                </span>
               </div>
-              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly', padding: 'clamp(4px,0.4vw,10px) clamp(14px,1.4vw,36px)' }}>
-                {rk.map((m, i) => (
-                  <div key={m.name} style={{ display: 'grid', gridTemplateColumns: 'clamp(26px,2vw,52px) minmax(0,1fr) auto', alignItems: 'center', gap: 'clamp(8px,0.8vw,20px)' }}>
-                    <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(14px,1.2vw,32px)', color: i === 0 ? C_V : '#646B61' }}>{String(i + 1).padStart(2, '0')}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-                      <div style={{ fontSize: 'clamp(13px,1.05vw,28px)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                      <div style={{ display: 'flex', height: 'clamp(4px,0.35vw,9px)', gap: 2, borderRadius: 999, overflow: 'hidden', width: Math.max(6, (m.total / top) * 100) + '%', transition: 'width 900ms ease' }}>
-                        <div style={{ flex: m.v, background: C_V }} />
-                        <div style={{ flex: m.r, background: C_R }} />
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontFamily: MONO }}>
-                      <div style={{ fontSize: 'clamp(10px,0.75vw,20px)', color: '#7C8378', whiteSpace: 'nowrap' }}>{m.v}V · {m.r}R</div>
-                      <div style={{ fontWeight: 700, fontSize: 'clamp(16px,1.35vw,36px)', minWidth: '2ch', textAlign: 'right' }}>{m.total}</div>
+              {rk.map((m, i) => (
+                <div key={m.name} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: 'clamp(10px,.8vw,18px)' }}>
+                  <span style={{ width: 'clamp(34px,2.4vw,56px)', height: 'clamp(34px,2.4vw,56px)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 'clamp(12px,.85vw,20px)', background: i === 0 ? 'var(--venta)' : 'var(--soft)', color: i === 0 ? '#fff' : 'var(--ink2)' }}>{i === 0 ? '🏆' : iniciales(m.name)}</span>
+                  <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontWeight: 600, fontSize: 'clamp(14px,1vw,24px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>
+                    <div style={{ display: 'flex', height: 6, gap: 2, borderRadius: 999, overflow: 'hidden', width: Math.max(8, (m.total / top) * 100) + '%', transition: 'width .9s ease' }}>
+                      <div style={{ flex: m.v, background: 'var(--venta)' }} />
+                      <div style={{ flex: m.r, background: 'var(--renov)' }} />
                     </div>
                   </div>
-                ))}
-                {!rk.length && <div style={{ fontFamily: MONO, color: '#7C8378', fontSize: 'clamp(12px,0.9vw,24px)' }}>Sin operaciones confirmadas este mes.</div>}
-              </div>
+                  <span style={{ textAlign: 'right', lineHeight: 1.15 }}>
+                    <b className="sw-num" style={{ fontSize: 'clamp(16px,1.2vw,30px)' }}>{m.total}</b>
+                    <span style={{ display: 'block', fontSize: 'clamp(11px,.75vw,16px)', color: 'var(--mute)' }}>{m.v} ventas · {m.r} renov.</span>
+                  </span>
+                </div>
+              ))}
+              {!rk.length && <div style={{ color: 'var(--mute)' }}>Aún no hay operaciones este mes.</div>}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div ref={this.glowRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, zIndex: 20 }} />
-        <canvas ref={this.canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 40 }} />
+        <canvas ref={this.canvasRef} style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 40 }} />
 
         {cel && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: `radial-gradient(ellipse 60% 55% at 50% 50%, ${celHalo}, rgba(6,7,8,0.82) 70%)` }}>
-            <div ref={this.celRef} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px,1vw,28px)', padding: 'clamp(24px,3vw,80px) clamp(32px,5vw,140px)', background: 'rgba(10,12,10,0.92)', border: `1px solid ${celColor}`, borderRadius: 'clamp(14px,1.4vw,36px)', boxShadow: `0 0 80px ${celHalo}, inset 0 0 60px rgba(255,255,255,0.02)`, textAlign: 'center', maxWidth: '80vw' }}>
-              <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.95vw,26px)', letterSpacing: '0.3em', color: '#9BA295' }}>{fmtTime.format(new Date(cel.ts))} · {cv ? 'VENTA NUEVA' : 'RENOVACIÓN'}</div>
-              <div style={{ fontWeight: 900, fontStretch: '120%', fontSize: 'clamp(40px,5.4vw,150px)', lineHeight: 0.95, letterSpacing: '0.02em', color: celColor, textShadow: `0 0 50px ${celHalo}` }}>{label(cel)}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.4vw,12px)', marginTop: 'clamp(6px,0.6vw,16px)' }}>
-                <div style={{ fontSize: 'clamp(18px,2.2vw,60px)', color: '#9BA295' }}>Afiliado: <span style={{ color: '#F2F4F0', fontWeight: 800 }}>{cel.afiliado}</span></div>
-                <div style={{ fontSize: 'clamp(18px,2.2vw,60px)', color: '#9BA295' }}>Negocio: <span style={{ color: '#F2F4F0', fontWeight: 800 }}>{cel.negocio}</span></div>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: s.tema === 'oscuro' ? 'rgba(5,10,8,.6)' : 'rgba(15,23,42,.25)', backdropFilter: 'blur(3px)' }}>
+            <div ref={this.celRef} className="sw-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'clamp(8px,.9vw,22px)', padding: 'clamp(28px,3vw,72px) clamp(32px,4vw,110px)', textAlign: 'center', maxWidth: '82vw', borderTop: `6px solid ${celColor}` }}>
+              <span style={{ fontSize: 'clamp(40px,4vw,96px)', lineHeight: 1 }}>{cv ? '🎉' : '🤝'}</span>
+              <div style={{ fontWeight: 800, fontSize: 'clamp(32px,3.6vw,96px)', letterSpacing: '-0.02em', color: celColor, lineHeight: 1.05 }}>{cv ? '¡Nueva venta!' : '¡Nueva renovación!'}</div>
+              <div style={{ fontWeight: 700, fontSize: 'clamp(22px,2.2vw,56px)' }}>{cel.negocio}</div>
+              <div style={{ fontSize: 'clamp(16px,1.4vw,36px)', color: 'var(--ink2)' }}>
+                Vendido por <b style={{ color: 'var(--ink)' }}>{cel.afiliado}</b>
+                {cel.plan ? ` · ${cel.plan}` : ''}
               </div>
-              {cel.plan && <div style={{ fontFamily: MONO, fontSize: 'clamp(12px,1vw,28px)', letterSpacing: '0.12em', color: celColor, border: `1px solid ${celColor}`, borderRadius: 6, padding: '6px 14px' }}>{cel.plan}</div>}
-              <div style={{ fontSize: 'clamp(16px,1.7vw,46px)', fontStyle: 'italic', color: celColor, marginTop: 'clamp(4px,0.5vw,14px)', textWrap: 'balance' } as React.CSSProperties}>{cv ? MSG_V : MSG_R}</div>
+              <div style={{ fontSize: 'clamp(15px,1.25vw,32px)', color: 'var(--mute)', textWrap: 'balance' } as React.CSSProperties}>{cv ? MSG_V : MSG_R}</div>
             </div>
           </div>
         )}
@@ -694,42 +695,35 @@ function Contador(props: {
   refNum: React.RefObject<HTMLDivElement>;
   titulo: string;
   color: string;
-  borde: string;
-  fondo: string;
-  sombra: string;
-  valor: string;
+  soft: string;
   icono: 'venta' | 'renov';
-  children: React.ReactNode;
+  valor: number;
+  hoy: number;
 }) {
   return (
-    <div ref={props.refCard} style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.5vw,14px)', padding: 'clamp(14px,1.4vw,36px) clamp(16px,1.6vw,40px)', background: props.fondo, border: `1px solid ${props.borde}`, borderRadius: 'clamp(10px,0.8vw,20px)', overflow: 'hidden' }}>
+    <div ref={props.refCard} className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.9vw,24px)', letterSpacing: '0.18em', color: props.color, fontWeight: 700 }}>{props.titulo}</div>
-        <svg viewBox="0 0 24 24" style={{ width: 'clamp(20px,1.7vw,44px)', height: 'clamp(20px,1.7vw,44px)' }} fill="none" stroke={props.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-          {props.icono === 'venta' ? (
-            <>
-              <polyline points="3,17 9,11 13,15 21,7" />
-              <polyline points="15,7 21,7 21,13" />
-            </>
-          ) : (
-            <>
-              <path d="M20 12a8 8 0 1 1-2.34-5.66" />
-              <polyline points="20,4 20,9 15,9" />
-            </>
-          )}
-        </svg>
+        <span className="sw-label">{props.titulo}</span>
+        <span style={{ width: 'clamp(32px,2.2vw,52px)', height: 'clamp(32px,2.2vw,52px)', borderRadius: 12, background: props.soft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg viewBox="0 0 24 24" style={{ width: '55%', height: '55%' }} fill="none" stroke={props.color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            {props.icono === 'venta' ? (
+              <>
+                <polyline points="3,17 9,11 13,15 21,7" />
+                <polyline points="15,7 21,7 21,13" />
+              </>
+            ) : (
+              <>
+                <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                <polyline points="20,4 20,9 15,9" />
+              </>
+            )}
+          </svg>
+        </span>
       </div>
-      <div ref={props.refNum} style={{ fontFamily: MONO, fontWeight: 700, fontSize: 'clamp(48px,6vw,168px)', lineHeight: 1, color: props.color, fontVariantNumeric: 'tabular-nums', textShadow: props.sombra, transformOrigin: 'left center' }}>{props.valor}</div>
-      <div style={{ fontSize: 'clamp(12px,0.95vw,26px)', color: '#9BA295' }}>{props.children}</div>
-    </div>
-  );
-}
-
-function Cabecera({ titulo, nota }: { titulo: string; nota: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'clamp(10px,1vw,26px) clamp(14px,1.4vw,36px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-      <div style={{ fontFamily: MONO, fontSize: 'clamp(11px,0.9vw,24px)', letterSpacing: '0.18em', fontWeight: 700 }}>{titulo}</div>
-      <div style={{ fontFamily: MONO, fontSize: 'clamp(10px,0.75vw,20px)', color: '#7C8378', letterSpacing: '0.1em' }}>{nota}</div>
+      <div ref={props.refNum} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', color: props.color, transformOrigin: 'left center' }}>{props.valor.toLocaleString('es-CO')}</div>
+      <span style={{ fontSize: 'clamp(13px,.9vw,20px)', color: 'var(--mute)' }}>
+        {props.hoy > 0 ? <><b style={{ color: props.color }}>+{props.hoy}</b> hoy</> : 'Ninguna hoy todavía'}
+      </span>
     </div>
   );
 }
@@ -740,12 +734,24 @@ export default function SalesWallPage() {
     const q = new URLSearchParams(window.location.search);
     const meta = Number(q.get('meta'));
     const cada = Number(q.get('cada'));
+    let guardado: string | null = null;
+    try {
+      guardado = localStorage.getItem('sales-wall:tema');
+    } catch {}
+    const pedido = q.get('tema') ?? guardado;
+    const tema: Tema =
+      pedido === 'claro' || pedido === 'oscuro'
+        ? pedido
+        : window.matchMedia?.('(prefers-color-scheme: dark)').matches
+          ? 'oscuro'
+          : 'claro';
     setOp({
       demo: q.get('demo') === '1',
       meta: Number.isFinite(meta) && meta > 0 ? meta : 4000,
       cada: Number.isFinite(cada) && cada >= 5 ? cada : 15,
+      tema,
     });
   }, []);
-  if (!op) return <div style={{ height: '100vh', background: '#060708' }} />;
+  if (!op) return <div style={{ minHeight: '100vh', background: '#F4F6F5' }} />;
   return <SalesWall {...op} />;
 }
