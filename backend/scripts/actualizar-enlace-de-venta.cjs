@@ -4,6 +4,7 @@
  *
  *   node scripts/actualizar-enlace-de-venta.cjs <oferta> [--nombre "..."] [--url "..."] [--activo si|no] [--solo "COD1,COD2" | --solo todos] [--aplicar]
  *
+ * `--periodicidad MENSUAL|…|ninguna` cambia o quita la periodicidad.
  * `--solo` deja el enlace exclusivo de esos códigos de afiliado (`todos` lo abre a todos).
  */
 const { PrismaClient } = require('@prisma/client');
@@ -22,6 +23,13 @@ async function main() {
   if (arg('--nombre')) lista[i].nombre = arg('--nombre');
   if (arg('--url')) { const u = new URL(arg('--url')); if (u.searchParams.get('off') !== oferta) throw new Error('La URL nueva no lleva la misma oferta'); lista[i].url = u.toString(); }
   if (arg('--activo')) lista[i].activo = arg('--activo') === 'si';
+  // `--periodicidad ninguna`: el enlace NO es un plan (un servicio de pago
+  // único, como la implementación). Sin periodicidad el webhook no lo activa
+  // como suscripción y lo cuenta como servicio adicional.
+  if (arg('--periodicidad')) {
+    const p = arg('--periodicidad').toUpperCase();
+    lista[i].periodicidad = p === 'NINGUNA' ? null : p;
+  }
   if (arg('--precio-del-plan')) {
     if (arg('--precio-del-plan') === 'si') lista[i].precioEsElDelPlan = true;
     else delete lista[i].precioEsElDelPlan;

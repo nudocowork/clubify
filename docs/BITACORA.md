@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-26 (154) — CORRECCIÓN: lo de 27 Grados Licores fue IMPLEMENTACIÓN, no Mensualidad básica (scripts pendientes)
+
+Javier aclara: hay DOS ofertas de USD 25.
+- `shoro1ov` — **Mensualidad básica**, suscripción mensual (producto Tarjetas de fidelización). La ven todos los afiliados. `precioEsElDelPlan` ✔.
+- `ui48vhsp` — **Implementación**, pago único (producto Servicios adicionales). Exclusiva de Nicolás Quintero: «(Implementación Estrategia 2) - 25$ Único pago».
+
+Rodrigo (`27gradoslicores@gmail.com`, HP0666996116) pagó la **implementación**. Las entradas 147 y 149 la trataron como plan mensual; lo que queda por deshacer:
+1. Enlace `ui48vhsp`: quitarle `periodicidad: MENSUAL` y `precioEsElDelPlan`. Sin periodicidad, el webhook vuelve a tratarla como servicio adicional (ingreso «Servicios adicionales», sin cuenta ni enlace de activación). `actualizar-enlace-de-venta.cjs` gana `--periodicidad ninguna`.
+2. Su pago está en «Pagos sin activar» (lo creó `recuperar-compra-de-plan.cjs`) y ya le salieron el enlace de activación y un recordatorio. Si se activara, quedaría como plan mensual. `scripts/retirar-pago-pendiente.cjs <tx> "<motivo>"` lo marca consumido (paran los recordatorios) y audita.
+3. Lo que SÍ está bien: su ingreso en Contabilidad es «Servicios adicionales», USD 26,12, sin negocio — correcto para una implementación. La compra de créditos quedó `IGNORED` (no son créditos).
+4. El código de la 147 (oferta de plan dentro del producto de servicios adicionales → suscripción) sigue siendo válido; ya no aplica a `ui48vhsp` porque deja de tener periodicidad.
+
 ## 2026-10-26 (153) — Aviso «pagó y NO completó /activar»: el monto en USD del plan (SIN DESPLEGAR)
 
 El aviso de Rodrigo (27 Grados Licores) decía «Monto: COP 82,835.62». El arreglo del 17-oct (feb012af) solo corrigió la ETIQUETA de la moneda (antes ponía «USD» a cifras en pesos); el monto seguía saliendo en la moneda del comprador. Ahora: `Monto: USD 25.00 (pagó COP 82,835.62)`. El USD sale del precio del enlace de venta (`precioEsElDelPlan`), si no del valor si vino en USD, si no del canónico por periodicidad. «Plan:» usa el nombre del enlace de venta cuando Hotmart no manda plan («Mensualidad básica»).
