@@ -1,7 +1,6 @@
 'use client';
-import Link from 'next/link';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { EnlaceNegocio, useFuenteMetricas } from '@/lib/fuente-metricas';
 import { descargarCsv, descargarXlsx, type Celda, type Hoja } from '@/lib/exportar-hoja';
 import { diaCorto } from './Graficas';
 
@@ -156,11 +155,12 @@ export function DesgloseMetrica({
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const panel = useRef<HTMLDivElement>(null);
 
+  const fuente = useFuenteMetricas();
   useEffect(() => {
     let vivo = true;
     setDatos(null);
     setError(null);
-    api<Respuesta>(`/admin/metricas/desglose?metrica=${metrica}&${consulta}`)
+    fuente.get<Respuesta>(`/admin/metricas/desglose?metrica=${metrica}&${consulta}`)
       .then((r) => vivo && setDatos(r))
       .catch((e: unknown) => vivo && setError(e instanceof Error ? e.message : 'No se pudo cargar el detalle.'));
     return () => {
@@ -420,9 +420,9 @@ export function DesgloseMetrica({
                             <tr className="align-top">
                               <td className="py-2 pr-2 text-mute tabular-nums">{i + 1}</td>
                               <td className="py-2 pr-3 max-w-[240px]">
-                                <Link href={`/admin/tenants/${f.id}`} className="font-medium text-ink hover:text-brand truncate block">
+                                <EnlaceNegocio id={f.id} className="font-medium text-ink hover:text-brand truncate block">
                                   {f.nombre}
-                                </Link>
+                                </EnlaceNegocio>
                                 <span className={`badge ${ESTADO[f.estado].badge} mt-0.5`}>{ESTADO[f.estado].etiqueta}</span>
                               </td>
                               <td className="py-2 pr-3 text-right tabular-nums font-bold text-ink">{num(f.valor)}</td>

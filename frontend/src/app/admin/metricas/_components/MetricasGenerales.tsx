@@ -1,7 +1,6 @@
 'use client';
-import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { EnlaceNegocio, useFuenteMetricas } from '@/lib/fuente-metricas';
 import { descargarCsv, descargarXlsx, type Celda } from '@/lib/exportar-hoja';
 import { GraficaCombinada, GraficaSerie, diaCorto } from './Graficas';
 import { DesgloseMetrica, type MetricaDesglose } from './DesgloseMetrica';
@@ -259,12 +258,13 @@ export function MetricasGenerales() {
   }
   const consulta = q.toString();
 
+  const fuente = useFuenteMetricas();
   useEffect(() => {
     if (preset === 'personalizado' && !aplicado) return;
     let vivo = true;
     setCargando(true);
     setError(null);
-    api<Respuesta>(`/admin/metricas/generales?${consulta}`)
+    fuente.get<Respuesta>(`/admin/metricas/generales?${consulta}`)
       .then((r) => vivo && setDatos(r))
       .catch((e: unknown) => vivo && setError(e instanceof Error ? e.message : 'No se pudieron cargar las métricas.'))
       .finally(() => vivo && setCargando(false));
@@ -572,14 +572,14 @@ function Contenido({
             <ul className="divide-y divide-line2 mt-3 max-h-80 overflow-y-auto">
               {d.negocios.sinUso.map((x) => (
                 <li key={x.id}>
-                  <Link href={`/admin/tenants/${x.id}`} className="flex items-center gap-3 py-2 hover:bg-bg2 rounded-lg px-2">
+                  <EnlaceNegocio id={x.id} className="flex items-center gap-3 py-2 hover:bg-bg2 rounded-lg px-2">
                     <span className="flex-1 min-w-0 truncate font-medium">{x.nombre}</span>
                     <span className="text-[11px] text-mute text-right whitespace-nowrap">
                       último movimiento {fecha(x.ultimoMovimientoEn)}
                       <br />
                       último pedido {fecha(x.ultimoPedidoEn)}
                     </span>
-                  </Link>
+                  </EnlaceNegocio>
                 </li>
               ))}
             </ul>
@@ -611,7 +611,7 @@ function Contenido({
             <ol className="space-y-1">
               {d.negocios.topCrecimiento.map((x, i) => (
                 <li key={x.id}>
-                  <Link href={`/admin/tenants/${x.id}`} className="flex items-center gap-3 py-1.5 px-2 hover:bg-bg2 rounded-lg">
+                  <EnlaceNegocio id={x.id} className="flex items-center gap-3 py-1.5 px-2 hover:bg-bg2 rounded-lg">
                     <span className="w-5 text-sm font-bold text-mute tabular-nums">{i + 1}</span>
                     <span className="flex-1 min-w-0 truncate font-medium">{x.nombre}</span>
                     <span className="text-right whitespace-nowrap">
@@ -620,7 +620,7 @@ function Contenido({
                         <Cambio v={x.variacion} anterior={num(x.anterior)} />
                       </span>
                     </span>
-                  </Link>
+                  </EnlaceNegocio>
                 </li>
               ))}
             </ol>
@@ -685,9 +685,9 @@ function Contenido({
                     <td className="py-2 pr-3 text-right tabular-nums">{num(f.totalClientes)}</td>
                     <td className="py-2 pr-3 whitespace-nowrap">{fecha(f.ultimoSelloEn)}</td>
                     <td className="py-2 text-right">
-                      <Link href={`/admin/tenants/${f.id}`} className="btn-link text-xs whitespace-nowrap">
+                      <EnlaceNegocio id={f.id} className="btn-link text-xs whitespace-nowrap">
                         Ver ficha →
-                      </Link>
+                      </EnlaceNegocio>
                     </td>
                   </tr>
                 ))}

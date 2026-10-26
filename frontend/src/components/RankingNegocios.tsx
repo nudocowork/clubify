@@ -1,8 +1,7 @@
 'use client';
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { api } from '@/lib/api';
+import { EnlaceNegocio, useFuenteMetricas } from '@/lib/fuente-metricas';
 
 /**
  * Ranking de negocios por pases emitidos o por pedidos de los menús.
@@ -61,10 +60,11 @@ export function RankingNegocios({ metrica }: { metrica: MetricaRanking }) {
   // muestra es el REAL en el ranking completo, no el de la lista filtrada.
   const [busqueda, setBusqueda] = useState('');
 
+  const fuente = useFuenteMetricas();
   useEffect(() => {
     let vivo = true;
     setLoading(true);
-    api<RankingRow[]>(
+    fuente.get<RankingRow[]>(
       `/tenants/ranking?order=${order}&criterio=${criterio}&metric=${metrica}` +
         (dias ? `&dias=${dias}` : ''),
     )
@@ -200,9 +200,8 @@ export function RankingNegocios({ metrica }: { metrica: MetricaRanking }) {
         ) : (
           <div className="divide-y divide-line">
             {visibles.map(({ r, puesto: i }) => (
-              <Link
-                key={r.id}
-                href={`/admin/tenants/${r.id}`}
+              <EnlaceNegocio
+                key={r.id} id={r.id}
                 className="flex items-center gap-3 px-2 sm:px-3 py-2.5 hover:bg-bg2 rounded-lg"
               >
                 <div className="w-8 text-center font-bold tabular-nums">
@@ -226,7 +225,7 @@ export function RankingNegocios({ metrica }: { metrica: MetricaRanking }) {
                     </div>
                   )}
                 </div>
-              </Link>
+              </EnlaceNegocio>
             ))}
           </div>
         )}
