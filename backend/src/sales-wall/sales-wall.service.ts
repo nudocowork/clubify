@@ -15,11 +15,25 @@ export interface EventoDelMuro {
   estado: 'confirmada';
 }
 
+export interface ServicioDelMes {
+  id: string;
+  /** «Descuento de Implementación», «Implementación Oferta 25 USD»… */
+  concepto: string;
+  monto_usd: number;
+  fecha: string;
+}
+
 export interface MuroDelMes {
   ventas: number;
   renovaciones: number;
   monto_usd: number;
   eventos: EventoDelMuro[];
+  /**
+   * Lo cobrado este mes que no es un plan: implementaciones, descuentos de
+   * implementación y demás servicios adicionales (Contabilidad, categoría
+   * OTRO). Va aparte y no suma a ventas ni renovaciones (Javier, 2026-10-26).
+   */
+  servicios: { cantidad: number; monto_usd: number; items: ServicioDelMes[] };
 }
 
 /**
@@ -113,6 +127,54 @@ export class SalesWallService {
       else renovaciones++;
       monto += usd;
     }
-    return { ventas, renovaciones, monto_usd: Math.round(monto * 100) / 100, eventos };
+    return {
+      ventas,
+      renovaciones,
+      monto_usd: Math.round(monto * 100) / 100,
+      eventos,
+      servicios: await this.serviciosDelMes(limites, scope),
+    };
+  }
+
+  private async serviciosDelMes(
+    limites: { from: Date; to: Date },
+    scope: Awaited<ReturnType<typeof resolveBrandScope>>,
+  ): Promise<MuroDelMes['servicios']> {
+    const filas = await this.prisma.incomeRecord.findMany({
+      where: {
+        saleDate: { gte: limites.from, lte: limites.to },
+        status: 'PAGADO',
+        category: 'OTRO',
+        AND: [brandWhiteLabelWhere(scope)],
+      },
+      orderBy: { saleDate: 'desc' },
+      select: { id: true, externalTxId: true, productName: true, grossUsd: true, saleDate: true },
+      take: 200,
+    });
+    // El nombre de la OFERTA de Hotmart dice qué fue; el `productName` de
+    // Contabilidad a veces es solo «20 USD» o «Servicios adicionales».
+    const txs = filas.map((f) => f.externalTxId).filter((x): x is string => !!x);
+    const ofertas = txs.length
+      ? await this.prisma.$queryRawUnsafe<Array<{ t: string; o: string | null }>>(
+          `SELECT DISTINCT ON (payload->'data'->'purchase'->>'transaction')
+                  payload->'data'->'purchase'->>'transaction' AS t,
+                  payload->'data'->'purchase'->'offer'->>'name' AS o
+             FROM "HotmartWebhookEvent"
+            WHERE payload->'data'->'purchase'->>'transaction' = ANY($1)`,
+          txs,
+        )
+      : [];
+    const oferta = new Map(ofertas.map((x) => [x.t, x.o]));
+    const items = filas.map((f) => ({
+      id: `srv_${f.id}`,
+      concepto: (oferta.get(f.externalTxId ?? '') || f.productName || 'Servicio adicional').trim(),
+      monto_usd: Math.round((Number(f.grossUsd ?? 0) || 0) * 100) / 100,
+      fecha: f.saleDate.toISOString(),
+    }));
+    return {
+      cantidad: items.length,
+      monto_usd: Math.round(items.reduce((a, i) => a + i.monto_usd, 0) * 100) / 100,
+      items,
+    };
   }
 }

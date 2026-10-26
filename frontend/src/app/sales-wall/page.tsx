@@ -20,6 +20,7 @@ import { api } from '@/lib/api';
  *   ?meta=4000    meta mensual en USD (sin ella, la de octubre 2026: 4.000)
  *   ?cada=15      segundos entre consultas
  *   ?tema=oscuro  o claro; si no, el último elegido o el del sistema
+ *   ?renovaciones=no  sin renovaciones (no se ven ni suman a la meta)
  *   ?demo=1       datos simulados (etiqueta «Demo» visible)
  */
 
@@ -123,11 +124,15 @@ type Estado = {
   soundOn: boolean;
   flashId: string | null;
   tema: Tema;
+  /** Con renovaciones se ven y suman a la meta; sin ellas, solo ventas. */
+  incluirRenov: boolean;
+  servicios: Servicios;
 };
-type Opciones = { demo: boolean; meta: number; cada: number; tema: Tema };
+type Servicios = { cantidad: number; monto_usd: number; items: Array<{ id: string; concepto: string; monto_usd: number; fecha: string }> };
+type Opciones = { demo: boolean; meta: number; cada: number; tema: Tema; incluirRenov: boolean };
 
 class SalesWall extends React.Component<Opciones, Estado> {
-  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema };
+  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema, incluirRenov: this.props.incluirRenov, servicios: { cantidad: 0, monto_usd: 0, items: [] } };
   /** Cualquier toque o tecla en la página desbloquea el audio (ver `prepararSonido`). */
   desbloquear = () => this.prepararSonido();
   vNumRef = React.createRef<HTMLDivElement>();
@@ -226,7 +231,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
     let primera = true;
     const poll = async () => {
       try {
-        const d = await api<{ ventas: number; renovaciones: number; monto_usd: number; eventos: Raw[] }>('/admin/sales-wall');
+        const d = await api<{ ventas: number; renovaciones: number; monto_usd: number; eventos: Raw[]; servicios?: Servicios }>('/admin/sales-wall');
+        if (d.servicios) this.setState({ servicios: d.servicios });
         if (primera) {
           this.ingestMany(d.eventos ?? []);
           this.setCounts(+d.ventas || 0, +d.renovaciones || 0, +d.monto_usd || 0);
@@ -287,7 +293,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
         usd: s.usd + (ev.confirmed ? ev.usd : 0),
       }),
       () => {
-        if (live && ev.confirmed) {
+        // Sin renovaciones, una renovación cuenta en silencio: no se celebra.
+        if (live && ev.confirmed && (this.state.incluirRenov || ev.type === 'venta')) {
           this.queue.push(ev);
           if (!this.state.cel && !this.celBusy) this.showNext();
         } else this.tweenCounts();
@@ -431,6 +438,14 @@ class SalesWall extends React.Component<Opciones, Estado> {
     this.raf = requestAnimationFrame(step);
   }
 
+  cambiarRenovaciones = () => {
+    const incluirRenov = !this.state.incluirRenov;
+    this.setState({ incluirRenov });
+    try {
+      localStorage.setItem('sales-wall:renovaciones', incluirRenov ? 'si' : 'no');
+    } catch {}
+  };
+
   cambiarTema = () => {
     const tema: Tema = this.state.tema === 'oscuro' ? 'claro' : 'oscuro';
     this.setState({ tema });
@@ -476,8 +491,32 @@ class SalesWall extends React.Component<Opciones, Estado> {
       o.stop(t + st + d + 0.05);
     };
     if (type === 'venta') {
-      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(f, i * 0.085, 0.45, 'triangle', 0.2));
-      note(1318.5, 0.34, 1.0, 'sine', 0.1);
+      // «Cash in» de caja registradora (Javier, 2026-10-26): el golpe del
+      // cajón, la campanita y unas monedas.
+      const golpe = (st: number, dur: number, desde: number, vol: number) => {
+        const n = Math.floor(ac.sampleRate * dur);
+        const buf = ac.createBuffer(1, n, ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+        const src = ac.createBufferSource();
+        src.buffer = buf;
+        const f = ac.createBiquadFilter();
+        f.type = 'bandpass';
+        f.frequency.value = desde;
+        f.Q.value = 1.2;
+        const g = ac.createGain();
+        g.gain.value = vol;
+        src.connect(f);
+        f.connect(g);
+        g.connect(master);
+        src.start(t + st);
+      };
+      golpe(0, 0.09, 1800, 0.9);
+      golpe(0.05, 0.06, 900, 0.6);
+      note(2637, 0.1, 1.3, 'sine', 0.22);
+      note(3520, 0.1, 1.0, 'sine', 0.12);
+      note(5274, 0.1, 0.5, 'sine', 0.05);
+      [0.32, 0.4, 0.47, 0.55, 0.61].forEach((st, i) => note(4200 + i * 330, st, 0.12, 'triangle', 0.06));
     } else {
       note(659.25, 0, 1.2, 'sine', 0.2);
       note(987.77, 0.2, 1.4, 'sine', 0.16);
@@ -493,7 +532,9 @@ class SalesWall extends React.Component<Opciones, Estado> {
     const pctV = total ? Math.round((s.ventas / total) * 100) : 0;
     const pctR = total ? 100 - pctV : 0;
     const today = dayKey(now);
-    const conf = s.events.filter((e) => e.confirmed);
+    // Sin renovaciones, desaparecen de todo: franja, lista, ranking y meta.
+    const visibles = s.incluirRenov ? s.events : s.events.filter((e) => e.type === 'venta');
+    const conf = visibles.filter((e) => e.confirmed);
     const todayEv = conf.filter((e) => dayKey(e.ts) === today);
     // Montos en USD por tipo (precio del plan, desde Contabilidad).
     const usdV = conf.filter((e) => e.type === 'venta').reduce((a, e) => a + e.usd, 0);
@@ -520,8 +561,10 @@ class SalesWall extends React.Component<Opciones, Estado> {
     const top = rk[0]?.total || 1;
 
     const goal = Math.max(1, this.props.meta);
-    const goalPct = Math.round((s.dU / goal) * 100);
-    const remaining = goal - s.usd;
+    const metaUsd = usdV + (s.incluirRenov ? usdR : 0);
+    const goalPct = Math.round((metaUsd / goal) * 100);
+    const remaining = goal - metaUsd;
+    const nCards = s.incluirRenov ? 4 : 3;
     const cel = s.cel;
     const cv = cel?.type === 'venta';
     const celColor = cv ? 'var(--venta)' : 'var(--renov)';
@@ -564,6 +607,9 @@ class SalesWall extends React.Component<Opciones, Estado> {
               🔈 Toca la pantalla para activar el sonido
             </button>
           )}
+          <button type="button" className="sw-btn" onClick={this.cambiarRenovaciones} aria-pressed={s.incluirRenov} title="Las renovaciones se ven y suman a la meta, o no">
+            {s.incluirRenov ? '🔁 Con renovaciones' : '🚫 Sin renovaciones'}
+          </button>
           <button type="button" className="sw-btn" onClick={this.cambiarTema} aria-label="Cambiar entre modo claro y oscuro">
             {s.tema === 'oscuro' ? '☀️ Modo claro' : '🌙 Modo oscuro'}
           </button>
@@ -574,13 +620,39 @@ class SalesWall extends React.Component<Opciones, Estado> {
         </header>
 
         {/* Contadores */}
-        <section className="sw-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 'clamp(12px,1.2vw,28px)' }}>
+        <section className="sw-stats" style={{ display: 'grid', gridTemplateColumns: `repeat(${nCards},minmax(0,1fr))`, gap: 'clamp(12px,1.2vw,28px)' }}>
           <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="Ventas nuevas" color="var(--venta)" soft="var(--venta-soft)" icono="venta" valor={s.dV} monto={usdV} hoy={todayEv.filter((e) => e.type === 'venta').length} />
-          <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} monto={usdR} hoy={todayEv.filter((e) => e.type === 'renov').length} />
+          {s.incluirRenov && (
+            <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} monto={usdR} hoy={todayEv.filter((e) => e.type === 'renov').length} />
+          )}
+          {/* Lo cobrado que no es un plan: implementaciones, descuentos de
+              implementación… No suma a la meta. */}
+          <div className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
+            <span className="sw-label">Servicios adicionales</span>
+            <div className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', color: '#D97706' }}>{s.servicios.cantidad.toLocaleString('es-CO')}</div>
+            <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)', color: '#D97706' }}>{fmtUSD(s.servicios.monto_usd)}</div>
+            <div style={{ fontSize: 'clamp(12px,.85vw,18px)', color: 'var(--mute)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {s.servicios.items.length === 0 && <span>Ninguno este mes todavía</span>}
+              {Object.entries(
+                s.servicios.items.reduce<Record<string, { n: number; usd: number }>>((a, i) => {
+                  const k = i.concepto;
+                  a[k] = { n: (a[k]?.n ?? 0) + 1, usd: (a[k]?.usd ?? 0) + i.monto_usd };
+                  return a;
+                }, {}),
+              )
+                .slice(0, 3)
+                .map(([k, v]) => (
+                  <span key={k} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {v.n} × {k} · <b style={{ color: 'var(--ink2)' }}>{fmtUSD(v.usd)}</b>
+                  </span>
+                ))}
+            </div>
+          </div>
           <div ref={this.tCardRef} className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
-            <span className="sw-label">Total del mes</span>
-            <div ref={this.tNumRef} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', transformOrigin: 'left center' }}>{(s.dV + s.dR).toLocaleString('es-CO')}</div>
-            <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)' }}>{fmtUSD(s.dU)}</div>
+            <span className="sw-label">{s.incluirRenov ? 'Total del mes' : 'Total del mes (sin renovaciones)'}</span>
+            <div ref={this.tNumRef} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', transformOrigin: 'left center' }}>{(s.dV + (s.incluirRenov ? s.dR : 0)).toLocaleString('es-CO')}</div>
+            <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)' }}>{fmtUSD(metaUsd)}</div>
+            {s.incluirRenov && (<>
             <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--track)', gap: 3 }}>
               <div style={{ width: pctV + '%', background: 'var(--venta)', borderRadius: 999, transition: 'width .8s ease' }} />
               <div style={{ width: pctR + '%', background: 'var(--renov)', borderRadius: 999, transition: 'width .8s ease' }} />
@@ -589,6 +661,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
               <span><b style={{ color: 'var(--venta)' }}>{pctV}%</b> ventas</span>
               <span><b style={{ color: 'var(--renov)' }}>{pctR}%</b> renovaciones</span>
             </div>
+            </>)}
           </div>
         </section>
 
@@ -627,7 +700,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
               <span className="sw-label" style={{ fontWeight: 500 }}>Lo más reciente primero</span>
             </div>
             <div>
-              {s.events.slice(0, 10).map((e) => {
+              {visibles.slice(0, 10).map((e) => {
                 const isV = e.type === 'venta';
                 const flash = e.id === s.flashId;
                 return (
@@ -640,7 +713,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
                   </div>
                 );
               })}
-              {!s.events.length && <div style={{ padding: 'clamp(16px,1.4vw,32px)', color: 'var(--mute)', borderTop: '1px solid var(--line)' }}>Todavía no hay movimientos este mes.</div>}
+              {!visibles.length && <div style={{ padding: 'clamp(16px,1.4vw,32px)', color: 'var(--mute)', borderTop: '1px solid var(--line)' }}>Todavía no hay movimientos este mes.</div>}
             </div>
           </div>
 
@@ -649,7 +722,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
                 <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Meta del mes</h2>
                 <span className="sw-num" style={{ color: 'var(--mute)', fontSize: 'clamp(13px,.95vw,22px)' }}>
-                  <b style={{ color: 'var(--ink)' }}>{fmtUSD(s.dU)}</b> de {fmtUSD(goal)}
+                  <b style={{ color: 'var(--ink)' }}>{fmtUSD(metaUsd)}</b> de {fmtUSD(goal)}
                 </span>
               </div>
               <div style={{ height: 'clamp(12px,.9vw,22px)', borderRadius: 999, background: 'var(--track)', overflow: 'hidden' }}>
@@ -666,7 +739,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
                 <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Ranking de afiliados</h2>
                 <span style={{ display: 'flex', gap: 12, fontSize: 'clamp(12px,.85vw,18px)', color: 'var(--mute)' }}>
                   <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--venta)', marginRight: 5 }} />Ventas</span>
-                  <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--renov)', marginRight: 5 }} />Renovaciones</span>
+                  {s.incluirRenov && <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'var(--renov)', marginRight: 5 }} />Renovaciones</span>}
                 </span>
               </div>
               {rk.map((m, i) => (
@@ -769,7 +842,13 @@ export default function SalesWallPage() {
         : window.matchMedia?.('(prefers-color-scheme: dark)').matches
           ? 'oscuro'
           : 'claro';
+    let renov: string | null = null;
+    try {
+      renov = localStorage.getItem('sales-wall:renovaciones');
+    } catch {}
+    const pedidoRenov = q.get('renovaciones') ?? renov;
     setOp({
+      incluirRenov: pedidoRenov !== 'no',
       demo: q.get('demo') === '1',
       meta: Number.isFinite(meta) && meta > 0 ? meta : 4000,
       cada: Number.isFinite(cada) && cada >= 5 ? cada : 15,
