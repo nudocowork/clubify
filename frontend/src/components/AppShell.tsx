@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
+import { api, clearSession, getUser, getImpersonationBackup, renovarSesion, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
 import { useTranslations } from 'next-intl';
 import { NotificationBell } from './NotificationBell';
@@ -493,18 +493,34 @@ export default function AppShell({
     // expiró antes de localStorage, o user borró cookies). Antes la app
     // te dejaba entrar y TODAS las requests fallaban 401 sin pista clara.
     // Ahora forzamos un re-login limpio.
+    // Si la cookie de acceso venció pero queda el refresh, se renueva aquí
+    // en silencio: solo se manda al login si la sesión de verdad terminó.
     const hasTokenCookie =
       typeof document !== 'undefined' &&
       /(^|;\s*)clubify_token=/.test(document.cookie);
-    if (!hasTokenCookie) {
-      clearSession();
-      router.push('/login?expired=1');
+    const entrar = () => {
+      const isAdminRole = u.role === 'SUPER_ADMIN' || u.role === 'MARKETING';
+      if (variant === 'admin' && !isAdminRole) router.push('/app');
+      if (variant === 'app' && isAdminRole) router.push('/admin');
+      setUser(u);
+    };
+    if (hasTokenCookie) {
+      entrar();
       return;
     }
-    const isAdminRole = u.role === 'SUPER_ADMIN' || u.role === 'MARKETING';
-    if (variant === 'admin' && !isAdminRole) router.push('/app');
-    if (variant === 'app' && isAdminRole) router.push('/admin');
-    setUser(u);
+    let vivo = true;
+    void renovarSesion().then((ok) => {
+      if (!vivo) return;
+      if (ok) {
+        entrar();
+        return;
+      }
+      clearSession();
+      router.push('/login?expired=1');
+    });
+    return () => {
+      vivo = false;
+    };
   }, [router, variant]);
 
   // Route guard MARKETING: bloquea rutas admin no permitidas (financiero,

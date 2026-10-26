@@ -7,6 +7,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 // el refresh ya tiene 30d. La cookie del refresh dura más para que el user
 // no tenga que re-loguearse cada hora.
 const REFRESH_MAX_AGE = 30 * 24 * 60 * 60; // 30d, igual al backend
+const ACCESS_MAX_AGE = 12 * 60 * 60; // 12h, igual al JWT_EXPIRES de producción
 
 // ── Overlay de sesión POR PESTAÑA (sessionStorage) ──────────────────────────
 // La sesión base (login) vive en cookie + localStorage = COMPARTIDA entre todas
@@ -78,11 +79,11 @@ export function setSession(
   user: any,
   opts?: { maxAgeSeconds?: number; refreshToken?: string },
 ) {
-  // Default 1 hora para la cookie del access (el JWT por dentro vive 15m,
-  // pero mantener la cookie un poco más permite que el wrapper detecte
-  // hadSession=true para disparar el refresh en lugar de mandar al login).
+  // 12 horas, lo mismo que vive el token en producción (JWT_EXPIRES=12h).
+  // Con 1 hora, un panel quieto más de una hora mandaba al login al
+  // recargar aunque la sesión siguiera viva 30 días (Javier, 2026-10-25).
   // Para sesión scanner pasamos maxAgeSeconds: 6 * 3600.
-  const maxAge = opts?.maxAgeSeconds ?? 60 * 60;
+  const maxAge = opts?.maxAgeSeconds ?? ACCESS_MAX_AGE;
   writeAccessCookie(token, maxAge);
   if (opts?.refreshToken) {
     writeRefreshCookie(opts.refreshToken);
@@ -253,6 +254,15 @@ let refreshInFlight: Promise<string | null> | null = null;
  * access nuevo o null si el refresh es inválido/ausente. Single-flight para
  * evitar tormenta de refreshes ante un burst de 401s.
  */
+/**
+ * Renueva la sesión con el refresh si existe. La usa el panel al abrir una
+ * página cuando la cookie de acceso ya venció: mejor renovar que mandar al
+ * login a quien sigue teniendo sesión.
+ */
+export async function renovarSesion(): Promise<boolean> {
+  return !!(await refreshAccessToken());
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   const refresh = getRefreshToken();
@@ -270,7 +280,7 @@ async function refreshAccessToken(): Promise<string | null> {
         refreshToken?: string;
       };
       if (!data?.accessToken) return null;
-      writeAccessCookie(data.accessToken, 60 * 60);
+      writeAccessCookie(data.accessToken, ACCESS_MAX_AGE);
       if (data.refreshToken) writeRefreshCookie(data.refreshToken);
       return data.accessToken;
     } catch {

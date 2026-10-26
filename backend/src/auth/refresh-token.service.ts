@@ -129,7 +129,20 @@ export class RefreshTokenService {
       throw new UnauthorizedException('Refresh token expired');
     }
 
-    if (record.revokedAt) {
+    // DOS PESTAÑAS A LA VEZ NO SON UN ROBO. Con el panel y el Sales Wall
+    // abiertos, las dos renuevan casi al mismo tiempo con el mismo token: la
+    // primera lo rota y la segunda llega con el ya rotado. Antes eso era
+    // «reuso», se revocaba la familia entera y se cerraba la sesión en todas
+    // partes (Javier, 2026-10-25: «que no se cierre la sesión»). Si se rotó
+    // hace menos de un minuto —y fue por rotación, no por logout—, se emite
+    // otro de la misma familia. Pasado ese margen sigue siendo reuso.
+    const rotadoHaceSegundos = record.revokedAt
+      ? (Date.now() - record.revokedAt.getTime()) / 1000
+      : Infinity;
+    const carreraEntrePestanas =
+      !!record.revokedAt && !!record.replacedByTokenId && rotadoHaceSegundos < 60;
+
+    if (record.revokedAt && !carreraEntrePestanas) {
       // REUSO DETECTADO. Token ya fue rotado y alguien intenta usarlo de
       // nuevo → asumimos compromiso. Revocamos la family entera.
       this.logger.warn(

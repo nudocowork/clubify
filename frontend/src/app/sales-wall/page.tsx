@@ -128,6 +128,8 @@ type Opciones = { demo: boolean; meta: number; cada: number; tema: Tema };
 
 class SalesWall extends React.Component<Opciones, Estado> {
   state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema };
+  /** Cualquier toque o tecla en la página desbloquea el audio (ver `prepararSonido`). */
+  desbloquear = () => this.prepararSonido();
   vNumRef = React.createRef<HTMLDivElement>();
   rNumRef = React.createRef<HTMLDivElement>();
   tNumRef = React.createRef<HTMLDivElement>();
@@ -176,6 +178,13 @@ class SalesWall extends React.Component<Opciones, Estado> {
     window.addEventListener('offline', this.onOff);
     window.addEventListener('online', this.onOn);
     window.addEventListener('resize', this.resize);
+    // Sonido SIEMPRE activo (Javier, 2026-10-25). El navegador no deja sonar
+    // nada hasta que alguien toca la página una vez: se intenta al abrir y,
+    // si sigue bloqueado, el primer toque o tecla en cualquier parte lo
+    // desbloquea. No hay botón para apagarlo.
+    window.addEventListener('pointerdown', this.desbloquear);
+    window.addEventListener('keydown', this.desbloquear);
+    this.prepararSonido();
     this.resize();
     this.tickerLoop();
     this.start();
@@ -189,6 +198,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
     window.removeEventListener('offline', this.onOff);
     window.removeEventListener('online', this.onOn);
     window.removeEventListener('resize', this.resize);
+    window.removeEventListener('pointerdown', this.desbloquear);
+    window.removeEventListener('keydown', this.desbloquear);
   }
 
   later(fn: () => void, ms: number) {
@@ -428,9 +439,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
     } catch {}
   };
 
-  /** Los navegadores bloquean el audio hasta que alguien toca la página:
-   *  en la TV se pulsa una vez «Activar sonido». */
-  toggleSound = () => {
+  /** Crea el audio y lo deja sonando. `soundOn` = el navegador ya lo dejó. */
+  prepararSonido = () => {
     if (!this.ac) {
       const AC = window.AudioContext || (window as any).webkitAudioContext;
       if (!AC) return;
@@ -438,14 +448,17 @@ class SalesWall extends React.Component<Opciones, Estado> {
       this.master = this.ac.createGain();
       this.master.gain.value = 0.7;
       this.master.connect(this.ac.destination);
+      this.ac.onstatechange = () => this.setState({ soundOn: this.ac?.state === 'running' });
     }
-    void this.ac.resume();
-    this.setState((s) => ({ soundOn: !s.soundOn }), () => {
-      if (this.state.soundOn) this.playSound('venta', true);
+    const yaSonaba = this.ac.state === 'running';
+    void this.ac.resume().then(() => {
+      const ok = this.ac?.state === 'running';
+      this.setState({ soundOn: ok });
+      if (ok && !yaSonaba) this.playSound('venta');
     });
   };
-  playSound(type: Tipo, force = false) {
-    if ((!this.state.soundOn && !force) || !this.ac || !this.master) return;
+  playSound(type: Tipo) {
+    if (!this.ac || !this.master || this.ac.state !== 'running') return;
     const ac = this.ac;
     const master = this.master;
     const t = ac.currentTime;
@@ -541,9 +554,13 @@ class SalesWall extends React.Component<Opciones, Estado> {
             {ST[0]}
             {this.props.demo && <span style={{ marginLeft: 4, background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '0 6px' }}>Demo</span>}
           </span>
-          <button type="button" className="sw-btn" onClick={this.toggleSound} aria-pressed={s.soundOn}>
-            {s.soundOn ? '🔔 Sonido activo' : '🔕 Activar sonido'}
-          </button>
+          {s.soundOn ? (
+            <span className="sw-pill" style={{ background: 'var(--venta-soft)', color: 'var(--venta)' }}>🔔 Sonido activo</span>
+          ) : (
+            <button type="button" className="sw-btn" onClick={this.prepararSonido} style={{ borderColor: '#D97706', color: '#D97706' }}>
+              🔈 Toca la pantalla para activar el sonido
+            </button>
+          )}
           <button type="button" className="sw-btn" onClick={this.cambiarTema} aria-label="Cambiar entre modo claro y oscuro">
             {s.tema === 'oscuro' ? '☀️ Modo claro' : '🌙 Modo oscuro'}
           </button>

@@ -8,6 +8,20 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (152) — La sesión ya no se cierra sola; Sales Wall con sonido siempre activo (SIN DESPLEGAR)
+
+Javier: «que el cierre de sesión sea más largo, que no se cierre a menos que pase más de 12 horas sin uso» y «mantén siempre el sonido activo».
+
+**Dos causas de los cierres:**
+1. La cookie de acceso duraba **1 hora** (`setSession`/refresh) aunque el token en producción vive 12 h (`JWT_EXPIRES=12h`) y el refresh 30 días. Un panel quieto más de una hora mandaba al login al recargar (`AppShell` veía la cookie vencida y hacía `clearSession`). Ahora la cookie dura 12 h y, si falta, `AppShell` intenta `renovarSesion()` antes de mandar al login.
+2. **Varias pestañas** (panel + Sales Wall) renovando a la vez con el mismo refresh: la segunda llegaba con el token ya rotado, se tomaba como reuso y se revocaba la familia → cierre en todas partes. `refresh-token.service.ts`: si el token fue ROTADO (tiene `replacedByTokenId`) hace menos de 60 s, se emite otro de la misma familia. Un token revocado por logout o más viejo sigue siendo reuso.
+
+Resultado: la sesión aguanta mientras se use; quieta, hasta lo que dure el refresh (30 días).
+
+**Sales Wall:** sin botón de apagar. El audio se prepara al abrir; si el navegador lo bloquea (política de autoplay), el primer toque o tecla en cualquier parte lo activa y la cabecera dice «Toca la pantalla para activar el sonido» hasta entonces. Para una TV sin nadie que toque: Chrome con `--autoplay-policy=no-user-gesture-required`.
+
+**Verificado:** tsc backend y frontend, vitest auth 60/60, eslint.
+
 ## 2026-10-25 (151) — Sales Wall: pantalla de ventas en vivo para la TV (SIN DESPLEGAR)
 
 Diseño de Claude Design («Clubify Sales Wall.dc.html», zip en Descargas «Formulario de datos en tiempo real.zip») pasado a React tal cual: contadores de ventas y renovaciones del mes, franja «Actividad en vivo», últimos movimientos, meta mensual en USD, ranking de afiliados y celebración (confeti, brillo y sonido) en cada operación nueva.
