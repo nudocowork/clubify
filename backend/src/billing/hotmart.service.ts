@@ -344,9 +344,23 @@ export class HotmartService {
     return enlaces ? precioPactadoDeLaOferta(codigo, enlaces) : null;
   }
 
+  /** El nombre del enlace de venta de una oferta («Mensualidad básica»). */
+  private async nombreDelPlanPorOferta(codigo: string | null | undefined): Promise<string | null> {
+    if (!codigo) return null;
+    const enlaces = await this.enlacesConfigurados();
+    const e = enlaces?.find((x) => {
+      try {
+        return new URL(x.url).searchParams.get('off')?.toLowerCase() === codigo.toLowerCase();
+      } catch {
+        return false;
+      }
+    });
+    return e?.nombre ?? null;
+  }
+
   /** Los 4 planes y los enlaces añadidos en /admin/branding. Null si falla. */
   private async enlacesConfigurados(): Promise<
-    Array<{ url: string; periodicidad: string | null; precioUsd?: number | null; precioEsElDelPlan?: boolean }> | null
+    Array<{ url: string; periodicidad: string | null; nombre?: string; precioUsd?: number | null; precioEsElDelPlan?: boolean }> | null
   > {
     try {
       const filas = await this.prisma.setting.findMany({
@@ -363,13 +377,13 @@ export class HotmartService {
         },
         select: { key: true, value: true },
       });
-      const enlaces: Array<{ url: string; periodicidad: string | null; precioUsd?: number | null; precioEsElDelPlan?: boolean }> = [];
+      const enlaces: Array<{ url: string; periodicidad: string | null; nombre?: string; precioUsd?: number | null; precioEsElDelPlan?: boolean }> = [];
       for (const f of filas) {
         if (f.key === CLAVE_ENLACES_DE_VENTA) {
           enlaces.push(...normalizarEnlaces(f.value));
         } else {
           const plan = f.key.split('.')[2];
-          if (plan && f.value) enlaces.push({ url: f.value, periodicidad: plan.toUpperCase() });
+          if (plan && f.value) enlaces.push({ url: f.value, periodicidad: plan.toUpperCase(), nombre: `Plan ${plan.charAt(0).toUpperCase()}${plan.slice(1)}` });
         }
       }
       return enlaces;
@@ -3727,17 +3741,43 @@ export class HotmartService {
           (Date.now() - p.createdAt.getTime()) / 60000,
         );
         const ageLabel = formatElapsed(ageMinutes);
+        // El monto en DÓLARES del plan, que es como se habla de los planes.
+        // Hotmart cobra en la moneda del comprador («COP 82,835.62» por una
+        // Mensualidad básica de USD 25, 27 Grados Licores, 2026-10-26): el
+        // equipo leía pesos sin saber qué plan era. Se dice el precio del
+        // plan en USD y, al lado, lo que se pagó en su moneda.
+        const codigoOferta = raw?.data?.purchase?.offer?.code ?? null;
+        const pactado = await this.precioPactadoPorOferta(codigoOferta);
+        const periodo =
+          parsePlanPeriodLabel(planName ?? '') ?? (await this.periodicidadPorOferta(codigoOferta));
+        const canonico = periodo ? await this.getCanonicalBundlePrice(periodo) : 0;
+        const enUsd =
+          pactado ??
+          (purchaseValue != null && (currency ?? '').toUpperCase() === 'USD'
+            ? Number(purchaseValue)
+            : canonico > 0
+              ? canonico
+              : null);
+        const pagadoLocal =
+          purchaseValue != null && currency && currency.toUpperCase() !== 'USD'
+            ? ` (pagó ${currency} ${formatMoneyForSms(purchaseValue, currency)})`
+            : '';
+        const lineaMonto =
+          enUsd != null
+            ? `Monto: USD ${formatMoneyForSms(enUsd, 'USD')}${pagadoLocal}\n`
+            : purchaseValue
+              ? currency
+                ? `Monto: ${currency} ${formatMoneyForSms(purchaseValue, currency)}\n`
+                : `Monto: ${formatMoneyForSms(purchaseValue, 'USD')} (moneda local del comprador; Hotmart no la indicó)\n`
+              : '';
+        const nombrePlan = planName ?? (await this.nombreDelPlanPorOferta(codigoOferta));
         const body =
           `🚨 Cliente pagó hace ${ageLabel} y NO completó /activar.\n\n` +
           `Cliente: ${buyerName}\n` +
           `Email: ${p.email}\n` +
           `Producto: ${productName}\n` +
-          (planName ? `Plan: ${planName}\n` : '') +
-          (purchaseValue
-            ? currency
-              ? `Monto: ${currency} ${formatMoneyForSms(purchaseValue, currency)}\n`
-              : `Monto: ${formatMoneyForSms(purchaseValue, 'USD')} (moneda local del comprador; Hotmart no la indicó)\n`
-            : '') +
+          (nombrePlan ? `Plan: ${nombrePlan}\n` : '') +
+          lineaMonto +
           `\nContactar manualmente.\n` +
           `Link directo: https://soyclubify.com/activar?email=${encodeURIComponent(p.email)}`;
         const r = await this.growBusiness

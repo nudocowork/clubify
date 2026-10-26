@@ -8,6 +8,10 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-26 (153) — Aviso «pagó y NO completó /activar»: el monto en USD del plan (SIN DESPLEGAR)
+
+El aviso de Rodrigo (27 Grados Licores) decía «Monto: COP 82,835.62». El arreglo del 17-oct (feb012af) solo corrigió la ETIQUETA de la moneda (antes ponía «USD» a cifras en pesos); el monto seguía saliendo en la moneda del comprador. Ahora: `Monto: USD 25.00 (pagó COP 82,835.62)`. El USD sale del precio del enlace de venta (`precioEsElDelPlan`), si no del valor si vino en USD, si no del canónico por periodicidad. «Plan:» usa el nombre del enlace de venta cuando Hotmart no manda plan («Mensualidad básica»).
+
 ## 2026-10-25 (152) — La sesión ya no se cierra sola; Sales Wall con sonido siempre activo (SIN DESPLEGAR)
 
 Javier: «que el cierre de sesión sea más largo, que no se cierre a menos que pase más de 12 horas sin uso» y «mantén siempre el sonido activo».
