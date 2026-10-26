@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
  * defecto) y cada operación nueva dispara la celebración.
  *
  * Opciones por URL, para no tocar código desde la TV:
- *   ?meta=15000   meta mensual en USD
+ *   ?meta=4000    meta mensual en USD (sin ella, la de octubre 2026: 4.000)
  *   ?cada=15      segundos entre consultas
  *   ?demo=1       datos simulados (etiqueta DEMO visible)
  */
@@ -742,7 +742,7 @@ export default function SalesWallPage() {
     const cada = Number(q.get('cada'));
     setOp({
       demo: q.get('demo') === '1',
-      meta: Number.isFinite(meta) && meta > 0 ? meta : 15000,
+      meta: Number.isFinite(meta) && meta > 0 ? meta : 4000,
       cada: Number.isFinite(cada) && cada >= 5 ? cada : 15,
     });
   }, []);
