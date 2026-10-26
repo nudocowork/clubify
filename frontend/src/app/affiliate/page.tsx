@@ -534,6 +534,12 @@ export default function AffiliatePanel() {
           <Link href="/affiliate/payouts" className="tab">
             💳 Pagos
           </Link>
+          {/* Sales Wall: las ventas de Clubify en vivo, sin montos. */}
+          {(!me.brand?.slug || me.brand.slug === 'clubify') && (
+            <Link href="/sales-wall" className="tab">
+              📺 Sales Wall
+            </Link>
+          )}
           {/* HOTFIX 2026-06-05 (bug #10 CRÍTICO): "Mi equipo" se centraliza
               en /affiliate/team (página B1 con CRUD completo). Antes había
               DOS pills "Mi equipo" — un tab inline (TeamView, sin CRUD) y

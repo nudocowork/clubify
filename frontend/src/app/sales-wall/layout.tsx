@@ -1,15 +1,45 @@
-import { PuertaDelReporte } from '../reporte-comisiones/_components/PuertaDelReporte';
-
-export const metadata = { title: 'Sales Wall · Clubify' };
+'use client';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { getImpersonationBackup, getUser } from '@/lib/api';
 
 /**
- * /sales-wall — pantalla de ventas para la TV de la oficina. Va fuera de
- * /admin y SIN el menú lateral: ocupa toda la pantalla.
+ * /sales-wall — pantalla de ventas para la TV y para los equipos.
  *
- * La misma puerta que el Reporte de comisiones (solo SUPER_ADMIN de la
- * plataforma, nunca dentro de otra marca): la pantalla lleva montos y el logo
- * de Clubify. El candado de verdad está en el servidor (`SoloPlataformaGuard`).
+ * La ven el SUPER_ADMIN (con montos, meta y servicios) y marketing y los
+ * afiliados (solo ventas, ranking y celebraciones; el servidor les quita los
+ * montos). Javier, 2026-10-26. El candado de verdad está en el servidor;
+ * esto solo evita pintar una pantalla que respondería 403.
  */
+const PERMITIDOS = new Set([
+  'SUPER_ADMIN',
+  'MARKETING',
+  'AFFILIATE_INFLUENCER',
+  'AFFILIATE_AMBASSADOR',
+  'AFFILIATE_VENDOR',
+  'AFFILIATE_SOCIO',
+]);
+
 export default function SalesWallLayout({ children }: { children: React.ReactNode }) {
-  return <PuertaDelReporte>{children}</PuertaDelReporte>;
+  const router = useRouter();
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    const u = getUser();
+    if (!u) {
+      router.replace(`/login?next=${encodeURIComponent('/sales-wall')}`);
+      return;
+    }
+    if (!PERMITIDOS.has(u.role)) {
+      router.replace('/app');
+      return;
+    }
+    const slug = getImpersonationBackup()?.tenant?.slug;
+    if (slug && slug !== 'clubify') {
+      router.replace('/admin');
+      return;
+    }
+    setOk(true);
+  }, [router]);
+  if (!ok) return null;
+  return <>{children}</>;
 }

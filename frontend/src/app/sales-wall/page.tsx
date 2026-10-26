@@ -127,12 +127,14 @@ type Estado = {
   /** Con renovaciones se ven y suman a la meta; sin ellas, solo ventas. */
   incluirRenov: boolean;
   servicios: Servicios;
+  /** Vista de equipos: sin montos, meta ni servicios (los quita el servidor). */
+  restringido: boolean;
 };
 type Servicios = { cantidad: number; monto_usd: number; items: Array<{ id: string; concepto: string; monto_usd: number; fecha: string }> };
 type Opciones = { demo: boolean; meta: number; cada: number; tema: Tema; incluirRenov: boolean };
 
 class SalesWall extends React.Component<Opciones, Estado> {
-  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema, incluirRenov: this.props.incluirRenov, servicios: { cantidad: 0, monto_usd: 0, items: [] } };
+  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema, incluirRenov: this.props.incluirRenov, servicios: { cantidad: 0, monto_usd: 0, items: [] }, restringido: false };
   /** Cualquier toque o tecla en la página desbloquea el audio (ver `prepararSonido`). */
   desbloquear = () => this.prepararSonido();
   vNumRef = React.createRef<HTMLDivElement>();
@@ -231,8 +233,9 @@ class SalesWall extends React.Component<Opciones, Estado> {
     let primera = true;
     const poll = async () => {
       try {
-        const d = await api<{ ventas: number; renovaciones: number; monto_usd: number; eventos: Raw[]; servicios?: Servicios }>('/admin/sales-wall');
+        const d = await api<{ ventas: number; renovaciones: number; monto_usd: number; eventos: Raw[]; servicios?: Servicios; restringido?: boolean }>('/sales-wall');
         if (d.servicios) this.setState({ servicios: d.servicios });
+        this.setState({ restringido: !!d.restringido });
         if (primera) {
           this.ingestMany(d.eventos ?? []);
           this.setCounts(+d.ventas || 0, +d.renovaciones || 0, +d.monto_usd || 0);
@@ -564,7 +567,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
     const metaUsd = usdV + (s.incluirRenov ? usdR : 0);
     const goalPct = Math.round((metaUsd / goal) * 100);
     const remaining = goal - metaUsd;
-    const nCards = s.incluirRenov ? 4 : 3;
+    const verMontos = !s.restringido;
+    const nCards = (s.incluirRenov ? 4 : 3) - (verMontos ? 0 : 1);
     const cel = s.cel;
     const cv = cel?.type === 'venta';
     const celColor = cv ? 'var(--venta)' : 'var(--renov)';
@@ -621,12 +625,13 @@ class SalesWall extends React.Component<Opciones, Estado> {
 
         {/* Contadores */}
         <section className="sw-stats" style={{ display: 'grid', gridTemplateColumns: `repeat(${nCards},minmax(0,1fr))`, gap: 'clamp(12px,1.2vw,28px)' }}>
-          <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="Ventas nuevas" color="var(--venta)" soft="var(--venta-soft)" icono="venta" valor={s.dV} monto={usdV} hoy={todayEv.filter((e) => e.type === 'venta').length} />
+          <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="Ventas nuevas" color="var(--venta)" soft="var(--venta-soft)" icono="venta" valor={s.dV} monto={verMontos ? usdV : undefined} hoy={todayEv.filter((e) => e.type === 'venta').length} />
           {s.incluirRenov && (
-            <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} monto={usdR} hoy={todayEv.filter((e) => e.type === 'renov').length} />
+            <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} monto={verMontos ? usdR : undefined} hoy={todayEv.filter((e) => e.type === 'renov').length} />
           )}
           {/* Lo cobrado que no es un plan: implementaciones, descuentos de
               implementación… No suma a la meta. */}
+          {verMontos && (
           <div className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
             <span className="sw-label">Servicios adicionales</span>
             <div className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', color: '#D97706' }}>{s.servicios.cantidad.toLocaleString('es-CO')}</div>
@@ -648,10 +653,11 @@ class SalesWall extends React.Component<Opciones, Estado> {
                 ))}
             </div>
           </div>
+          )}
           <div ref={this.tCardRef} className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
             <span className="sw-label">{s.incluirRenov ? 'Total del mes' : 'Total del mes (sin renovaciones)'}</span>
             <div ref={this.tNumRef} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', transformOrigin: 'left center' }}>{(s.dV + (s.incluirRenov ? s.dR : 0)).toLocaleString('es-CO')}</div>
-            <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)' }}>{fmtUSD(metaUsd)}</div>
+            {verMontos && <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)' }}>{fmtUSD(metaUsd)}</div>}
             {s.incluirRenov && (<>
             <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--track)', gap: 3 }}>
               <div style={{ width: pctV + '%', background: 'var(--venta)', borderRadius: 999, transition: 'width .8s ease' }} />
@@ -718,6 +724,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(12px,1.2vw,28px)' }}>
+            {verMontos && (
             <div className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(10px,.8vw,18px)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
                 <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Meta del mes</h2>
@@ -734,6 +741,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
               </div>
             </div>
 
+            )}
             <div className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(12px,1vw,22px)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
                 <h2 style={{ margin: 0, fontSize: 'clamp(16px,1.15vw,28px)', fontWeight: 700 }}>Ranking de afiliados</h2>
@@ -792,8 +800,8 @@ function Contador(props: {
   soft: string;
   icono: 'venta' | 'renov';
   valor: number;
-  /** USD del mes de este tipo. */
-  monto: number;
+  /** USD del mes de este tipo. Sin él (vista de equipos) no se pinta. */
+  monto?: number;
   hoy: number;
 }) {
   return (
@@ -817,7 +825,7 @@ function Contador(props: {
         </span>
       </div>
       <div ref={props.refNum} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', color: props.color, transformOrigin: 'left center' }}>{props.valor.toLocaleString('es-CO')}</div>
-      <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)', color: props.color }}>{fmtUSD(props.monto)}</div>
+      {props.monto !== undefined && <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)', color: props.color }}>{fmtUSD(props.monto)}</div>}
       <span style={{ fontSize: 'clamp(13px,.9vw,20px)', color: 'var(--mute)' }}>
         {props.hoy > 0 ? <><b style={{ color: props.color }}>+{props.hoy}</b> hoy</> : 'Ninguna hoy todavía'}
       </span>
