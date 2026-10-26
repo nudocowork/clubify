@@ -76,6 +76,7 @@ export default function AnalyticsPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="analitica"
         title={t('title')}
         crumb={t('crumb')}
       />

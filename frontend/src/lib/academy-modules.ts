@@ -15,6 +15,7 @@ export type AcademyModuleDef = {
 };
 
 export const ACADEMY_MODULES: AcademyModuleDef[] = [
+  { key: 'dashboard', label: 'Panel (Dashboard)', where: 'Barra superior, junto al buscador' },
   { key: 'wallet', label: 'Tarjetas Wallet', where: 'Barra superior, junto al buscador' },
   { key: 'clientes', label: 'Clientes', where: 'Barra superior, junto al buscador' },
   { key: 'push', label: 'Push', where: 'Barra superior, junto al buscador' },
@@ -33,6 +34,19 @@ export const ACADEMY_MODULES: AcademyModuleDef[] = [
   { key: 'equipo', label: 'Equipo de Trabajo', where: 'Barra superior, junto al buscador' },
   { key: 'configuracion', label: 'Configuración', where: 'Barra superior, junto al buscador' },
   { key: 'referidos', label: 'Referidos', where: 'Barra superior, junto al buscador' },
+  { key: 'historial-sellos', label: 'Historial de sellos', where: 'Barra superior, junto al buscador' },
+  { key: 'alianzas', label: 'Alianzas', where: 'Barra superior, junto al buscador' },
+  { key: 'club', label: 'Tarjeta de Club', where: 'Barra superior, junto al buscador' },
+  { key: 'servicios', label: 'Servicios y agenda', where: 'Barra superior, junto al buscador' },
+  { key: 'configura-menu', label: 'Configura tu menú', where: 'Barra superior, junto al buscador' },
+  { key: 'promociones', label: 'Promociones', where: 'Barra superior, junto al buscador' },
+  { key: 'analitica', label: 'Analítica', where: 'Barra superior, junto al buscador' },
+  { key: 'estadisticas', label: 'Estadísticas', where: 'Barra superior, junto al buscador' },
+  { key: 'ubicaciones', label: 'Ubicaciones / Sedes', where: 'Barra superior, junto al buscador' },
+  { key: 'automatizaciones', label: 'Automatizaciones', where: 'Barra superior, junto al buscador' },
+  { key: 'mensajes', label: 'Mensajes', where: 'Barra superior, junto al buscador' },
+  { key: 'insignias', label: 'Insignias', where: 'Barra superior, junto al buscador' },
+  { key: 'suscripcion', label: 'Suscripción y facturación', where: 'Barra superior, junto al buscador' },
 ];
 
 export const ACADEMY_MODULE_LABEL: Record<string, string> = Object.fromEntries(

@@ -149,6 +149,7 @@ export default function BadgesPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="insignias"
         title={t('title')}
         crumb={<>/ {t('configuredCount', { count: list.length })}</>}
       />

@@ -139,7 +139,8 @@ export default function AlianzasPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <PanelHeader title={t('title')} subtitle={t('intro')} />
+      <PanelHeader
+        tutorial="alianzas" title={t('title')} subtitle={t('intro')} />
       <header className="flex items-start justify-end gap-4">
         {data.cupoLibre > 0 && !creando && (
           <button className="btn btn-primary shrink-0" onClick={() => setCreando(true)}>

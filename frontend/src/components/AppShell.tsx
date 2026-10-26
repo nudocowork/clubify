@@ -169,13 +169,15 @@ export default function AppShell({
   // ref, para que las páginas se vuelvan a pintar cuando el hueco ya existe.
   const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
   const [headerCount, setHeaderCount] = useState(0);
+  // Hueco para «Ver tutorial», pegado al buscador (Javier, 2026-10-26).
+  const [tutorialSlot, setTutorialSlot] = useState<HTMLDivElement | null>(null);
   const registerHeader = useCallback(() => {
     setHeaderCount((n) => n + 1);
     return () => setHeaderCount((n) => n - 1);
   }, []);
   const headerCtx = useMemo(
-    () => ({ slot: headerSlot, register: registerHeader }),
-    [headerSlot, registerHeader],
+    () => ({ slot: headerSlot, tutorialSlot, register: registerHeader }),
+    [headerSlot, tutorialSlot, registerHeader],
   );
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
   // Seed anti-flash (FODT) del panel /app. Al entrar por "Entrar al negocio"
@@ -1737,6 +1739,7 @@ export default function AppShell({
             ref={setHeaderSlot}
             className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2"
           />
+          <div ref={setTutorialSlot} className="flex shrink-0 items-center empty:hidden" />
           <CommandHint />
         </div>
         <main className="bg-bg p-4 sm:p-6 lg:p-7 lg:pt-4">

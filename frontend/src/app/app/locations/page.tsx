@@ -121,6 +121,7 @@ export default function LocationsPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="ubicaciones"
         title={t('title')}
         crumb={t('configuredCount', { count: list.length })}
       />

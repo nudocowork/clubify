@@ -130,7 +130,8 @@ export default function ServiciosPage() {
 
   return (
     <div className="max-w-3xl">
-      <PanelHeader title={t('title')} subtitle={t('intro')} />
+      <PanelHeader
+        tutorial="servicios" title={t('title')} subtitle={t('intro')} />
       {slug && (
         <div
           className="flex flex-wrap items-center gap-2 rounded-[10px] px-3 py-2 mb-4 text-xs"

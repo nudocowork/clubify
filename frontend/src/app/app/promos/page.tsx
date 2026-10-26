@@ -114,6 +114,7 @@ export default function PromosPage() {
         ← {t('breadcrumbMenu')}
       </Link>
       <PanelHeader
+        tutorial="promociones"
         title={t('title')}
         crumb={t('crumbConfigured', { count: list.length })}
       />

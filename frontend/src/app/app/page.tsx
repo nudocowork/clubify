@@ -326,6 +326,7 @@ export default function TenantDashboard() {
     return (
       <div>
         <PanelHeader
+        tutorial="dashboard"
           title={t('dashboard')}
           crumb={<>/ {today}</>}
         />
@@ -354,6 +355,7 @@ export default function TenantDashboard() {
           siguen disponibles desde sidebar. */}
       <InsightsCard />
       <PanelHeader
+        tutorial="dashboard"
         title={t('dashboard')}
         crumb={<>/ {today}</>}
       />

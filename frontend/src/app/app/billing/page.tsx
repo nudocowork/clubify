@@ -219,7 +219,8 @@ export default function BillingPage() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <PanelHeader title={t('title')} subtitle={t('subtitle')} />
+      <PanelHeader
+        tutorial="suscripcion" title={t('title')} subtitle={t('subtitle')} />
 
       {justSuspended && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 mb-4">
@@ -551,7 +552,8 @@ function InfolinkSubscriptionPanel({
 
   return (
     <div className="max-w-3xl mx-auto">
-      <PanelHeader title={t('yourInfoLinkPlan')} subtitle={t('infoLinkPlanHint')} />
+      <PanelHeader
+        tutorial="suscripcion" title={t('yourInfoLinkPlan')} subtitle={t('infoLinkPlanHint')} />
 
       <div className="card card-pad ring-1 ring-line">
         <div className="flex items-start justify-between gap-4 flex-wrap">

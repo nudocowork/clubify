@@ -271,6 +271,7 @@ export default function StorefrontEditor() {
   return (
     <div>
       <PanelHeader
+        tutorial="configura-menu"
         title={t('configureTitle', { label: mainLabel.toLowerCase() })}
         crumb={<>/ {sf.isPublished ? t('published') : t('draft')}</>}
       />

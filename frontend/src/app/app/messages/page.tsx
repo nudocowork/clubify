@@ -49,6 +49,7 @@ export default function MessagesPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="mensajes"
         title={t('title')}
         crumb={<>/ {t('totalCrumb', { count: list.length })}</>}
       />

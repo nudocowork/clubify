@@ -24,6 +24,8 @@ import { AcademyButton } from './AcademyButton';
 
 type SlotCtx = {
   slot: HTMLElement | null;
+  /** Hueco junto al buscador donde va «Ver tutorial». */
+  tutorialSlot?: HTMLElement | null;
   /** El shell solo enseña la franja en celular cuando hay una cabecera
    *  montada: sin esto quedaría un hueco vacío encima de cada página. */
   register: () => () => void;
@@ -73,10 +75,16 @@ export function PanelHeader({
           </p>
         )}
       </div>
-      {tutorial && <AcademyButton moduleKey={tutorial} variant="shell" />}
+      {/* Fuera del shell, el botón va en línea con el título. */}
+      {tutorial && !ctx?.tutorialSlot && <AcademyButton moduleKey={tutorial} variant="shell" />}
       {actions}
     </>
   );
+  // En el shell, «Ver tutorial» va a la izquierda del buscador.
+  const boton =
+    tutorial && ctx?.tutorialSlot
+      ? createPortal(<AcademyButton moduleKey={tutorial} variant="shell" />, ctx.tutorialSlot)
+      : null;
 
   if (!ctx) {
     return <div className="flex items-center gap-x-3 gap-y-2 flex-wrap mb-5">{content}</div>;
@@ -84,5 +92,10 @@ export function PanelHeader({
   // El hueco aparece tras el primer montaje del shell: un frame sin título es
   // preferible a pintarlo en línea y que salte de sitio.
   if (!ctx.slot) return null;
-  return createPortal(content, ctx.slot);
+  return (
+    <>
+      {createPortal(content, ctx.slot)}
+      {boton}
+    </>
+  );
 }

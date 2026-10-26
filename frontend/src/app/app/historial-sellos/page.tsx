@@ -13,7 +13,8 @@ export default function HistorialSellosPage() {
   const t = useTranslations('app_stamp_history');
   return (
     <div>
-      <PanelHeader title={t('title')} subtitle={t('intro')} />
+      <PanelHeader
+        tutorial="historial-sellos" title={t('title')} subtitle={t('intro')} />
       <div className="card card-pad">
         <StampAuditTable />
       </div>

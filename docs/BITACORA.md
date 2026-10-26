@@ -8,6 +8,11 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-26 (155) — Academia: 14 módulos nuevos (Panel incluido) y «Ver tutorial» junto al buscador (SIN DESPLEGAR)
+
+- Claves nuevas (backend `ACADEMY_MODULE_KEYS` + `lib/academy-modules.ts`): dashboard (Panel, primero en la lista), historial-sellos, alianzas, club, servicios, configura-menu, promociones, analitica, estadisticas, ubicaciones, automatizaciones, mensajes, insignias, suscripcion. Cada página declara su `tutorial=` en `<PanelHeader>`. Sin video activo el botón no aparece, así que no cambia nada hasta cargar los enlaces en /admin/academia.
+- El botón «Ver tutorial» ya no va junto al título: va en un hueco propio de la barra, pegado a la IZQUIERDA del buscador (`tutorialSlot` del contexto de `PanelHeader`).
+
 ## 2026-10-26 (154) — CORRECCIÓN: lo de 27 Grados Licores fue IMPLEMENTACIÓN, no Mensualidad básica (scripts pendientes)
 
 Javier aclara: hay DOS ofertas de USD 25.

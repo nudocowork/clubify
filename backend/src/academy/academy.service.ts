@@ -24,6 +24,20 @@ export const ACADEMY_MODULE_KEYS = [
   'equipo',
   'configuracion',
   'referidos',
+  'dashboard',
+  'historial-sellos',
+  'alianzas',
+  'club',
+  'servicios',
+  'configura-menu',
+  'promociones',
+  'analitica',
+  'estadisticas',
+  'ubicaciones',
+  'automatizaciones',
+  'mensajes',
+  'insignias',
+  'suscripcion',
 ] as const;
 
 const KEY_SET = new Set<string>(ACADEMY_MODULE_KEYS);

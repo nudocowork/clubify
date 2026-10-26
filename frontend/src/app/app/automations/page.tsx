@@ -126,6 +126,7 @@ export default function AutomationsPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="automatizaciones"
         title={t('title')}
         crumb={t('crumbRules', { count: list.length })}
       />

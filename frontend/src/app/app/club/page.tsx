@@ -142,6 +142,7 @@ export default function ClubPage() {
     return (
       <div>
         <PanelHeader
+        tutorial="club"
           title={t('title')}
         />
         <div className="card card-pad text-center py-12">
@@ -167,6 +168,7 @@ export default function ClubPage() {
     return (
       <div>
         <PanelHeader
+        tutorial="club"
           title={t('title')}
         />
         <div className="card card-pad text-center py-12">
@@ -184,6 +186,7 @@ export default function ClubPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="club"
         title={t('title')}
         crumb={planes.length === 1
               ? t('onePlan')

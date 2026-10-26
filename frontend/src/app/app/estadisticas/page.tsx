@@ -13,6 +13,7 @@ export default function EstadisticasPage() {
   return (
     <div>
       <PanelHeader
+        tutorial="estadisticas"
         title={t('title')}
         crumb={<>/ InfoLink</>}
       />
