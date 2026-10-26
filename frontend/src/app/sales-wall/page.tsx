@@ -495,6 +495,9 @@ class SalesWall extends React.Component<Opciones, Estado> {
     const today = dayKey(now);
     const conf = s.events.filter((e) => e.confirmed);
     const todayEv = conf.filter((e) => dayKey(e.ts) === today);
+    // Montos en USD por tipo (precio del plan, desde Contabilidad).
+    const usdV = conf.filter((e) => e.type === 'venta').reduce((a, e) => a + e.usd, 0);
+    const usdR = conf.filter((e) => e.type === 'renov').reduce((a, e) => a + e.usd, 0);
     const when = (e: Evento) => (dayKey(e.ts) === today ? 'Hoy, ' : fmtDM.format(new Date(e.ts)).replace('.', '') + ', ') + fmtHM.format(new Date(e.ts));
 
     let tick = conf.slice(0, 12).reverse();
@@ -572,11 +575,12 @@ class SalesWall extends React.Component<Opciones, Estado> {
 
         {/* Contadores */}
         <section className="sw-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 'clamp(12px,1.2vw,28px)' }}>
-          <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="Ventas nuevas" color="var(--venta)" soft="var(--venta-soft)" icono="venta" valor={s.dV} hoy={todayEv.filter((e) => e.type === 'venta').length} />
-          <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} hoy={todayEv.filter((e) => e.type === 'renov').length} />
+          <Contador refCard={this.vCardRef} refNum={this.vNumRef} titulo="Ventas nuevas" color="var(--venta)" soft="var(--venta-soft)" icono="venta" valor={s.dV} monto={usdV} hoy={todayEv.filter((e) => e.type === 'venta').length} />
+          <Contador refCard={this.rCardRef} refNum={this.rNumRef} titulo="Renovaciones" color="var(--renov)" soft="var(--renov-soft)" icono="renov" valor={s.dR} monto={usdR} hoy={todayEv.filter((e) => e.type === 'renov').length} />
           <div ref={this.tCardRef} className="sw-card" style={{ padding: 'clamp(16px,1.4vw,32px)', display: 'flex', flexDirection: 'column', gap: 'clamp(6px,.6vw,14px)' }}>
             <span className="sw-label">Total del mes</span>
             <div ref={this.tNumRef} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', transformOrigin: 'left center' }}>{(s.dV + s.dR).toLocaleString('es-CO')}</div>
+            <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)' }}>{fmtUSD(s.dU)}</div>
             <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--track)', gap: 3 }}>
               <div style={{ width: pctV + '%', background: 'var(--venta)', borderRadius: 999, transition: 'width .8s ease' }} />
               <div style={{ width: pctR + '%', background: 'var(--renov)', borderRadius: 999, transition: 'width .8s ease' }} />
@@ -715,6 +719,8 @@ function Contador(props: {
   soft: string;
   icono: 'venta' | 'renov';
   valor: number;
+  /** USD del mes de este tipo. */
+  monto: number;
   hoy: number;
 }) {
   return (
@@ -738,6 +744,7 @@ function Contador(props: {
         </span>
       </div>
       <div ref={props.refNum} className="sw-num" style={{ fontWeight: 800, fontSize: 'clamp(44px,4.6vw,120px)', lineHeight: 1, letterSpacing: '-0.03em', color: props.color, transformOrigin: 'left center' }}>{props.valor.toLocaleString('es-CO')}</div>
+      <div className="sw-num" style={{ fontWeight: 700, fontSize: 'clamp(18px,1.5vw,36px)', color: props.color }}>{fmtUSD(props.monto)}</div>
       <span style={{ fontSize: 'clamp(13px,.9vw,20px)', color: 'var(--mute)' }}>
         {props.hoy > 0 ? <><b style={{ color: props.color }}>+{props.hoy}</b> hoy</> : 'Ninguna hoy todavía'}
       </span>
