@@ -808,6 +808,8 @@ export default function AppShell({
                 // liquidaciones de la PLATAFORMA. El backend corta a las marcas
                 // con `SoloPlataformaGuard`; aquí solo se esconde.
                 { href: '/reporte-comisiones', label: tNav('commissionReport'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                // Pantalla de ventas en vivo para la TV de la oficina (pantalla completa).
+                { href: '/sales-wall', label: tNav('salesWall'), icon: 'spark', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/payouts', label: tNav('affiliatePayouts'), icon: 'card', hideForMarketing: true },
                 { href: '/admin/reports/ambassadors', label: tNav('ambassadorReport'), icon: 'trend-up', hideForMarketing: true },
                 { href: '/admin/reports/vendors', label: tNav('sellerReport'), icon: 'trend-up', hideForMarketing: true },

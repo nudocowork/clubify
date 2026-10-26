@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-25 (151) — Sales Wall: pantalla de ventas en vivo para la TV (SIN DESPLEGAR)
+
+Diseño de Claude Design («Clubify Sales Wall.dc.html», zip en Descargas «Formulario de datos en tiempo real.zip») pasado a React tal cual: contadores de ventas y renovaciones del mes, franja «Actividad en vivo», últimos movimientos, meta mensual en USD, ranking de afiliados y celebración (confeti, brillo y sonido) en cada operación nueva.
+
+- Página `/sales-wall` a pantalla completa, sin menú. Misma puerta que el Reporte de comisiones (SUPER_ADMIN de la plataforma, nunca dentro de otra marca); `PuertaDelReporte` ahora vuelve a la página donde estaba tras el login. Enlace «Sales Wall (TV)» en el menú del admin (solo Clubify).
+- Datos: `GET /admin/sales-wall` (módulo `sales-wall/`, `SoloPlataformaGuard`). Mes en curso en hora Bogotá desde Contabilidad (`IncomeRecord` PAGADO): NUEVA = venta, RENOVACION/UPGRADE = renovación. Afiliado = el que vendió (vendedor > embajador > influencer; sin nadie, «Venta directa»). Comprobado contra producción: 12 ventas, 15 renovaciones, USD 4.234,24 en octubre — igual que la conciliación con Hotmart.
+- La pantalla consulta cada 15 s; la primera respuesta cuenta sin celebrar y las siguientes celebran lo nuevo. Opciones por URL: `?meta=15000`, `?cada=15`, `?demo=1`.
+- Sonido: el navegador lo bloquea hasta que alguien pulsa «ACTIVAR SONIDO» una vez en la TV.
+- Logo en `frontend/public/sales-wall/clubify-logo.png`. 4 pruebas nuevas (`sales-wall/eventos.spec.ts`).
+
+**Pendiente:** desplegar backend y frontend; definir la meta mensual real.
+
 ## 2026-10-25 (150) — «Pagos sin activar» por marca, según su pasarela (SIN DESPLEGAR)
 
 Javier: en el panel de Clubify salían 8 pagos de Stripe de Sellea. La lista no filtraba por marca y el menú solo la mostraba a Clubify.

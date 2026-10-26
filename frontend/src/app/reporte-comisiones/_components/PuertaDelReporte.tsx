@@ -23,7 +23,8 @@ export function PuertaDelReporte({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const u = getUser();
     if (!u) {
-      router.replace('/login?next=/reporte-comisiones');
+      // A la página donde estaba: la usan el Reporte y el Sales Wall.
+      router.replace(`/login?next=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
     if (AFILIADOS.has(u.role)) {
