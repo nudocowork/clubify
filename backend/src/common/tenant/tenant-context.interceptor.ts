@@ -25,6 +25,21 @@ import { TenantContext } from './tenant-context';
 const WL_CACHE_TTL_MS = 60_000;
 const wlTenantCache = new Map<string, { ids: string[]; expires: number }>();
 
+/**
+ * Un negocio recién creado entra YA a la lista de su marca: en la petición en
+ * curso y en la caché. Sin esto, quien lo creó dentro de la marca no lo
+ * encontraba durante hasta 60 s: «Aprobar» un pago por aprobar creaba el
+ * negocio y el pago manual respondía 404 «Tenant» (Sara, 2026-10-27).
+ */
+export function negocioNuevoDeLaMarca(tenantId: string, whiteLabelId: string | null | undefined) {
+  if (!whiteLabelId) return;
+  wlTenantCache.delete(whiteLabelId);
+  const ctx = TenantContext.current();
+  if (ctx?.whiteLabelTenantIds && ctx.whiteLabelId === whiteLabelId && !ctx.whiteLabelTenantIds.includes(tenantId)) {
+    ctx.whiteLabelTenantIds = [...ctx.whiteLabelTenantIds, tenantId];
+  }
+}
+
 @Injectable()
 export class TenantContextInterceptor implements NestInterceptor {
   constructor(private readonly prisma: PrismaService) {}

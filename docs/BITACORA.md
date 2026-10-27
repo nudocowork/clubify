@@ -8,6 +8,16 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-27 (159) — «Aprobar» un pago por aprobar daba 404 «Tenant» (SIN DESPLEGAR backend)
+
+**Caso:** Sara aprobando @mrbigbaq (anual, 1.596.382 COP por Nequi, closer Gabriel Alejandro Ruiz Badillo). El negocio SÍ se creó (`459ebcf3…`, Clubify, ACTIVE) pero el pago manual respondía 404 «Tenant» y la solicitud quedó PENDIENTE con `lastError: Tenant`.
+
+**Causa:** un SUPER_ADMIN dentro de una marca ve solo la lista de negocios de esa marca, que el interceptor guarda en caché 60 s (`tenant-context.interceptor.ts`). El negocio recién creado no estaba en la lista de la petición en curso ni en la caché → `registerManualPayment` no lo encontraba. Afecta también a crear un negocio y abrirlo enseguida.
+
+**Arreglo:** `negocioNuevoDeLaMarca()` — al final de `tenants.create` el negocio entra a la lista de la petición y se borra la caché de la marca.
+
+**Mientras no se despliegue:** reintentar «Aprobar» pasado 1 minuto funciona — reutiliza `createdTenantId`, no crea otro negocio.
+
 ## 2026-10-27 (158) — Sales Wall: la venta anual de Una Pausa no se celebró (SIN DESPLEGAR frontend)
 
 **Caso:** «Compraron una anualidad y el sales-wall no activó». La compra (Plan Anual, 500 USD, Gabriel Alejandro Ruiz Badillo) **sí** está en Contabilidad (NUEVA, PAGADO, marca Clubify) y `GET /sales-wall` **sí** la devuelve: verificado corriendo `SalesWallService.delMes()` contra producción. Pagó a las 16:05 y se activó a las 16:11; el ingreso nace al activar.

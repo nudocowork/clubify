@@ -43,6 +43,7 @@ import {
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
 import { telefonoConIndicativo } from '../common/telefono-con-indicativo';
+import { negocioNuevoDeLaMarca } from '../common/tenant/tenant-context.interceptor';
 
 /**
  * Qué enlaces de pago de una marca son PLANES que se pueden asignar.
@@ -1150,6 +1151,8 @@ export class TenantsService {
         });
       }
     }
+
+    negocioNuevoDeLaMarca(tenant.id, tenant.whiteLabelId);
 
     // Fase D: si el negocio NACE ACTIVE (freeAccount / nextChargeDate / hotmart /
     // marca ilimitada) avisamos al onboarding para que dispare su bienvenida.
