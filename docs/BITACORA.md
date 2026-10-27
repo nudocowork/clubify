@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-27 (156) — Teléfonos sin indicativo: los SMS salían a otro país (SIN DESPLEGAR + scripts pendientes)
+
+**Caso:** La Burguesía (CO) no recibió los avisos de cobro. Su `whatsappPhone` era «3225998240»; `upsertContact` de Grow Business le pone «+» → «+3225998240» = **Bélgica**. Los 5 SMS de octubre figuran «sent», a Bélgica.
+
+- `common/telefono-con-indicativo.ts` (+ 6 pruebas): pone el indicativo del país del negocio a un número nacional; respeta «+»/«00»; >10 cifras sin «+» se asume con indicativo.
+- Avisos de cobro (`resolveBillingTarget`) salen con indicativo.
+- Al guardar (`updateMine` de Ajustes y `update` del admin) los 9 campos de teléfono del negocio se guardan con indicativo.
+- Admin → ficha del negocio: «WhatsApp» (Información y Mensajería) pasa a `PhoneInput` con el país del negocio por defecto.
+- `scripts/corregir-indicativos.cjs [--aplicar]`: 55 negocios con teléfonos sin indicativo (negocio y usuarios). No adivina: 10 casos dudosos quedan listados para revisar a mano (CO que no empieza por 3/60, >10 cifras sin el indicativo del país).
+
+Además: Sales Wall abierto a marketing y afiliados sin montos (cdc78fbf), embed de Métricas para Team Soporte (0d3e9c87 + TeamClubify 5cc2d3a), y enlaces exclusivos plegados en el panel del afiliado + `scripts/agregar-enlaces-exclusivos.cjs` con los 4 «30 días gratis» de Nicolás Quintero.
+
 ## 2026-10-26 (155) — Academia: 14 módulos nuevos (Panel incluido) y «Ver tutorial» junto al buscador (SIN DESPLEGAR)
 
 - Claves nuevas (backend `ACADEMY_MODULE_KEYS` + `lib/academy-modules.ts`): dashboard (Panel, primero en la lista), historial-sellos, alianzas, club, servicios, configura-menu, promociones, analitica, estadisticas, ubicaciones, automatizaciones, mensajes, insignias, suscripcion. Cada página declara su `tutorial=` en `<PanelHeader>`. Sin video activo el botón no aparece, así que no cambia nada hasta cargar los enlaces en /admin/academia.

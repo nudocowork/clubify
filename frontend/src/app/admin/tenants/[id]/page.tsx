@@ -16,6 +16,7 @@ import {
   UpgradesHistoryCard,
 } from '@/components/UpgradeAnual';
 import { Icon } from '@/components/Icon';
+import { PhoneInput } from '@/components/PhoneInput';
 import { toast } from '@/components/Toast';
 import {
   formatPlanLabel,
@@ -744,13 +745,14 @@ export default function TenantDetail() {
               </div>
               <div>
                 <label className="label">{tr('whatsapp')}</label>
-                <input
-                  className="input"
+                {/* Con selector de país: sin indicativo, «3225998240» de La
+                    Burguesía salía a Bélgica (+32) y no le llegó ningún aviso
+                    de cobro (2026-10-27). Arranca en el país del negocio. */}
+                <PhoneInput
                   value={infoDraft.whatsappPhone}
-                  placeholder="+57 300 000 0000"
-                  onChange={(e) =>
-                    setInfoDraft((d) => ({ ...d, whatsappPhone: e.target.value }))
-                  }
+                  defaultCountry={(t as any)?.country ?? 'CO'}
+                  placeholder="300 000 0000"
+                  onChange={(v) => setInfoDraft((d) => ({ ...d, whatsappPhone: v }))}
                 />
               </div>
               <div>
@@ -1787,13 +1789,11 @@ function WhatsappMessagingCard({
       <form onSubmit={save} className="mt-4 grid gap-3">
         <div>
           <label className="label">{t('mainBusinessWhatsapp')}</label>
-          <input
-            className="input"
-            placeholder="+57 300 000 0000"
+          <PhoneInput
             value={form.whatsappPhone}
-            onChange={(e) =>
-              setForm({ ...form, whatsappPhone: e.target.value })
-            }
+            defaultCountry={(tenant as any)?.country ?? 'CO'}
+            placeholder="300 000 0000"
+            onChange={(v) => setForm({ ...form, whatsappPhone: v })}
           />
         </div>
 

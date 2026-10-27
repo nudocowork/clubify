@@ -3403,44 +3403,57 @@ function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug
   }, [esClubify]);
   if (!esClubify || enlaces.length === 0) return null;
   const ETIQUETA: Record<string, string> = { PARCIAL: 'Pago parcial', PRUEBA: 'Con prueba' };
+  const generales = enlaces.filter((e) => !e.soloParaCodigos?.length);
+  const exclusivos = enlaces.filter((e) => e.soloParaCodigos?.length);
+  const fila = (e: Enlace) => {
+    const enlace = conCodigoDelAfiliado(e.url, codigo);
+    return (
+      <div key={e.id} className="flex items-center gap-2">
+        <span className="text-xs flex-1 truncate">
+          {e.nombre}
+          {e.precioUsd ? <span className="text-mute"> · ${e.precioUsd} USD</span> : null}
+          {e.soloParaCodigos?.length ? (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-brand-soft text-brand text-[9px] uppercase tracking-wide">
+              Solo tuyo
+            </span>
+          ) : null}
+          {ETIQUETA[e.tipo] ? (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-bg2 text-[9px] uppercase tracking-wide text-mute">
+              {ETIQUETA[e.tipo]}
+            </span>
+          ) : null}
+        </span>
+        <button
+          onClick={async () => {
+            await navigator.clipboard.writeText(enlace);
+            toast(`Enlace ${e.nombre} copiado`, 'success');
+          }}
+          className="btn-ghost text-[11px] min-h-[36px]"
+        >
+          📋 Copiar
+        </button>
+      </div>
+    );
+  };
   return (
     <div className="mt-3">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">Enlaces de pago directo</div>
       <p className="text-[11px] text-mute mt-0.5 leading-relaxed">
         Si le mandas al cliente el pago directo, usa uno de estos: llevan tu código y la venta queda a tu nombre aunque no pase por tu link.
       </p>
+      {/* Los enlaces de todos, y aparte —plegados— los exclusivos de este
+          afiliado, para que no ocupen media pantalla (Javier, 2026-10-27). */}
       <div className="flex flex-col gap-1.5 mt-1.5">
-        {enlaces.map((e) => {
-          const enlace = conCodigoDelAfiliado(e.url, codigo);
-          return (
-            <div key={e.id} className="flex items-center gap-2">
-              <span className="text-xs flex-1 truncate">
-                {e.nombre}
-                {e.precioUsd ? <span className="text-mute"> · ${e.precioUsd} USD</span> : null}
-                {e.soloParaCodigos?.length ? (
-                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-brand-soft text-brand text-[9px] uppercase tracking-wide">
-                    Solo tuyo
-                  </span>
-                ) : null}
-                {ETIQUETA[e.tipo] ? (
-                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-bg2 text-[9px] uppercase tracking-wide text-mute">
-                    {ETIQUETA[e.tipo]}
-                  </span>
-                ) : null}
-              </span>
-              <button
-                onClick={async () => {
-                  await navigator.clipboard.writeText(enlace);
-                  toast(`Enlace ${e.nombre} copiado`, 'success');
-                }}
-                className="btn-ghost text-[11px] min-h-[36px]"
-              >
-                📋 Copiar
-              </button>
-            </div>
-          );
-        })}
+        {generales.map((e) => fila(e))}
       </div>
+      {exclusivos.length > 0 && (
+        <details className="mt-2 rounded-lg border border-line2 px-2 py-1.5">
+          <summary className="cursor-pointer text-xs font-semibold select-none">
+            ⭐ Mis enlaces exclusivos ({exclusivos.length})
+          </summary>
+          <div className="flex flex-col gap-1.5 mt-2">{exclusivos.map((e) => fila(e))}</div>
+        </details>
+      )}
     </div>
   );
 }

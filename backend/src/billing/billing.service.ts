@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { telefonoConIndicativo } from '../common/telefono-con-indicativo';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
@@ -366,6 +367,7 @@ export class BillingService {
       where: { id: tenantId },
       select: {
         id: true,
+        country: true,
         billingAlertsEnabled: true,
         billingAlertsPhone: true,
         billingAlertsAccountId: true,
@@ -439,8 +441,12 @@ export class BillingService {
       return null;
     }
 
-    const phone =
-      tenant.billingAlertsPhone?.trim() || (await this.ownerPhone(tenantId));
+    // Con el indicativo del país del negocio: «3225998240» salía como
+    // «+3225998240» (Bélgica). Ver `telefono-con-indicativo.ts`.
+    const phone = telefonoConIndicativo(
+      tenant.billingAlertsPhone?.trim() || (await this.ownerPhone(tenantId)),
+      tenant.country,
+    );
     if (!phone) {
       this.logger.warn(
         `[AVISOS-COBRO] tenant ${tenantId}: hay por dónde enviar pero no A QUIÉN ` +

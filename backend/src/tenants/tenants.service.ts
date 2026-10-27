@@ -42,6 +42,7 @@ import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
+import { telefonoConIndicativo } from '../common/telefono-con-indicativo';
 
 /**
  * Qué enlaces de pago de una marca son PLANES que se pueden asignar.
@@ -194,6 +195,23 @@ export type UpdateMyTenantDto = Partial<{
   whatsappFeedbackNumber: string | null;
   whatsappFeedbackMessage: string | null;
 }>;
+
+
+/**
+ * Teléfonos del negocio que se guardan CON indicativo de país. Sin él, Grow
+ * Business les ponía un «+» delante y salían a otro país: «3225998240» de La
+ * Burguesía se volvió «+3225998240», Bélgica (2026-10-27).
+ */
+const TELEFONOS_DEL_NEGOCIO = [
+  'phone', 'whatsappPhone', 'whatsappOrdersPhone', 'whatsappDeliveryPhone',
+  'whatsappReservationsPhone', 'ownerOrderAlertsPhone', 'reviewAlertsPhone',
+  'billingAlertsPhone', 'whatsappFeedbackNumber',
+];
+function conIndicativo(data: Record<string, unknown>, pais: string | null | undefined) {
+  for (const k of TELEFONOS_DEL_NEGOCIO) {
+    if (typeof data[k] === 'string') data[k] = telefonoConIndicativo(data[k] as string, pais);
+  }
+}
 
 @Injectable()
 export class TenantsService {
@@ -1160,6 +1178,9 @@ export class TenantsService {
 
   async update(id: string, dto: UpdateTenantDto) {
     const before = await this.getById(id);
+    const datosConIndicativo = { ...dto } as Record<string, unknown>;
+    conIndicativo(datosConIndicativo, (dto as any).country ?? (before as any).country);
+    dto = datosConIndicativo as UpdateTenantDto;
     // PDF 925: slug editable. Normaliza + asegura unicidad global (excluyendo
     // el propio tenant). Vacío o sin cambio real = no se toca. Cambiar el slug
     // actualiza todas las URLs dinámicas (storefront/QR/wallet se recomputan en
@@ -2714,6 +2735,10 @@ export class TenantsService {
 
   async updateMine(tenantId: string, dto: UpdateMyTenantDto) {
     const data: any = { ...dto };
+    const paisDelNegocio = (
+      await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { country: true } })
+    )?.country;
+    conIndicativo(data, typeof data.country === 'string' ? data.country : paisDelNegocio);
     if ('mainSectionLabelOverride' in data) {
       const raw = data.mainSectionLabelOverride;
       // "" o null limpia el override; texto custom se trimea y se acota a 24 chars.
