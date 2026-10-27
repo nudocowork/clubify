@@ -8,6 +8,14 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-27 (160) — Pago por aprobar quedaba como RENOVACIÓN (SIN DESPLEGAR backend + script pendiente)
+
+**Caso:** aprobado @mrbigbaq (500 USD, Gabriel Alejandro Ruiz Badillo) y el Sales Wall no lo celebró: entró a Contabilidad como **RENOVACIÓN**. `registerManualPayment` deduce el primer pago de `!currentPeriodEnd`, y el negocio que crea la aprobación ya nace con fecha de corte.
+
+**Arreglo:** `registerManualPayment` acepta `primerPago`; Pagos por aprobar lo manda en `true` (el formulario rechaza correos con cuenta: siempre es venta nueva). La comisión no dependía de esto.
+
+**Pendiente (Javier):** `railway run … -- node scripts/marcar-venta-nueva.cjs 459ebcf3-f530-45bf-8d83-a62a832a01b4 --aplicar` (simulado: 1 fila, 500 USD, sin venta nueva previa).
+
 ## 2026-10-27 (159) — «Aprobar» un pago por aprobar daba 404 «Tenant» (SIN DESPLEGAR backend)
 
 **Caso:** Sara aprobando @mrbigbaq (anual, 1.596.382 COP por Nequi, closer Gabriel Alejandro Ruiz Badillo). El negocio SÍ se creó (`459ebcf3…`, Clubify, ACTIVE) pero el pago manual respondía 404 «Tenant» y la solicitud quedó PENDIENTE con `lastError: Tenant`.

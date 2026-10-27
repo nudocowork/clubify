@@ -260,6 +260,8 @@ export class PagosPorAprobarService {
             reference: s.reference ?? undefined,
             note: `Registrado por ${s.closerName}${enMoneda}${ref}. Comprobante: ${s.proofUrl}`.slice(0, 1000),
             paidAt: s.paidAt.toISOString(),
+            // El formulario rechaza correos con cuenta: siempre es una venta nueva.
+            primerPago: true,
           },
           user.id,
         );

@@ -1696,6 +1696,13 @@ export class TenantsService {
       reference?: string;
       note?: string;
       paidAt?: string;
+      /**
+       * Quien llama SABE que es el primer pago (Pagos por aprobar: siempre una
+       * cuenta nueva). Sin esto se deduce de `currentPeriodEnd`, y el negocio
+       * recién creado ya nace con uno: la venta quedaba como RENOVACIÓN y el
+       * Sales Wall no la celebraba como venta (@mrbigbaq, 2026-10-27).
+       */
+      primerPago?: boolean;
     },
     actorId: string,
   ) {
@@ -1810,7 +1817,7 @@ export class TenantsService {
         planPeriodicity: t.planPeriodicity,
         currency: 'USD',
         grossUsd: dto.amount ?? null,
-        isFirstPayment: !t.currentPeriodEnd,
+        isFirstPayment: dto.primerPago ?? !t.currentPeriodEnd,
         saleDate: paidAt,
       });
     }
