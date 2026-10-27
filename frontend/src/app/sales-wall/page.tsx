@@ -71,6 +71,25 @@ type Evento = {
 };
 type Raw = Record<string, any>;
 
+/** Ventas de hasta 12 h que la pantalla no mostró se celebran al abrirla. */
+const CELEBRAR_AL_ABRIR_MS = 12 * 3600e3;
+const CLAVE_CELEBRADAS = 'sales-wall:celebradas';
+
+/** null = esta pantalla nunca guardó nada (primera vez): no se celebra el mes entero. */
+function leerCelebradas(): Set<string> | null {
+  try {
+    const v = localStorage.getItem(CLAVE_CELEBRADAS);
+    return v ? new Set<string>(JSON.parse(v)) : null;
+  } catch {
+    return null;
+  }
+}
+function guardarCelebradas(ids: Set<string>) {
+  try {
+    localStorage.setItem(CLAVE_CELEBRADAS, JSON.stringify([...ids].slice(-800)));
+  } catch {}
+}
+
 function normalize(raw: Raw): Evento | null {
   if (!raw || typeof raw !== 'object') return null;
   const t = String(raw.tipo ?? raw.type ?? '').toLowerCase();
@@ -237,12 +256,30 @@ class SalesWall extends React.Component<Opciones, Estado> {
         if (d.servicios) this.setState({ servicios: d.servicios });
         this.setState({ restringido: !!d.restringido });
         if (primera) {
-          this.ingestMany(d.eventos ?? []);
-          this.setCounts(+d.ventas || 0, +d.renovaciones || 0, +d.monto_usd || 0);
+          // Las ventas recientes que esta pantalla nunca celebró se celebran al
+          // abrir. Antes la primera carga contaba todo en silencio: si la venta
+          // entraba mientras la pantalla estaba cerrada o se recargaba (la
+          // anual de Una Pausa, 2026-10-27, se activó 6 min después de pagar),
+          // nadie la veía celebrar.
+          const yaVistas = leerCelebradas();
+          const pendientes = (d.eventos ?? []).filter((e) => {
+            const ev = normalize(e);
+            return !!ev && yaVistas !== null && !yaVistas.has(ev.id) && Date.now() - ev.ts < CELEBRAR_AL_ABRIR_MS;
+          });
+          const idsPendientes = new Set(pendientes.map((e) => normalize(e)!.id));
+          this.ingestMany((d.eventos ?? []).filter((e) => !idsPendientes.has(normalize(e)?.id ?? '')));
+          const pend = pendientes.map(normalize).filter((e): e is Evento => !!e);
+          this.setCounts(
+            (+d.ventas || 0) - pend.filter((e) => e.confirmed && e.type === 'venta').length,
+            (+d.renovaciones || 0) - pend.filter((e) => e.confirmed && e.type === 'renov').length,
+            (+d.monto_usd || 0) - pend.reduce((a, e) => a + (e.confirmed ? e.usd : 0), 0),
+          );
+          [...pendientes].reverse().forEach((e) => this.ingest(e, true));
           primera = false;
         } else {
           [...(d.eventos ?? [])].reverse().forEach((e) => this.ingest(e, true));
         }
+        guardarCelebradas(this.seen);
         this.failures = 0;
         this.setState({ status: 'live' });
       } catch {

@@ -8,6 +8,14 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-27 (158) — Sales Wall: la venta anual de Una Pausa no se celebró (SIN DESPLEGAR frontend)
+
+**Caso:** «Compraron una anualidad y el sales-wall no activó». La compra (Plan Anual, 500 USD, Gabriel Alejandro Ruiz Badillo) **sí** está en Contabilidad (NUEVA, PAGADO, marca Clubify) y `GET /sales-wall` **sí** la devuelve: verificado corriendo `SalesWallService.delMes()` contra producción. Pagó a las 16:05 y se activó a las 16:11; el ingreso nace al activar.
+
+**Causa:** la pantalla solo celebraba lo que aparecía con ella ya abierta; la primera carga contaba todo en silencio. Si se recarga o se abre después de que entra la venta, no hay celebración.
+
+**Arreglo** (`frontend/src/app/sales-wall/page.tsx`): la pantalla guarda en `localStorage` (`sales-wall:celebradas`) los ids que ya mostró; al abrir, las ventas de las últimas 12 h que nunca mostró se celebran. La primera vez que se abre en un navegador no celebra nada (sin registro previo no se celebra el mes entero).
+
 ## 2026-10-27 (156) — Teléfonos sin indicativo: los SMS salían a otro país (SIN DESPLEGAR + scripts pendientes)
 
 **Caso:** La Burguesía (CO) no recibió los avisos de cobro. Su `whatsappPhone` era «3225998240»; `upsertContact` de Grow Business le pone «+» → «+3225998240» = **Bélgica**. Los 5 SMS de octubre figuran «sent», a Bélgica.
