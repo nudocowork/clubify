@@ -588,9 +588,10 @@ class SalesWall extends React.Component<Opciones, Estado> {
       tick = tick.concat(tick);
     }
 
-    const map: Record<string, { name: string; v: number; r: number }> = {};
+    const map: Record<string, { name: string; v: number; r: number; usd: number }> = {};
     conf.forEach((e) => {
-      const m = map[e.afiliado] || (map[e.afiliado] = { name: e.afiliado, v: 0, r: 0 });
+      const m = map[e.afiliado] || (map[e.afiliado] = { name: e.afiliado, v: 0, r: 0, usd: 0 });
+      m.usd += e.usd;
       if (e.type === 'venta') m.v++;
       else m.r++;
     });
@@ -799,6 +800,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
                   </div>
                   <span style={{ textAlign: 'right', lineHeight: 1.15 }}>
                     <b className="sw-num" style={{ fontSize: 'clamp(16px,1.2vw,30px)' }}>{m.total}</b>
+                    {/* Monto vendido (Javier, 2026-10-27). La vista de equipos no lo ve: el servidor manda los montos en 0. */}
+                    {!s.restringido && <span className="sw-num" style={{ display: 'block', fontWeight: 700, fontSize: 'clamp(12px,.85vw,19px)', color: 'var(--venta)' }}>{fmtUSD(m.usd)}</span>}
                     <span style={{ display: 'block', fontSize: 'clamp(11px,.75vw,16px)', color: 'var(--mute)' }}>{m.v} ventas · {m.r} renov.</span>
                   </span>
                 </div>
