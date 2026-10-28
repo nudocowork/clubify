@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { descargarXlsx } from '@/lib/exportar-hoja';
-import { fecha, usd, ymd } from '../_lib';
+import { fecha, usd, ymd } from './lib';
 
 type Pago = {
   id: string;
@@ -36,8 +36,12 @@ type Resp = { pagos: Pago[]; totalPagos: number; page: number; pageSize: number;
 
 const guion = (v: string | null | undefined) => v || '—';
 
-/** Historial de liquidaciones. Solo lectura: lo pagado no se edita. */
-export function Liquidaciones() {
+/**
+ * Historial de liquidaciones. Solo lectura: lo pagado no se edita.
+ * `conCortes=false` esconde la tabla de cortes cerrados cuando al lado ya está
+ * la pestaña «Cortes» (con su detalle); el Excel la sigue llevando.
+ */
+export function Liquidaciones({ conCortes = true }: { conCortes?: boolean } = {}) {
   const [r, setR] = useState<Resp | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +152,7 @@ export function Liquidaciones() {
         </div>
       </div>
 
+      {conCortes && (
       <div className="card">
         <div className="card-h">
           <h3>Cortes cerrados</h3>
@@ -200,6 +205,7 @@ export function Liquidaciones() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

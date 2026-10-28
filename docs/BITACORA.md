@@ -8,6 +8,39 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-28 (164) — Comisiones y Reporte de comisiones, fusionados en UNA sección (SIN DESPLEGAR, solo frontend)
+
+**Qué pidió Javier:** quedarse con una sola sección «Comisiones» que junte lo de las dos sin perder nada. Confirmó tres cosas: la plataforma abre en «Resumen» y una marca en la lista; la lista usa los 7 estados del reporte; «Vista por persona» se queda un tiempo en «⋯ Más».
+
+**Cómo quedó `/admin/commissions`:**
+
+| Pestaña | Quién la ve | Qué tiene |
+|---|---|---|
+| Resumen | Solo plataforma | Lo del reporte: período con atajos, 8 filtros, tarjetas, 7 estados que se pueden pulsar, gráficas, Colaboradores y Equipos |
+| Comisiones | Todos | La lista de siempre. Para la plataforma: estado fino arriba, el grupo de siempre debajo y, al pulsarlo, la ficha (aprobar, retener, reversar, notas, historial) |
+| Corte actual | Todos | Sin cambios |
+| Cierre e historial | Plataforma: tres sub-pestañas. Marca: solo «Cortes» | Cortes (el historial de antes), Pagos registrados (las liquidaciones sin la tabla de cortes repetida; el Excel sí la lleva), Cierre del período (con impresión y PDF) |
+| Reglas | Solo plataforma | Sin cambios. Antes también la veía una marca, y le daba 403 |
+
+- **«+ Nueva comisión»** queda en la cabecera (solo plataforma).
+- **El período y los filtros** se comparten entre «Resumen» y «Cierre del período».
+- **`/reporte-comisiones`** redirige a `/admin/commissions?tab=resumen`. Se quitó del menú. `PuertaDelReporte` y su layout se borraron (el Sales Wall tiene su propia puerta).
+
+**Quién es «plataforma» lo decide el servidor:** `GET /admin/reporte-comisiones/opciones` responde o da 403 (`SoloPlataformaGuard`). Además, impersonando una marca distinta de clubify no se enseña nada de la plataforma, como hacía la puerta vieja.
+
+**El estado fino en la lista** sale de `estadoDeFila` (`_reporte/lib.ts`). Es ESPEJO de `backend/src/reporte-comisiones/estados.ts`: si cambia uno, hay que cambiar el otro. «En revisión» no se deduce de la fila, así que se pide la lista al reporte (`comisiones?estado=EN_REVISION`).
+
+**Lo que NO se hizo, a propósito:**
+- **No se añadieron a la lista los filtros de periodicidad y tipo de venta.** El servidor de la lista no los entiende; filtrarlos en el navegador haría que las tarjetas de arriba (que cuenta el servidor) y la tabla dijeran números distintos. Están en «Resumen».
+- **Backend:** no se tocó nada. Ni cálculos ni endpoints.
+- **`RowActions` («Habilitar ya» / «Marcar pagada»)** era código muerto desde el 2026-08-31; sigue sin usarse. Aprobar con motivo y bitácora se hace desde la ficha.
+
+**Archivos:** el reporte se movió a `frontend/src/app/admin/commissions/_reporte/` (git mv; el antiguo `page.tsx` es ahora `ReporteView.tsx`).
+
+**Despliegue:** solo frontend, sin orden especial: usa endpoints que ya existen en producción.
+
+**Sin verificar en navegador:** no se probó con una sesión real. Javier tiene que mirar las cinco pestañas tras desplegar, y también entrar como una marca blanca.
+
 ## 2026-10-28 (163) — Formulario de registro configurable por negocio (SIN DESPLEGAR + MIGRACIÓN PRIMERO)
 
 Tarjetas → botón **«Formulario»** (junto a «Configura tu logo») → `/app/cards/formulario`: el negocio pone correo y cumpleaños como **obligatorio / opcional / no pedir**, y agrega hasta 8 casillas propias (texto, número, fecha, lista de opciones; obligatorias o no; ordenables), con vista previa. Nombre y teléfono siempre (el teléfono reconoce al cliente que vuelve).

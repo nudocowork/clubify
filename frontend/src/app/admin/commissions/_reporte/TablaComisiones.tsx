@@ -1,5 +1,5 @@
 'use client';
-import { badgeDeEstado, fecha, usd, type Fila } from '../_lib';
+import { badgeDeEstado, fecha, usd, type Fila } from './lib';
 
 /**
  * Tabla de comisiones con scroll horizontal PROPIO: en el celular la página no

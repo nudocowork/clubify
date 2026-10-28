@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { FileUploader } from '@/components/FileUploader';
-import { usd } from '../_lib';
+import { usd } from './lib';
 import { CampoMotivo, Modal } from './Modal';
 
 const hoy = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());

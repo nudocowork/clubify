@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { FileUploader } from '@/components/FileUploader';
-import { fecha, nuevaClave, usd } from '../_lib';
+import { fecha, nuevaClave, usd } from './lib';
 import { CampoMotivo, Modal } from './Modal';
 
 export type OpcionColaborador = { codeId: string; nombre: string; code: string; rol: string; activo: boolean; porcentaje: number; etiqueta: string };

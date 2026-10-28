@@ -1,8 +1,9 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { api } from '@/lib/api';
+import { api, getImpersonationBackup } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { AffiliatePickerSearch } from '@/components/AffiliatePickerSearch';
 import {
@@ -14,6 +15,11 @@ import CurrentCutoffTab from './_components/CurrentCutoffTab';
 import BatchHistoryTab from './_components/BatchHistoryTab';
 import PendientesPorAsignarPanel from './_components/PendientesPorAsignarPanel';
 import ReglasTab from './_components/ReglasTab';
+import { ReporteView, filtrosIniciales, type EstadoDeFiltros } from './_reporte/ReporteView';
+import { Liquidaciones } from './_reporte/Liquidaciones';
+import { Descripcion } from './_reporte/Descripcion';
+import { NuevaComision, type OpcionColaborador } from './_reporte/NuevaComision';
+import { ESTADO_SINGULAR, badgeDeEstado, estadoDeFila, type Filtros, type Preset } from './_reporte/lib';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -178,98 +184,175 @@ function toDateInputValue(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
-type Tab = 'cutoff' | 'history' | 'advanced' | 'rules';
+type Tab = 'resumen' | 'advanced' | 'cutoff' | 'history' | 'rules';
+const TABS_VALIDAS: Tab[] = ['resumen', 'advanced', 'cutoff', 'history', 'rules'];
+/** Pestañas que solo existen para la plataforma (el servidor las corta a las marcas). */
+const SOLO_PLATAFORMA: Tab[] = ['resumen', 'rules'];
+
+type SubHistorial = 'cierre' | 'cortes' | 'pagos';
 
 /**
- * Shell de /admin/commissions. Abre SIEMPRE en la vista ESTÁNDAR ("Detalle
- * avanzado": la tabla de comisiones con sus filtros) — 2026-08-16, pedido del
- * dueño. Desde las pestañas el usuario cambia a "Corte actual" (cortes
- * automáticos) o "Historial" cuando lo desee. Auditoría, contabilidad, reporte
- * por empresa y vista por persona quedan en el menú "⋯ Más".
+ * Comisiones: UNA sola sección desde el 2026-10-28. Antes eran dos —esta y el
+ * «Reporte de comisiones» en /reporte-comisiones— que mostraban el mismo dinero
+ * con dos vocabularios de estado y dos historiales. Quedó así:
+ *
+ *  · Resumen            (solo plataforma) lo del reporte: período, 7 estados,
+ *                       gráficas, colaboradores y equipos.
+ *  · Comisiones         la lista de siempre, con el estado fino y la ficha.
+ *  · Corte actual       sin cambios.
+ *  · Cierre e historial cortes (todas), y para la plataforma también el cierre
+ *                       de un período y los pagos registrados.
+ *  · Reglas             (solo plataforma).
+ *
+ * Esta pantalla la ven también las marcas blancas, y el reporte no: quién es
+ * plataforma lo decide el SERVIDOR (`/admin/reporte-comisiones/opciones`
+ * responde o da 403 por `SoloPlataformaGuard`), no una lista de roles aquí que
+ * pueda desalinearse. Mientras no se sabe, no se pinta ninguna pestaña de
+ * plataforma.
  */
 export default function AdminCommissionsPage() {
   const t = useTranslations('admin_commissions');
-  const [tab, setTab] = useState<Tab>('advanced');
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [esPlataforma, setEsPlataforma] = useState<boolean | null>(null);
+  const [colaboradores, setColaboradores] = useState<OpcionColaborador[]>([]);
+  const [subHistorial, setSubHistorial] = useState<SubHistorial>('cortes');
+  // Ficha de una comisión y alta manual: se abren desde la lista y desde el
+  // resumen, así que viven aquí. `version` avisa a las pestañas que recarguen.
+  const [descripcionId, setDescripcionId] = useState<string | null>(null);
+  const [nueva, setNueva] = useState(false);
+  const [version, setVersion] = useState(0);
+  // Período del reporte: compartido entre «Resumen» y «Cierre del período».
+  const [filtros, setFiltros] = useState<Filtros>(filtrosIniciales);
+  const [preset, setPreset] = useState<Preset>('mes');
+  const estadoFiltros: EstadoDeFiltros = { filtros, setFiltros, preset, setPreset };
+
+  useEffect(() => {
+    // Dentro de otra marca (impersonación) no se enseña lo de la plataforma,
+    // igual que hacía la puerta del viejo /reporte-comisiones.
+    const slug = getImpersonationBackup()?.tenant?.slug;
+    if (slug && slug !== 'clubify') {
+      setEsPlataforma(false);
+      return;
+    }
+    api<{ colaboradores: OpcionColaborador[] }>('/admin/reporte-comisiones/opciones')
+      .then((r) => {
+        setColaboradores(r.colaboradores);
+        setEsPlataforma(true);
+      })
+      .catch(() => setEsPlataforma(false));
+  }, []);
+
+  // Pestaña inicial: la plataforma abre en el Resumen; una marca, en la lista.
+  // Una pestaña de plataforma pedida por URL (p. ej. desde /reporte-comisiones)
+  // cae a la lista si quien entra es una marca.
+  useEffect(() => {
+    if (esPlataforma === null) return;
+    // `?tab=` se lee de window y no con useSearchParams: este último obliga a
+    // envolver la página en <Suspense> para compilar.
+    const pedida = new URLSearchParams(window.location.search).get('tab') as Tab | null;
+    setTab((actual) => {
+      const quiere = actual ?? (pedida && TABS_VALIDAS.includes(pedida) ? pedida : null);
+      if (quiere && (esPlataforma || !SOLO_PLATAFORMA.includes(quiere))) return quiere;
+      return esPlataforma ? 'resumen' : 'advanced';
+    });
+  }, [esPlataforma]);
+
+  function elegir(x: Tab) {
+    setTab(x);
+    router.replace(`/admin/commissions?tab=${x}`, { scroll: false });
+  }
 
   const TABS: Array<{ key: Tab; label: string }> = [
-    { key: 'advanced', label: t('navAdvancedDetail') },
+    ...(esPlataforma ? [{ key: 'resumen' as Tab, label: t('tabSummary') }] : []),
+    { key: 'advanced', label: t('tabCommissions') },
     { key: 'cutoff', label: t('tabCurrentCutoff') },
-    { key: 'history', label: t('tabHistory') },
+    { key: 'history', label: esPlataforma ? t('tabClosingHistory') : t('tabHistory') },
     // Participaciones globales y reglas por colaborador.
-    { key: 'rules', label: t('tabRules') },
+    ...(esPlataforma ? [{ key: 'rules' as Tab, label: t('tabRules') }] : []),
+  ];
+
+  const SUBS: Array<{ key: SubHistorial; label: string }> = [
+    { key: 'cortes', label: t('subCutoffs') },
+    { key: 'pagos', label: t('subPayments') },
+    { key: 'cierre', label: t('subPeriodClosing') },
   ];
 
   return (
-    <div className="max-w-7xl">
+    <div className="max-w-[1400px]">
       <div className="page-head flex flex-wrap items-center justify-between gap-3">
-        <h1 className="page-title">
-          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
-        </h1>
+        <div>
+          <h1 className="page-title">
+            {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
+          </h1>
+          {esPlataforma && <p className="text-sm text-mute mt-1">{t('pageSubtitleBogota')}</p>}
+        </div>
 
-        <div className="relative z-50">
-          <button
-            onClick={() => setMoreOpen((o) => !o)}
-            className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
-          >
-            ⋯ {t('navMore')}
-          </button>
-          {moreOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setMoreOpen(false)}
-              />
-              <div className="absolute right-0 top-full mt-1 z-40 w-64 rounded-lg border border-line2 bg-surface shadow-lg py-1">
-                <button
-                  onClick={() => {
-                    setTab('advanced');
-                    setMoreOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-bg2 transition"
-                >
-                  🔎 {t('navAdvancedDetail')}
-                </button>
-                <Link
-                  href="/admin/commissions/payments"
-                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
-                  onClick={() => setMoreOpen(false)}
-                >
-                  👤 {t('navViewByPerson')}
-                </Link>
-                <Link
-                  href="/admin/accounting"
-                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
-                  onClick={() => setMoreOpen(false)}
-                >
-                  🧮 {t('navAccounting')}
-                </Link>
-                <Link
-                  href="/admin/commissions/report"
-                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
-                  onClick={() => setMoreOpen(false)}
-                >
-                  📊 {t('navReportByCompany')}
-                </Link>
-                <Link
-                  href="/admin/payouts"
-                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
-                  onClick={() => setMoreOpen(false)}
-                >
-                  🏦 {t('navPayouts')}
-                </Link>
-              </div>
-            </>
+        <div className="flex flex-wrap items-center gap-2">
+          {esPlataforma && (
+            <button className="btn-primary" onClick={() => setNueva(true)}>
+              + {t('newCommission')}
+            </button>
           )}
+          <div className="relative z-50">
+            <button
+              onClick={() => setMoreOpen((o) => !o)}
+              className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
+            >
+              ⋯ {t('navMore')}
+            </button>
+            {moreOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setMoreOpen(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 z-40 w-64 rounded-lg border border-line2 bg-surface shadow-lg py-1">
+                  {/* Vista por persona: la cubre «Resumen → Colaboradores»
+                      (con período y saldo). Se deja aquí un tiempo mientras
+                      el equipo se acostumbra (Javier, 2026-10-28). */}
+                  <Link
+                    href="/admin/commissions/payments"
+                    className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    👤 {t('navViewByPerson')}
+                  </Link>
+                  <Link
+                    href="/admin/accounting"
+                    className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    🧮 {t('navAccounting')}
+                  </Link>
+                  <Link
+                    href="/admin/commissions/report"
+                    className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    📊 {t('navReportByCompany')}
+                  </Link>
+                  <Link
+                    href="/admin/payouts"
+                    className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    🏦 {t('navPayouts')}
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 mb-4 border-b border-line2">
+      <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
         {TABS.map((x) => (
           <button
             key={x.key}
-            onClick={() => setTab(x.key)}
-            className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
+            onClick={() => elegir(x.key)}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition whitespace-nowrap ${
               tab === x.key
                 ? 'border-brand text-brand'
                 : 'border-transparent text-mute hover:text-ink'
@@ -280,23 +363,101 @@ export default function AdminCommissionsPage() {
         ))}
       </div>
 
+      {tab === null && <div className="pulse-soft h-48" />}
+      {tab === 'resumen' && esPlataforma && (
+        <ReporteView
+          seccion="resumen"
+          estadoFiltros={estadoFiltros}
+          colaboradores={colaboradores}
+          onDescripcion={setDescripcionId}
+          version={version}
+        />
+      )}
       {tab === 'cutoff' && <CurrentCutoffTab />}
-      {tab === 'history' && <BatchHistoryTab />}
-      {tab === 'advanced' && <AdvancedCommissionsView />}
-      {tab === 'rules' && <ReglasTab />}
+      {tab === 'history' &&
+        (esPlataforma ? (
+          <>
+            <div className="tabs mb-4 w-full sm:w-fit">
+              {SUBS.map((x) => (
+                <button
+                  key={x.key}
+                  className={`tab ${subHistorial === x.key ? 'tab-active' : ''}`}
+                  onClick={() => setSubHistorial(x.key)}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+            {subHistorial === 'cortes' && <BatchHistoryTab />}
+            {/* Los cortes cerrados ya están en «Cortes» con su detalle. */}
+            {subHistorial === 'pagos' && <Liquidaciones conCortes={false} />}
+            {subHistorial === 'cierre' && (
+              <ReporteView
+                seccion="cierre"
+                estadoFiltros={estadoFiltros}
+                colaboradores={colaboradores}
+                onDescripcion={setDescripcionId}
+                version={version}
+              />
+            )}
+          </>
+        ) : (
+          <BatchHistoryTab />
+        ))}
+      {tab === 'advanced' && (
+        <AdvancedCommissionsView
+          esPlataforma={!!esPlataforma}
+          onDescripcion={setDescripcionId}
+          version={version}
+        />
+      )}
+      {tab === 'rules' && esPlataforma && <ReglasTab />}
+
+      {descripcionId && (
+        <Descripcion
+          id={descripcionId}
+          onCerrar={() => setDescripcionId(null)}
+          onCambio={() => setVersion((v) => v + 1)}
+        />
+      )}
+      {nueva && (
+        <NuevaComision
+          colaboradores={colaboradores}
+          onCerrar={() => setNueva(false)}
+          onCreada={(id) => {
+            setNueva(false);
+            setVersion((v) => v + 1);
+            setDescripcionId(id);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 /**
- * VISTA AVANZADA (antes era la pantalla entera). Sigue completa —buckets,
- * 6 filtros, tabla de 11 columnas, auditoría—, pero ya no es lo primero que se
- * ve: vive detrás de "⋯ Más → Detalle avanzado". La pregunta diaria ("cuánto
- * pago y a quién") la responde la pestaña "Corte actual" sin filtros.
+ * La lista de comisiones (pestaña «Comisiones»): grupos, filtros, tabla y
+ * auditoría. La pregunta diaria («cuánto pago y a quién») la responde la
+ * pestaña «Corte actual».
+ *
+ * Para la plataforma, cada fila enseña el estado fino del reporte (los 7) con
+ * el grupo de siempre debajo, y abre la ficha de la comisión (aprobar,
+ * retener, reversar, notas e historial). Una marca ve lo de antes.
  */
-function AdvancedCommissionsView() {
+function AdvancedCommissionsView({
+  esPlataforma,
+  onDescripcion,
+  version,
+}: {
+  esPlataforma: boolean;
+  onDescripcion: (id: string) => void;
+  version: number;
+}) {
   const t = useTranslations('admin_commissions');
   const [data, setData] = useState<CommissionsResp | null>(null);
+  // Las retenidas que el reporte marca «en revisión»: en la base son RETAINED
+  // y la fila no lo distingue. Solo plataforma (el endpoint es suyo).
+  const [enRevision, setEnRevision] = useState<ReadonlySet<string>>(new Set());
   const [loading, setLoading] = useState(true);
   /**
    * Las comisiones, en orden cronologico de verdad.
@@ -392,7 +553,14 @@ function AdvancedCommissionsView() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo, dateType, batchCode, bucket, role, tenantId, codeId]);
+  }, [dateFrom, dateTo, dateType, batchCode, bucket, role, tenantId, codeId, version]);
+
+  useEffect(() => {
+    if (!esPlataforma) return;
+    api<{ items: Array<{ id: string }> }>('/admin/reporte-comisiones/comisiones?estado=EN_REVISION&page=1&pageSize=5000')
+      .then((r) => setEnRevision(new Set(r.items.map((x) => x.id))))
+      .catch(() => setEnRevision(new Set()));
+  }, [esPlataforma, version]);
 
   // Lista completa de negocios (una sola vez) para el filtro buscable.
   useEffect(() => {
@@ -980,11 +1148,35 @@ function AdvancedCommissionsView() {
                         {fmtUsd(c.outstanding)}
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.cls}`}
-                        >
-                          {t(badge.key)}
-                        </span>
+                        {(() => {
+                          // Plataforma: el estado fino del reporte arriba y el
+                          // grupo de siempre debajo; pulsarlo abre la ficha.
+                          const fino = esPlataforma ? estadoDeFila(c, enRevision) : null;
+                          if (!fino) {
+                            return (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.cls}`}
+                              >
+                                {t(badge.key)}
+                              </span>
+                            );
+                          }
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onDescripcion(c.id)}
+                              className="text-left group"
+                              title={t('openCommissionSheet')}
+                            >
+                              <span className={`badge ${badgeDeEstado(fino)} group-hover:ring-2 group-hover:ring-brand/40`}>
+                                {ESTADO_SINGULAR[fino]}
+                              </span>
+                              <span className="block text-[10px] text-mute mt-1 whitespace-nowrap">
+                                {t(badge.key)} · <span className="text-brand group-hover:underline">{t('sheet')}</span>
+                              </span>
+                            </button>
+                          );
+                        })()}
                         {/* Fecha bajo el estado (2026-08-31): si está PAGADA, la fecha
                             de pago (paidAt); si no, la de DESBLOQUEO (availableAt) —
                             cubre "Disponible" y el hold. Reemplaza las columnas

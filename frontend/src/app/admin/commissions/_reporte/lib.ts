@@ -173,6 +173,39 @@ export const ymd = (iso: string | null | undefined) =>
 
 export const badgeDeEstado = (e: Estado | null) => ESTADOS.find((x) => x.id === e)?.badge ?? 'badge-mute';
 
+/**
+ * El estado de una fila de la lista de Comisiones (`/admin/commissions`), que no
+ * trae el estado del reporte. ESPEJO de `estadoDeComision` en
+ * `backend/src/reporte-comisiones/estados.ts`: si cambia allí, cambia aquí, o
+ * la tarjeta del Resumen y la etiqueta de la lista dirán cosas distintas.
+ * «En revisión» no se deduce de la fila (en la base es una RETAINED): lo dice
+ * `enRevision`, la lista que da el reporte.
+ */
+export function estadoDeFila(
+  c: { id: string; status: string; paymentStatus: string; amountPaid: number; payoutBatch?: unknown },
+  enRevision: ReadonlySet<string>,
+): Estado | null {
+  if (c.status === 'ADJUSTMENT') return null;
+  if (c.status === 'REJECTED') return 'REVERSADA';
+  if (c.status === 'PAID' || c.paymentStatus === 'PAID') return 'PAGADA';
+  if (c.status === 'RETAINED') return enRevision.has(c.id) ? 'EN_REVISION' : 'RETENIDA';
+  if (c.status === 'APPROVED') {
+    return c.paymentStatus === 'PARTIAL' || c.amountPaid > 0 || c.payoutBatch ? 'PENDIENTE_PAGO' : 'APROBADA';
+  }
+  return 'GENERADA';
+}
+
+/** Etiqueta en singular para una fila («Generada», no «Generadas»). */
+export const ESTADO_SINGULAR: Record<Estado, string> = {
+  GENERADA: 'Generada',
+  EN_REVISION: 'En revisión',
+  APROBADA: 'Aprobada',
+  PENDIENTE_PAGO: 'Pendiente de pago',
+  PAGADA: 'Pagada',
+  RETENIDA: 'Retenida',
+  REVERSADA: 'Reversada',
+};
+
 // ── Rangos de fecha (hora Bogotá) ────────────────────────────────────────
 
 export type Preset = 'hoy' | 'ayer' | 'semana' | 'mes' | 'mesAnterior' | 'rango' | 'todo';

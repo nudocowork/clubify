@@ -822,10 +822,8 @@ export default function AppShell({
                 // sintéticos, pagos que no casan). Una marca blanca no tiene
                 // ese historial ni nada que auditar ahí.
                 { href: '/admin/commissions/audit', label: tNav('duplicatesAudit'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
-                // Reporte de comisiones: ventas, estados, equipos, cierre y
-                // liquidaciones de la PLATAFORMA. El backend corta a las marcas
-                // con `SoloPlataformaGuard`; aquí solo se esconde.
-                { href: '/reporte-comisiones', label: tNav('commissionReport'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                // El «Reporte de comisiones» se fusionó con Comisiones
+                // (2026-10-28): sus pestañas «Resumen» y «Cierre e historial».
                 // Pantalla de ventas en vivo para la TV de la oficina (pantalla completa).
                 { href: '/sales-wall', label: tNav('salesWall'), icon: 'spark', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/payouts', label: tNav('affiliatePayouts'), icon: 'card', hideForMarketing: true },

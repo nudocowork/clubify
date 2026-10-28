@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { FileUploader } from '@/components/FileUploader';
-import { badgeDeEstado, fecha, fechaHora, usd, type Estado } from '../_lib';
+import { badgeDeEstado, fecha, fechaHora, usd, type Estado } from './lib';
 import { CampoMotivo, Modal } from './Modal';
 
 type Detalle = {
