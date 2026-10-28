@@ -74,6 +74,8 @@ type Raw = Record<string, any>;
 /** Ventas de hasta 12 h que la pantalla no mostró se celebran al abrirla. */
 const CELEBRAR_AL_ABRIR_MS = 12 * 3600e3;
 const CLAVE_CELEBRADAS = 'sales-wall:celebradas';
+/** «2026-10:4000»: la meta de ese mes ya se celebró en esta pantalla. */
+const CLAVE_META = 'sales-wall:meta-celebrada';
 
 /** null = esta pantalla nunca guardó nada (primera vez): no se celebra el mes entero. */
 function leerCelebradas(): Set<string> | null {
@@ -155,12 +157,14 @@ type Estado = {
   servicios: Servicios;
   /** Vista de equipos: sin montos, meta ni servicios (los quita el servidor). */
   restringido: boolean;
+  /** Celebración de meta cumplida en pantalla. */
+  metaCel: boolean;
 };
 type Servicios = { cantidad: number; monto_usd: number; items: Array<{ id: string; concepto: string; monto_usd: number; fecha: string }> };
 type Opciones = { demo: boolean; meta: number; cada: number; tema: Tema; incluirRenov: boolean };
 
 class SalesWall extends React.Component<Opciones, Estado> {
-  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema, incluirRenov: this.props.incluirRenov, servicios: { cantidad: 0, monto_usd: 0, items: [] }, restringido: false };
+  state: Estado = { now: Date.now(), status: 'connecting', events: [], ventas: 0, renov: 0, usd: 0, dV: 0, dR: 0, dU: 0, cel: null, soundOn: false, flashId: null, tema: this.props.tema, incluirRenov: this.props.incluirRenov, servicios: { cantidad: 0, monto_usd: 0, items: [] }, restringido: false, metaCel: false };
   /** Cualquier toque o tecla en la página desbloquea el audio (ver `prepararSonido`). */
   desbloquear = () => this.prepararSonido();
   vNumRef = React.createRef<HTMLDivElement>();
@@ -186,6 +190,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
   pRaf: number | null = null;
   cRaf = 0;
   celBusy = false;
+  metaCelebrada = '';
   ac?: AudioContext;
   master?: GainNode;
   onOff = () => this.setState({ status: 'offline' });
@@ -398,7 +403,10 @@ class SalesWall extends React.Component<Opciones, Estado> {
         const c = this.celRef.current;
         const done = () => {
           this.setState({ cel: null });
-          this.later(() => this.showNext(), 450);
+          // La venta que cruza la meta se celebra primero como venta y
+          // después, aparte, la meta (Javier, 2026-10-27).
+          const meta = this.revisarMeta();
+          this.later(() => this.showNext(), meta ? 9500 : 450);
         };
         if (c) {
           const a = c.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.97)' }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
@@ -407,6 +415,33 @@ class SalesWall extends React.Component<Opciones, Estado> {
       }, 6000);
       this.later(() => this.setState({ flashId: null }), 9000);
     });
+  }
+
+  /**
+   * Meta del mes cumplida: fanfarria, tres tandas de confeti y el aviso en
+   * grande. Una vez por mes y meta en cada pantalla (se guarda en el
+   * navegador), y solo donde se ven montos: la vista de equipos no tiene meta.
+   */
+  revisarMeta(): boolean {
+    const s = this.state;
+    if (s.restringido) return false;
+    const goal = Math.max(1, this.props.meta);
+    const usd = s.events
+      .filter((e) => e.confirmed && (s.incluirRenov || e.type === 'venta'))
+      .reduce((a, e) => a + e.usd, 0);
+    if (usd < goal) return false;
+    const k = `${this.month}:${goal}`;
+    if (this.metaCelebrada === k) return false;
+    this.metaCelebrada = k;
+    try {
+      if (localStorage.getItem(CLAVE_META) === k) return false;
+      localStorage.setItem(CLAVE_META, k);
+    } catch {}
+    this.setState({ metaCel: true });
+    [0, 700, 1400].forEach((ms) => this.later(() => this.burst('venta'), ms));
+    this.playSound('meta');
+    this.later(() => this.setState({ metaCel: false }), 9000);
+    return true;
   }
 
   /** Confeti en la venta, un brillo suave de puntos en la renovación. */
@@ -525,7 +560,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
       if (ok && !yaSonaba) this.playSound('venta');
     });
   };
-  playSound(type: Tipo) {
+  playSound(type: Tipo | 'meta') {
     if (!this.ac || !this.master || this.ac.state !== 'running') return;
     const ac = this.ac;
     const master = this.master;
@@ -543,6 +578,19 @@ class SalesWall extends React.Component<Opciones, Estado> {
       o.start(t + st);
       o.stop(t + st + d + 0.05);
     };
+    if (type === 'meta') {
+      // Fanfarria: arpegio que sube y un acorde mayor largo con brillo.
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+        note(f, i * 0.14, 0.5, 'triangle', 0.18);
+        note(f * 2, i * 0.14, 0.3, 'sine', 0.05);
+      });
+      [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f) => {
+        note(f, 0.62, 2.6, 'triangle', 0.12);
+        note(f * 1.003, 0.62, 2.6, 'sine', 0.06);
+      });
+      [0.62, 0.9, 1.15, 1.4, 1.62].forEach((st, i) => note(2093 + i * 262, st, 0.35, 'sine', 0.05));
+      return;
+    }
     if (type === 'venta') {
       // «Cha-ching» de caja registradora (Javier, 2026-10-27: el anterior «no
       // suena a dinero»): el trinquete de las teclas, el golpe del cajón, la
@@ -853,6 +901,15 @@ class SalesWall extends React.Component<Opciones, Estado> {
         </section>
 
         <canvas ref={this.canvasRef} style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 40 }} />
+        {s.metaCel && (
+          <div role="status" style={{ position: 'fixed', inset: 0, zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: 'rgba(0,0,0,.35)', padding: 16 }}>
+            <div style={{ background: 'var(--card)', border: '2px solid var(--venta)', borderRadius: 24, padding: 'clamp(24px,3vw,64px) clamp(32px,4vw,96px)', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.35)' }}>
+              <div style={{ fontSize: 'clamp(48px,5vw,120px)', lineHeight: 1 }}>🏆</div>
+              <div style={{ fontWeight: 800, fontSize: 'clamp(32px,3.6vw,96px)', color: 'var(--venta)', letterSpacing: '-0.02em', marginTop: 12 }}>¡Meta cumplida!</div>
+              <div className="sw-num" style={{ fontSize: 'clamp(16px,1.4vw,34px)', color: 'var(--mute)', marginTop: 8 }}>{fmtUSD(this.props.meta)} este mes</div>
+            </div>
+          </div>
+        )}
 
         {cel && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: s.tema === 'oscuro' ? 'rgba(5,10,8,.6)' : 'rgba(15,23,42,.25)', backdropFilter: 'blur(3px)' }}>

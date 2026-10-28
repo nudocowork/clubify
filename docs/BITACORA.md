@@ -8,6 +8,10 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-27 (162) — Sales Wall: celebración al cumplir la meta (SIN DESPLEGAR frontend)
+
+`revisarMeta()`: al terminar de celebrar una venta, si lo que suma a la meta (ventas, y renovaciones si están activas) llega a `?meta` (4.000), sale «¡Meta cumplida!» en grande con fanfarria y tres tandas de confeti. Una vez por mes y meta en cada pantalla (`localStorage` `sales-wall:meta-celebrada`), y no en la vista de equipos. Octubre ya pasó la meta con renovaciones: la próxima venta celebrada la dispara.
+
 ## 2026-10-27 (161) — Sales Wall: celebra la corrección renovación → venta, y sonido «cha-ching» nuevo (SIN DESPLEGAR frontend)
 
 - Lo «visto» se guarda por id + tipo (`clave()`): una renovación corregida a venta nueva (@mrbigbaq, `marcar-venta-nueva.cjs`) se celebra y reemplaza la fila anterior sin contarla dos veces. Efecto único al desplegar: lo guardado antes era solo id, así que la primera apertura celebra las ventas de las últimas 12 h.
