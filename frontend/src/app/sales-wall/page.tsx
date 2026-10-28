@@ -90,6 +90,13 @@ function guardarCelebradas(ids: Set<string>) {
   } catch {}
 }
 
+/**
+ * Lo que la pantalla da por visto: el id Y el tipo. Una venta corregida de
+ * renovación a venta nueva (@mrbigbaq, 2026-10-27) es otra noticia y se
+ * celebra; con solo el id quedaba como vista y no pasaba nada.
+ */
+const clave = (e: Evento) => `${e.id}:${e.type}`;
+
 function normalize(raw: Raw): Evento | null {
   if (!raw || typeof raw !== 'object') return null;
   const t = String(raw.tipo ?? raw.type ?? '').toLowerCase();
@@ -264,7 +271,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
           const yaVistas = leerCelebradas();
           const pendientes = (d.eventos ?? []).filter((e) => {
             const ev = normalize(e);
-            return !!ev && yaVistas !== null && !yaVistas.has(ev.id) && Date.now() - ev.ts < CELEBRAR_AL_ABRIR_MS;
+            return !!ev && yaVistas !== null && !yaVistas.has(clave(ev)) && Date.now() - ev.ts < CELEBRAR_AL_ABRIR_MS;
           });
           const idsPendientes = new Set(pendientes.map((e) => normalize(e)!.id));
           this.ingestMany((d.eventos ?? []).filter((e) => !idsPendientes.has(normalize(e)?.id ?? '')));
@@ -307,8 +314,8 @@ class SalesWall extends React.Component<Opciones, Estado> {
   }
 
   ingestMany(list: Raw[], count = false) {
-    const evs = list.map(normalize).filter((e): e is Evento => !!e && !this.seen.has(e.id) && monthKey(e.ts) === this.month);
-    evs.forEach((e) => this.seen.add(e.id));
+    const evs = list.map(normalize).filter((e): e is Evento => !!e && !this.seen.has(clave(e)) && monthKey(e.ts) === this.month);
+    evs.forEach((e) => this.seen.add(clave(e)));
     this.setState((s) => ({ events: s.events.concat(evs).sort((a, b) => b.ts - a.ts).slice(0, 400) }), () => {
       if (count) this.recount();
     });
@@ -323,15 +330,21 @@ class SalesWall extends React.Component<Opciones, Estado> {
 
   ingest(raw: Raw, live: boolean) {
     const ev = normalize(raw);
-    if (!ev || this.seen.has(ev.id) || monthKey(ev.ts) !== this.month) return;
-    this.seen.add(ev.id);
+    if (!ev || this.seen.has(clave(ev)) || monthKey(ev.ts) !== this.month) return;
+    this.seen.add(clave(ev));
     this.setState(
-      (s) => ({
-        events: [ev].concat(s.events).sort((a, b) => b.ts - a.ts).slice(0, 400),
-        ventas: s.ventas + (ev.confirmed && ev.type === 'venta' ? 1 : 0),
-        renov: s.renov + (ev.confirmed && ev.type === 'renov' ? 1 : 0),
-        usd: s.usd + (ev.confirmed ? ev.usd : 0),
-      }),
+      (s) => {
+        // La misma operación con otro tipo (corregida en Contabilidad)
+        // reemplaza a la anterior: no se cuenta dos veces.
+        const previo = s.events.find((e) => e.id === ev.id);
+        const quita = (tipo: Tipo) => (previo?.confirmed && previo.type === tipo ? 1 : 0);
+        return {
+          events: [ev].concat(s.events.filter((e) => e.id !== ev.id)).sort((a, b) => b.ts - a.ts).slice(0, 400),
+          ventas: s.ventas + (ev.confirmed && ev.type === 'venta' ? 1 : 0) - quita('venta'),
+          renov: s.renov + (ev.confirmed && ev.type === 'renov' ? 1 : 0) - quita('renov'),
+          usd: s.usd + (ev.confirmed ? ev.usd : 0) - (previo?.confirmed ? previo.usd : 0),
+        };
+      },
       () => {
         // Sin renovaciones, una renovación cuenta en silencio: no se celebra.
         if (live && ev.confirmed && (this.state.incluirRenov || ev.type === 'venta')) {
@@ -531,19 +544,20 @@ class SalesWall extends React.Component<Opciones, Estado> {
       o.stop(t + st + d + 0.05);
     };
     if (type === 'venta') {
-      // «Cash in» de caja registradora (Javier, 2026-10-26): el golpe del
-      // cajón, la campanita y unas monedas.
-      const golpe = (st: number, dur: number, desde: number, vol: number) => {
-        const n = Math.floor(ac.sampleRate * dur);
+      // «Cha-ching» de caja registradora (Javier, 2026-10-27: el anterior «no
+      // suena a dinero»): el trinquete de las teclas, el golpe del cajón, la
+      // campana con parciales inarmónicos de campana real y las monedas
+      // rebotando cada vez más rápido.
+      const ruido = (st: number, dur: number, tipo: BiquadFilterType, fq: number, vol: number, curva = 3) => {
+        const n = Math.max(1, Math.floor(ac.sampleRate * dur));
         const buf = ac.createBuffer(1, n, ac.sampleRate);
         const d = buf.getChannelData(0);
-        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, curva);
         const src = ac.createBufferSource();
         src.buffer = buf;
         const f = ac.createBiquadFilter();
-        f.type = 'bandpass';
-        f.frequency.value = desde;
-        f.Q.value = 1.2;
+        f.type = tipo;
+        f.frequency.value = fq;
         const g = ac.createGain();
         g.gain.value = vol;
         src.connect(f);
@@ -551,12 +565,39 @@ class SalesWall extends React.Component<Opciones, Estado> {
         g.connect(master);
         src.start(t + st);
       };
-      golpe(0, 0.09, 1800, 0.9);
-      golpe(0.05, 0.06, 900, 0.6);
-      note(2637, 0.1, 1.3, 'sine', 0.22);
-      note(3520, 0.1, 1.0, 'sine', 0.12);
-      note(5274, 0.1, 0.5, 'sine', 0.05);
-      [0.32, 0.4, 0.47, 0.55, 0.61].forEach((st, i) => note(4200 + i * 330, st, 0.12, 'triangle', 0.06));
+      const metal = (st: number, base: number, parciales: Array<[number, number, number]>) => {
+        // [razón, volumen, caída en segundos]
+        for (const [k, vol, d] of parciales) note(base * k, st, d, 'sine', vol);
+      };
+      // «Cha»: trinquete y cajón.
+      [0, 0.022, 0.041, 0.058, 0.073].forEach((st) => ruido(st, 0.012, 'highpass', 3500, 0.5));
+      ruido(0.09, 0.14, 'lowpass', 380, 1.1, 2);
+      note(85, 0.09, 0.16, 'sine', 0.35);
+      // «Ching»: dos campanas apenas desafinadas, para que brille.
+      const campana: Array<[number, number, number]> = [
+        [1, 0.2, 1.6],
+        [2.76, 0.11, 0.9],
+        [5.4, 0.06, 0.5],
+        [8.93, 0.03, 0.25],
+      ];
+      metal(0.16, 1567, campana);
+      metal(0.165, 1574, campana.map(([k, v, d]) => [k, v * 0.6, d] as [number, number, number]));
+      ruido(0.16, 0.03, 'highpass', 6000, 0.35);
+      // Monedas: rebotes que se aceleran y se apagan.
+      let st = 0.55;
+      let gap = 0.13;
+      for (let i = 0; i < 9; i++) {
+        const base = 2600 + Math.random() * 1600;
+        const v = 0.09 * Math.pow(0.84, i);
+        metal(st, base, [
+          [1, v, 0.16],
+          [1.47, v * 0.7, 0.12],
+          [2.31, v * 0.45, 0.08],
+        ]);
+        ruido(st, 0.006, 'highpass', 5000, v * 2.5);
+        st += gap;
+        gap *= 0.78;
+      }
     } else {
       note(659.25, 0, 1.2, 'sine', 0.2);
       note(987.77, 0.2, 1.4, 'sine', 0.16);

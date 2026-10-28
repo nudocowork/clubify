@@ -8,6 +8,11 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-27 (161) — Sales Wall: celebra la corrección renovación → venta, y sonido «cha-ching» nuevo (SIN DESPLEGAR frontend)
+
+- Lo «visto» se guarda por id + tipo (`clave()`): una renovación corregida a venta nueva (@mrbigbaq, `marcar-venta-nueva.cjs`) se celebra y reemplaza la fila anterior sin contarla dos veces. Efecto único al desplegar: lo guardado antes era solo id, así que la primera apertura celebra las ventas de las últimas 12 h.
+- Sonido de venta rehecho («no suena a dinero»): trinquete + cajón, campana con parciales inarmónicos y monedas rebotando. Sigue sintetizado; si no convence, la salida es un MP3 real en `public/sales-wall/`.
+
 ## 2026-10-27 (160) — Pago por aprobar quedaba como RENOVACIÓN (SIN DESPLEGAR backend + script pendiente)
 
 **Caso:** aprobado @mrbigbaq (500 USD, Gabriel Alejandro Ruiz Badillo) y el Sales Wall no lo celebró: entró a Contabilidad como **RENOVACIÓN**. `registerManualPayment` deduce el primer pago de `!currentPeriodEnd`, y el negocio que crea la aprobación ya nace con fecha de corte.
