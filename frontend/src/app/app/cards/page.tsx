@@ -255,6 +255,10 @@ export default function CardsList() {
             )}
             {t('configureLogo')}
           </button>
+          <Link className="btn-ghost" href="/app/cards/formulario" title={t('registrationFormTooltip')}>
+            <span>📝</span>
+            {t('registrationForm')}
+          </Link>
           <Link className="btn-primary" href="/app/cards/new">
             <Icon name="plus" /> {t('createCard')}
           </Link>

@@ -15,6 +15,7 @@ import { useLocale, useT, type MessageKey } from '@/lib/i18n';
 import { DAY_OPTIONS, monthOptionsFor } from '@/lib/opciones-cumple';
 import { urlDeLaTarjeta } from '@/lib/api-publica.mjs';
 import { sinIndicativoRepetido } from '@/lib/telefono/sin-indicativo-repetido';
+import { formularioPorDefecto, type FormularioDeRegistro } from '@/lib/formulario-de-registro';
 
 // Para el alta (POST) y la métrica: no se cachean y van directos a la API. El
 // GET de la tarjeta va por la ruta relativa (ver `api-publica.mjs`).
@@ -234,6 +235,8 @@ type SubmitPayload = {
   birthday: string | undefined;
   // PDF Software(8): el cliente marcó la casilla de políticas de datos.
   dataPolicyAccepted: boolean;
+  /** Respuestas a las casillas propias del negocio, por id de casilla. */
+  extras: Record<string, string>;
 };
 
 /**
@@ -261,7 +264,7 @@ const FormFields = memo(function FormFields({
   defaultCountry,
   dataPolicyEnabled,
   dataPolicyHref,
-  requireContactFields,
+  formulario,
   esCredencial,
   onFirstInput,
   onSubmit,
@@ -272,9 +275,9 @@ const FormFields = memo(function FormFields({
   // PDF Software(8): mostrar la casilla de políticas de datos + enlace al doc.
   dataPolicyEnabled: boolean;
   dataPolicyHref: string;
-  // Sellea exige correo + cumpleaños obligatorios (decisión del dueño,
-  // 2026-08-30). Solo Sellea — en las demás marcas siguen siendo opcionales.
-  requireContactFields: boolean;
+  // Qué pide el formulario: lo configura cada negocio en Tarjetas →
+  // «Formulario» (ver lib/formulario-de-registro.ts).
+  formulario: FormularioDeRegistro;
   /**
    * Es una Tarjeta Informativa. Cambia los TEXTOS, no el formulario: los datos
    * que se piden son los mismos, pero «únete al programa» y «empieza a
@@ -307,6 +310,10 @@ const FormFields = memo(function FormFields({
   const [acceptDataPolicy, setAcceptDataPolicy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [extras, setExtras] = useState<Record<string, string>>({});
+  const emailObligatorio = formulario.email === 'obligatorio';
+  const cumpleObligatorio = formulario.cumpleanos === 'obligatorio';
+  const faltaExtra = formulario.extras.find((c) => c.obligatorio && !extras[c.id]?.trim());
 
   // País actual (datos read-only del array estático). Recalcular en cada
   // render es O(20) — irrelevante.
@@ -331,14 +338,25 @@ const FormFields = memo(function FormFields({
       setErr(tt('card.invalid_phone'));
       return;
     }
-    // Sellea: correo y cumpleaños son obligatorios. El backend también lo exige
+    // Lo obligatorio del formulario del negocio. El backend también lo exige
     // (defensa en profundidad); acá cortamos antes para dar el mensaje claro.
-    if (requireContactFields && !email.trim()) {
+    if (emailObligatorio && !email.trim()) {
       setErr(tt('card.email_required_err'));
       return;
     }
-    if (requireContactFields && !(bdayDay && bdayMonth)) {
+    if (cumpleObligatorio && !(bdayDay && bdayMonth)) {
       setErr(tt('card.birthday_required_err'));
+      return;
+    }
+    if (faltaExtra) {
+      setErr(tt('card.extra_required_err', { campo: faltaExtra.etiqueta }));
+      return;
+    }
+    const noNumero = formulario.extras.find(
+      (c) => c.tipo === 'numero' && extras[c.id]?.trim() && !/^-?\d+([.,]\d+)?$/.test(extras[c.id].trim()),
+    );
+    if (noNumero) {
+      setErr(tt('card.extra_number_err', { campo: noNumero.etiqueta }));
       return;
     }
     let birthday: string | undefined;
@@ -355,6 +373,9 @@ const FormFields = memo(function FormFields({
         phone: phoneFull,
         birthday,
         dataPolicyAccepted: acceptDataPolicy,
+        extras: Object.fromEntries(
+          formulario.extras.filter((c) => extras[c.id]?.trim()).map((c) => [c.id, extras[c.id].trim()]),
+        ),
       });
     } catch (e: any) {
       setErr(e?.message || tt('common.error'));
@@ -439,9 +460,10 @@ const FormFields = memo(function FormFields({
           </div>
         </div>
 
+        {formulario.email !== 'oculto' && (
         <div>
           <label className="label">
-            {requireContactFields ? tt('card.email_required') : tt('card.email')}
+            {emailObligatorio ? tt('card.email_required') : tt('card.email')}
           </label>
           <input
             className="input"
@@ -452,18 +474,20 @@ const FormFields = memo(function FormFields({
               onFirstInput();
               setEmail(e.target.value);
             }}
-            required={requireContactFields}
+            required={emailObligatorio}
             autoComplete="email"
             inputMode="email"
             autoCapitalize="none"
             enterKeyHint="next"
           />
         </div>
+        )}
 
+        {formulario.cumpleanos !== 'oculto' && (
         <div>
           <label className="label">
             🎂{' '}
-            {requireContactFields
+            {cumpleObligatorio
               ? tt('card.birthday_required')
               : tt('card.birthday')}
           </label>
@@ -472,7 +496,7 @@ const FormFields = memo(function FormFields({
               className="input"
               value={bdayDay}
               onChange={(e) => setBdayDay(e.target.value)}
-              required={requireContactFields}
+              required={cumpleObligatorio}
             >
               <option value="">{tt('card.birth_day')}</option>
               {DAY_OPTIONS}
@@ -481,7 +505,7 @@ const FormFields = memo(function FormFields({
               className="input"
               value={bdayMonth}
               onChange={(e) => setBdayMonth(e.target.value)}
-              required={requireContactFields}
+              required={cumpleObligatorio}
             >
               <option value="">{tt('card.birth_month')}</option>
               {monthOptions}
@@ -491,6 +515,52 @@ const FormFields = memo(function FormFields({
             {tt('card.birthday_gift_hint')}
           </div>
         </div>
+        )}
+
+        {/* Casillas propias del negocio. La etiqueta la escribió el negocio
+            y se muestra tal cual, en su idioma. */}
+        {formulario.extras.map((c) => {
+          const valor = extras[c.id] ?? '';
+          const cambiar = (v: string) => {
+            onFirstInput();
+            setExtras((x) => ({ ...x, [c.id]: v }));
+          };
+          return (
+            <div key={c.id}>
+              <label className="label" htmlFor={`extra-${c.id}`}>
+                {c.etiqueta}
+                {c.obligatorio ? ' *' : ''}
+              </label>
+              {c.tipo === 'opciones' ? (
+                <select
+                  id={`extra-${c.id}`}
+                  className="input"
+                  value={valor}
+                  onChange={(e) => cambiar(e.target.value)}
+                  required={c.obligatorio}
+                >
+                  <option value="">{tt('card.choose_option')}</option>
+                  {(c.opciones ?? []).map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id={`extra-${c.id}`}
+                  className="input"
+                  type={c.tipo === 'fecha' ? 'date' : 'text'}
+                  inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
+                  value={valor}
+                  onChange={(e) => cambiar(e.target.value)}
+                  required={c.obligatorio}
+                  maxLength={200}
+                />
+              )}
+            </div>
+          );
+        })}
 
         <label className="flex items-start gap-2 text-xs text-mute pt-1">
           <input
@@ -543,8 +613,9 @@ const FormFields = memo(function FormFields({
             !phone ||
             !accept ||
             !ready ||
-            (requireContactFields &&
-              (!email.trim() || !bdayDay || !bdayMonth))
+            (emailObligatorio && !email.trim()) ||
+            (cumpleObligatorio && (!bdayDay || !bdayMonth)) ||
+            !!faltaExtra
           }
           className="w-full justify-center text-sm sm:text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.97] mt-1 touch-manipulation [-webkit-tap-highlight-color:transparent]"
           style={{ background: primary }}
@@ -575,6 +646,7 @@ export default function EnrollPage() {
   const [card, setCard] = useState<Card | null>(null);
   // Marca blanca del negocio (per marca). El badge "Hecho con {marca}" la usa.
   const [brand, setBrand] = useState<BrandBadgeBrand | null>(null);
+  const [formularioGuardado, setFormularioGuardado] = useState<FormularioDeRegistro | null>(null);
 
   // HOTFIX 2026-06-05 (bug P): hidratar cache solo POST-mount para
   // mantener el primer render idéntico entre SSR y CSR.
@@ -685,6 +757,7 @@ export default function EnrollPage() {
         // libre, no compitiendo con el teclado.
         startCardTransition(() => setCard(data.card));
         if (data.brand) setBrand(data.brand as BrandBadgeBrand);
+        if (data.formulario) setFormularioGuardado(data.formulario as FormularioDeRegistro);
         // writeCache hace JSON.stringify de un objeto grande — diferimos
         // a la siguiente microtask para no robar tiempo al render actual.
         queueMicrotask(() => writeCache(cardId as string, locale, data.card));
@@ -811,12 +884,13 @@ export default function EnrollPage() {
   const defaultCountry = COUNTRIES.some((c) => c.code === tenantCountry)
     ? tenantCountry
     : 'CO';
-  // Sellea exige correo y cumpleaños en el registro de la tarjeta (decisión del
-  // dueño, 2026-08-30). SOLO Sellea — las demás marcas los dejan opcionales.
-  // Mientras la marca no ha cargado (brand=null) quedan opcionales; al resolver
-  // el fetch, si es Sellea, FormFields re-renderiza con los campos requeridos.
-  const requireContactFields =
-    brand?.slug === 'sellea' || brand?.slug === 'selleala';
+  // El formulario del negocio (Tarjetas → «Formulario»). Mientras no llega, o
+  // si el backend aún no lo manda, el de la marca: Sellea exige correo y
+  // cumpleaños, el resto los deja opcionales. Memoizado: FormFields es memo.
+  const formulario = useMemo(
+    () => formularioGuardado ?? formularioPorDefecto(brand?.slug),
+    [formularioGuardado, brand?.slug],
+  );
 
   return (
     <main className="min-h-screen bg-bg pb-8 sm:pb-12">
@@ -836,7 +910,7 @@ export default function EnrollPage() {
           // del negocio o al default para el cliente final /legal/tratamiento-datos.
           dataPolicyEnabled={!!card && card.dataPolicyEnabled !== false}
           dataPolicyHref={card?.tenant?.dataPolicyUrl || '/legal/tratamiento-datos'}
-          requireContactFields={requireContactFields}
+          formulario={formulario}
           esCredencial={card?.type === 'INFO'}
           onFirstInput={onFirstInput}
           onSubmit={onSubmitForm}

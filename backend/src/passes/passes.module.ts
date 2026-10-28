@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PassesService } from './passes.service';
 import { PassesController } from './passes.controller';
+import { FormularioRegistroController } from './formulario-registro.controller';
 import { WalletModule } from '../wallet/wallet.module';
 import { AutomationsModule } from '../automations/automations.module';
 import { CatalogModule } from '../catalog/catalog.module';
@@ -18,7 +19,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     IntegrationsModule,
   ],
   providers: [PassesService],
-  controllers: [PassesController],
+  controllers: [PassesController, FormularioRegistroController],
   exports: [PassesService],
 })
 export class PassesModule {}

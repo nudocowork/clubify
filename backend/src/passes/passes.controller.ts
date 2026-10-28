@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
-import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsObject, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { PassesService } from './passes.service';
 import { WalletService } from '../wallet/wallet.service';
 import { QueueService } from '../jobs/queue.service';
@@ -15,6 +15,7 @@ import {
   TranslationService,
   normalizeLocale,
 } from '../catalog/translation.service';
+import { normalizarFormulario } from './formulario-de-registro';
 
 /**
  * Lo que el socio completa desde la página de su tarjeta. Los tres son
@@ -58,6 +59,9 @@ class EnrollBody {
   // datos". Opcional (la casilla no bloquea el registro). Si true, guardamos
   // evidencia (fecha + URL del documento) en el Pass.
   @IsOptional() @IsBoolean() dataPolicyAccepted?: boolean;
+  // Respuestas a las casillas propias del formulario del negocio, por id.
+  // Se validan contra el formulario en `enrollPublic` (formulario-de-registro.ts).
+  @IsOptional() @IsObject() extras?: Record<string, unknown>;
 }
 
 @Controller('passes')
@@ -139,6 +143,8 @@ export class PassesController {
             country: true,
             // Marca blanca del negocio: la tarjeta muestra "Hecho con {marca}".
             whiteLabelId: true,
+            // Qué casillas pide el formulario (ver formulario-de-registro.ts).
+            formularioRegistro: true,
           },
         },
       },
@@ -163,6 +169,7 @@ export class PassesController {
     // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
     // defecto: legacy sin marca cae al row real `clubify`.
     const b = await this.brand.resolveByWhiteLabelId(card.tenant.whiteLabelId);
+    const formulario = normalizarFormulario(card.tenant.formularioRegistro, b.slug);
     const brand = {
       name: b.name,
       slug: b.slug,
@@ -175,7 +182,7 @@ export class PassesController {
       attribution: b.attribution,
     };
     if (locale === 'es') {
-      return { available: true, card, brand };
+      return { available: true, card, brand, formulario };
     }
     // Fase 5: traducción de campos visibles en la página de enrollment.
     // terms y otros campos legales se mantienen en ES porque el dueño
@@ -190,7 +197,7 @@ export class PassesController {
     if (card.rewardText) {
       items.push({ entityType: 'card', entityId: card.id, field: 'rewardText', text: card.rewardText });
     }
-    if (items.length === 0) return { available: true, card, brand };
+    if (items.length === 0) return { available: true, card, brand, formulario };
     const tr = await this.translator.translateMenuBatch(
       card.tenantId,
       items,
@@ -207,6 +214,7 @@ export class PassesController {
           tr.get(`card:${card.id}:rewardText`) ?? card.rewardText,
       },
       brand,
+      formulario,
     };
   }
 

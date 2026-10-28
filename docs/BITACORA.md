@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-28 (163) — Formulario de registro configurable por negocio (SIN DESPLEGAR + MIGRACIÓN PRIMERO)
+
+Tarjetas → botón **«Formulario»** (junto a «Configura tu logo») → `/app/cards/formulario`: el negocio pone correo y cumpleaños como **obligatorio / opcional / no pedir**, y agrega hasta 8 casillas propias (texto, número, fecha, lista de opciones; obligatorias o no; ordenables), con vista previa. Nombre y teléfono siempre (el teléfono reconoce al cliente que vuelve).
+
+- Regla en `backend/src/passes/formulario-de-registro.ts` (+ spec, 5 pruebas). Sin formulario guardado = el de la marca: **Sellea sigue exigiendo correo y cumpleaños** (reemplaza el `if sellea` fijo de `enrollPublic` y de `/c/[cardId]`).
+- `GET/PUT /tenants/me/formulario-registro` (PUT solo TENANT_OWNER). `GET passes/enroll/:cardId` devuelve `formulario`; `POST` acepta `extras` y los valida contra el formulario.
+- Respuestas en `Customer.datosDelRegistro` (`{id: {etiqueta, valor}}`); a una ficha existente solo se le agregan las que faltaban. **Aún no se muestran en la ficha del cliente.**
+- El `GET` público se cachea hasta 5 min en el borde: un cambio tarda eso en verse.
+
+**ANTES de desplegar el backend** (Prisma pide las columnas al crear un cliente: sin ellas se rompe el alta de TODAS las tarjetas):
+`railway run … --service backend -- node scripts/apply-formulario-registro-migration.cjs` (aditiva: `Tenant.formularioRegistro`, `Customer.datosDelRegistro`).
+
 ## 2026-10-27 (162) — Sales Wall: celebración al cumplir la meta (SIN DESPLEGAR frontend)
 
 `revisarMeta()`: al terminar de celebrar una venta, si lo que suma a la meta (ventas, y renovaciones si están activas) llega a `?meta` (4.000), sale «¡Meta cumplida!» en grande con fanfarria y tres tandas de confeti. Una vez por mes y meta en cada pantalla (`localStorage` `sales-wall:meta-celebrada`), y no en la vista de equipos. Octubre ya pasó la meta con renovaciones: la próxima venta celebrada la dispara.

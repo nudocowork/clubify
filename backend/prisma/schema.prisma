@@ -670,6 +670,10 @@ model Tenant {
   /// negocio (`timezone`). Una franja puede cruzar la medianoche y pertenece al
   /// día en que EMPIEZA. Null o vacío = se pide a cualquier hora, que es lo que
   /// hacen hoy todos los negocios. Reglas en `orders/horario-de-domicilios.ts`.
+  /// Formulario de registro de la tarjeta (`/c/<cardId>`): correo y cumpleaños
+  /// obligatorio/opcional/oculto + casillas propias. Null = el de la marca.
+  /// Ver passes/formulario-de-registro.ts.
+  formularioRegistro          Json?
   deliveryHours               Json?
   // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
   // Si está seteado, el tenant queda inaccesible (no aparece en list/
@@ -1341,6 +1345,9 @@ model Customer {
   totalOrdersCount  Int       @default(0)
   totalOrdersAmount Decimal   @default(0) @db.Decimal(12, 2)
   tags              String[]
+  /// Respuestas a las casillas propias del formulario de registro:
+  /// { idCasilla: { etiqueta, valor } }. Ver passes/formulario-de-registro.ts.
+  datosDelRegistro  Json?
   notes             String?   @db.Text
   marketingOptIn    Boolean   @default(true)
   whatsappVerified  Boolean   @default(false)

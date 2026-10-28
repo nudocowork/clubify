@@ -23,6 +23,7 @@ import { brandAppUrl } from '../email/brand-email-creds.util';
 import { maquetarCorreo } from '../email/maquetador';
 import { normalizePassLocale } from '../wallet/pass-labels';
 import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
+import { normalizarFormulario, revisarRegistro, type DatosDelRegistro } from './formulario-de-registro';
 
 /** Lo que hay que saber del negocio (y su marca) para avisar de una emisión. */
 type NegocioParaAvisar = {
@@ -829,6 +830,8 @@ export class PassesService {
       locale?: string;
       // PDF Software(8): el cliente marcó la casilla de políticas de datos.
       dataPolicyAccepted?: boolean;
+      /** Respuestas a las casillas propias del negocio, por id de casilla. */
+      extras?: Record<string, unknown>;
     },
   ) {
     const localeNorm = normalizePassLocale(dto.locale);
@@ -841,6 +844,7 @@ export class PassesService {
             status: true,
             dataPolicyUrl: true,
             whiteLabelId: true,
+            formularioRegistro: true,
           },
         },
       },
@@ -868,24 +872,17 @@ export class PassesService {
       throw new NotFoundException('Tarjeta no disponible');
     }
 
-    // Sellea: correo y cumpleaños son OBLIGATORIOS en el registro de la tarjeta
-    // (decisión del dueño, 2026-08-30). Defensa en profundidad: el formulario
-    // ya lo valida, pero acá lo exigimos para que un POST directo no lo evada.
-    // SOLO Sellea — el resto de marcas mantiene ambos campos opcionales.
+    // El formulario que configuró el negocio (o el de su marca: Sellea exige
+    // correo y cumpleaños). Defensa en profundidad: la página ya lo valida,
+    // pero acá se exige para que un POST directo no lo evada.
     const brand = await this.brand.resolveByWhiteLabelId(
       card.tenant.whiteLabelId,
     );
-    const requireContactFields =
-      brand.slug === 'sellea' || brand.slug === 'selleala';
-    if (requireContactFields) {
-      if (!dto.email?.trim()) {
-        throw new BadRequestException('El correo electrónico es obligatorio');
-      }
-      const bday = dto.birthday ? new Date(dto.birthday) : null;
-      if (!bday || Number.isNaN(bday.getTime())) {
-        throw new BadRequestException('La fecha de cumpleaños es obligatoria');
-      }
-    }
+    const formulario = normalizarFormulario(card.tenant.formularioRegistro, brand.slug);
+    const revisado = revisarRegistro(formulario, dto);
+    if ('error' in revisado) throw new BadRequestException(revisado.error);
+    const respuestas = revisado.datos;
+    const hayRespuestas = Object.keys(respuestas).length > 0;
 
     const phoneNorm = (dto.phone || '').replace(/\s/g, '').trim();
     if (phoneNorm.length < 8) {
@@ -940,6 +937,7 @@ export class PassesService {
             email: email ?? undefined,
             birthday: validBday ?? undefined,
             locale: localeNorm,
+            ...(hayRespuestas ? { datosDelRegistro: respuestas } : {}),
           },
         });
       } catch (e: any) {
@@ -996,12 +994,18 @@ export class PassesService {
       //  · correo y cumpleaños, solo si faltaban.
       // El idioma NO se toca: el de una ficha existente lo cambia el negocio.
       const nombre = dto.fullName.trim();
-      const data: { fullName?: string; email?: string; birthday?: Date } = {};
+      const data: { fullName?: string; email?: string; birthday?: Date; datosDelRegistro?: DatosDelRegistro } = {};
       if ((!customer.fullName || !/\p{L}/u.test(customer.fullName)) && /\p{L}/u.test(nombre)) {
         data.fullName = nombre;
       }
       if (email && !customer.email) data.email = email;
       if (validBday && !customer.birthday) data.birthday = validBday;
+      // Las casillas propias, igual: solo las que no había contestado.
+      if (hayRespuestas) {
+        const previas = (customer.datosDelRegistro ?? {}) as DatosDelRegistro;
+        const nuevas = Object.fromEntries(Object.entries(respuestas).filter(([k]) => !(k in previas)));
+        if (Object.keys(nuevas).length) data.datosDelRegistro = { ...previas, ...nuevas };
+      }
       if (Object.keys(data).length) {
         customer = await this.prisma.customer.update({
           where: { id: customer.id },
