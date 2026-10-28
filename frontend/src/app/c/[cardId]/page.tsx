@@ -817,7 +817,14 @@ export default function EnrollPage() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...data, utmSlug }),
+          // `extras` solo si hay respuestas: un backend que aún no conoce el
+          // campo rechaza TODO registro que lo traiga («property extras should
+          // not exist», La Comilona, 2026-10-28, frontend desplegado antes).
+          body: JSON.stringify({
+            ...data,
+            extras: Object.keys(data.extras).length ? data.extras : undefined,
+            utmSlug,
+          }),
         },
       );
       if (!res.ok) {
