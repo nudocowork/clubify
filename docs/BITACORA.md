@@ -8,6 +8,30 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-29 (165) — Las pruebas gratis de Hotmart entraban como ventas (SIN DESPLEGAR backend + script de datos)
+
+**Qué pasó:** el 28-10, Licorera 27° y Clínica del Celular La 33 se registraron por los enlaces de prueba gratis. Hotmart mandó `PURCHASE_APPROVED` con `price.value = 0` y recurrencia 1. Contabilidad registra el PRECIO DEL PLAN, no lo pagado (decisión del 2026-09-03 por el FX), así que entraron como NUEVA de USD 500 y USD 68.
+- Salieron en el Sales Wall.
+- A Nicolás Quintero (influencer) le generó una comisión de USD 50 (PENDING, sin pagar).
+- Al dueño le llegó «pago confirmado» y al equipo «pago procesado».
+
+Son las dos únicas compras a precio 0 del histórico.
+
+**Arreglo** (`billing/prueba-gratis-hotmart.ts`, función pura + 6 pruebas): solo es prueba un 0 EXPLÍCITO en recurrencia 1. Un evento sin precio no lo es.
+- `activatePurchase`: activa el negocio igual. NO registra ingreso, NO genera comisión, NO manda «pago confirmado» ni «pago procesado».
+- **El primer cobro real tras la prueba** (≈27-11) cuenta como **NUEVA**, aunque el negocio ya tenga `currentPeriodEnd`. Lo decide `vieneDePruebaGratis`: la suscripción tuvo una compra a 0 y el negocio no tiene ningún NUEVA pagado. Sin esto habría entrado como RENOVACION.
+- **Conciliador nocturno:** salta las compras a 0. Si no, les pondría el precio del plan y las volvería a crear.
+
+**Datos:** `scripts/anular-pruebas-gratis.cjs` (simula sin `--aplicar`).
+- Pasa los 2 ingresos a CANCELADO. La fila se queda, así que el conciliador no la recrea.
+- Rechaza con nota la comisión de USD 50.
+- No toca comisiones pagadas o en corte: esas las lista para revisarlas a mano.
+- Se puede correr antes o después del despliegue, y repetir.
+
+**Sin cambiar:** el aviso de onboarding «Nueva compra» al equipo sigue saliendo con la prueba. Es el alta del negocio y el equipo lo necesita.
+
+**Prueba preexistente en rojo, no relacionada:** `aviso-de-cancelacion.spec.ts` («en PRUEBA cancelada…»). Usa una fecha fija del 5-10 que ya pasó.
+
 ## 2026-10-28 (164) — Comisiones y Reporte de comisiones, fusionados en UNA sección (SIN DESPLEGAR, solo frontend)
 
 **Qué pidió Javier:** quedarse con una sola sección «Comisiones» que junte lo de las dos sin perder nada. Confirmó tres cosas: la plataforma abre en «Resumen» y una marca en la lista; la lista usa los 7 estados del reporte; «Vista por persona» se queda un tiempo en «⋯ Más».
