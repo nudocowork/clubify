@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-29 (166) — Términos y privacidad: una sola versión que dice lo que el sistema hace (SIN DESPLEGAR, solo frontend)
+
+**Qué pasó:** preguntaron por los términos. Había DOS textos de términos (`/legal/terms` y `/terminos`, este marcado «genérico, no asesoría legal») y los dos prometían cosas que el sistema no hace.
+
+**Términos (`app/legal/terms/page.tsx`), reescritos:**
+- **Cancelación:** decían «efectiva inmediatamente». Ahora dicen lo que hace `desconectaAlCancelar`: sigue el servicio hasta el fin del período pagado.
+- **Borrado a los 30 días:** no existe ningún proceso que borre. Ahora: se conserva, y se elimina si el negocio lo pide.
+- **«Exportación libre»:** solo se descargan clientes, sellos y pedidos. Dice eso.
+- **Nuevo:** prueba gratis (con y sin tarjeta), reembolsos (garantía de la oferta; fuera de ella no, salvo ley), negocio = responsable / plataforma = encargado de los datos de sus clientes, terceros (pasarela, Apple/Google, WhatsApp/SMS/correo), ley aplicable (Colombia para Clubify; para marca blanca, el país de su domicilio).
+- **Afiliados** pasa a ser la sección 11 (`#afiliados`), con la regla de hoy: las pruebas gratis no generan comisión, y un enlace sin el código del afiliado no se atribuye solo.
+
+**`/terminos`** redirige a `/legal/terms#afiliados`. Los enlaces de registro de afiliado y de prueba gratis siguen funcionando sin tocarlos.
+
+**Privacidad (`app/legal/privacy/page.tsx`):** quitada la exportación de «todos tus datos desde /app/settings», el borrado desde `/app/billing` y los 30 días. **Cookies:** decía «sin tracking publicitario» y hay píxel de Meta (el de la marca en la landing y el del negocio en su menú). Ahora lo dice.
+
+**Pendiente de Javier:**
+- Razón social completa y NIT de Nudo Creativo: el texto solo dice «operado por Nudo Creativo».
+- Confirmar Colombia como ley aplicable.
+- Que lo revise un abogado: sigue sin revisión legal.
+
 ## 2026-10-29 (165) — Las pruebas gratis de Hotmart entraban como ventas (SIN DESPLEGAR backend + script de datos)
 
 **Qué pasó:** el 28-10, Licorera 27° y Clínica del Celular La 33 se registraron por los enlaces de prueba gratis. Hotmart mandó `PURCHASE_APPROVED` con `price.value = 0` y recurrencia 1. Contabilidad registra el PRECIO DEL PLAN, no lo pagado (decisión del 2026-09-03 por el FX), así que entraron como NUEVA de USD 500 y USD 68.

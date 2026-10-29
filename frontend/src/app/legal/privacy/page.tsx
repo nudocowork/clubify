@@ -9,7 +9,7 @@ export default async function PrivacyPage() {
   return (
     <>
       <h1 className="text-3xl font-bold tracking-tight mb-1">Política de privacidad</h1>
-      <p className="text-sm text-mute">Última actualización: mayo 2026</p>
+      <p className="text-sm text-mute">Última actualización: octubre 2026</p>
 
       <section className="mt-8 space-y-5 text-sm leading-relaxed">
         <h2 className="text-lg font-semibold mt-6">Datos que recopilamos</h2>
@@ -48,16 +48,16 @@ export default async function PrivacyPage() {
         <p>Puedes en cualquier momento:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>
-            <b>Acceder y exportar</b> todos tus datos desde{' '}
-            <code>/app/settings</code>.
+            <b>Acceder y descargar</b> tus datos: desde el panel puedes
+            descargar tus clientes, sus sellos y tus pedidos, y pedirnos
+            cualquier otra información que tengamos sobre ti.
           </li>
           <li>
             <b>Modificar</b> tu información desde el panel.
           </li>
           <li>
-            <b>Eliminar</b> tu cuenta y todos los datos asociados desde{' '}
-            <code>/app/billing</code>. La eliminación es permanente tras 30
-            días.
+            <b>Pedir la eliminación</b> de tu cuenta y de los datos asociados
+            escribiéndonos al correo de contacto de esta página.
           </li>
           <li>
             <b>Quejarte</b> ante la autoridad de protección de datos de tu
@@ -67,16 +67,20 @@ export default async function PrivacyPage() {
 
         <h2 className="text-lg font-semibold mt-6">Retención de datos</h2>
         <p>
-          Conservamos tus datos mientras tu cuenta está activa. Tras
-          cancelación, mantenemos los datos durante 30 días para permitir
-          reactivación; después se eliminan permanentemente. Algunos datos
-          financieros se conservan más tiempo si la ley lo exige.
+          Conservamos tus datos mientras tu cuenta está activa y, tras la
+          cancelación, para permitirte reactivarla. Si nos pides eliminarlos,
+          los borramos, salvo los datos financieros que la ley nos obligue a
+          conservar. Las copias de seguridad cifradas se renuevan cada 30 días,
+          así que un dato eliminado desaparece también de ellas en ese plazo.
         </p>
 
         <h2 className="text-lg font-semibold mt-6">Cookies</h2>
         <p>
-          Usamos solo cookies esenciales (sesión, preferencias). No usamos
-          cookies de tracking publicitario.
+          Usamos cookies esenciales para la sesión y tus preferencias. En
+          nuestras páginas públicas usamos además el píxel de Meta para medir
+          nuestros anuncios. Si un negocio configura su propio píxel, este
+          funciona en su menú público y los datos que recoge pertenecen a ese
+          negocio. No vendemos información a anunciantes.
         </p>
 
         <h2 className="text-lg font-semibold mt-6">Cambios a esta política</h2>
