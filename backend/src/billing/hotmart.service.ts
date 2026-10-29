@@ -63,6 +63,7 @@ import { IncomeRecordService } from '../finance/income-record.service';
 import { marcaClubify } from '../finance/alcance-de-marca';
 import { desconectaAlCancelar } from './cancelacion';
 import { decryptSecret } from '../common/crypto/secret-box';
+import { esPruebaGratisHotmart } from './prueba-gratis-hotmart';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -1898,6 +1899,9 @@ export class HotmartService {
     // FIX 2026-09-15: una recurrencia 2+ nunca es primera compra, tenga o no
     // transacción guardada. Ver `esPrimeraCompraHotmart` (Essentrix).
     const isFirstHotmartPurchase = esPrimeraCompraHotmart(payload, tenant);
+    // Prueba gratis (precio 0): activa el negocio, pero no es venta. Sin
+    // ingreso, sin comisión y sin «pago confirmado». Ver prueba-gratis-hotmart.ts.
+    const esPrueba = esPruebaGratisHotmart(payload);
     const subscriberCode = codigoDeSuscriptor(payload);
     const transactionId = payload.data?.purchase?.transaction;
     // FIX PDF123 (cobro duplicado): Hotmart dispara PURCHASE_APPROVED y — días
@@ -2030,10 +2034,24 @@ export class HotmartService {
             ? canonicalUsd
             : null;
 
+    // El primer cobro DE VERDAD tras una prueba gratis es la venta nueva, aunque
+    // el negocio ya tenga currentPeriodEnd (se lo puso la prueba). Sin esto
+    // entraba como RENOVACION y la venta no aparecía en ningún sitio.
+    const primerCobroTrasPrueba =
+      !esPrueba && !!tenant.currentPeriodEnd
+        ? await this.vieneDePruebaGratis(tenant.id, subscriberCode ?? tenant.hotmartSubscriberCode ?? null)
+        : false;
+
     // CONTABILIDAD (Fase 1): registrar el ingreso de Hotmart con su desglose
     // (bruto/fee/impuesto/neto). El servicio deduplica por transactionId y salta
     // si el monto es <= 0. Best-effort, aditivo.
-    void this.incomeRecord.record({
+    // Una prueba gratis no entra: `incomeGrossUsd` es el precio del PLAN, no lo
+    // pagado, y la prueba salía como venta de 500 / 68 USD.
+    if (esPrueba) {
+      this.logger.log(
+        `activatePurchase tenant=${tenant.id} tx=${transactionId}: prueba gratis (precio 0) — sin ingreso ni comisión`,
+      );
+    } else void this.incomeRecord.record({
       gateway: 'HOTMART',
       externalTxId: transactionId ?? tenant.hotmartTransactionId,
       tenantId: tenant.id,
@@ -2045,7 +2063,7 @@ export class HotmartService {
       planPeriodicity: periodFromHotmart ?? null,
       currency: 'USD',
       grossUsd: incomeGrossUsd,
-      isFirstPayment: !tenant.currentPeriodEnd,
+      isFirstPayment: !tenant.currentPeriodEnd || primerCobroTrasPrueba,
       saleDate: lastChargeAt ?? new Date(),
     });
     await this.prisma.tenant.update({
@@ -2173,6 +2191,9 @@ export class HotmartService {
       this.logger.log(
         `Comisiones: skip re-anuncio del mismo cobro tenant=${tenant.id} tx=${transactionId}`,
       );
+    } else if (esPrueba) {
+      // La comisión nace con el primer cobro real, al terminar la prueba.
+      this.logger.log(`Comisiones: skip prueba gratis tenant=${tenant.id} tx=${transactionId}`);
     } else {
       await this.generarComisionesDeCobro({
         tenantId: tenant.id,
@@ -2188,7 +2209,7 @@ export class HotmartService {
         .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
-    } else if (!alreadyConfirmedTx) {
+    } else if (!alreadyConfirmedTx && !esPrueba) {
       const nextChargeInfo = nextCharge
         ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.`
         : '';
@@ -2203,7 +2224,7 @@ export class HotmartService {
     // Aviso al EQUIPO (los 3 números) de que un cobro SÍ se procesó — simétrico al
     // aviso de cobro fallido. Solo una vez por cobro REAL (no en el re-webhook
     // PURCHASE_COMPLETE del mismo pago); cubre 1er pago, renovación y reactivación.
-    if (!alreadyConfirmedTx) {
+    if (!alreadyConfirmedTx && !esPrueba) {
       void this.billing
         .notifyBillingTeam('pago_procesado', tenant.brandName, {
           // Mismo monto USD que Contabilidad: si pagó en moneda local, realPriceUsd
@@ -2252,6 +2273,28 @@ export class HotmartService {
     );
 
     return { ok: true, action: 'activated' };
+  }
+
+  /**
+   * ¿Este negocio empezó con una prueba gratis y todavía no tiene su venta?
+   * Sí cuando su suscripción tuvo una compra a precio 0 y en Contabilidad no
+   * hay ningún NUEVA pagado del negocio. Lo segundo evita que, si un día se
+   * reutiliza el código de suscriptor, un cobro posterior vuelva a ser «nuevo».
+   */
+  private async vieneDePruebaGratis(tenantId: string, subscriberCode: string | null): Promise<boolean> {
+    if (!subscriberCode) return false;
+    const yaVendido = await this.prisma.incomeRecord.count({
+      where: { tenantId, category: 'NUEVA', status: 'PAGADO' },
+    });
+    if (yaVendido > 0) return false;
+    const r = await this.prisma.$queryRawUnsafe<Array<{ n: number }>>(
+      `SELECT count(*)::int AS n FROM "HotmartWebhookEvent"
+        WHERE payload->'data'->'subscription'->'subscriber'->>'code' = $1
+          AND payload->>'event' IN ('PURCHASE_APPROVED','PURCHASE_COMPLETE')
+          AND payload->'data'->'purchase'->'price'->>'value' IN ('0', '0.0', '0.00')`,
+      subscriberCode,
+    );
+    return (r[0]?.n ?? 0) > 0;
   }
 
   /**

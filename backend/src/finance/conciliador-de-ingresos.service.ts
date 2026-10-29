@@ -12,6 +12,7 @@ import { getCanonicalBundlePrice } from '../common/plan-pricing';
 import { parsePlanPeriodLabel } from '../common/plan-period';
 import { IncomeRecordService } from './income-record.service';
 import type { CategoriaDeIngreso } from './categorias-de-ingreso';
+import { esPruebaGratisHotmart } from '../billing/prueba-gratis-hotmart';
 
 /**
  * CONCILIADOR DE INGRESOS — la red que hace que Contabilidad no dependa de que
@@ -520,6 +521,9 @@ export class ConciliadorDeIngresosService {
         continue;
       }
       if (packs.has(tx)) continue;
+      // Prueba gratis (precio 0): no cobró nada. `importeDeHotmart` le pondría
+      // el precio del plan y la volvería a meter como venta cada noche.
+      if (esPruebaGratisHotmart(p)) continue;
 
       const tenant = await this.tenantDeHotmart(e.tenantId, tx, p);
       const importe = await this.importeDeHotmart(compra, p, tenant);
