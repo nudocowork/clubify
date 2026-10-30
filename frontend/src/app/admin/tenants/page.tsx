@@ -50,9 +50,27 @@ function expiryInfo(tn: any): { label: string; cls: string } {
   };
 }
 
-type StatusFilter = 'ALL' | 'ACTIVE' | 'TRIAL' | 'SUSPENDED';
-type PlanFilter = 'ALL' | 'ELITE';
-type PeriodFilter = 'ALL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+type EstadoComercial = 'ACTIVO' | 'TRIAL' | 'SUSPENDIDO' | 'SUSPENDIDO_TRIAL' | 'CANCELADO';
+type StatusFilter = 'ALL' | EstadoComercial;
+// El «plan» que se vende es la periodicidad: en la base todos son Elite (o «Sin
+// plan»), así que filtrar por ese nombre no separaba nada.
+type PlanFilter = 'ALL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+
+// Lo calcula el backend (`common/estado-comercial.ts`). El respaldo es para el
+// rato en que el frontend se publique antes que el backend.
+function estadoDe(tn: any): EstadoComercial {
+  if (tn.estadoComercial) return tn.estadoComercial;
+  if (tn.status === 'ACTIVE') return 'ACTIVO';
+  return tn.status === 'TRIAL' ? 'TRIAL' : 'SUSPENDIDO';
+}
+
+const BADGE_DE_ESTADO: Record<EstadoComercial, { clase: string; texto: string }> = {
+  ACTIVO: { clase: 'badge-ok', texto: 'badgeActive' },
+  TRIAL: { clase: 'badge-warn', texto: 'badgeTrial' },
+  SUSPENDIDO: { clase: 'badge-bad', texto: 'badgeSuspended' },
+  SUSPENDIDO_TRIAL: { clase: 'badge-warn', texto: 'badgeSuspendedTrial' },
+  CANCELADO: { clase: 'badge-mute', texto: 'badgeCancelled' },
+};
 
 // Aplana un tenant a una bolsa de tokens lowercase para búsqueda
 // multi-keyword AND. Tomamos solo los campos que SÍ devuelve /tenants
@@ -100,7 +118,6 @@ export default function TenantsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
-  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('ALL');
   const [searchRaw, setSearchRaw] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [enteringId, setEnteringId] = useState<string | null>(null);
@@ -258,22 +275,18 @@ export default function TenantsPage() {
       // NO SE ESCONDEN: debajo de la lista se dice cuántos hay y se enlaza su
       // sección, para que nadie busque uno aquí y crea que se ha perdido.
       if (tn.businessType === 'INFOLINK') return false;
-      if (statusFilter !== 'ALL' && tn.status !== statusFilter) return false;
+      if (statusFilter !== 'ALL' && estadoDe(tn) !== statusFilter) return false;
       if (planFilter !== 'ALL') {
-        const name = (tn.plan?.name ?? '').toString().toUpperCase();
-        if (name !== planFilter) return false;
-      }
-      if (periodFilter !== 'ALL') {
         // Sin periodicidad explícita el backend la trata como MENSUAL
         // (ver periodLabel) — replicamos esa convención al filtrar.
         const p = (tn.planPeriodicity ?? 'MENSUAL').toString().toUpperCase();
-        if (p !== periodFilter) return false;
+        if (p !== planFilter) return false;
       }
       if (keywords.length === 0) return true;
       const hay = searchHaystack(tn);
       return keywords.every((k) => hay.includes(k));
     });
-  }, [list, statusFilter, planFilter, periodFilter, searchDebounced]);
+  }, [list, statusFilter, planFilter, searchDebounced]);
 
   /**
    * Cuántos «solo InfoLink» se quedan fuera de esta lista.
@@ -289,13 +302,11 @@ export default function TenantsPage() {
   const hasActiveFilters =
     statusFilter !== 'ALL' ||
     planFilter !== 'ALL' ||
-    periodFilter !== 'ALL' ||
     searchDebounced.length > 0;
 
   function clearFilters() {
     setStatusFilter('ALL');
     setPlanFilter('ALL');
-    setPeriodFilter('ALL');
     setSearchRaw('');
     setSearchDebounced('');
   }
@@ -367,9 +378,11 @@ export default function TenantsPage() {
             className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
           >
             <option value="ALL">{t('statusAll')}</option>
-            <option value="ACTIVE">{t('statusActive')}</option>
+            <option value="ACTIVO">{t('statusActive')}</option>
             <option value="TRIAL">{t('statusTrial')}</option>
-            <option value="SUSPENDED">{t('statusSuspended')}</option>
+            <option value="SUSPENDIDO">{t('statusSuspended')}</option>
+            <option value="SUSPENDIDO_TRIAL">{t('statusSuspendedTrial')}</option>
+            <option value="CANCELADO">{t('statusCancelled')}</option>
           </select>
           <select
             value={planFilter}
@@ -377,14 +390,6 @@ export default function TenantsPage() {
             className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
           >
             <option value="ALL">{t('planAll')}</option>
-            <option value="ELITE">Elite</option>
-          </select>
-          <select
-            value={periodFilter}
-            onChange={(e) => setPeriodFilter(e.target.value as PeriodFilter)}
-            className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
-          >
-            <option value="ALL">{t('periodAll')}</option>
             <option value="MENSUAL">{t('periodMonthly')}</option>
             <option value="TRIMESTRAL">{t('periodQuarterly')}</option>
             <option value="SEMESTRAL">{t('periodSemiannual')}</option>
@@ -545,20 +550,8 @@ export default function TenantsPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3.5">
-                  <span
-                    className={`badge ${
-                      tn.status === 'ACTIVE'
-                        ? 'badge-ok'
-                        : tn.status === 'TRIAL'
-                        ? 'badge-warn'
-                        : 'badge-bad'
-                    }`}
-                  >
-                    {tn.status === 'ACTIVE'
-                      ? t('badgeActive')
-                      : tn.status === 'TRIAL'
-                      ? t('badgeTrial')
-                      : t('badgeSuspended')}
+                  <span className={`badge whitespace-nowrap ${BADGE_DE_ESTADO[estadoDe(tn)].clase}`}>
+                    {t(BADGE_DE_ESTADO[estadoDe(tn)].texto as never)}
                   </span>
                 </td>
                 <td className="px-4 py-3.5">

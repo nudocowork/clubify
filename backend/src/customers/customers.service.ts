@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
+import { normalizarFormulario } from '../passes/formulario-de-registro';
 
 export type CustomerDto = {
   fullName: string;
@@ -288,6 +289,18 @@ export class CustomersService {
 
   async create(user: AuthUser, dto: CustomerDto, override?: string) {
     const tid = this.tenantId(user, override);
+    // Lo mismo que le pide al cliente el formulario de la tarjeta: alta manual y
+    // alta pública no pueden tener reglas distintas para los mismos datos. El
+    // cumpleaños se exige en la pantalla y no aquí: el onboarding crea un
+    // cliente de demostración que no lo tiene, y en Sellea es obligatorio.
+    const negocio = await this.prisma.tenant.findUnique({
+      where: { id: tid },
+      select: { formularioRegistro: true, whiteLabel: { select: { slug: true } } },
+    });
+    const formulario = normalizarFormulario(negocio?.formularioRegistro, negocio?.whiteLabel?.slug);
+    if (formulario.email === 'obligatorio' && !dto.email?.trim()) {
+      throw new BadRequestException('El correo electrónico es obligatorio');
+    }
     try {
       return await this.prisma.customer.create({
         data: {

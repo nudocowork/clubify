@@ -8,6 +8,7 @@ import { PanelHeader } from '@/components/PanelHeader';
 import { toast } from '@/components/Toast';
 import { ActionsMenu } from '@/components/ActionsMenu';
 import { descargarCsv, descargarXlsx, type Celda } from '@/lib/exportar-hoja';
+import type { FormularioDeRegistro, ModoDeCampo } from '@/lib/formulario-de-registro';
 import {
   motivoBase,
   notaDelSello,
@@ -301,7 +302,19 @@ export default function CustomersPage() {
   const [segment, setSegment] = useState<Segment>('all');
   const [orden, setOrden] = useState<Orden>('reciente');
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ fullName: '', email: '', phone: '' });
+  const [form, setForm] = useState({ fullName: '', email: '', phone: '', birthday: '' });
+  // El alta manual pide lo mismo que el formulario de las tarjetas. Si no se
+  // puede leer, se queda como opcional: el backend exige el correo igualmente.
+  const [modoCorreo, setModoCorreo] = useState<ModoDeCampo>('opcional');
+  const [modoCumple, setModoCumple] = useState<ModoDeCampo>('opcional');
+  useEffect(() => {
+    api<FormularioDeRegistro>('/tenants/me/formulario-registro')
+      .then((f) => {
+        setModoCorreo(f.email);
+        setModoCumple(f.cumpleanos);
+      })
+      .catch(() => {});
+  }, []);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -424,8 +437,16 @@ export default function CustomersPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api('/customers', { method: 'POST', body: JSON.stringify(form) });
-      setForm({ fullName: '', email: '', phone: '' });
+      await api('/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: form.fullName,
+          email: form.email.trim() || undefined,
+          phone: form.phone.trim() || undefined,
+          birthday: form.birthday || undefined,
+        }),
+      });
+      setForm({ fullName: '', email: '', phone: '', birthday: '' });
       setShowForm(false);
       load();
       toast(t('customerCreated'), 'success');
@@ -740,15 +761,18 @@ export default function CustomersPage() {
               required
             />
           </div>
-          <div>
-            <label className="label">{t('email')}</label>
-            <input
-              className="input"
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-          </div>
+          {modoCorreo !== 'oculto' && (
+            <div>
+              <label className="label">{t('email')}</label>
+              <input
+                className="input"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                required={modoCorreo === 'obligatorio'}
+              />
+            </div>
+          )}
           <div>
             <label className="label">{t('phone')}</label>
             <input
@@ -757,6 +781,18 @@ export default function CustomersPage() {
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
           </div>
+          {modoCumple === 'obligatorio' && (
+            <div>
+              <label className="label">{t('expc_birthday')}</label>
+              <input
+                className="input"
+                type="date"
+                value={form.birthday}
+                onChange={(e) => setForm({ ...form, birthday: e.target.value })}
+                required
+              />
+            </div>
+          )}
           <div className="md:col-span-3">
             <button className="btn-primary" disabled={saving}>
               {saving ? t('saving') : t('save')}

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { ArrayMinSize, ArrayUnique, IsArray, IsEmail, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { Response } from 'express';
 import { CustomersService } from './customers.service';
 import { GamificationService } from '../badges/gamification.service';
@@ -7,10 +8,18 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 import { toCSV } from '../common/csv';
 
+// Una casilla vacía llega como '', y `@IsOptional` solo perdona null/undefined:
+// el formulario respondía «email must be an email» a quien no ponía correo.
+const vacioComoAusente = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && !value.trim() ? undefined : value;
+
 class CustomerBody {
   @IsString() fullName!: string;
-  @IsOptional() @IsEmail() email?: string;
-  @IsOptional() @IsString() phone?: string;
+  @Transform(vacioComoAusente)
+  @IsOptional()
+  @IsEmail({}, { message: 'El correo electrónico no es válido' })
+  email?: string;
+  @Transform(vacioComoAusente) @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() birthday?: string;
   @IsOptional() @IsString() externalId?: string;
   @IsOptional() @IsArray() tags?: string[];

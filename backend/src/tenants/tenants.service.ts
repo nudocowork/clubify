@@ -8,6 +8,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { TenantStatus } from '@prisma/client';
+import { estadoComercial } from '../common/estado-comercial';
 import { validarHorario } from '../orders/horario-de-domicilios';
 import { JwtService } from '@nestjs/jwt';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
@@ -820,6 +821,7 @@ export class TenantsService {
       return {
         ...sinSecretosDelNegocio(t),
         whiteLabelSlug: t.whiteLabel?.slug ?? null,
+        estadoComercial: estadoComercial(t),
         orders30: stat.count,
         revenue30: stat.total,
         daysLeftInTrial,

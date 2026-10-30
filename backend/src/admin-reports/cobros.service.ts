@@ -10,6 +10,8 @@ import {
   CANONICAL_BUNDLE_PRICES,
 } from '../common/plan-pricing';
 import { normalizePlanPeriod } from '../common/plan-period';
+import { estadoComercial } from '../common/estado-comercial';
+import { SOLO_LO_COBRADO } from '../finance/categorias-de-ingreso';
 
 /**
  * Dashboard de cobros (Fase 5) — FUENTE ÚNICA de las 3 tarjetas 🔴🟢🟡 y sus
@@ -20,6 +22,12 @@ import { normalizePlanPeriod } from '../common/plan-period';
  *   🔴 Próximos cobros   = COBRO_PROXIMO (currentPeriodEnd dentro de la ventana)
  *   🟢 Pagos procesados  = IncomeRecord del rango (dinero REALMENTE cobrado)
  *   🟡 No procesados      = EN_GRACIA + SUSPENDIDO (fallaron / siguen pendientes)
+ *   ⚫ Canceladas         = canceló la suscripción. Sale de las otras tarjetas:
+ *      no se le va a cobrar, así que ni es un cobro próximo ni un pago fallido.
+ *
+ * El trial vencido (SUSPENDIDO_TRIAL) no sale en ninguna: nunca hubo un cobro
+ * que pudiera fallar. `deriveRenewalState` lo ve como SUSPENDIDO y sumaba el
+ * precio de un plan que jamás contrató.
  *
  * Todo respeta el aislamiento por marca (wlId): null = Clubify/global.
  */
@@ -27,12 +35,13 @@ import { normalizePlanPeriod } from '../common/plan-period';
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (x: unknown) => (x == null ? 0 : Number(x));
 
-export type CobrosBucket = 'proximos' | 'procesados' | 'no-procesados';
+export type CobrosBucket = 'proximos' | 'procesados' | 'no-procesados' | 'canceladas';
 
 export interface CobrosSummary {
   proximos: { count: number; amountUsd: number };
   procesados: { count: number; amountUsd: number };
   noProcesados: { count: number; amountUsd: number };
+  canceladas: { count: number; amountUsd: number };
   generatedAt: Date;
 }
 
@@ -79,6 +88,19 @@ export interface CobroFallidoRow {
   montoUsd: number;
   metodo: string;
   ultimoIntento: Date | null;
+}
+
+export interface CobroCanceladoRow {
+  tenantId: string;
+  negocio: string;
+  fechaCancelacion: Date | null;
+  /** Hasta cuándo tiene lo que ya pagó. */
+  servicioHasta: Date | null;
+  sigueActivo: boolean;
+  plan: string;
+  periodicidad: string;
+  montoUsd: number;
+  metodo: string;
 }
 
 @Injectable()
@@ -165,6 +187,8 @@ export class CobrosService {
       lastChargeAt: true,
       failedPaymentCount: true,
       suspendedAt: true,
+      canceledAt: true,
+      trialEndsAt: true,
       manualPayment: true,
       stripeSubscriptionId: true,
     } as const;
@@ -197,7 +221,7 @@ export class CobrosService {
         },
       }),
       this.prisma.incomeRecord.aggregate({
-        where: { saleDate: { gte: since7 }, ...(wlId ? { whiteLabelId: wlId } : {}) },
+        where: { ...SOLO_LO_COBRADO, saleDate: { gte: since7 }, ...(wlId ? { whiteLabelId: wlId } : {}) },
         _count: { _all: true },
         _sum: { grossUsd: true },
       }),
@@ -207,8 +231,17 @@ export class CobrosService {
     let proxAmt = 0;
     let failCount = 0;
     let failAmt = 0;
+    let cancCount = 0;
+    let cancAmt = 0;
 
     for (const t of tenants) {
+      const estado = estadoComercial(t);
+      if (estado === 'CANCELADO') {
+        cancCount++;
+        cancAmt += this.amountForTenant(t, canonical);
+        continue;
+      }
+      if (estado === 'SUSPENDIDO_TRIAL') continue;
       const r = deriveRenewalState(t, now, cfg);
       if (r.state === 'COBRO_PROXIMO') {
         proxCount++;
@@ -248,6 +281,7 @@ export class CobrosService {
         amountUsd: round2(num(income._sum.grossUsd)),
       },
       noProcesados: { count: failCount, amountUsd: round2(failAmt) },
+      canceladas: { count: cancCount, amountUsd: round2(cancAmt) },
       generatedAt: now,
     };
   }
@@ -261,6 +295,7 @@ export class CobrosService {
   ) {
     if (bucket === 'proximos') return this.detailProximos(wlId, now, opts.days ?? 7);
     if (bucket === 'procesados') return this.detailProcesados(wlId, now, opts.days ?? 7);
+    if (bucket === 'canceladas') return this.detailCanceladas(wlId, now, opts.days ?? 36500);
     return this.detailNoProcesados(wlId, now, opts.days ?? 30);
   }
 
@@ -294,6 +329,7 @@ export class CobrosService {
     ]);
     const rows: CobroProximoRow[] = [];
     for (const t of tenants) {
+      if (estadoComercial(t) === 'CANCELADO') continue;
       const r = deriveRenewalState(t, now, cfg);
       if (r.state !== 'COBRO_PROXIMO') continue;
       rows.push({
@@ -352,7 +388,7 @@ export class CobrosService {
   ): Promise<CobroProcesadoRow[]> {
     const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     const recs = await this.prisma.incomeRecord.findMany({
-      where: { saleDate: { gte: since }, ...(wlId ? { whiteLabelId: wlId } : {}) },
+      where: { ...SOLO_LO_COBRADO, saleDate: { gte: since }, ...(wlId ? { whiteLabelId: wlId } : {}) },
       orderBy: { saleDate: 'desc' },
       take: 500,
       select: {
@@ -436,6 +472,8 @@ export class CobrosService {
       });
     };
     for (const t of tenants) {
+      const estado = estadoComercial(t);
+      if (estado === 'CANCELADO' || estado === 'SUSPENDIDO_TRIAL') continue;
       const r = deriveRenewalState(t, now, cfg);
       pushIf(r, {
         tenantId: t.id,
@@ -480,5 +518,30 @@ export class CobrosService {
     // Más urgentes primero: más días vencidos arriba.
     rows.sort((a, b) => b.diasVencidos - a.diasVencidos);
     return rows;
+  }
+
+  private async detailCanceladas(
+    wlId: string | null,
+    now: Date,
+    days: number,
+  ): Promise<CobroCanceladoRow[]> {
+    const canonical = await this.canonicalPrices();
+    const desde = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const tenants = await this.prisma.tenant.findMany({
+      where: { ...this.tenantWhere(wlId), canceledAt: { gte: desde } },
+      select: this.tenantSelect(),
+      orderBy: { canceledAt: 'desc' },
+    });
+    return tenants.map((t) => ({
+      tenantId: t.id,
+      negocio: t.brandName,
+      fechaCancelacion: t.canceledAt,
+      servicioHasta: t.currentPeriodEnd,
+      sigueActivo: t.status === 'ACTIVE',
+      plan: normalizePlanPeriod(t.planPeriodicity),
+      periodicidad: normalizePlanPeriod(t.planPeriodicity),
+      montoUsd: round2(this.amountForTenant(t, canonical)),
+      metodo: this.metodoTenant(t),
+    }));
   }
 }

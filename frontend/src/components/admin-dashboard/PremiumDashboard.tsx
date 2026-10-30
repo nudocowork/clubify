@@ -31,14 +31,16 @@ import { EmptyState } from './EmptyState';
 import { usd, fmtDate } from './shared';
 
 type RangeKind =
+  | 'this-month'
   | 'today'
   | 'this-week'
   | 'last-30'
   | 'this-quarter'
   | 'this-year';
 
-// PDF 2026-07-02 (P1): se quitó "Este mes" (redundante con "Últimos 30 días").
-// "Este trimestre" ahora muestra los últimos 3 meses (lógica en el backend).
+// «Este mes» vuelve y es el rango con el que abre (revisión del panel,
+// 2026-10-30): se quiere leer el monto de octubre, no una ventana de 30 días que
+// mezcla dos meses. "Este trimestre" = últimos 3 meses (lógica en el backend).
 /** «1 sep – 7 sep», o «7 sep» si el rango es de un solo día. */
 function fmtRango(fromIso: string, toIso: string): string {
   const f = new Date(fromIso);
@@ -56,6 +58,7 @@ function fmtRango(fromIso: string, toIso: string): string {
 }
 
 const RANGE_OPTIONS: { value: RangeKind; label: string }[] = [
+  { value: 'this-month', label: 'Este mes' },
   { value: 'today', label: 'Hoy' },
   { value: 'this-week', label: 'Esta semana' },
   { value: 'last-30', label: 'Últimos 30 días' },
@@ -102,6 +105,7 @@ type DashboardResp = {
     proximos: { count: number; amountUsd: number };
     procesados: { count: number; amountUsd: number };
     noProcesados: { count: number; amountUsd: number };
+    canceladas?: { count: number; amountUsd: number };
     generatedAt: string;
   };
   monthlySeries: Array<{
@@ -115,6 +119,7 @@ type DashboardResp = {
     trial: number;
     awaitingPayment: number;
     suspended: number;
+    suspendedTrial?: number;
     cancelled: number;
   };
   recentIncome: Array<{
@@ -167,7 +172,7 @@ type BilledCompaniesResp = {
 };
 
 export function PremiumDashboard() {
-  const [range, setRange] = useState<RangeKind>('last-30');
+  const [range, setRange] = useState<RangeKind>('this-month');
   const [data, setData] = useState<DashboardResp | null>(null);
   const [loading, setLoading] = useState(true);
   // P2: modal "Ver empresas" — lista exacta de negocios/grupos del facturado.
@@ -186,9 +191,7 @@ export function PremiumDashboard() {
   // los revela. La preferencia se persiste en localStorage por dispositivo.
   const [showAmounts, setShowAmounts] = useState(false);
   // Fase 5: drill-down de las 3 tarjetas de cobros (modal con la tabla).
-  const [cobrosBucket, setCobrosBucket] = useState<
-    'proximos' | 'procesados' | 'no-procesados' | null
-  >(null);
+  const [cobrosBucket, setCobrosBucket] = useState<CobrosBucket | null>(null);
   useEffect(() => {
     setShowAmounts(localStorage.getItem('dashboard.showAmounts') === '1');
   }, []);
@@ -578,8 +581,9 @@ export function PremiumDashboard() {
 
       {/* Fase 5: 3 tarjetas de COBROS (fuente única — mismo motor que suspende).
           Reemplazan MRR / Tasa cancelación / Comisiones pendientes. Clickeables:
-          abren el detalle con la lista y filtros de fecha. */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+          abren el detalle con la lista y filtros de fecha. Cuatro en una fila:
+          las canceladas van al lado de los no procesados, no debajo. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <CobroCard
           color="blue"
           icon="🔵"
@@ -603,6 +607,14 @@ export function PremiumDashboard() {
           value={money(data.cobros?.noProcesados.amountUsd ?? 0)}
           sub={`${data.cobros?.noProcesados.count ?? 0} · fallidos o vencidos`}
           onClick={() => setCobrosBucket('no-procesados')}
+        />
+        <CobroCard
+          color="slate"
+          icon="⚫"
+          label="Suscripciones canceladas"
+          value={money(data.cobros?.canceladas?.amountUsd ?? 0)}
+          sub={`${data.cobros?.canceladas?.count ?? 0} · ya no se les cobra`}
+          onClick={() => setCobrosBucket('canceladas')}
         />
       </div>
 
@@ -734,6 +746,12 @@ export function PremiumDashboard() {
             total={totalClients(data)}
           />
           <StatusRow
+            label="Suspendido trial"
+            value={data.clientStatus.suspendedTrial ?? 0}
+            color="#FCA5A5"
+            total={totalClients(data)}
+          />
+          <StatusRow
             label="Cancelados"
             value={data.clientStatus.cancelled}
             color="#71717A"
@@ -798,7 +816,7 @@ function totalClients(data: DashboardResp) {
   const s = data.clientStatus;
   return Math.max(
     1,
-    s.active + s.trial + s.awaitingPayment + s.suspended + s.cancelled,
+    s.active + s.trial + s.awaitingPayment + s.suspended + (s.suspendedTrial ?? 0) + s.cancelled,
   );
 }
 
@@ -811,7 +829,7 @@ function CobroCard({
   sub,
   onClick,
 }: {
-  color: 'red' | 'green' | 'amber' | 'blue';
+  color: 'red' | 'green' | 'amber' | 'blue' | 'slate';
   icon: string;
   label: string;
   value: string;
@@ -823,12 +841,14 @@ function CobroCard({
     green: 'border-t-emerald-500',
     amber: 'border-t-amber-500',
     blue: 'border-t-blue-500',
+    slate: 'border-t-slate-500',
   }[color];
   const text = {
     red: 'text-red-600',
     green: 'text-emerald-600',
     amber: 'text-amber-600',
     blue: 'text-blue-600',
+    slate: 'text-slate-600',
   }[color];
   return (
     <button
@@ -849,6 +869,8 @@ function CobroCard({
 }
 
 // Fase 5 — detalle (drill-down) de una tarjeta de cobros.
+type CobrosBucket = 'proximos' | 'procesados' | 'no-procesados' | 'canceladas';
+
 type CobroRowAny = {
   tenantId?: string | null;
   negocio?: string;
@@ -864,6 +886,9 @@ type CobroRowAny = {
   estado?: string;
   graceLabel?: string | null;
   diasVencidos?: number;
+  fechaCancelacion?: string | null;
+  servicioHasta?: string | null;
+  sigueActivo?: boolean;
 };
 
 function CobrosDrilldown({
@@ -871,7 +896,7 @@ function CobrosDrilldown({
   money,
   onClose,
 }: {
-  bucket: 'proximos' | 'procesados' | 'no-procesados';
+  bucket: CobrosBucket;
   money: (n: number) => string;
   onClose: () => void;
 }) {
@@ -879,11 +904,14 @@ function CobrosDrilldown({
   const [loading, setLoading] = useState(true);
   // "no-procesados" abre en "Todos" para que la lista cuadre con el conteo de la
   // tarjeta (incluye suspensiones viejas, que el rango de días recortaría).
-  const [range, setRange] = useState(bucket === 'no-procesados' ? 'todos' : '7d');
+  const [range, setRange] = useState(
+    bucket === 'no-procesados' || bucket === 'canceladas' ? 'todos' : '7d',
+  );
   const title = {
     proximos: '🔵 Próximos cobros',
     procesados: '🟢 Pagos procesados',
     'no-procesados': '🔴 Pagos no procesados',
+    canceladas: '⚫ Suscripciones canceladas',
   }[bucket];
   const chips: Array<[string, string]> =
     bucket === 'proximos'
@@ -893,7 +921,7 @@ function CobrosDrilldown({
           ['15d', '15 días'],
           ['30d', '30 días'],
         ]
-      : bucket === 'no-procesados'
+      : bucket === 'no-procesados' || bucket === 'canceladas'
         ? [
             ['todos', 'Todos'],
             ['7d', 'Últimos 7 días'],
@@ -1031,6 +1059,16 @@ function CobrosDrilldown({
                     <th className="px-3 py-2 font-semibold">Método</th>
                   </tr>
                 )}
+                {bucket === 'canceladas' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Canceló</th>
+                    <th className="px-3 py-2 font-semibold">Estado</th>
+                    <th className="px-3 py-2 font-semibold">Plan</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Método</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {rows.map((r, i) => (
@@ -1088,6 +1126,30 @@ function CobrosDrilldown({
                             </span>
                           )}
                         </td>
+                        <td className="px-3 py-2 text-right font-semibold">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.metodo}</td>
+                      </>
+                    )}
+                    {bucket === 'canceladas' && (
+                      <>
+                        <td className="px-3 py-2 font-medium">{r.negocio}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fechaCancelacion)}
+                        </td>
+                        <td className="px-3 py-2">
+                          {r.sigueActivo ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold whitespace-nowrap">
+                              Activo hasta {fmtD(r.servicioHasta)}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold">
+                              Sin servicio
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.periodicidad}</td>
                         <td className="px-3 py-2 text-right font-semibold">
                           {money(r.montoUsd ?? 0)}
                         </td>

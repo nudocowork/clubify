@@ -51,7 +51,9 @@ const fecha = (iso: string) =>
 
 export function AlertasDeSuscripcion() {
   const [datos, setDatos] = useState<Respuesta | null>(null);
-  const [abierta, setAbierta] = useState(true);
+  // Cerrada: abierta empujaba todo el panel hacia abajo cada vez que se entraba.
+  // La fila de arriba ya dice cuántas hay.
+  const [abierta, setAbierta] = useState(false);
   const [marcando, setMarcando] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

@@ -139,7 +139,7 @@ export class AdminReportsController {
     @Param('bucket') bucket: string,
     @Query('range') range?: string,
   ) {
-    const valid: CobrosBucket[] = ['proximos', 'procesados', 'no-procesados'];
+    const valid: CobrosBucket[] = ['proximos', 'procesados', 'no-procesados', 'canceladas'];
     const b = (valid.includes(bucket as CobrosBucket) ? bucket : 'proximos') as CobrosBucket;
     const days = rangeToDays(range, b);
     return this.cobros.detail(user.whiteLabelId ?? null, b, new Date(), { days });

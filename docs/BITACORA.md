@@ -8,6 +8,40 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-30 (169) — Revisión del panel admin y altas manuales: cobrado real, canceladas y suspendidos separados (SIN DESPLEGAR backend + frontend)
+
+**Documentos:** «Software Clubify (1)» (panel admin) y «MODIFICACIONES CLIENTES (3)» (panel del negocio).
+
+**El error de dinero (el importante):** `Cobrado`, «Ver empresas» y «Pagos procesados» leían `IncomeRecord` sin filtrar por estado: sumaban lo anulado y lo reembolsado. Ahora usan `SOLO_LO_COBRADO`, como Contabilidad.
+- **Serendipity:** salía con $1.000 y pagó $500. El registro manual del upgrade (30-09) ya estaba `CANCELADO` desde el 01-10; el cobro bueno es HP3141863103. No hay dato que corregir.
+- **Octubre:** $7.129,75 → $6.561,75. Salen Licorera ($500) y Clínica del Celular ($68), las pruebas gratis de la entrada 165.
+- **Últimos 30 días:** $8.129,75 → $7.061,75.
+- Otros 2 pares pasarela + manual revisados: Drive Pizza es un reemplazo legítimo (el de Hotmart está REEMBOLSADO).
+
+**Estado comercial** (`common/estado-comercial.ts`, función pura + 6 pruebas): ACTIVO, TRIAL, SUSPENDIDO, SUSPENDIDO_TRIAL, CANCELADO. Es una lectura: `Tenant.status` sigue mandando sobre el acceso. CANCELADO = `canceledAt`, aunque siga con período pagado. SUSPENDIDO_TRIAL = suspendido con `trialEndsAt`, sin `lastChargeAt` ni `currentPeriodEnd`. Reparto hoy (sin InfoLink ni miembros de grupo): 96 activos, 4 trial, 16 suspendidos, 16 suspendidos trial, 14 cancelados.
+
+**Cobros (`cobros.service.ts`):** bucket nuevo `canceladas` (tarjeta y detalle). Los cancelados salen de «Próximos cobros» y de «No procesados». Decisión mía: los suspendidos trial también salen de «No procesados» (nunca hubo cobro que fallara) y no van a ninguna tarjeta. Afecta también a la tarjeta de No procesados de Contabilidad, que lee el mismo resumen.
+
+**«Estado de clientes»:** `cancelled` contaba negocios BORRADOS; ahora cuenta quien canceló. Fila nueva «Suspendido trial».
+
+**Panel (`PremiumDashboard`, `AlertasDeSuscripcion`):** abre en «Este mes» y con el reporte de Hotmart cerrado. Cuatro tarjetas en una fila desde `lg`.
+
+**Negocios (`admin/tenants/page.tsx`):** filtro de estado con Suspendidos trial y Cancelados, badge propio. Un solo filtro de plan (Mensual, Trimestral, Semestral, Anual): sale «Elite» y sale «Periodicidad», que decía lo mismo. Sin periodicidad cuenta como Mensual, igual que antes.
+
+**Alta manual de clientes:** el «email must be an email» venía de que una casilla vacía llega como `''` y `@IsOptional` no la perdona. `CustomerBody` trata vacío como ausente y el mensaje está en español. La pantalla sigue el formulario de registro: oculta el correo, lo exige, o pide cumpleaños si es obligatorio. El backend exige el correo; el cumpleaños solo la pantalla, porque el onboarding crea un cliente demo sin él (y en Sellea es obligatorio). Las casillas extra no se piden en el alta manual.
+
+**Ya estaba hecho, no se tocó:** quitar «Push» y «Crear tarjeta» del panel, monto y motivo en Actividad de sellos, exportación completa (`a49d970a` y `bc26b82b`, 2026-10-22).
+
+**Difuminados en tarjetas:** Apple y Google solo admiten color de fondo sólido. El difuminado es posible únicamente dentro de la imagen de la franja. No se construyó nada.
+
+**Lentitud («Cargando…» en cada sección):** no es un error del panel. Medido el 30-10 en producción: la página cambia en ~0,3 s y los datos tardan 1,4–3 s; un contador simple, 0,5–0,7 s. `SELECT 1` en `/api/health/ready` da 128–258 ms porque `DATABASE_URL` sigue por el proxy público. Los guards ya van en caché. Arreglo sin código: en Railway, servicio `backend`, `DATABASE_URL = ${{Postgres-Nq8w.DATABASE_URL}}`. Si falla, Railway mantiene el contenedor anterior. Ojo: `/api/health/red` dice 3 ms porque mide solo el TCP hasta el proxy, no una consulta.
+
+**Orden:** backend primero. El frontend aguanta sin él (`estadoDe` tiene respaldo), pero sin backend la tarjeta de canceladas sale en 0 y los filtros nuevos vacíos.
+
+**Pendiente:**
+- Licorera y Clínica pasan a «Sin transacción» ($568 al precio de lista) hasta su primer cobro real: tienen `lastChargeAt` del 28-10 y ninguna transacción válida. No suman a Cobrado.
+- Verificación visual tras desplegar: solo se comprobó compilación, pruebas y cifras contra producción.
+
 ## 2026-10-30 (168) — Comisiones: importes legibles en las tarjetas del Resumen (SIN DESPLEGAR, solo frontend)
 
 Los importes de los 7 estados se partían en dos líneas («US$ 349, / 82») por el `break-words` de `.kpi-val` en tarjetas angostas, y los títulos de una fila quedaban a distinta altura porque un `<button>` centra su contenido.

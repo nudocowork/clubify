@@ -15,6 +15,8 @@ import {
 } from '../referrals/cutoff-calendar';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { CobrosService } from './cobros.service';
+import { estadoComercial } from '../common/estado-comercial';
+import { SOLO_LO_COBRADO } from '../finance/categorias-de-ingreso';
 
 /**
  * Agrega el token de ruteo `wl_<whiteLabelId>` a un link de compra Hotmart, en
@@ -1102,12 +1104,17 @@ export class AdminReportsService {
         where: { status: { in: ['PENDING', 'APPROVED'] }, ...commWhere },
         _sum: { amount: true, amountPaid: true },
       }),
-      this.prisma.tenant.groupBy({
-        by: ['status'],
-        // #13: excluye borrados para que los buckets de "Estado de clientes"
-        // no se solapen con "Cancelados" (deletedAt != null).
+      // Filas y no un groupBy por `status`: los buckets de «Estado de clientes»
+      // dependen de más que el status (ver `estadoComercial`).
+      this.prisma.tenant.findMany({
         where: { deletedAt: null, ...tenantWhere },
-        _count: { _all: true },
+        select: {
+          status: true,
+          canceledAt: true,
+          trialEndsAt: true,
+          lastChargeAt: true,
+          currentPeriodEnd: true,
+        },
       }),
       this.prisma.tenant.count({
         where: {
@@ -1232,8 +1239,12 @@ export class AdminReportsService {
       //
       // `IncomeRecord` es la transacción real, con su importe y su fecha reales
       // —la misma fuente que Contabilidad—, así que es de donde sale ahora.
+      // SOLO_LO_COBRADO: sin él, el panel sumaba como cobrado lo anulado y lo
+      // reembolsado. Serendipity salía con $1.000 (el upgrade de $500 anulado
+      // más el cobro real de Hotmart) y las dos pruebas gratis del 28-10 con
+      // $568 que nunca entraron.
       this.prisma.incomeRecord.findMany({
-        where: { saleDate: { gte: from, lte: to } },
+        where: { ...SOLO_LO_COBRADO, saleDate: { gte: from, lte: to } },
         select: {
           tenantId: true,
           whiteLabelId: true,
@@ -1408,7 +1419,7 @@ export class AdminReportsService {
       now.getMonth() - (monthsBack - 1),
       1,
     );
-    const [allTenantsForMrr, commForSeries, pastDueCount, cancelledCount] = await Promise.all([
+    const [allTenantsForMrr, commForSeries, pastDueCount] = await Promise.all([
       this.prisma.tenant.findMany({
         where: { deletedAt: null, status: 'ACTIVE', ...notGroupMember, ...tenantWhere },
         select: {
@@ -1441,14 +1452,10 @@ export class AdminReportsService {
         where: {
           deletedAt: null,
           status: 'ACTIVE',
+          canceledAt: null,
           failedPaymentCount: { gt: 0 },
           ...tenantWhere,
         },
-      }),
-      // #13: "Cancelados" REAL = negocios borrados (soft-delete). Antes
-      // buscaba status 'CANCELLED' que tampoco existe → 0 fijo.
-      this.prisma.tenant.count({
-        where: { deletedAt: { not: null }, ...tenantWhere },
       }),
     ]);
 
@@ -1515,20 +1522,19 @@ export class AdminReportsService {
       ),
     );
 
-    const statusMap = Object.fromEntries(
-      tenantsByStatus.map((r) => [r.status, r._count._all]),
-    );
+    const estados = { ACTIVO: 0, TRIAL: 0, SUSPENDIDO: 0, SUSPENDIDO_TRIAL: 0, CANCELADO: 0 };
+    for (const t of tenantsByStatus) estados[estadoComercial(t)] += 1;
     // #13 (2026-06-16): buckets REALES y no solapados (suman el total de
-    // tenants). "active" excluye los past-due (que van a awaitingPayment);
-    // "cancelled" = borrados. Antes awaitingPayment/cancelled buscaban
-    // status inexistentes (PAYING/CANCELLED) → siempre 0.
-    const activeNotDeleted = Number(statusMap['ACTIVE'] ?? 0);
+    // tenants). "active" excluye los past-due (que van a awaitingPayment).
+    // «Cancelados» contaba los negocios BORRADOS: quien canceló la suscripción
+    // caía en Suspendidos. Ahora es quien canceló, y el borrado no sale aquí.
     const clientStatus = {
-      active: Math.max(0, activeNotDeleted - pastDueCount),
-      trial: Number(statusMap['TRIAL'] ?? 0),
+      active: Math.max(0, estados.ACTIVO - pastDueCount),
+      trial: estados.TRIAL,
       awaitingPayment: pastDueCount,
-      suspended: Number(statusMap['SUSPENDED'] ?? 0),
-      cancelled: cancelledCount,
+      suspended: estados.SUSPENDIDO,
+      suspendedTrial: estados.SUSPENDIDO_TRIAL,
+      cancelled: estados.CANCELADO,
     };
 
     // P3: clientes nuevos incluye Grupos Empresariales como 1 negocio c/u.
@@ -1729,7 +1735,7 @@ export class AdminReportsService {
       // pulsar «Ver empresas» la cabecera decía $1.454,52, con Moa Café y
       // Oh! Cookies marcados en verde como cobrados sin haber cobrado nada.
       this.prisma.incomeRecord.findMany({
-        where: { saleDate: { gte: from, lte: to } },
+        where: { ...SOLO_LO_COBRADO, saleDate: { gte: from, lte: to } },
         select: { tenantId: true, grossUsd: true },
       }),
     ]);
@@ -2393,8 +2399,8 @@ export function resolveDateRange(
       const t = toIso ? new Date(toIso) : new Date(now);
       return { from, to: t };
     }
-    // 'this-month' se quitó del panel (redundante con 'last-30'). Se mantiene el
-    // caso por compatibilidad, pero el default ahora es 'last-30'.
+    // El panel abre en este rango desde 2026-10-30: «Cobrado» responde a cómo
+    // va el mes, no a una ventana de 30 días que mezcla dos meses.
     case 'this-month':
       from = bogotaDayStartUtc(fmtYmd(y, m, 1));
       break;
