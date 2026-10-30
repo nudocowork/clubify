@@ -45,21 +45,27 @@ function Tarjeta({
   sub,
   onClick,
   activa,
+  compacta,
 }: {
   titulo: string;
   valor: string;
   sub?: string;
   onClick?: () => void;
   activa?: boolean;
+  /** Para la fila de los 7 estados, donde cada tarjeta es angosta. */
+  compacta?: boolean;
 }) {
   const Cmp = onClick ? 'button' : 'div';
   return (
     <Cmp
       onClick={onClick}
-      className={`kpi text-left w-full ${onClick ? 'hover-lift cursor-pointer' : ''} ${activa ? 'ring-2 ring-brand' : ''}`}
+      // flex-col: un <button> centra su contenido en vertical y, con alturas
+      // distintas, los títulos de una misma fila quedaban desalineados.
+      className={`kpi flex flex-col items-start text-left w-full ${onClick ? 'hover-lift cursor-pointer' : ''} ${activa ? 'ring-2 ring-brand' : ''}`}
     >
       <div className="kpi-lbl">{titulo}</div>
-      <div className="kpi-val text-2xl sm:text-3xl mt-2">{valor}</div>
+      {/* Sin saltos: un importe partido («US$ 349, / 82») no se puede leer. */}
+      <div className={`kpi-val whitespace-nowrap tabular-nums mt-2 ${compacta ? 'text-lg' : 'text-xl sm:text-2xl'}`}>{valor}</div>
       {sub && <div className="kpi-sub">{sub}</div>}
     </Cmp>
   );
@@ -456,7 +462,7 @@ export function ReporteView({
             <Tarjeta titulo="Saldo por pagar" valor={usd(g.saldoUsd)} sub={`Pagado ${usd(g.pagadoUsd)}`} />
           </div>
 
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-7">
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
             {ESTADOS.map((e) => (
               <Tarjeta
                 key={e.id}
@@ -468,6 +474,7 @@ export function ReporteView({
                   setPaginaDetalle(1);
                 }}
                 activa={detalleEstado === e.id}
+                compacta
               />
             ))}
           </div>

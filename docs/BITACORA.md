@@ -8,6 +8,12 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-30 (168) — Comisiones: importes legibles en las tarjetas del Resumen (SIN DESPLEGAR, solo frontend)
+
+Los importes de los 7 estados se partían en dos líneas («US$ 349, / 82») por el `break-words` de `.kpi-val` en tarjetas angostas, y los títulos de una fila quedaban a distinta altura porque un `<button>` centra su contenido.
+
+`Tarjeta` (`_reporte/ReporteView.tsx`): importes sin salto y con cifras tabulares, `text-xl sm:text-2xl` (antes `text-2xl sm:text-3xl`), prop `compacta` (`text-lg`) para los 7 estados y `flex-col` para alinear. La fila de estados pasa a 7 columnas solo desde `2xl`; por debajo, 4 (antes 7 desde `lg`, demasiado angostas). No se tocó `.kpi-val` global: la usan otros paneles.
+
 ## 2026-10-29 (167) — El icono de WhatsApp del infolink ignoraba el interruptor del menú (SIN DESPLEGAR backend + frontend)
 
 **Qué pasó:** La Gloriosa apagó «Mostrar botón de WhatsApp en el menú» y seguía viendo un icono de WhatsApp bajo la cabecera de sus infolinks (`/alvarez` → `/i/la-gloriosa/infolink2`). Es la **fila de iconos heredados** (`iconosDeRespaldo`, `lib/info-link-social.ts`): si el infolink no configuró ninguna red, pinta Instagram/WhatsApp/mapa de la ficha del negocio, y no miraba `Storefront.whatsappButtonEnabled` ni `instagramButtonEnabled`.
