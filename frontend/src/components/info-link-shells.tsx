@@ -66,6 +66,8 @@ export type ShellTenant = {
   whatsappPhone: string | null;
   instagramUrl: string | null;
   mapsUrl: string | null;
+  /** Interruptores del menú; los iconos heredados los respetan. */
+  storefront?: { whatsappButtonEnabled?: boolean; instagramButtonEnabled?: boolean } | null;
   slug: string;
 };
 

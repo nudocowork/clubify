@@ -515,6 +515,12 @@ export class InfoLinksService {
         whatsappPhone: true,
         instagramUrl: true,
         mapsUrl: true,
+        // Los interruptores del menú. La fila de iconos heredados del
+        // infolink los respeta: con el botón apagado en /app/storefront el
+        // icono de WhatsApp seguía saliendo en el infolink (La Gloriosa,
+        // 2026-10-29). El número se sigue mandando: los botones WHATSAPP del
+        // infolink lo usan de respaldo.
+        storefront: { select: { whatsappButtonEnabled: true, instagramButtonEnabled: true } },
         slug: true,
         status: true,
         // Tipo/nivel del negocio → el render público decide si muestra la

@@ -185,16 +185,22 @@ export type IconoSocial = {
  * publicado y funcionando, y quitarlo sería romper algo que nadie pidió
  * romper.
  */
-export function iconosDeRespaldo(tenant: {
+type TenantDeRespaldo = {
   instagramUrl?: string | null;
   whatsappPhone?: string | null;
   mapsUrl?: string | null;
-}): IconoSocial[] {
+  storefront?: { whatsappButtonEnabled?: boolean; instagramButtonEnabled?: boolean } | null;
+};
+
+export function iconosDeRespaldo(tenant: TenantDeRespaldo): IconoSocial[] {
   const out: IconoSocial[] = [];
-  if (tenant.instagramUrl) {
+  // Si el negocio apagó el botón en /app/storefront, tampoco sale aquí: el
+  // dueño lo apaga para que no le escriban por ese número, y lo seguía viendo
+  // en sus infolinks sin saber de dónde salía (La Gloriosa, 2026-10-29).
+  if (tenant.instagramUrl && tenant.storefront?.instagramButtonEnabled !== false) {
     out.push({ icono: 'instagram', href: tenant.instagramUrl, label: 'Instagram' });
   }
-  if (tenant.whatsappPhone) {
+  if (tenant.whatsappPhone && tenant.storefront?.whatsappButtonEnabled !== false) {
     const d = tenant.whatsappPhone.replace(/\D/g, '');
     if (d) out.push({ icono: 'whatsapp', href: `https://wa.me/${d}`, label: 'WhatsApp' });
   }
@@ -208,7 +214,7 @@ export function iconosDeRespaldo(tenant: {
  *  heredados del negocio. */
 export function iconosSociales(
   social: SocialConfig | null | undefined,
-  tenant: { instagramUrl?: string | null; whatsappPhone?: string | null; mapsUrl?: string | null },
+  tenant: TenantDeRespaldo,
 ): IconoSocial[] {
   const propios = redesVisibles(social);
   if (propios.length > 0) {

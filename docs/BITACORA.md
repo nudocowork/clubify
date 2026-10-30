@@ -8,6 +8,16 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-29 (167) — El icono de WhatsApp del infolink ignoraba el interruptor del menú (SIN DESPLEGAR backend + frontend)
+
+**Qué pasó:** La Gloriosa apagó «Mostrar botón de WhatsApp en el menú» y seguía viendo un icono de WhatsApp bajo la cabecera de sus infolinks (`/alvarez` → `/i/la-gloriosa/infolink2`). Es la **fila de iconos heredados** (`iconosDeRespaldo`, `lib/info-link-social.ts`): si el infolink no configuró ninguna red, pinta Instagram/WhatsApp/mapa de la ficha del negocio, y no miraba `Storefront.whatsappButtonEnabled` ni `instagramButtonEnabled`.
+
+**Arreglo:** `info-links.service.ts` (`armarPublico`) manda también `tenant.storefront { whatsappButtonEnabled, instagramButtonEnabled }`, y `iconosDeRespaldo` no pinta WhatsApp ni Instagram si están apagados. El número se sigue mandando: los botones WHATSAPP del infolink lo usan de respaldo y esos sí los puso el dueño.
+
+**Orden:** backend primero (sin él, el frontend no recibe el interruptor y todo queda como antes; no rompe nada).
+
+**Mientras tanto:** el icono se quita sin deploy configurando cualquier red propia en el infolink: en cuanto hay una, la fila heredada desaparece.
+
 ## 2026-10-29 (166) — Términos y privacidad: una sola versión que dice lo que el sistema hace (SIN DESPLEGAR, solo frontend)
 
 **Qué pasó:** preguntaron por los términos. Había DOS textos de términos (`/legal/terms` y `/terminos`, este marcado «genérico, no asesoría legal») y los dos prometían cosas que el sistema no hace.
