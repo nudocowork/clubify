@@ -207,7 +207,7 @@ function crearPrismaFalso() {
 }
 
 function crearServicio(): CustomersService {
-  return new CustomersService(crearPrismaFalso(), {} as any);
+  return new CustomersService(crearPrismaFalso(), {} as any, {} as any);
 }
 
 beforeEach(() => {

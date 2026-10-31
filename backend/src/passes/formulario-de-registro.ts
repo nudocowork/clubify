@@ -99,6 +99,22 @@ export function normalizarFormulario(
   return { email: modo(r.email, base.email), cumpleanos: modo(r.cumpleanos, base.cumpleanos), extras };
 }
 
+const respuestaEnTexto = (crudo: unknown) =>
+  typeof crudo === 'number' ? String(crudo) : texto(crudo, MAX_RESPUESTA);
+
+function errorDeRespuesta(c: CampoExtra, valor: string): string | null {
+  if (c.tipo === 'numero' && !/^-?\d+([.,]\d+)?$/.test(valor)) {
+    return `«${c.etiqueta}» debe ser un número`;
+  }
+  if (c.tipo === 'fecha' && Number.isNaN(new Date(valor).getTime())) {
+    return `«${c.etiqueta}» no es una fecha válida`;
+  }
+  if (c.tipo === 'opciones' && !c.opciones?.includes(valor)) {
+    return `Elige una opción de «${c.etiqueta}»`;
+  }
+  return null;
+}
+
 /**
  * Revisa lo que mandó el cliente contra el formulario del negocio. Devuelve el
  * primer error en español (lo que se le muestra) o las respuestas de las
@@ -119,21 +135,44 @@ export function revisarRegistro(
     dto.extras && typeof dto.extras === 'object' ? (dto.extras as Record<string, unknown>) : {};
   const datos: DatosDelRegistro = {};
   for (const c of f.extras) {
-    const crudo = recibidas[c.id];
-    const valor = typeof crudo === 'number' ? String(crudo) : texto(crudo, MAX_RESPUESTA);
+    const valor = respuestaEnTexto(recibidas[c.id]);
     if (!valor) {
       if (c.obligatorio) return { error: `Completa «${c.etiqueta}»` };
       continue;
     }
-    if (c.tipo === 'numero' && !/^-?\d+([.,]\d+)?$/.test(valor)) {
-      return { error: `«${c.etiqueta}» debe ser un número` };
+    const error = errorDeRespuesta(c, valor);
+    if (error) return { error };
+    datos[c.id] = { etiqueta: c.etiqueta, valor };
+  }
+  return { datos };
+}
+
+/**
+ * Corrección de las casillas propias desde la ficha del cliente. Se revisa solo
+ * lo que llega, y la casilla obligatoria solo impide VACIAR una respuesta: si
+ * el negocio la agregó después del registro, ese hueco no puede bloquear
+ * corregirle el teléfono a un cliente viejo.
+ *
+ * Las respuestas a casillas que ya no están en el formulario se conservan.
+ */
+export function corregirRespuestas(
+  f: FormularioDeRegistro,
+  previas: DatosDelRegistro,
+  recibidas: Record<string, unknown>,
+): { error: string } | { datos: DatosDelRegistro } {
+  const datos: DatosDelRegistro = { ...previas };
+  for (const c of f.extras) {
+    if (!(c.id in recibidas)) continue;
+    const valor = respuestaEnTexto(recibidas[c.id]);
+    if (!valor) {
+      if (c.obligatorio && previas[c.id]) return { error: `Completa «${c.etiqueta}»` };
+      delete datos[c.id];
+      continue;
     }
-    if (c.tipo === 'fecha' && Number.isNaN(new Date(valor).getTime())) {
-      return { error: `«${c.etiqueta}» no es una fecha válida` };
-    }
-    if (c.tipo === 'opciones' && !c.opciones?.includes(valor)) {
-      return { error: `Elige una opción de «${c.etiqueta}»` };
-    }
+    // Una opción que el negocio retiró de la lista sigue valiendo para quien
+    // ya la tenía: corregirle otro dato no debe obligarlo a elegir otra.
+    const error = valor === previas[c.id]?.valor ? null : errorDeRespuesta(c, valor);
+    if (error) return { error };
     datos[c.id] = { etiqueta: c.etiqueta, valor };
   }
   return { datos };

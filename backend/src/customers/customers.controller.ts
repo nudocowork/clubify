@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import { ArrayMinSize, ArrayUnique, IsArray, IsEmail, IsOptional, IsString } from 'class-validator';
+import { ArrayMinSize, ArrayUnique, IsArray, IsEmail, IsObject, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { Response } from 'express';
 import { CustomersService } from './customers.service';
@@ -24,6 +24,28 @@ class CustomerBody {
   @IsOptional() @IsString() externalId?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsString() notes?: string;
+}
+
+const vacioComoNulo = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && !value.trim() ? null : value;
+
+// Clase propia y no `Partial<CustomerBody>`: un tipo de TypeScript no existe en
+// ejecución, así que el ValidationPipe no revisaba nada y `update` escribía en
+// la base cualquier campo que llegara, `tenantId` y `xpPoints` incluidos.
+// Null borra el dato; un campo ausente no se toca.
+class CorregirClienteBody {
+  @IsOptional() @IsString() fullName?: string;
+  @Transform(vacioComoNulo)
+  @IsOptional()
+  @IsEmail({}, { message: 'El correo electrónico no es válido' })
+  email?: string | null;
+  @Transform(vacioComoNulo) @IsOptional() @IsString() phone?: string | null;
+  @Transform(vacioComoNulo) @IsOptional() @IsString() birthday?: string | null;
+  @IsOptional() @IsString() externalId?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsString() notes?: string;
+  /** Respuestas a las casillas propias del formulario, por id de casilla. */
+  @IsOptional() @IsObject() extras?: Record<string, unknown>;
 }
 
 class MergeBody {
@@ -168,6 +190,11 @@ export class CustomersController {
     return this.svc.getReservations(user, id);
   }
 
+  @Get(':id/formulario')
+  formulario(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.formulario(user, id);
+  }
+
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.get(user, id);
@@ -192,7 +219,7 @@ export class CustomersController {
   }
 
   @Patch(':id')
-  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: Partial<CustomerBody>) {
+  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CorregirClienteBody) {
     return this.svc.update(user, id, body);
   }
 

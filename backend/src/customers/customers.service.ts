@@ -3,12 +3,21 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
-import { normalizarFormulario } from '../passes/formulario-de-registro';
+import {
+  corregirRespuestas,
+  normalizarFormulario,
+  type DatosDelRegistro,
+} from '../passes/formulario-de-registro';
+import { mismoNumeroDeCliente } from '../passes/passes.service';
+import { telefonoConIndicativo } from '../common/telefono-con-indicativo';
+import { QueueService } from '../jobs/queue.service';
 
 export type CustomerDto = {
   fullName: string;
@@ -20,11 +29,38 @@ export type CustomerDto = {
   notes?: string;
 };
 
+/** La ficha corrige lo que el cliente digitó mal. Null borra el dato. */
+export type CorreccionDeCliente = Partial<
+  Omit<CustomerDto, 'email' | 'phone' | 'birthday'>
+> & {
+  email?: string | null;
+  phone?: string | null;
+  birthday?: string | null;
+  extras?: Record<string, unknown>;
+};
+
+/** `new Date('2000-02-31')` no falla: da 2 de marzo. Y el cumpleaños dispara
+ *  el saludo automático, así que una fecha imposible se rechaza. */
+function fechaDeCumpleanos(valor: string): Date {
+  const d = new Date(valor);
+  if (
+    !/^\d{4}-\d{2}-\d{2}/.test(valor) ||
+    Number.isNaN(d.getTime()) ||
+    d.toISOString().slice(0, 10) !== valor.slice(0, 10)
+  ) {
+    throw new BadRequestException('La fecha de cumpleaños no es válida');
+  }
+  return d;
+}
+
 @Injectable()
 export class CustomersService {
+  private readonly logger = new Logger(CustomersService.name);
+
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private jobs: QueueService,
   ) {}
 
   /** Push individual a un cliente: manda la notificación SOLO a los pases de
@@ -331,17 +367,148 @@ export class CustomersService {
     }
   }
 
-  async update(user: AuthUser, id: string, dto: Partial<CustomerDto>) {
-    await this.get(user, id);
+  /** El formulario del negocio de este cliente. Vive aquí y no en
+   *  `tenants/me/formulario-registro` para servir también al admin que entra a
+   *  la ficha y al rol de pedidos, que aquella ruta no admite. */
+  async formulario(user: AuthUser, id: string) {
+    const c = await this.prisma.customer.findUnique({
+      where: { id },
+      select: {
+        tenantId: true,
+        tenant: { select: { formularioRegistro: true, whiteLabel: { select: { slug: true } } } },
+      },
+    });
+    if (!c) throw new NotFoundException('Customer');
+    if (user.role !== 'SUPER_ADMIN' && c.tenantId !== user.tenantId) {
+      throw new ForbiddenException();
+    }
+    return normalizarFormulario(c.tenant.formularioRegistro, c.tenant.whiteLabel?.slug);
+  }
+
+  /**
+   * El número es con lo que el cliente recupera su tarjeta: se guarda igual que
+   * lo guarda el alta y no puede quedar sobre el de otra persona. El índice
+   * único solo ve textos idénticos, y «3001112233» y «+573001112233» pasarían
+   * por dos personas distintas.
+   */
+  private async telefonoCorregido(
+    actual: { id: string; tenantId: string; phone: string | null },
+    tecleado: string | null,
+    pais: string,
+  ) {
+    const phone = telefonoConIndicativo(tecleado, pais);
+    if (!phone) return null;
+    if (phone.replace(/\D/g, '').length < 8) {
+      throw new BadRequestException('Teléfono inválido');
+    }
+    if (mismoNumeroDeCliente(phone, actual.phone)) return phone;
+    const parecidos = await this.prisma.customer.findMany({
+      where: {
+        tenantId: actual.tenantId,
+        id: { not: actual.id },
+        phone: { endsWith: phone.replace(/\D/g, '').slice(-8) },
+      },
+      select: { fullName: true, phone: true },
+      take: 20,
+    });
+    const otro = parecidos.find((c) => mismoNumeroDeCliente(phone, c.phone));
+    if (otro) {
+      throw new ConflictException(
+        `Ese teléfono ya es de ${otro.fullName}. Si son la misma persona, fusiona las dos fichas.`,
+      );
+    }
+    return phone;
+  }
+
+  /** El nombre va impreso en el pase: sin esto, el cliente seguía viendo el
+   *  nombre mal escrito en su billetera hasta el siguiente sello. Silencioso,
+   *  corregir un dato no es una novedad para el cliente. */
+  private async refrescarPases(passes: { id: string; status: string }[]) {
+    const ids = passes.filter((p) => p.status !== 'REVOKED').map((p) => p.id);
+    if (!ids.length) return;
     try {
-      return await this.prisma.customer.update({
-        where: { id },
-        data: {
-          ...dto,
-          birthday: dto.birthday ? new Date(dto.birthday) : undefined,
-          tags: dto.tags ?? undefined,
+      // Sin mover esta fecha, Apple responde 304 y deja el pase viejo.
+      await this.prisma.pass.updateMany({
+        where: { id: { in: ids } },
+        data: { lastActivityAt: new Date() },
+      });
+      for (const passId of ids) {
+        await this.jobs.enqueue('wallet.push', {
+          passId,
+          reason: 'customer_corrected',
+          silent: true,
+        } as any);
+      }
+    } catch (e: any) {
+      // La corrección ya quedó guardada: una billetera caída no la deshace.
+      this.logger.warn(`No se pudo refrescar el pase: ${e?.message ?? e}`);
+    }
+  }
+
+  async update(user: AuthUser, id: string, dto: CorreccionDeCliente) {
+    const actual = await this.get(user, id);
+    const data: Prisma.CustomerUncheckedUpdateInput = {};
+
+    if (dto.fullName !== undefined) {
+      const nombre = dto.fullName.trim();
+      if (!nombre) throw new BadRequestException('El nombre es obligatorio');
+      data.fullName = nombre;
+    }
+    if (dto.externalId !== undefined) data.externalId = dto.externalId;
+    if (dto.tags !== undefined) data.tags = dto.tags;
+    if (dto.notes !== undefined) data.notes = dto.notes;
+
+    const tocaElFormulario =
+      dto.email !== undefined ||
+      dto.phone !== undefined ||
+      dto.birthday !== undefined ||
+      dto.extras !== undefined;
+    if (tocaElFormulario) {
+      const negocio = await this.prisma.tenant.findUnique({
+        where: { id: actual.tenantId },
+        select: {
+          country: true,
+          formularioRegistro: true,
+          whiteLabel: { select: { slug: true } },
         },
       });
+      const formulario = normalizarFormulario(
+        negocio?.formularioRegistro,
+        negocio?.whiteLabel?.slug,
+      );
+
+      // Lo obligatorio solo impide VACIAR un dato: a un cliente viejo sin
+      // correo se le puede seguir corrigiendo el nombre.
+      if (dto.email !== undefined) {
+        const correo = dto.email?.trim().toLowerCase() || null;
+        if (!correo && actual.email && formulario.email === 'obligatorio') {
+          throw new BadRequestException('El correo electrónico es obligatorio');
+        }
+        data.email = correo;
+      }
+      if (dto.birthday !== undefined) {
+        if (!dto.birthday && actual.birthday && formulario.cumpleanos === 'obligatorio') {
+          throw new BadRequestException('La fecha de cumpleaños es obligatoria');
+        }
+        data.birthday = dto.birthday ? fechaDeCumpleanos(dto.birthday) : null;
+      }
+      if (dto.phone !== undefined) {
+        data.phone = await this.telefonoCorregido(actual, dto.phone, negocio?.country ?? 'CO');
+      }
+      if (dto.extras !== undefined) {
+        const previas = (actual.datosDelRegistro ?? {}) as unknown as DatosDelRegistro;
+        const corregidas = corregirRespuestas(formulario, previas, dto.extras);
+        if ('error' in corregidas) throw new BadRequestException(corregidas.error);
+        data.datosDelRegistro = corregidas.datos as unknown as Prisma.InputJsonValue;
+      }
+    }
+
+    try {
+      const guardado = await this.prisma.customer.update({ where: { id }, data });
+      if (data.fullName !== undefined && data.fullName !== actual.fullName) {
+        await this.refrescarPases(actual.passes);
+      }
+      return guardado;
     } catch (e: any) {
       if (e?.code === 'P2002') {
         const target = (e.meta?.target as string[] | string | undefined) ?? '';

@@ -54,6 +54,12 @@ export class StampsController {
     return this.svc.history(user, passId);
   }
 
+  /** Cuánto ha consumido el cliente en esta tarjeta, para decidir su premio. */
+  @Get('consumo/:passId')
+  consumo(@CurrentUser() user: AuthUser, @Param('passId') passId: string) {
+    return this.svc.consumo(user, passId);
+  }
+
   /** Wallet V3 — Historial/Auditoría de ajustes de sellos. Negocio ve el suyo;
    *  Master Admin (SUPER_ADMIN) puede pasar ?tenantId. */
   @Get('audit')

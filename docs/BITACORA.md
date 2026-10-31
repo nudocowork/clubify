@@ -8,6 +8,34 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-31 (170) — Corregir los datos del cliente y consumo por tarjeta al canjear (SIN DESPLEGAR backend + frontend)
+
+**Pedido de Javier:** poder corregir después del registro el número, nombre, correo, cumpleaños y demás datos; y ver cuánto ha consumido el cliente en cada tarjeta al canjear, para que el premio vaya acorde.
+
+**La ficha ya tenía «Editar», pero con estos defectos, arreglados:**
+- `phone.replace(/s+/g, '')` quitaba la LETRA s, no los espacios: el número quedaba «+56 971269502», y la búsqueda por los últimos 10 dígitos no encuentra ese formato en números de 9 cifras. No se pudo contar cuántas fichas quedaron así: desde esta máquina no se alcanza la base.
+- `@Body() Partial<CustomerBody>` no valida nada: un tipo no existe en ejecución y `update` hacía `...dto`, así que aceptaba `tenantId`, `xpPoints` o cualquier columna. Ahora hay clase propia (`CorregirClienteBody`) y `update` escribe campo por campo.
+- Las casillas propias del formulario no se veían ni se editaban. Ahora se ven en Datos y se corrigen en el modal (`corregirRespuestas`). Las de casillas retiradas se conservan.
+- El nombre corregido no llegaba al pase instalado hasta el siguiente sello. Ahora se mueve `lastActivityAt` y se encola `wallet.push` silencioso, salvo pases revocados.
+- Teléfono: se guarda con `telefonoConIndicativo` y se detiene si es de otra ficha aunque esté en otro formato (`mismoNumeroDeCliente`); el índice único solo ve textos idénticos. Si el número no cambió no se revisa, para que un duplicado viejo no impida corregir el nombre.
+- Correo en minúsculas, como en el alta. Cumpleaños imposible rechazado (`new Date('2000-02-31')` da 2 de marzo); vacío ahora lo borra.
+- Lo obligatorio solo impide VACIAR un dato: un hueco viejo no bloquea corregir otra cosa. Lo oculto en el formulario solo aparece si ese cliente ya lo tiene.
+- `GET /customers/:id/formulario`: `tenants/me/formulario-registro` no admite al admin ni al rol de pedidos.
+
+**Decisión:** el cliente final NO edita sus datos. Sigue la regla de `completarRegistro`: la página del pase es pública por `passId` y un enlace reenviado no debe poder secuestrar una ficha. Para abrirlo haría falta un código al teléfono, y si el número está mal ese código no le llega.
+
+**Consumo por tarjeta:** `stamps/consumo-de-la-tarjeta.ts` (función pura + 6 pruebas) y `GET /stamps/consumo/:passId`. Devuelve lo gastado desde el último canje y el total de la tarjeta, con ticket promedio, regalos y sellos sin monto. Venta = STAMP o VISIT con monto, como `metrics.service`. Canjear un cupón no abre premio nuevo. El sello de un pedido cancelado no cuenta como dato faltante. Componente `ConsumoDeLaTarjeta` en el escáner (sellos, híbrida, visitas) y en cada tarjeta de la ficha. «Actividad de sellos» filtra por tarjeta con `/stamps/history/:passId`, porque la ficha solo trae los 50 sellos recientes del cliente. No está en `/app/cards/[id]`, el tercer sitio desde donde se canjea.
+
+**Límites:** los sellos viejos sin monto no suman, y la pantalla lo dice. Un sello restado a mano no descuenta su compra, igual que en métricas. Las tarjetas de cashback no muestran consumo.
+
+**Historial de planes: revisado, NO construido; falta decisión.** Hay tres rastros sueltos: «Historial de upgrades» en el negocio (solo upgrades a anual), `tenant.plan_period_changed` en AuditLog (solo visible en /admin/audit) y Hotmart `SWITCH_PLAN`, que cambia `planId` SIN dejar rastro.
+
+**PDF «MODIFICACIONES CLIENTES (4)» y «Software Clubify (2)»:** mismo contenido que los de la entrada 169. Comprobado en el dominio: el frontend en producción ya trae «Suscripciones canceladas», «Este mes» y `SUSPENDIDO_TRIAL`; backend desplegado el 30-10 a las 19:15. Las capturas son de antes de ese despliegue.
+
+**Lentitud:** el 31-10 `/api/health/ready` da 5–10 ms de Postgres (antes 128–258 ms), aunque `DATABASE_URL` sigue mostrando el host público. No se sabe qué lo cambió. La respuesta completa medida desde fuera tarda 0,5–0,8 s.
+
+**Verificación:** tsc de backend y frontend, vitest y eslint. Sin revisión visual.
+
 ## 2026-10-30 (169) — Revisión del panel admin y altas manuales: cobrado real, canceladas y suspendidos separados (SIN DESPLEGAR backend + frontend)
 
 **Documentos:** «Software Clubify (1)» (panel admin) y «MODIFICACIONES CLIENTES (3)» (panel del negocio).

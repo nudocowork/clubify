@@ -9,6 +9,7 @@ import { plural } from '@/lib/plural';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
+import { ConsumoDeLaTarjeta } from '@/components/ConsumoDeLaTarjeta';
 import { motivoDelSello, tituloDelSello } from '@/lib/sellos/motivo-del-sello';
 
 type Pass = {
@@ -55,6 +56,20 @@ type Stamp = {
   createdAt: string;
 };
 
+type CasillaPropia = {
+  id: string;
+  etiqueta: string;
+  tipo: 'texto' | 'numero' | 'fecha' | 'opciones';
+  obligatorio: boolean;
+  opciones?: string[];
+};
+
+type FormularioDelNegocio = {
+  email: 'obligatorio' | 'opcional' | 'oculto';
+  cumpleanos: 'obligatorio' | 'opcional' | 'oculto';
+  extras: CasillaPropia[];
+};
+
 type Order = {
   id: string;
   code: string;
@@ -71,6 +86,7 @@ type Customer = {
   email: string | null;
   phone: string | null;
   birthday: string | null;
+  datosDelRegistro?: Record<string, { etiqueta: string; valor: string }> | null;
   tags: string[];
   notes: string | null;
   marketingOptIn: boolean;
@@ -639,6 +655,8 @@ El cliente la verá activa otra vez en su teléfono.`,
         </span>
       </div>
 
+      <ConsumoDeLaTarjeta passId={p.id} version={`${p.stampsCount}-${p.visitsCount}-${p.status}`} />
+
       {p.card.type === 'STAMPS' && (
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs mb-1.5">
@@ -1014,10 +1032,11 @@ const MONTHS_ES = [
 ];
 
 /** Modal para que el NEGOCIO corrija los datos que el cliente pudo digitar
- *  mal al registrarse: nombre, correo y día/mes de cumpleaños. Usa el
- *  PATCH /customers/:id existente (scoped por tenant). El cumpleaños se
- *  guarda con año centinela 2000 (solo día/mes, igual que el enrolamiento);
- *  si se deja vacío, no se toca la fecha actual. */
+ *  mal al registrarse: nombre, correo, teléfono, cumpleaños y las casillas
+ *  propias del formulario del negocio. Usa el PATCH /customers/:id (scoped por
+ *  tenant). El cumpleaños se guarda con año centinela 2000 (solo día/mes, igual
+ *  que el enrolamiento); si se deja vacío, se borra. Lo que el formulario no
+ *  pide solo aparece si este cliente ya lo tiene, para poder corregirlo. */
 function EditCustomerModal({
   customer,
   country,
@@ -1041,6 +1060,20 @@ function EditCustomerModal({
     validBd ? String(validBd.getUTCMonth() + 1) : '',
   );
   const [busy, setBusy] = useState(false);
+  const previas = customer.datosDelRegistro ?? {};
+  const [formulario, setFormulario] = useState<FormularioDelNegocio | null>(null);
+  const [extras, setExtras] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(previas).map(([k, v]) => [k, v.valor])),
+  );
+
+  useEffect(() => {
+    api<FormularioDelNegocio>(`/customers/${customer.id}/formulario`)
+      .then(setFormulario)
+      .catch(() => setFormulario(null));
+  }, [customer.id]);
+
+  const verCorreo = formulario?.email !== 'oculto' || !!customer.email;
+  const verCumple = formulario?.cumpleanos !== 'oculto' || !!customer.birthday;
 
   async function save() {
     const name = fullName.trim();
@@ -1057,7 +1090,8 @@ function EditCustomerModal({
       fullName: string;
       email: string | null;
       phone: string | null;
-      birthday?: string;
+      birthday: string | null;
+      extras?: Record<string, string>;
     } = {
       fullName: name,
       email: email.trim() || null,
@@ -1068,10 +1102,14 @@ function EditCustomerModal({
       // están como «+56971269502». Con el espacio, la búsqueda por número
       // seguiría encontrándolo (compara por el final), pero el índice único
       // del teléfono no vería que es el mismo que otra ficha.
-      phone: phone.replace(/s+/g, '') || null,
+      phone: phone.replace(/\s+/g, '') || null,
+      birthday:
+        day && month ? `2000-${month.padStart(2, '0')}-${day.padStart(2, '0')}` : null,
     };
-    if (day && month) {
-      body.birthday = `2000-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    if (formulario?.extras.length) {
+      body.extras = Object.fromEntries(
+        formulario.extras.map((c) => [c.id, extras[c.id] ?? '']),
+      );
     }
     setBusy(true);
     try {
@@ -1108,14 +1146,22 @@ function EditCustomerModal({
           placeholder="Nombre y apellido"
         />
 
-        <label className="label mt-3">Correo</label>
-        <input
-          className="input w-full"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="correo@ejemplo.com (opcional)"
-        />
+        {verCorreo && (
+          <>
+            <label className="label mt-3">Correo</label>
+            <input
+              className="input w-full"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={
+                formulario?.email === 'obligatorio'
+                  ? 'correo@ejemplo.com'
+                  : 'correo@ejemplo.com (opcional)'
+              }
+            />
+          </>
+        )}
 
         <label className="label mt-3">Teléfono</label>
         <PhoneInput
@@ -1129,32 +1175,67 @@ function EditCustomerModal({
           encuentra su tarjeta buscando por su número.
         </p>
 
-        <label className="label mt-3">Cumpleaños</label>
-        <div className="flex gap-2">
-          <select
-            className="input flex-1 min-w-0"
-            value={day}
-            onChange={(e) => setDay(e.target.value)}
-          >
-            <option value="">Día</option>
-            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-          <select
-            className="input flex-[2]"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-          >
-            <option value="">Mes</option>
-            {MONTHS_ES.map((m, i) => (
-              <option key={m} value={i + 1}>{m}</option>
-            ))}
-          </select>
-        </div>
-        <p className="text-[11px] text-mute mt-1">
-          Solo día y mes — el cumpleaños dispara el saludo automático.
-        </p>
+        {verCumple && (
+          <>
+            <label className="label mt-3">Cumpleaños</label>
+            <div className="flex gap-2">
+              <select
+                className="input flex-1 min-w-0"
+                value={day}
+                onChange={(e) => setDay(e.target.value)}
+              >
+                <option value="">Día</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              <select
+                className="input flex-[2]"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+              >
+                <option value="">Mes</option>
+                {MONTHS_ES.map((m, i) => (
+                  <option key={m} value={i + 1}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[11px] text-mute mt-1">
+              Solo día y mes — el cumpleaños dispara el saludo automático.
+            </p>
+          </>
+        )}
+
+        {formulario?.extras.map((c) => {
+          const valor = extras[c.id] ?? '';
+          const cambiar = (v: string) => setExtras((x) => ({ ...x, [c.id]: v }));
+          return (
+            <div key={c.id}>
+              <label className="label mt-3">{c.etiqueta}</label>
+              {c.tipo === 'opciones' ? (
+                <select
+                  className="input w-full"
+                  value={valor}
+                  onChange={(e) => cambiar(e.target.value)}
+                >
+                  <option value="">Sin respuesta</option>
+                  {/* La opción que el negocio retiró sigue siendo su respuesta. */}
+                  {[...new Set([...(c.opciones ?? []), ...(valor ? [valor] : [])])].map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="input w-full"
+                  type={c.tipo === 'fecha' ? 'date' : 'text'}
+                  inputMode={c.tipo === 'numero' ? 'decimal' : undefined}
+                  value={valor}
+                  onChange={(e) => cambiar(e.target.value)}
+                />
+              )}
+            </div>
+          );
+        })}
 
         <div className="flex justify-end gap-2 mt-5">
           <button className="btn-ghost" onClick={onClose} disabled={busy}>
@@ -1279,6 +1360,11 @@ export default function CustomerDetail() {
   const router = useRouter();
   const [c, setC] = useState<Customer | null>(null);
   const [editing, setEditing] = useState(false);
+  // Filtro de «Actividad de sellos». La ficha trae solo los 50 sellos más
+  // recientes del cliente: filtrarlos aquí dejaría fuera lo viejo de la tarjeta
+  // elegida, así que se piden los suyos.
+  const [tarjetaFiltro, setTarjetaFiltro] = useState('');
+  const [sellosDeTarjeta, setSellosDeTarjeta] = useState<Stamp[] | null>(null);
   const [pushOpen, setPushOpen] = useState(false);
   const [tenantMoney, setTenantMoney] = useState<{ currency: string; currencySymbol: string | null }>({
     currency: 'COP',
@@ -1286,6 +1372,18 @@ export default function CustomerDetail() {
   });
   const [tenantCountry, setTenantCountry] = useState<string | undefined>();
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    setSellosDeTarjeta(null);
+    if (!tarjetaFiltro) return;
+    let vigente = true;
+    api<Stamp[]>(`/stamps/history/${tarjetaFiltro}`)
+      .then((s) => vigente && setSellosDeTarjeta(s))
+      .catch((e: any) => toast(e.message || 'No se pudo cargar la tarjeta', 'error'));
+    return () => {
+      vigente = false;
+    };
+  }, [tarjetaFiltro]);
 
   async function load() {
     try {
@@ -1328,6 +1426,8 @@ export default function CustomerDetail() {
   }
 
   if (!c) return <div className="text-mute">{t('loading')}</div>;
+
+  const sellosVisibles = tarjetaFiltro ? (sellosDeTarjeta ?? []) : c.stamps;
 
   const lifetimeAvg =
     c.totalOrdersCount > 0
@@ -1472,6 +1572,12 @@ export default function CustomerDetail() {
               <span className="text-mute">{t('birthday')}</span>
               <span>{fmtBirthday(c.birthday)}</span>
             </div>
+            {Object.entries(c.datosDelRegistro ?? {}).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3 py-1 border-t border-line2">
+                <span className="text-mute">{v.etiqueta}</span>
+                <span className="text-right break-words min-w-0">{v.valor}</span>
+              </div>
+            ))}
           </div>
 
           <MergeIntoThisCustomer customer={c} onMerged={load} />
@@ -1586,11 +1692,26 @@ export default function CustomerDetail() {
           {c.stamps.length > 0 && (
             <div className="card card-pad">
               <div className="flex items-start justify-between gap-3 mb-3">
-                <h3 className="font-semibold m-0">
-                  {t('stampActivity', { count: c.stamps.length })}
-                </h3>
+                <div className="min-w-0">
+                  <h3 className="font-semibold m-0">
+                    {t('stampActivity', { count: sellosVisibles.length })}
+                  </h3>
+                  {c.passes.length > 1 && (
+                    <select
+                      className="input mt-2 text-sm"
+                      aria-label="Filtrar por tarjeta"
+                      value={tarjetaFiltro}
+                      onChange={(e) => setTarjetaFiltro(e.target.value)}
+                    >
+                      <option value="">Todas las tarjetas</option>
+                      {c.passes.map((p) => (
+                        <option key={p.id} value={p.id}>{p.card.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 {(() => {
-                  const stampsWithAmt = c.stamps.filter(
+                  const stampsWithAmt = sellosVisibles.filter(
                     (s) => s.purchaseAmount != null && Number(s.purchaseAmount) > 0,
                   );
                   if (stampsWithAmt.length === 0) return null;
@@ -1615,7 +1736,7 @@ export default function CustomerDetail() {
                 })()}
               </div>
               <div className="space-y-1.5 text-sm">
-                {c.stamps.slice(0, 15).map((s) => {
+                {sellosVisibles.slice(0, tarjetaFiltro ? 100 : 15).map((s) => {
                   const amt = s.purchaseAmount != null ? Number(s.purchaseAmount) : null;
                   return (
                     <div

@@ -10,6 +10,7 @@ import { AutomationsService } from '../automations/automations.service';
 import { PassesService } from '../passes/passes.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
+import { resumirConsumo } from './consumo-de-la-tarjeta';
 import {
   qrHeredados,
   sincronizarEstado,
@@ -1331,10 +1332,37 @@ export class StampsService {
         passId,
         ...(user.role !== 'SUPER_ADMIN' ? { tenantId: user.tenantId ?? '' } : {}),
       },
-      include: { operator: { select: { fullName: true } }, location: true },
+      include: {
+        operator: { select: { fullName: true } },
+        location: true,
+        order: { select: { code: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+  }
+
+  async consumo(user: AuthUser, passId: string) {
+    const pass = await this.prisma.pass.findFirst({
+      where: {
+        id: passId,
+        ...(user.role !== 'SUPER_ADMIN' ? { tenantId: user.tenantId ?? '' } : {}),
+      },
+      select: { tenant: { select: { currency: true, currencySymbol: true } } },
+    });
+    if (!pass) throw new NotFoundException('Pass');
+    const filas = await this.prisma.stamp.findMany({
+      where: { passId },
+      select: {
+        action: true,
+        purchaseAmount: true,
+        giftReason: true,
+        redeemKind: true,
+        orderId: true,
+        createdAt: true,
+      },
+    });
+    return { ...resumirConsumo(filas), moneda: pass.tenant };
   }
 
   /**

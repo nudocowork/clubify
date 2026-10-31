@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { primaryHrefForUser } from '@/lib/modules';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
+import { ConsumoDeLaTarjeta } from '@/components/ConsumoDeLaTarjeta';
 import { playScanSuccess, playScanError } from '@/lib/notify';
 
 const SCANNER_SESSION_HOURS = 6;
@@ -1427,6 +1428,12 @@ export default function ScanPage() {
                   {Number(data.pass.tierProgress ?? 0).toLocaleString('es-CO')}
                 </div>
               </div>
+            )}
+
+            {/* Antes de los botones: es lo que el cajero mira para decidir el
+                premio. */}
+            {['STAMPS', 'HYBRID', 'VISITS'].includes(data.pass.card.type) && (
+              <ConsumoDeLaTarjeta passId={data.pass.id} version={data.pass.lastActivityAt} />
             )}
 
             {/* Acciones según el tipo de tarjeta */}
