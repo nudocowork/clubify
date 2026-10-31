@@ -8,6 +8,20 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-10-31 (171) — Sales Wall: avisa cuando entra el pago, no cuando se activa el negocio (SIN DESPLEGAR backend + frontend)
+
+**Caso:** compra por Hotmart sin aviso en el Sales Wall; el Onboarding ya estaba creado. El muro lee `IncomeRecord`, y ese ingreso nace al activar el negocio: el pago sin cuenta queda en `PendingHotmartPayment` hasta entonces. No se pudo mirar esta compra en producción (consulta bloqueada desde esta sesión); `scripts/diag-compra-sales-wall.cjs` muestra en qué paso va cada compra, solo lectura y sin probar.
+
+**Arreglo:** `GET /sales-wall` incluye esos pagos como eventos `pago_recibido` y la pantalla los celebra en la siguiente consulta (15 s). Salen como «Cliente por activar», sin monto ni afiliado, y NO suman a ventas, meta ni ranking hasta que exista el ingreso: el muro sigue cuadrando con Contabilidad. Al activarse, el ingreso lleva `avisoDe`, reemplaza la fila y suma sin celebrar otra vez.
+
+**Filtro `esCompraPorActivar`:** por el mismo producto se cobran servicios sueltos y también caen sin negocio. Solo se anuncia con suscripción, comprador sin cuenta, sin precio 0 de prueba gratis y sin recurrencia mayor a 1. Si hay duda no se anuncia y la venta avisa al activarse, como antes. Ventana de 7 días.
+
+**De paso:** `stop()` no limpiaba `celBusy`; un corte de red en plena celebración dejaba la pantalla sin celebrar hasta recargarla.
+
+**Límites:** el sonido sigue exigiendo un toque en la pantalla por la política del navegador. Con la pestaña en segundo plano la celebración pasa sin que nadie la vea. Un pago reembolsado antes de activarse sigue en la lista hasta 7 días.
+
+**Verificación:** tsc de backend y frontend, eslint de `sales-wall` y vitest `src/sales-wall` (7). Sin revisión visual ni prueba con una compra real.
+
 ## 2026-10-31 (170) — Corregir los datos del cliente y consumo por tarjeta al canjear (SIN DESPLEGAR backend + frontend)
 
 **Pedido de Javier:** poder corregir después del registro el número, nombre, correo, cumpleaños y demás datos; y ver cuánto ha consumido el cliente en cada tarjeta al canjear, para que el premio vaya acorde.

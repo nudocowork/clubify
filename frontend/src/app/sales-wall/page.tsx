@@ -68,6 +68,10 @@ type Evento = {
   negocio: string;
   plan: string;
   confirmed: boolean;
+  /** Pago recibido sin negocio aún: se avisa, pero no suma hasta activarse. */
+  porActivar?: boolean;
+  /** El aviso que ya anunció este ingreso. */
+  avisoDe?: string;
 };
 type Raw = Record<string, any>;
 
@@ -113,7 +117,9 @@ function normalize(raw: Raw): Evento | null {
   const plan = typeof raw.plan === 'string' ? raw.plan : '';
   const id = String(raw.id ?? `${type}-${ts}-${afiliado}-${negocio}`);
   const usd = Number(raw.monto_usd ?? raw.monto ?? raw.amount ?? 0) || 0;
-  return { id, type, usd, ts: Number.isNaN(ts) ? Date.now() : ts, afiliado, negocio, plan, confirmed };
+  const porActivar = estadoRaw === 'pago_recibido';
+  const avisoDe = typeof raw.avisoDe === 'string' ? raw.avisoDe : undefined;
+  return { id, type, usd, ts: Number.isNaN(ts) ? Date.now() : ts, afiliado, negocio, plan, confirmed, porActivar, avisoDe };
 }
 
 const CSS = `
@@ -250,6 +256,9 @@ class SalesWall extends React.Component<Opciones, Estado> {
     this.timers = [];
     clearInterval(this.pollT);
     clearTimeout(this.celT);
+    // Un corte de red en plena celebración dejaba esto en true y la pantalla
+    // no volvía a celebrar nada hasta recargarla.
+    this.celBusy = false;
   }
   restart() {
     this.stop();
@@ -276,7 +285,9 @@ class SalesWall extends React.Component<Opciones, Estado> {
           const yaVistas = leerCelebradas();
           const pendientes = (d.eventos ?? []).filter((e) => {
             const ev = normalize(e);
-            return !!ev && yaVistas !== null && !yaVistas.has(clave(ev)) && Date.now() - ev.ts < CELEBRAR_AL_ABRIR_MS;
+            if (!ev || yaVistas === null || yaVistas.has(clave(ev))) return false;
+            if (ev.avisoDe && yaVistas.has(`${ev.avisoDe}:venta`)) return false;
+            return Date.now() - ev.ts < CELEBRAR_AL_ABRIR_MS;
           });
           const idsPendientes = new Set(pendientes.map((e) => normalize(e)!.id));
           this.ingestMany((d.eventos ?? []).filter((e) => !idsPendientes.has(normalize(e)?.id ?? '')));
@@ -336,6 +347,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
   ingest(raw: Raw, live: boolean) {
     const ev = normalize(raw);
     if (!ev || this.seen.has(clave(ev)) || monthKey(ev.ts) !== this.month) return;
+    const yaAvisada = !!ev.avisoDe && this.seen.has(`${ev.avisoDe}:venta`);
     this.seen.add(clave(ev));
     this.setState(
       (s) => {
@@ -344,7 +356,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
         const previo = s.events.find((e) => e.id === ev.id);
         const quita = (tipo: Tipo) => (previo?.confirmed && previo.type === tipo ? 1 : 0);
         return {
-          events: [ev].concat(s.events.filter((e) => e.id !== ev.id)).sort((a, b) => b.ts - a.ts).slice(0, 400),
+          events: [ev].concat(s.events.filter((e) => e.id !== ev.id && e.id !== ev.avisoDe)).sort((a, b) => b.ts - a.ts).slice(0, 400),
           ventas: s.ventas + (ev.confirmed && ev.type === 'venta' ? 1 : 0) - quita('venta'),
           renov: s.renov + (ev.confirmed && ev.type === 'renov' ? 1 : 0) - quita('renov'),
           usd: s.usd + (ev.confirmed ? ev.usd : 0) - (previo?.confirmed ? previo.usd : 0),
@@ -352,7 +364,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
       },
       () => {
         // Sin renovaciones, una renovación cuenta en silencio: no se celebra.
-        if (live && ev.confirmed && (this.state.incluirRenov || ev.type === 'venta')) {
+        if (live && !yaAvisada && (ev.confirmed || ev.porActivar) && (this.state.incluirRenov || ev.type === 'venta')) {
           this.queue.push(ev);
           if (!this.state.cel && !this.celBusy) this.showNext();
         } else this.tweenCounts();
@@ -838,7 +850,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
                 const flash = e.id === s.flashId;
                 return (
                   <div key={e.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(max-content,auto) minmax(0,1.6fr) minmax(0,1.3fr) minmax(0,1fr) minmax(max-content,auto)', gap: 'clamp(10px,1vw,24px)', alignItems: 'center', padding: 'clamp(10px,.8vw,18px) clamp(16px,1.4vw,32px)', borderTop: '1px solid var(--line)', background: flash ? (isV ? 'var(--venta-soft)' : 'var(--renov-soft)') : 'transparent', transition: 'background 1.2s ease', fontSize: 'clamp(13px,.95vw,22px)' }}>
-                    <span className="sw-pill" style={{ background: isV ? 'var(--venta-soft)' : 'var(--renov-soft)', color: isV ? 'var(--venta)' : 'var(--renov)', justifySelf: 'start' }}>{isV ? 'Venta nueva' : 'Renovación'}</span>
+                    <span className="sw-pill" style={{ background: isV ? 'var(--venta-soft)' : 'var(--renov-soft)', color: isV ? 'var(--venta)' : 'var(--renov)', justifySelf: 'start' }}>{e.porActivar ? 'Pago recibido' : isV ? 'Venta nueva' : 'Renovación'}</span>
                     <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={e.negocio}>{e.negocio}</span>
                     <span style={{ color: 'var(--ink2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={e.afiliado}>{e.afiliado}</span>
                     <span className="sw-col-plan" style={{ color: 'var(--mute)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.plan || '—'}</span>
@@ -918,7 +930,7 @@ class SalesWall extends React.Component<Opciones, Estado> {
               <div style={{ fontWeight: 800, fontSize: 'clamp(32px,3.6vw,96px)', letterSpacing: '-0.02em', color: celColor, lineHeight: 1.05 }}>{cv ? '¡Nueva venta!' : '¡Nueva renovación!'}</div>
               <div style={{ fontWeight: 700, fontSize: 'clamp(22px,2.2vw,56px)' }}>{cel.negocio}</div>
               <div style={{ fontSize: 'clamp(16px,1.4vw,36px)', color: 'var(--ink2)' }}>
-                Vendido por <b style={{ color: 'var(--ink)' }}>{cel.afiliado}</b>
+                {cel.porActivar ? 'Pago recibido' : <>Vendido por <b style={{ color: 'var(--ink)' }}>{cel.afiliado}</b></>}
                 {cel.plan ? ` · ${cel.plan}` : ''}
               </div>
               <div style={{ fontSize: 'clamp(15px,1.25vw,32px)', color: 'var(--mute)', textWrap: 'balance' } as React.CSSProperties}>{cv ? MSG_V : MSG_R}</div>

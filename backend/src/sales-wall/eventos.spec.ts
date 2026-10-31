@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { afiliadoQueVendio, nombreDelPlan, tipoDeIngreso } from './eventos';
+import { afiliadoQueVendio, esCompraPorActivar, nombreDelPlan, planDelPago, tipoDeIngreso } from './eventos';
 
 describe('Sales Wall · reglas', () => {
   it('NUEVA es venta; RENOVACION y UPGRADE, renovación; lo demás no sale', () => {
@@ -31,5 +31,29 @@ describe('Sales Wall · reglas', () => {
     expect(nombreDelPlan('MENSUAL', 25)).toBe('Mensualidad básica');
     expect(nombreDelPlan('MENSUAL', 68)).toBe('Plan Mensual');
     expect(nombreDelPlan(null, 50)).toBe('');
+  });
+
+  describe('compra por activar', () => {
+    const pago = (compra: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+      subscriberCode: 'SUB1',
+      compradorTieneCuenta: false,
+      rawPayload: { data: { purchase: compra, subscription: { plan: { name: ' Plan Anual ' } } } },
+      ...extra,
+    }) as Parameters<typeof esCompraPorActivar>[0];
+
+    it('una suscripción nueva de quien no tiene cuenta se anuncia', () => {
+      expect(esCompraPorActivar(pago({ price: { value: 500 }, recurrence_number: 1 }))).toBe(true);
+      expect(planDelPago(pago({}).rawPayload)).toBe('Plan Anual');
+    });
+
+    it('un servicio suelto no es una venta: sin suscripción o con cuenta no se anuncia', () => {
+      expect(esCompraPorActivar(pago({ price: { value: 20 } }, { subscriberCode: null }))).toBe(false);
+      expect(esCompraPorActivar(pago({ price: { value: 20 } }, { compradorTieneCuenta: true }))).toBe(false);
+    });
+
+    it('ni la prueba gratis ni una recurrencia se anuncian como venta', () => {
+      expect(esCompraPorActivar(pago({ price: { value: 0 } }))).toBe(false);
+      expect(esCompraPorActivar(pago({ price: { value: 68 }, recurrence_number: 2 }))).toBe(false);
+    });
   });
 });

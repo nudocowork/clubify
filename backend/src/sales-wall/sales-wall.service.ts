@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { brandWhiteLabelWhere, resolveBrandScope } from '../common/white-label/brand-scope.util';
 import { limitesDelMes, mesContableActual } from '../common/periodo-contable';
-import { afiliadoQueVendio, nombreDelPlan, tipoDeIngreso, type TipoDeEvento } from './eventos';
+import { afiliadoQueVendio, esCompraPorActivar, nombreDelPlan, planDelPago, tipoDeIngreso, type TipoDeEvento } from './eventos';
+
+/** Más viejo que esto ya no es noticia: el mismo límite del aviso al equipo. */
+const VENTANA_PAGO_POR_ACTIVAR_MS = 7 * 24 * 3600e3;
 
 export interface EventoDelMuro {
   id: string;
@@ -12,7 +15,10 @@ export interface EventoDelMuro {
   plan: string;
   monto_usd: number;
   fecha: string;
-  estado: 'confirmada';
+  /** `pago_recibido`: se avisa, pero no suma hasta que exista en Contabilidad. */
+  estado: 'confirmada' | 'pago_recibido';
+  /** El aviso que ya anunció este ingreso: al activarse no se celebra otra vez. */
+  avisoDe?: string;
 }
 
 export interface ServicioDelMes {
@@ -70,9 +76,23 @@ export class SalesWallService {
         planPeriodicity: true,
         grossUsd: true,
         saleDate: true,
+        gateway: true,
+        externalTxId: true,
       },
       take: 500,
     });
+
+    const txsHotmart = filas
+      .filter((f) => f.gateway === 'HOTMART')
+      .map((f) => f.externalTxId)
+      .filter((x): x is string => !!x);
+    const avisados = txsHotmart.length
+      ? await this.prisma.pendingHotmartPayment.findMany({
+          where: { transactionId: { in: txsHotmart } },
+          select: { id: true, transactionId: true },
+        })
+      : [];
+    const avisoPorTx = new Map(avisados.map((p) => [p.transactionId, `pago_${p.id}`]));
 
     const idsNegocio = [...new Set(filas.map((f) => f.tenantId).filter((x): x is string => !!x))];
     const idsGrupo = [...new Set(filas.map((f) => f.businessGroupId).filter((x): x is string => !!x))];
@@ -122,11 +142,15 @@ export class SalesWallService {
         monto_usd: Math.round(usd * 100) / 100,
         fecha: f.saleDate.toISOString(),
         estado: 'confirmada',
+        ...(f.gateway === 'HOTMART' && f.externalTxId && avisoPorTx.has(f.externalTxId)
+          ? { avisoDe: avisoPorTx.get(f.externalTxId) }
+          : {}),
       });
       if (tipo === 'venta') ventas++;
       else renovaciones++;
       monto += usd;
     }
+    eventos.push(...(await this.pagosPorActivar(limites, ahora, scope, new Set(txsHotmart))));
     return {
       ventas,
       renovaciones,
@@ -134,6 +158,56 @@ export class SalesWallService {
       eventos,
       servicios: await this.serviciosDelMes(limites, scope),
     };
+  }
+
+  /**
+   * Compras ya pagadas en Hotmart cuyo negocio aún no existe. Van sin monto ni
+   * afiliado: el precio y quién vendió se resuelven al activar, y el muro debe
+   * seguir cuadrando con Contabilidad.
+   */
+  private async pagosPorActivar(
+    limites: { from: Date; to: Date },
+    ahora: Date,
+    scope: Awaited<ReturnType<typeof resolveBrandScope>>,
+    txsConIngreso: Set<string>,
+  ): Promise<EventoDelMuro[]> {
+    const desde = new Date(Math.max(limites.from.getTime(), ahora.getTime() - VENTANA_PAGO_POR_ACTIVAR_MS));
+    const pagos = await this.prisma.pendingHotmartPayment.findMany({
+      where: {
+        consumedAt: null,
+        createdAt: { gte: desde, lte: limites.to },
+        ...brandWhiteLabelWhere(scope),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, email: true, subscriberCode: true, transactionId: true, rawPayload: true, createdAt: true },
+      take: 50,
+    });
+    if (!pagos.length) return [];
+    const conCuenta = await this.prisma.user.findMany({
+      where: { email: { in: [...new Set(pagos.map((p) => p.email))] } },
+      select: { email: true },
+    });
+    const correos = new Set(conCuenta.map((u) => u.email));
+    return pagos
+      .filter(
+        (p) =>
+          !(p.transactionId && txsConIngreso.has(p.transactionId)) &&
+          esCompraPorActivar({
+            subscriberCode: p.subscriberCode,
+            rawPayload: p.rawPayload,
+            compradorTieneCuenta: correos.has(p.email),
+          }),
+      )
+      .map((p) => ({
+        id: `pago_${p.id}`,
+        tipo: 'venta' as const,
+        afiliado: 'Por confirmar',
+        negocio: 'Cliente por activar',
+        plan: planDelPago(p.rawPayload),
+        monto_usd: 0,
+        fecha: p.createdAt.toISOString(),
+        estado: 'pago_recibido' as const,
+      }));
   }
 
   private async serviciosDelMes(
