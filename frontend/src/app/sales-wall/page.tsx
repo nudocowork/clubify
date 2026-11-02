@@ -17,7 +17,7 @@ import { api } from '@/lib/api';
  * cuenta sin celebrar y las siguientes celebran lo nuevo.
  *
  * Opciones por URL, para no tocar código desde la TV:
- *   ?meta=4000    meta mensual en USD (sin ella, la de octubre 2026: 4.000)
+ *   ?meta=10000   meta mensual en USD (sin ella, la de noviembre 2026: 10.000)
  *   ?cada=15      segundos entre consultas
  *   ?tema=oscuro  o claro; si no, el último elegido o el del sistema
  *   ?renovaciones=no  sin renovaciones (no se ven ni suman a la meta)
@@ -1008,7 +1008,8 @@ export default function SalesWallPage() {
     setOp({
       incluirRenov: pedidoRenov !== 'no',
       demo: q.get('demo') === '1',
-      meta: Number.isFinite(meta) && meta > 0 ? meta : 4000,
+      // Octubre cumplió los 4.000; noviembre sube a 10.000 (Javier, 2026-11-02).
+      meta: Number.isFinite(meta) && meta > 0 ? meta : 10000,
       cada: Number.isFinite(cada) && cada >= 5 ? cada : 15,
       tema,
     });

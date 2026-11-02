@@ -8,6 +8,10 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-02 (172) — Sales Wall: meta del mes en USD 10.000 (SIN DESPLEGAR frontend)
+
+Octubre cumplió la meta de 4.000. La meta por defecto pasa a 10.000 en `frontend/src/app/sales-wall/page.tsx`: la ve cualquier pantalla abierta sin `?meta=`, incluido el enlace del menú. Una dirección guardada con `?meta=4000` sigue mandando sobre esto. Sigue sin haber ajuste desde el panel.
+
 ## 2026-10-31 (171) — Sales Wall: avisa cuando entra el pago, no cuando se activa el negocio (SIN DESPLEGAR backend + frontend)
 
 **Caso:** compra por Hotmart sin aviso en el Sales Wall; el Onboarding ya estaba creado. El muro lee `IncomeRecord`, y ese ingreso nace al activar el negocio: el pago sin cuenta queda en `PendingHotmartPayment` hasta entonces. No se pudo mirar esta compra en producción (consulta bloqueada desde esta sesión); `scripts/diag-compra-sales-wall.cjs` muestra en qué paso va cada compra, solo lectura y sin probar.
