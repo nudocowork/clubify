@@ -8,6 +8,24 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (173) — Auditoría del cierre de octubre contra el reporte de Hotmart (solo lectura, NADA corregido)
+
+Javier mandó el export de Hotmart (44 transacciones, 1–31 oct) para cerrar octubre y pagar el corte del 31-10. Se cruzó con `IncomeRecord`, `HotmartWebhookEvent`, negocios, comisiones y `PayoutBatch` con consultas de solo lectura. Los hallazgos se le mandaron a Sara en 4 SMS por la línea de soporte de Clubify (`scripts/enviar-aviso-interno.cjs clubify`, switch 2). No se tocó ningún dato.
+
+**Cuadra:** las 44 transacciones están en Contabilidad. Las 3 pruebas gratis no suman: FLAME BURGER sin ingreso, Licorera 27° y Clínica del Celular CANCELADO. El contracargo de Dinorolls (2-nov) ya está REEMBOLSADO y su comisión anulada.
+
+**Ingresos mal registrados (octubre inflado en ~USD 506):**
+- **ALTIERI HP0110063075:** la oferta `ticqog5c` es el «Paquete de Alianzas» (USD 16,85, suscripción propia `1CNGARX4`). El webhook la tomó como RENOVACIÓN semestral de USD 278, cambió el `hotmartSubscriberCode` del negocio (era `UPLT7WYL`, el semestral del 6-jul) y le puso `currentPeriodEnd` el 16-nov. **Bug de código**: una oferta que no es plan se procesa como cobro del plan. Riesgo de suspensión falsa el 16-nov y de que la renovación semestral de enero no case. Comisión de USD 27,80 en el corte del 31-10.
+- **El Tiros Club HP0433360468** y **la burguesía HP2847213770:** registrados como trimestral de USD 150, pero pagan `vkfveas1` («Clubify - Tarjeta de fidelización», mensual de unos 50 USD). En Clubify los dos figuran TRIMESTRAL. El Tiros conserva además su trimestral viejo `8SDDLI3P` reintentando el cobro.
+- **El Carrito HP1022001691:** `shoro1ov`, Mensualidad básica de 25 USD (`subscriptionPriceUsd` 25), registrado en 68 y con comisión sobre 68.
+- **Café Macondo:** `subscriptionPriceUsd` 52,24 (artefacto de cambio, como Quipao en septiembre).
+
+**Corte del 31-10 (abierto, USD 316,17):** sobra ALTIERI (USD 27,80). El 2 % de Sara (92,27 sobre 4.613,66) baja a unos 82,15 con la base corregida. Quedan por verificar Fusion sushi (USD 7,50; la pagó `kimberlyn@soyclubify.com`, dueña de la cuenta del negocio, y su suscripción vieja `VX2HL0IX` sigue reintentando) y la comisión de Gabriel en Enchurrados (USD 7,50, sin `hotmartTransactionId`). Con esas correcciones queda en unos USD 278,25.
+
+**Fuera del corte:** Apitz Beauty (NUEVA del 29-oct) sin comisión. Drive Pizza: anual reembolsado el 10-oct (HP2009265423); Samuel Navarro cobró USD 25 el 17-sep y el negocio sigue ACTIVE. Las Ricuras de Sebastián compró con el cupón PAGO130. La comisión del grupo Mística no tiene `businessDate`. `netReceivedUsd` está vacío en todos los cobros de octubre: el libro estima la comisión de Hotmart en 8,6 %, y la real fue de 10,6 a 10,9 %; eso toca el neto del socio. Cobros fallidos sin recuperar: MOTILART, Piatto-Prestto, AutoTech, RIKAS, Piedra Negra, VIIDA, CHANFLE, ATHOS, Paicoat, Surticolor y Konys.
+
+**Pendiente de decisión (Javier o Sara):** corregir los 5 ingresos y sus comisiones antes de cerrar el corte; arreglar en código que una oferta que no es plan (Alianzas) mueva el ciclo del negocio; restaurar el código `UPLT7WYL` y el vencimiento de ALTIERI antes del 16-nov.
+
 ## 2026-11-02 (172) — Sales Wall: meta del mes en USD 10.000 (SIN DESPLEGAR frontend)
 
 Octubre cumplió la meta de 4.000. La meta por defecto pasa a 10.000 en `frontend/src/app/sales-wall/page.tsx`: la ve cualquier pantalla abierta sin `?meta=`, incluido el enlace del menú. Una dirección guardada con `?meta=4000` sigue mandando sobre esto. Sigue sin haber ajuste desde el panel.
