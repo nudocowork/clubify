@@ -8,6 +8,17 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (178) — Entrada 177 DESPLEGADA y script APLICADO; Sara avisada
+
+- Backend y frontend de e86cd896 en producción: `/api/admin/contabilidad/gastos-operativos`
+  responde 401 (antes 404) y el chunk de `/admin/contabilidad` trae la grilla.
+- `corregir-egresos-y-macondo-2026-11.cjs --aplicar` verificado en la base: egreso
+  duplicado de 71,48 borrado, pauta de octubre 398,92, Macondo comisión 5,00 e
+  ingreso de septiembre 50.
+- Las respuestas del PDF eran de **Sara**, no de Javier (la 177 dice «Javier»).
+- SMS a Sara: 01WniJhPFnSh0EBj7sFB.
+- Pendiente de Sara: enlazar los abonos en Finanzas → Abonos y confirmar la TRM de la pauta.
+
 ## 2026-11-03 (177) — Gastos operativos en la cascada; egreso duplicado de Sara y pauta en pesos; Macondo a 50 (SIN DESPLEGAR, script SIN APLICAR)
 
 **Estado al escribir esto:** la entrada 176 ya está aplicada y desplegada
