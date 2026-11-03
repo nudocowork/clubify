@@ -8,6 +8,7 @@ import {
 } from '@/lib/lista-de-proximos-cobros.mjs';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { GastosOperativosMeses } from '@/components/contabilidad/GastosOperativosMeses';
 import {
   SelectorPeriodo,
   diaEnPeriodo,
@@ -705,25 +706,11 @@ export default function ContabilidadPage() {
           {tab === 'gastos' && (
             <>
               <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-                <p className="text-mute text-sm m-0">Gastos que se repiten cada período (el sistema genera el compromiso; no lo marca pagado solo).</p>
+                <p className="text-mute text-sm m-0">Gastos que se repiten cada mes. Se restan en la cascada de utilidad de todos los meses desde mayo de 2026.</p>
                 <button className="btn-primary rounded-pill text-sm" onClick={() => setShowRec(true)}>+ Nuevo gasto recurrente</button>
               </div>
               {recs.length === 0 ? <EmptyState what="gastos recurrentes" cta={() => setShowRec(true)} /> : (
-                <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[800px]">
-                  <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
-                    <th className="px-4 py-3 font-semibold">Concepto</th><th className="px-4 py-3 font-semibold">Categoría</th><th className="px-4 py-3 font-semibold">Proveedor</th><th className="px-4 py-3 font-semibold text-right">Monto</th><th className="px-4 py-3 font-semibold">Periodicidad</th><th className="px-4 py-3 font-semibold">Estado</th>
-                  </tr></thead>
-                  <tbody>{recs.map((r) => (
-                    <tr key={r.id} className="border-t border-line2 hover:bg-bg2/40">
-                      <td className="px-4 py-3 font-semibold">{r.concept}</td>
-                      <td className="px-4 py-3">{r.categoryId ? catName[r.categoryId] ?? '—' : '—'}</td>
-                      <td className="px-4 py-3 text-mute">{r.supplier ?? '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{money(r.amountUsd)}</td>
-                      <td className="px-4 py-3">{r.periodicity}</td>
-                      <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${r.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{r.active ? 'Activo' : 'Inactivo'}</span></td>
-                    </tr>
-                  ))}</tbody>
-                </table></div></div>
+                <GastosOperativosMeses scope={scope} catName={catName} onCambio={() => void load()} />
               )}
             </>
           )}

@@ -2,7 +2,19 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { enRango } from './where-periodo';
 import { alcanceDeMarca, combinar } from './alcance-de-marca';
-import { nombreDelPeriodo } from '../common/periodo-contable';
+import { mesContable, mesContableActual, nombreDelPeriodo } from '../common/periodo-contable';
+import {
+  GastoOperativo,
+  MES_INICIAL,
+  PREFIJO_HISTORIAL,
+  cambiarDesde,
+  esMes,
+  leerHistorial,
+  mesSiguiente,
+  mesesEntre,
+  montoDelMes,
+  totalDelMes,
+} from './gastos-operativos';
 import {
   ES_UN_DIA,
   fechaDentroDelPeriodo,
@@ -245,5 +257,91 @@ export class ExpenseService {
 
   setRecurringActive(id: string, active: boolean) {
     return this.prisma.recurringExpense.update({ where: { id }, data: { active } });
+  }
+
+  // ── Gastos operativos en la cascada (ver `gastos-operativos.ts`) ─────────
+
+  /** Los gastos recurrentes del alcance, cada uno con su historial de montos. */
+  async gastosOperativos(onlyClubify: boolean): Promise<
+    Array<GastoOperativo & { concept: string; categoryId: string | null; supplier: string | null }>
+  > {
+    const [recs, hist] = await Promise.all([
+      this.prisma.recurringExpense.findMany({
+        where: await alcanceDeMarca(this.prisma, onlyClubify),
+        orderBy: [{ active: 'desc' }, { concept: 'asc' }],
+      }),
+      this.prisma.setting.findMany({ where: { key: { startsWith: PREFIJO_HISTORIAL } } }),
+    ]);
+    const porId = new Map(hist.map((h) => [h.key.slice(PREFIJO_HISTORIAL.length), h.value]));
+    return recs.map((r) => ({
+      id: r.id,
+      concept: r.concept,
+      categoryId: r.categoryId,
+      supplier: r.supplier,
+      amountUsd: Number(r.amountUsd),
+      periodicity: r.periodicity,
+      active: r.active,
+      historial: leerHistorial(porId.get(r.id)),
+    }));
+  }
+
+  /**
+   * Total de gastos operativos de un rango. Cuenta meses ENTEROS: el mes de
+   * `from` hasta el de `to`. Sin `from`, desde mayo de 2026; sin `to`, hasta el
+   * mes en curso (los meses futuros no son un gasto todavía).
+   */
+  async gastosOperativosDelRango(opts: { onlyClubify: boolean; from?: Date; to?: Date }) {
+    const desde = opts.from ? mesContable(opts.from) : MES_INICIAL;
+    // `to` es exclusivo (inicio del período siguiente): el último mes es el del
+    // instante anterior.
+    const hasta = opts.to ? mesContable(new Date(opts.to.getTime() - 1)) : mesContableActual();
+    const gastos = await this.gastosOperativos(opts.onlyClubify);
+    const porMes: Record<string, number> = {};
+    let total = 0;
+    for (const m of mesesEntre(desde < MES_INICIAL ? MES_INICIAL : desde, hasta)) {
+      porMes[m] = totalDelMes(gastos, m);
+      total += porMes[m];
+    }
+    return { totalUsd: Math.round(total * 100) / 100, porMes };
+  }
+
+  /** La grilla de la pestaña: cada gasto por mes, de mayo de 2026 a `hasta`. */
+  async grillaGastosOperativos(onlyClubify: boolean, hasta?: string) {
+    const actual = mesContableActual();
+    // Por defecto, seis meses por delante del actual: lo que se planea de verdad.
+    let fin = hasta && esMes(hasta) ? hasta : actual;
+    if (!hasta) for (let i = 0; i < 6; i++) fin = mesSiguiente(fin);
+    const meses = mesesEntre(MES_INICIAL, fin);
+    const gastos = await this.gastosOperativos(onlyClubify);
+    return {
+      mesActual: actual,
+      meses,
+      gastos: gastos.map((g) => ({
+        id: g.id,
+        concept: g.concept,
+        categoryId: g.categoryId,
+        supplier: g.supplier,
+        periodicity: g.periodicity,
+        active: g.active,
+        montos: Object.fromEntries(meses.map((m) => [m, montoDelMes(g, m)])),
+      })),
+      totales: Object.fromEntries(meses.map((m) => [m, totalDelMes(gastos, m)])),
+    };
+  }
+
+  /** Cambia lo que cuesta un gasto desde `mes` en adelante. */
+  async cambiarMontoDesde(id: string, mes: string, montoUsd: number) {
+    const g = (await this.gastosOperativos(false)).find((x) => x.id === id);
+    if (!g) throw new BadRequestException('Ese gasto operativo no existe.');
+    let historial;
+    try {
+      historial = cambiarDesde(g, mes, Number(montoUsd), mesContableActual());
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    const key = `${PREFIJO_HISTORIAL}${id}`;
+    const value = JSON.stringify(historial);
+    await this.prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
+    return { ok: true as const, historial };
   }
 }

@@ -49,6 +49,11 @@ class CategoryBody {
 class CategoryActiveBody {
   @IsBoolean() active!: boolean;
 }
+class MontoDesdeBody {
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'El mes va en formato AAAA-MM.' })
+  desde!: string;
+  @IsNumber() montoUsd!: number;
+}
 class RecurringBody {
   @IsString() concept!: string;
   @IsOptional() @IsString() categoryId?: string;
@@ -131,5 +136,16 @@ export class ExpensesController {
   @Patch('gastos-recurrentes/:id')
   recurrenteActivo(@Param('id') id: string, @Body() body: CategoryActiveBody) {
     return this.expenses.setRecurringActive(id, body.active);
+  }
+
+  // ── Gastos operativos por mes (cuentan en la cascada desde mayo de 2026) ──
+  @Get('gastos-operativos')
+  gastosOperativos(@Query('scope') scope?: string, @Query('hasta') hasta?: string) {
+    return this.expenses.grillaGastosOperativos(scope !== 'all', hasta);
+  }
+
+  @Patch('gastos-operativos/:id/monto')
+  cambiarMonto(@Param('id') id: string, @Body() body: MontoDesdeBody) {
+    return this.expenses.cambiarMontoDesde(id, body.desde, body.montoUsd);
   }
 }

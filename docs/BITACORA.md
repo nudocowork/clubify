@@ -8,6 +8,42 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (177) — Gastos operativos en la cascada; egreso duplicado de Sara y pauta en pesos; Macondo a 50 (SIN DESPLEGAR, script SIN APLICAR)
+
+**Estado al escribir esto:** la entrada 176 ya está aplicada y desplegada
+(Ricuras 130, El Carrito 2,50, EQUIPO-2026-10-31 en 81,75; `/admin/contabilidad/abonos`
+responde). Lo de esta entrada está subido pero **no desplegado** y su script
+**no se ha corrido**.
+
+**Gastos operativos en la cascada** (pedido de Javier):
+- Los `RecurringExpense` (Railway 30, Canva 5, Capcut 15, Neon 110, Vercel 150,
+  Manychat 45, Drive 5, Traficker 110 = 470/mes, creados hoy) cuentan en
+  **todos los meses desde mayo de 2026** y se restan en su propia línea:
+  `Neto − Egresos − Gastos operativos − Nómina − Comisiones − Socio`.
+- No se generan egresos por mes. El monto de cada mes se DERIVA de un
+  historial en `Setting` `gastoOperativo.<id>` (`{"2026-12": 200}` = desde
+  diciembre vale 200, hasta el siguiente cambio). Así no hay cambio de esquema.
+- Solo se cambian el mes en curso y los futuros (lo pidió así; un mes pasado no
+  cambia de utilidad por tocar diciembre). Inactivo = no cuenta en ningún mes;
+  para dejar de contarlo desde un mes se pone 0 desde ese mes.
+- Cuenta meses ENTEROS: un rango «del 1 al 15» suma el mes completo.
+- Pestaña «Gastos operativos»: grilla mayo → 6 meses adelante, celdas editables.
+- Ningún mes estaba cerrado (`FinancialClose` vacío): mayo–octubre cambian de
+  utilidad en −470 cada uno al desplegar.
+
+**Script `backend/scripts/corregir-egresos-y-macondo-2026-11.cjs`** (ensayo OK):
+1. Borra el egreso «Comisión 2% Sara» de 71,48 del 30-sep (id 4a9e9b67…): es
+   EQUIPO-2026-09-30, ya en Comisiones (pagada el 16-oct). Imprime la fila antes.
+   El de 45 del 1-sep NO se toca: no hay comisión EQUIPO de agosto.
+2. «Pauta Publicitaria Octubre» 1,26 → 398,92 USD (1.263.338 COP / TRM 3.166,91
+   del 30-oct). `--tasa=` para usar la del extracto.
+3. Café Macondo = mensual start de 50 (Javier confirmó): comisión de octubre
+   5,22 → 5,00; ingreso de septiembre 52,24 → 50. El 2 % de Sara de septiembre
+   ya pagado no se toca (serían 0,04).
+
+**Decisión de Javier:** los 5 USD de más de la burguesía en septiembre se
+quedan así; desde ahora, cualquier comisión pagada de más se avisa.
+
 ## 2026-11-03 (176) — Abonos de 20: apartado propio y venta con abono contada una sola vez; PM con nombre; renovación de grupos (SIN DESPLEGAR, script SIN APLICAR)
 
 Respuestas de Javier al cierre de octubre, segunda vuelta.

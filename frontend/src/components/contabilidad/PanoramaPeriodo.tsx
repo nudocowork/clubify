@@ -44,6 +44,9 @@ export type Cascada = {
   netUsd: number;
   netReceivedUsd: number;
   egresosUsd: number;
+  /** Gastos operativos recurrentes (Railway, Vercel…): cuentan cada mes desde
+   *  mayo de 2026. Opcional mientras el backend nuevo no esté desplegado. */
+  gastosOperativosUsd?: number;
   nominaUsd: number;
   /** Comisiones REALMENTE pagadas en el período: el dinero que salió. */
   comisionesUsd: number;
@@ -74,6 +77,7 @@ export type Panorama = {
     grossUsd: number;
     netUsd: number;
     egresosUsd: number;
+    gastosOperativosUsd?: number;
     nominaUsd: number;
     comisionesUsd: number;
     socioUsd?: number;
@@ -85,6 +89,7 @@ export type Panorama = {
 const COSTO = [
   { k: 'feeImp', label: 'Fee + impuestos', color: '#2a78d6' },
   { k: 'egresosUsd', label: 'Egresos', color: '#eb6834' },
+  { k: 'gastosOperativosUsd', label: 'Gastos operativos', color: '#d6457a' },
   { k: 'nominaUsd', label: 'Nómina', color: '#1baf7a' },
   { k: 'comisionesUsd', label: 'Comisiones pagadas', color: '#eda100' },
   { k: 'socioUsd', label: 'Socio', color: '#8b6fd6' },
@@ -220,15 +225,17 @@ export function PanoramaPeriodo({
   const contra = nombreAnterior ?? '';
   const feeImp = r.gatewayFeeUsd + r.taxUsd;
   const socio = r.socioUsd ?? 0;
-  const costos = feeImp + r.egresosUsd + r.nominaUsd + r.comisionesUsd + socio;
+  const operativos = r.gastosOperativosUsd ?? 0;
+  const costos = feeImp + r.egresosUsd + operativos + r.nominaUsd + r.comisionesUsd + socio;
   const margen = r.grossUsd > 0 ? Math.round((r.utilidadUsd / r.grossUsd) * 100) : null;
 
   const partes = [
     { label: COSTO[0].label, color: COSTO[0].color, valor: feeImp },
     { label: COSTO[1].label, color: COSTO[1].color, valor: r.egresosUsd },
-    { label: COSTO[2].label, color: COSTO[2].color, valor: r.nominaUsd },
-    { label: COSTO[3].label, color: COSTO[3].color, valor: r.comisionesUsd },
-    { label: COSTO[4].label, color: COSTO[4].color, valor: socio },
+    { label: COSTO[2].label, color: COSTO[2].color, valor: operativos },
+    { label: COSTO[3].label, color: COSTO[3].color, valor: r.nominaUsd },
+    { label: COSTO[4].label, color: COSTO[4].color, valor: r.comisionesUsd },
+    { label: COSTO[5].label, color: COSTO[5].color, valor: socio },
     {
       label: 'Utilidad',
       color: r.utilidadUsd >= 0 ? '#16A34A' : '#DC2626',
@@ -305,7 +312,7 @@ export function PanoramaPeriodo({
           <Variacion actual={r.netUsd} previo={prev?.netUsd} contra={contra} />
         </Tarjeta>
         <Tarjeta label="Costos del período" valor={money(costos)} sub="fee, impuestos, egresos, nómina, comisiones pagadas y socio">
-          <Variacion actual={costos} previo={prev ? prev.gatewayFeeUsd + prev.taxUsd + prev.egresosUsd + prev.nominaUsd + prev.comisionesUsd + (prev.socioUsd ?? 0) : null} contra={contra} masEsMejor={false} />
+          <Variacion actual={costos} previo={prev ? prev.gatewayFeeUsd + prev.taxUsd + prev.egresosUsd + (prev.gastosOperativosUsd ?? 0) + prev.nominaUsd + prev.comisionesUsd + (prev.socioUsd ?? 0) : null} contra={contra} masEsMejor={false} />
         </Tarjeta>
         <Tarjeta
           destacada
@@ -378,6 +385,7 @@ export function PanoramaPeriodo({
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Fee pasarela + impuestos</span><span className="tabular-nums text-red-600">−{money(feeImp)}</span></div>
               <div className="flex justify-between py-1.5 text-sm border-t border-line2"><span className="font-semibold">= Neto</span><span className="tabular-nums font-semibold">{money(r.netUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(r.egresosUsd)}</span></div>
+              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Gastos operativos</span><span className="tabular-nums text-red-600">−{money(operativos)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(r.nominaUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones pagadas</span><span className="tabular-nums text-red-600">−{money(r.comisionesUsd)}</span></div>
               {/* La etiqueta dice SOBRE QUÉ se calcula: la línea va debajo de

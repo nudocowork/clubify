@@ -313,7 +313,7 @@ describe('comisiones en la cascada', () => {
         refundedUsd: 0, refundedCount: 0, porCategoria: {}, baseDelSocioUsd: 1000,
       }),
     };
-    const expense: any = { summary: async () => ({ totalUsd: 0 }) };
+    const expense: any = { summary: async () => ({ totalUsd: 0 }), gastosOperativosDelRango: async () => ({ totalUsd: 0, porMes: {} }) };
     return new FinanceReportService(prisma, income, expense);
   }
 
@@ -437,7 +437,7 @@ describe('el socio en la cascada', () => {
         };
       },
     };
-    const expense: any = { summary: async () => ({ totalUsd: opts.egresos ?? 0 }) };
+    const expense: any = { summary: async () => ({ totalUsd: opts.egresos ?? 0 }), gastosOperativosDelRango: async () => ({ totalUsd: 0, porMes: {} }) };
     return { svc: new FinanceReportService(prisma, income, expense), prisma };
   }
 
@@ -592,7 +592,7 @@ describe('las comisiones repartidas por corte', () => {
     // Los comprobantes de la transferencia viven aparte (`BatchPersonPayment`).
     // Estos casos miran el REPARTO por corte, no el respaldo: lista vacía.
     prisma.batchPersonPayment = { findMany: async () => [] };
-    return new FinanceReportService(prisma, {} as any, {} as any);
+    return new FinanceReportService(prisma, {} as any, { gastosOperativosDelRango: async () => ({ totalUsd: 0, porMes: {} }) } as any);
   }
 
   const rojas = { code: 'JTK24H9Z', ownerName: 'Nicolas Rojas', role: 'INFLUENCER' };

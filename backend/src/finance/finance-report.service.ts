@@ -23,7 +23,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * (Cierres). Cascada de utilidad, DERIVADA en lectura (no persiste nada):
  *
  *   Bruto − (Fee pasarela + Impuestos) = Neto
- *   Neto − Egresos − Nómina − Comisiones PAGADAS − Socio = UTILIDAD
+ *   Neto − Egresos − Gastos operativos − Nómina − Comisiones PAGADAS − Socio
+ *   = UTILIDAD
+ *
+ * Los gastos operativos (Railway, Vercel, Neon…) cuentan en cada mes desde
+ * mayo de 2026 con el valor vigente ese mes; ver `gastos-operativos.ts`.
  *
  * El socio se lleva su porcentaje de las VENTAS de Clubify: del bruto hasta
  * septiembre de 2026 y del neto desde octubre (Javier, 2026-10-02). Egresos,
@@ -45,6 +49,8 @@ export interface FinancialSummary {
   netUsd: number; // neto esperado (bruto − fee − impuesto)
   netReceivedUsd: number; // neto realmente conciliado
   egresosUsd: number;
+  /** Gastos operativos recurrentes del período (meses enteros). */
+  gastosOperativosUsd: number;
   nominaUsd: number;
   /** Comisiones que YA SE PAGARON en el período: el dinero que salió. */
   comisionesUsd: number;
@@ -81,10 +87,11 @@ export class FinanceReportService {
   ): Promise<FinancialSummary> {
     const wl = await alcanceDeMarca(this.prisma, onlyClubify);
     const rango = { from, to };
-    const [inc, exp, runs, comms, pagadas, socioPorcentaje, ventasClubify] =
+    const [inc, exp, operativos, runs, comms, pagadas, socioPorcentaje, ventasClubify] =
       await Promise.all([
       this.income.summary({ from, to, onlyClubify }),
       this.expense.summary({ from, to, onlyClubify }),
+      this.expense.gastosOperativosDelRango({ onlyClubify, from, to }),
       this.prisma.payrollRun.findMany({
         where: combinar(wl, enRangoConRespaldo('periodEnd', rango)),
         select: { totalUsd: true },
@@ -142,7 +149,12 @@ export class FinanceReportService {
       socioPorcentaje,
     );
     const utilidadUsd = round2(
-      inc.netExpectedUsd - exp.totalUsd - nominaUsd - comisionesUsd - socioUsd,
+      inc.netExpectedUsd -
+        exp.totalUsd -
+        operativos.totalUsd -
+        nominaUsd -
+        comisionesUsd -
+        socioUsd,
     );
     return {
       grossUsd: inc.grossUsd,
@@ -151,6 +163,7 @@ export class FinanceReportService {
       netUsd: inc.netExpectedUsd,
       netReceivedUsd: inc.netReceivedUsd,
       egresosUsd: exp.totalUsd,
+      gastosOperativosUsd: operativos.totalUsd,
       nominaUsd,
       comisionesUsd,
       comisionesPendientesUsd,
@@ -179,6 +192,7 @@ export class FinanceReportService {
       period: string;
       grossUsd: number;
       egresosUsd: number;
+      gastosOperativosUsd: number;
       nominaUsd: number;
       comisionesUsd: number;
       socioUsd: number;
@@ -195,6 +209,7 @@ export class FinanceReportService {
         period,
         grossUsd: s.grossUsd,
         egresosUsd: s.egresosUsd,
+        gastosOperativosUsd: s.gastosOperativosUsd,
         nominaUsd: s.nominaUsd,
         comisionesUsd: s.comisionesUsd,
         socioUsd: s.socioUsd,
@@ -251,7 +266,7 @@ export class FinanceReportService {
     const rango = { from: desde, to: hasta };
     const wl = await alcanceDeMarca(this.prisma, onlyClubify);
 
-    const [ingresos, egresos, cortes, comisiones, socioPorcentaje, ventasClubify] = await Promise.all([
+    const [ingresos, egresos, operativos, cortes, comisiones, socioPorcentaje, ventasClubify] = await Promise.all([
       this.prisma.incomeRecord.findMany({
         where: combinar(wl, SOLO_LO_COBRADO, enRango('saleDate', rango)),
         select: {
@@ -263,6 +278,7 @@ export class FinanceReportService {
         where: combinar(wl, enRango('expenseDate', rango)),
         select: { expenseDate: true, amountUsd: true },
       }),
+      this.expense.gastosOperativosDelRango({ onlyClubify, from: desde, to: hasta }),
       this.prisma.payrollRun.findMany({
         where: combinar(wl, enRangoConRespaldo('periodEnd', rango)),
         select: { periodEnd: true, createdAt: true, totalUsd: true },
@@ -345,8 +361,14 @@ export class FinanceReportService {
       // y neto desde octubre—: si la gráfica y la cascada calcularan distinto,
       // el mismo mes enseñaría dos socios.
       const socioUsd = parteDelSocio(round2(c.baseSocioUsd), socioPorcentaje);
+      const gastosOperativosUsd = operativos.porMes[period] ?? 0;
       const utilidadUsd = round2(
-        c.netUsd - c.egresosUsd - c.nominaUsd - c.comisionesUsd - socioUsd,
+        c.netUsd -
+          c.egresosUsd -
+          gastosOperativosUsd -
+          c.nominaUsd -
+          c.comisionesUsd -
+          socioUsd,
       );
       return {
         period,
@@ -355,6 +377,7 @@ export class FinanceReportService {
         taxUsd: round2(c.taxUsd),
         netUsd: round2(c.netUsd),
         egresosUsd: round2(c.egresosUsd),
+        gastosOperativosUsd,
         nominaUsd: round2(c.nominaUsd),
         comisionesUsd: round2(c.comisionesUsd),
         socioUsd,
