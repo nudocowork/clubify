@@ -64,6 +64,13 @@ import { marcaClubify } from '../finance/alcance-de-marca';
 import { desconectaAlCancelar } from './cancelacion';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { esPruebaGratisHotmart } from './prueba-gratis-hotmart';
+import { esCambioDePlanHotmart } from './cambio-de-plan-hotmart';
+import {
+  CLAVE_OFERTAS_ADICIONALES,
+  codigosDeOfertasAdicionales,
+  esOfertaAdicional,
+  nombreDelServicio,
+} from './servicio-adicional-hotmart';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -665,6 +672,19 @@ export class HotmartService {
       return { ok: true, action: cuponeraAction };
     }
 
+    // Servicio adicional (Paquete de Alianzas, Automatización de WhatsApp):
+    // ingreso de la marca, nunca un cobro del plan. Va antes de findTenant
+    // porque más abajo cualquier compra del producto mueve el ciclo del
+    // negocio y le reescribe el código de suscriptor (caso ALTIERI). Ver
+    // servicio-adicional-hotmart.ts.
+    const adicional = await this.tryHandleServicioAdicional(event, payload, scope).catch((e) => {
+      this.logger.error(`tryHandleServicioAdicional falló: ${(e as Error)?.message}`);
+      return null;
+    });
+    if (adicional) {
+      return { ok: true, action: adicional };
+    }
+
     // Master Admin: refund/chargeback de pack de créditos. Si el
     // transactionId matchea una HotmartCreditPurchase ASSIGNED, revertimos
     // los créditos a la marca y marcamos la compra como REFUNDED.
@@ -719,6 +739,7 @@ export class HotmartService {
           .generateGroupCommission({
             groupId,
             hotmartTransactionId: transactionId ?? subscriberCode ?? null,
+            fechaDelCobro: fechaDePagoAprobado(payload.data?.purchase?.approved_date),
           })
           .catch((e) =>
             this.logger.error(`group commission falló: ${(e as Error)?.message}`),
@@ -981,6 +1002,88 @@ export class HotmartService {
       `[CREDITOS] ingreso $${precio.usd} (por ${precio.fuente}) tx=${args.transactionId} ` +
         `marca=${args.whiteLabelId ?? 'sin asignar'}`,
     );
+  }
+
+  /**
+   * Un evento de un servicio adicional: registra el ingreso a nombre del
+   * negocio que lo compró y no toca nada más del negocio (ni fecha, ni código
+   * de suscriptor, ni estado, ni comisión del closer). Null si no lo es.
+   *
+   * Los eventos de esa suscripción que no traen oferta (una cancelación, por
+   * ejemplo) se reconocen porque el código de suscriptor ya llegó antes con
+   * una oferta adicional: si no, la cancelación del paquete podría apagar el
+   * negocio entero.
+   */
+  private async tryHandleServicioAdicional(
+    event: string,
+    payload: HotmartWebhookPayload,
+    scope?: TenantScope,
+  ): Promise<string | null> {
+    const ajuste = await this.prisma.setting
+      .findUnique({ where: { key: CLAVE_OFERTAS_ADICIONALES }, select: { value: true } })
+      .catch(() => null);
+    const codigos = codigosDeOfertasAdicionales(ajuste?.value);
+    const oferta = payload.data?.purchase?.offer?.code ?? null;
+    const subscriberCode = codigoDeSuscriptor(payload);
+    let esAdicional = esOfertaAdicional(oferta, codigos);
+    if (!esAdicional && !oferta && subscriberCode) {
+      const previos = await this.prisma.$queryRaw<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM "HotmartWebhookEvent"
+         WHERE payload->'data'->'subscription'->'subscriber'->>'code' = ${subscriberCode}
+           AND lower(payload->'data'->'purchase'->'offer'->>'code') = ANY(${codigos})`;
+      esAdicional = (previos[0]?.n ?? 0) > 0;
+    }
+    if (!esAdicional) return null;
+
+    const tx = payload.data?.purchase?.transaction ?? null;
+    const servicio = nombreDelServicio(payload);
+    if (event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE') {
+      const compra = payload.data?.purchase;
+      const precio = precioDePackUsd(compra, null);
+      const buyerEmail = correoDelComprador(payload);
+      // Solo por correo: por código de suscriptor encontraría el negocio cuyo
+      // código ya se pisó con el del paquete.
+      const negocio = buyerEmail ? await this.findTenant({ buyerEmail, scope }) : null;
+      const ficha = negocio
+        ? await this.prisma.tenant.findUnique({
+            where: { id: negocio.id },
+            select: { whiteLabelId: true, brandName: true },
+          })
+        : null;
+      if (!tx || precio.usd == null) {
+        this.logger.warn(
+          `[ADICIONAL] ${servicio} tx=${tx ?? '-'} sin importe en USD (${precio.motivo ?? 'sin transacción'}) — no se registra ingreso`,
+        );
+      } else {
+        const aprobado = compra?.approved_date;
+        void this.incomeRecord.record({
+          gateway: 'HOTMART',
+          externalTxId: tx,
+          tenantId: negocio?.id ?? null,
+          whiteLabelId: ficha?.whiteLabelId ?? scope?.whiteLabelId ?? (await marcaClubify(this.prisma)),
+          brandName: ficha?.brandName ?? null,
+          productName: servicio,
+          categoria: 'OTRO',
+          currency: 'USD',
+          grossUsd: precio.usd,
+          isFirstPayment: false,
+          saleDate: aprobado ? new Date(aprobado) : new Date(),
+        });
+      }
+      this.logger.log(
+        `[ADICIONAL] ${event} «${servicio}» oferta=${oferta ?? '-'} tx=${tx ?? '-'} USD=${precio.usd ?? '-'} negocio=${negocio?.brandName ?? 'sin negocio'} — ciclo del negocio intacto`,
+      );
+      return `servicio_adicional:${event}`;
+    }
+    if ((event === 'PURCHASE_REFUNDED' || event === 'PURCHASE_CHARGEBACK') && tx) {
+      await this.incomeRecord.marcarDevuelto('HOTMART', tx, 'REEMBOLSADO', new Date());
+    }
+    // Cobro fallido, cancelación o cualquier otro aviso del paquete: es del
+    // servicio, no de la suscripción del negocio. No se toca el negocio.
+    this.logger.log(
+      `[ADICIONAL] ${event} «${servicio}» sub=${subscriberCode ?? '-'} tx=${tx ?? '-'} — sin efecto sobre el negocio`,
+    );
+    return `servicio_adicional:${event}`;
   }
 
   async tryHandleCreditPurchase(
@@ -1938,16 +2041,29 @@ export class HotmartService {
     // Hotmart manda el plan REAL en subscription.plan.name ("Plan Trimestral
     // 150 USD") → fuente autoritativa. Solo lo escribimos cuando falta: un
     // valor ya cargado (o corregido a mano por un admin) NO se pisa.
+    const codigoDeOferta = payload.data?.purchase?.offer?.code;
+    const periodoDelPago =
+      parsePlanPeriodLabel(payload.data?.subscription?.plan?.name) ??
+      (await this.periodicidadPorOferta(codigoDeOferta));
+    // Cambio de plan con suscripción nueva (El Tiros, la burguesía): el plan
+    // del pago manda sobre el que había. Ver cambio-de-plan-hotmart.ts.
+    const precioPactadoDelPago = await this.precioPactadoPorOferta(codigoDeOferta);
+    const cambioDePlan = esCambioDePlanHotmart({
+      codigoNuevo: subscriberCode,
+      codigoAnterior: tenant.hotmartSubscriberCode,
+      recurrencia: (payload.data?.purchase as { recurrence_number?: unknown } | undefined)?.recurrence_number,
+      periodicidadActual: planForBase?.planPeriodicity ?? null,
+      periodicidadDelPago: periodoDelPago,
+      precioActual: planForBase?.subscriptionPriceUsd != null ? Number(planForBase.subscriptionPriceUsd) : null,
+      precioDeLaOferta: precioPactadoDelPago,
+    });
     let effectivePeriod = planForBase?.planPeriodicity ?? null;
-    const periodFromHotmart = effectivePeriod
-      ? null
-      : parsePlanPeriodLabel(payload.data?.subscription?.plan?.name) ??
-        (await this.periodicidadPorOferta(payload.data?.purchase?.offer?.code));
+    const periodFromHotmart = !effectivePeriod || cambioDePlan ? periodoDelPago : null;
     if (periodFromHotmart) {
-      effectivePeriod = periodFromHotmart;
       this.logger.log(
-        `activatePurchase tenant=${tenant.id}: planPeriodicity ausente — derivada de Hotmart ("${payload.data?.subscription?.plan?.name}") = ${periodFromHotmart}`,
+        `activatePurchase tenant=${tenant.id}: ${cambioDePlan ? `CAMBIO DE PLAN ${effectivePeriod} → ${periodFromHotmart} (suscripción nueva ${subscriberCode}, antes ${tenant.hotmartSubscriberCode})` : 'planPeriodicity ausente'} — derivada de Hotmart ("${payload.data?.subscription?.plan?.name}", oferta ${codigoDeOferta ?? '-'}) = ${periodFromHotmart}`,
       );
+      effectivePeriod = periodFromHotmart;
     }
     // lastChargeAt — timestamp del pago aprobado real (no calculado). Se calcula
     // ANTES que `nextCharge` a propósito: es su ancla. Ver el fallback de abajo.
@@ -2021,13 +2137,13 @@ export class HotmartService {
     // declara que ese precio ES el del plan. Se fija como `subscriptionPriceUsd`
     // la primera vez —sin pisar un override puesto a mano— y así la comisión y
     // la contabilidad salen sobre 25 y no sobre el mensual canónico de 68.
-    const precioDeLaOferta =
-      planForBase?.subscriptionPriceUsd == null
-        ? await this.precioPactadoPorOferta(payload.data?.purchase?.offer?.code)
-        : null;
+    // En un cambio de plan el precio viejo deja de valer: manda el de la
+    // oferta nueva o, si no declara precio, el canónico de la periodicidad nueva.
+    const precioVigente = cambioDePlan ? null : planForBase?.subscriptionPriceUsd ?? null;
+    const precioDeLaOferta = precioVigente == null ? precioPactadoDelPago : null;
     const incomeGrossUsd =
-      planForBase?.subscriptionPriceUsd != null
-        ? Number(planForBase.subscriptionPriceUsd)
+      precioVigente != null
+        ? Number(precioVigente)
         : precioDeLaOferta != null
           ? precioDeLaOferta
           : canonicalUsd > 0
@@ -2076,7 +2192,11 @@ export class HotmartService {
         // de una. Como el canónico del plan ES la base de comisión cuando no
         // hay override manual, sin esto un trimestral cobraba sobre $68.
         ...(periodFromHotmart ? { planPeriodicity: periodFromHotmart } : {}),
-        ...(precioDeLaOferta != null ? { subscriptionPriceUsd: precioDeLaOferta } : {}),
+        ...(precioDeLaOferta != null
+          ? { subscriptionPriceUsd: precioDeLaOferta }
+          : cambioDePlan
+            ? { subscriptionPriceUsd: null }
+            : {}),
         // 2026-07-31: el monto crudo (FX) va a auditoría, NO a la base de
         // comisiones. subscriptionPriceUsd es override MANUAL only; si está
         // vacío las comisiones usan el canónico del plan. Antes se pisaba acá

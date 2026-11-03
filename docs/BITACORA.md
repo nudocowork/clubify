@@ -8,6 +8,41 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (174) — Cierre de octubre: respuestas de Javier, 2 arreglos del webhook y script de correcciones (FALTA CORRERLO)
+
+Javier respondió punto por punto a la auditoría (173). Esto quedó hecho:
+
+**Código (sin desplegar):**
+- `billing/servicio-adicional-hotmart.ts`: las ofertas que no son plan (Paquete de Alianzas `ticqog5c`, Automatización de WhatsApp `eswd2iir`, más las del ajuste `hotmart.ofertasAdicionales`) se apartan en `handleEvent` antes de buscar el negocio. Se registran como ingreso `OTRO` del negocio, sin tocar su vencimiento, su código de suscriptor ni su estado, y sin comisión del closer. Sí suman al 2 % de Sara y al socio, que salen de Contabilidad. Los eventos de esa suscripción que llegan sin oferta (por ejemplo una cancelación) se reconocen por el código de suscriptor. Era el bug de ALTIERI.
+- `billing/cambio-de-plan-hotmart.ts`: si llega una suscripción NUEVA (otro código, recurrencia 1) con un plan conocido distinto del que tenía el negocio, el plan del pago manda: periodicidad y precio. Antes la periodicidad «ya cargada no se pisaba», y así El Tiros y la burguesía siguieron como TRIMESTRAL 150 pagando el mensual de 50.
+- `referrals.generateGroupCommission` escribe `businessDate` (por eso la de Mística salió sin fecha de venta).
+
+**Datos:** `scripts/corregir-cierre-octubre-2026.cjs`, con ensayo verificado en producción. **No está aplicado**: el modo auto bloquea las escrituras a producción. Lo corre Javier con `--aplicar`. Hace esto:
+- ALTIERI vuelve a `UPLT7WYL`, con vencimiento el 6-ene-2027.
+- Su ingreso pasa a 16,85 `OTRO` («Paquete de Alianzas») y se anula la comisión de 27,80.
+- El Tiros y la burguesía quedan en MENSUAL · 50, con el cobro de octubre en 50.
+- El Carrito baja de 68 a 25.
+- Café Macondo baja de 52,24 a 50, tanto el precio del plan como el ingreso de octubre.
+- La comisión de Gabriel en Enchurrados queda ligada a HP2381494175.
+- La comisión de Mística queda con fecha de venta el 17-oct.
+- La oferta `vkfveas1` se declara MENSUAL · 50, inactiva.
+- Se recalculan el 2 % de Sara y el total del corte.
+
+Resultado esperado: corte del 31-10 en 278,25 (era 316,17), con el 2 % de Sara en 82,15 sobre 4.107,27. Octubre baja de 6.541,75 a unos 6.035,36.
+
+**Explicado, sin tocar:**
+- Hasta que Javier lo autorice, quedan como están las comisiones del próximo corte: la burguesía 7,50 (debería ser 2,50), El Carrito 6,80 (2,50) y Macondo 5,22 (5,00).
+- Septiembre queda igual: la burguesía 150 → 50 y Macondo 52,24 → 50. En septiembre a Nicolás TeamClosers se le pagaron 7,50 por la burguesía y le tocaban 2,50.
+- El Tiros no tiene comisión porque el 17-oct se asignó a «Venta directa (empresa)».
+- Apitz Beauty pagó con el enlace público del trimestral: el pago llegó sin `sck`, `src` ni afiliado, y el alta no traía referido. Javier dice que fue con el enlace de Nicolás Quintero: hay que asignarlo a mano (TAFMPWK5).
+- Drive Pizza: no se descuenta nada a Samuel. El cliente volvió a pagar a mano.
+- Fee de Hotmart: se mantiene el 8,6 % fijo en USD.
+- Suscripciones viejas por cancelar en Hotmart: El Tiros 8SDDLI3P (marketing@eltiroscaps.com) y Fusion sushi VX2HL0IX (kimmyramirezsh@gmail.com).
+
+**Pendiente:**
+- Construir el apartado de abonos de 20 USD. Las ofertas de abono son `n8e031ty` (48), `iqbgp4fq` (130), `52fe5ax7` (258) y `kkczwdkt` (480). Los 20 entran como `OTRO` «20 USD».
+- `aviso-de-cancelacion.spec.ts` falla por una fecha fija ya vencida (5-oct). No tiene que ver con este cambio.
+
 ## 2026-11-03 (173) — Auditoría del cierre de octubre contra el reporte de Hotmart (solo lectura, NADA corregido)
 
 Javier mandó el export de Hotmart (44 transacciones, 1–31 oct) para cerrar octubre y pagar el corte del 31-10. Se cruzó con `IncomeRecord`, `HotmartWebhookEvent`, negocios, comisiones y `PayoutBatch` con consultas de solo lectura. Los hallazgos se le mandaron a Sara en 4 SMS por la línea de soporte de Clubify (`scripts/enviar-aviso-interno.cjs clubify`, switch 2). No se tocó ningún dato.

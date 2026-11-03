@@ -5346,6 +5346,8 @@ export class ReferralsService {
   async generateGroupCommission(args: {
     groupId: string;
     hotmartTransactionId?: string | null;
+    /** Día del cobro en la pasarela. Sin él, el del grupo o hoy. */
+    fechaDelCobro?: Date | null;
   }): Promise<{ generated: boolean; reason?: string }> {
     const group = await this.prisma.businessGroup.findUnique({
       where: { id: args.groupId },
@@ -5406,6 +5408,10 @@ export class ReferralsService {
         // P3 2026-07-02: desbloqueo 15d después del cobro del grupo en Hotmart.
         // GUARD B6/R4: clamp si group.lastChargeAt está viejo.
         availableAt: holdReleaseFrom(group.lastChargeAt),
+        // Fecha de venta. Esta ruta no la escribía y la comisión de Mística del
+        // 17-oct salió «sin fecha de venta» en el cierre de octubre, aunque el
+        // cobro estaba en el extracto de Hotmart.
+        businessDate: args.fechaDelCobro ?? group.lastChargeAt ?? new Date(),
         hotmartTransactionId: args.hotmartTransactionId ?? null,
       },
     });
