@@ -50,6 +50,7 @@ import { cambiarSlugConAlias } from './slug-alias';
 import { ReglasDeComisionService } from './reglas-de-comision.service';
 import type { AjusteDeRegla, VentaParaRegla } from './reglas-de-comision';
 import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
+import { PREFIJO as PREFIJO_EQUIPO } from './comision-de-equipo.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -6703,6 +6704,33 @@ export class ReferralsService {
         if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
       }
     }
+    // Lo mismo para las comisiones de GRUPO, que no cuelgan de un negocio: sin
+    // esto la renovación de un grupo («Aldehir - Grupo Mistika», 17-oct) salía
+    // como venta nueva, porque la regla de abajo solo miraba el negocio.
+    const idsDeGrupo = Array.from(
+      new Set(
+        rows
+          .filter((r) => !r.referralUse?.tenant?.id && r.businessGroupId)
+          .map((r) => r.businessGroupId as string),
+      ),
+    );
+    const firstChargeMsByGroup = new Map<string, number>();
+    if (idsDeGrupo.length) {
+      const mins = await this.prisma.commission.findMany({
+        where: {
+          status: { not: CommissionStatus.REJECTED },
+          businessGroupId: { in: idsDeGrupo },
+        },
+        select: { availableAt: true, createdAt: true, businessGroupId: true },
+      });
+      for (const m of mins) {
+        const gid = m.businessGroupId;
+        if (!gid) continue;
+        const ms = effectiveAvailableAt(m).getTime();
+        const cur = firstChargeMsByGroup.get(gid);
+        if (cur === undefined || ms < cur) firstChargeMsByGroup.set(gid, ms);
+      }
+    }
     // Pagos manuales de los negocios de la página: una consulta, no una por fila.
     // Ver `comision-de-pago-manual.ts`.
     const pagosManualesPorNegocio = new Map<string, Date[]>();
@@ -6769,7 +6797,9 @@ export class ReferralsService {
       const tenantIdDeLaFila = c.referralUse?.tenant?.id;
       const primeroMs = tenantIdDeLaFila
         ? firstChargeMsByTenant.get(tenantIdDeLaFila)
-        : undefined;
+        : c.businessGroupId
+          ? firstChargeMsByGroup.get(c.businessGroupId)
+          : undefined;
       const esRenovacion =
         primeroMs !== undefined &&
         effectiveAvailableAt(c).getTime() > primeroMs;
@@ -6789,6 +6819,9 @@ export class ReferralsService {
         paymentStatus: c.paymentStatus,
         esRenovacion,
         esPagoManual,
+        // El 2 % del Project Manager no sale de un negocio: sin nombre la
+        // columna NEGOCIO lo pintaba «—» y no se distinguía de una huérfana.
+        concepto: c.periodKey?.startsWith(PREFIJO_EQUIPO) ? 'Comisión Project Manager' : null,
         status: c.status,
         createdAt: c.createdAt,
         // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la

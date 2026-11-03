@@ -380,6 +380,23 @@ export class ReporteComisionesService {
     for (const d of duenos) if (d.tenantId && !duenoPorTenant.has(d.tenantId)) duenoPorTenant.set(d.tenantId, d.fullName);
     const primerCobro = new Map(primeros.map((p) => [p.tenantId, p._min.saleDate]));
     const ultimoEstado = new Map(ultimos.map((u) => [u.tenantId, u.status]));
+    // Las comisiones de GRUPO no tienen negocio: su primer cobro se busca por
+    // el grupo. Sin esto una renovación de grupo (Mística, 17-oct) no decía
+    // de qué tipo era.
+    const idsDeGrupo = [...new Set(comisiones.map((c) => c.businessGroup?.id).filter((x): x is string => !!x))];
+    const primerCobroDeGrupo = new Map(
+      idsDeGrupo.length
+        ? (
+            await this.sinTenant(() =>
+              this.prisma.incomeRecord.groupBy({
+                by: ['businessGroupId'],
+                where: { businessGroupId: { in: idsDeGrupo }, status: 'PAGADO' },
+                _min: { saleDate: true },
+              }),
+            )
+          ).map((p) => [p.businessGroupId as string, p._min.saleDate])
+        : [],
+    );
 
     const colaboradores: Contexto['colaboradores'] = new Map();
     const filas: FilaReporte[] = [];
@@ -427,7 +444,9 @@ export class ReporteComisionesService {
             : null
         : tenantId
           ? tipoDeVenta(fecha, primerCobro.get(tenantId) ?? t?.purchasedAt ?? null)
-          : null;
+          : c.businessGroup
+            ? tipoDeVenta(fecha, primerCobroDeGrupo.get(c.businessGroup.id) ?? null)
+            : null;
       const base = c.baseAmountUsd != null ? Number(c.baseAmountUsd) : manual ? Number(manual.baseUsd) : null;
       const pct =
         c.appliedPercent != null ? Number(c.appliedPercent) : manual?.porcentaje != null ? Number(manual.porcentaje) : null;
@@ -446,7 +465,10 @@ export class ReporteComisionesService {
         },
         negocio: c.businessGroup
           ? { id: c.businessGroup.id, nombre: c.businessGroup.name, esGrupo: true }
-          : { id: tenantId, nombre: t?.brandName ?? null, esGrupo: false },
+          : esDeEquipo && !tenantId
+            ? // El 2 % del PM no sale de un negocio: con nombre se reconoce a simple vista.
+              { id: null, nombre: 'Comisión Project Manager', esGrupo: false }
+            : { id: tenantId, nombre: t?.brandName ?? null, esGrupo: false },
         cliente: tenantId ? (duenoPorTenant.get(tenantId) ?? null) : null,
         plan: nombreDePlan(periodicidad),
         periodicidad,

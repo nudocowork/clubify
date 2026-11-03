@@ -33,6 +33,8 @@ type CommissionRow = {
   paymentStatus: PaymentStatus;
   /** true = viene de una renovación; false = de la venta inicial del negocio. */
   esRenovacion?: boolean;
+  /** Nombre de una comisión que no sale de un negocio («Comisión Project Manager»). */
+  concepto?: string | null;
   /** La venta se cobró por fuera (Nequi, efectivo, transferencia). */
   esPagoManual?: boolean;
   /** Participación global (socio, PM) de la que salió; null en las de venta. */
@@ -631,7 +633,7 @@ function AdvancedCommissionsView({
     const rows = itemsOrdenados.map((c) => [
       fmtDate(c.commissionDate ?? c.createdAt),
       c.tenant?.brandName ??
-        (c.businessGroup ? `${c.businessGroup.name} (grupo)` : ''),
+        (c.businessGroup ? `${c.businessGroup.name} (grupo)` : c.concepto ?? ''),
       c.tenant?.planName ?? '',
       c.tenant?.planPeriodicity ?? '',
       fmtDate(c.tenant?.currentPeriodEnd ?? null),
@@ -1074,7 +1076,7 @@ function AdvancedCommissionsView({
                             {c.tenant?.brandName ??
                               (c.businessGroup
                                 ? `${c.businessGroup.name} (grupo)`
-                                : '—')}
+                                : c.concepto ?? '—')}
                           </span>
                           {/* Distingue de un vistazo lo que se gana cada mes de
                               lo que entró por una venta nueva. Solo se marca la
@@ -1301,7 +1303,7 @@ function PayCommissionModal({
               {item.tenant?.brandName ??
                 (item.businessGroup
                   ? `${item.businessGroup.name} (grupo)`
-                  : '—')}
+                  : item.concepto ?? '—')}
             </span>
           </div>
           <div className="flex justify-between mb-1">

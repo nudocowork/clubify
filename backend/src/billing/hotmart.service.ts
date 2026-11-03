@@ -65,6 +65,7 @@ import { desconectaAlCancelar } from './cancelacion';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { esPruebaGratisHotmart } from './prueba-gratis-hotmart';
 import { esCambioDePlanHotmart } from './cambio-de-plan-hotmart';
+import { ingresoDelPagoConAbono } from './abono-hotmart';
 import {
   CLAVE_OFERTAS_ADICIONALES,
   codigosDeOfertasAdicionales,
@@ -2178,7 +2179,13 @@ export class HotmartService {
       brandName: tenant.brandName,
       planPeriodicity: periodFromHotmart ?? null,
       currency: 'USD',
-      grossUsd: incomeGrossUsd,
+      // Primer pago de un plan con abono: entra el restante (130), porque los
+      // 20 del abono ya están contados. Ver abono-hotmart.ts.
+      grossUsd:
+        ingresoDelPagoConAbono(
+          codigoDeOferta,
+          (payload.data?.purchase as { recurrence_number?: unknown } | undefined)?.recurrence_number,
+        ) ?? incomeGrossUsd,
       isFirstPayment: !tenant.currentPeriodEnd || primerCobroTrasPrueba,
       saleDate: lastChargeAt ?? new Date(),
     });

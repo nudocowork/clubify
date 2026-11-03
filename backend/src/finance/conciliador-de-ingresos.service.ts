@@ -13,6 +13,7 @@ import { parsePlanPeriodLabel } from '../common/plan-period';
 import { IncomeRecordService } from './income-record.service';
 import type { CategoriaDeIngreso } from './categorias-de-ingreso';
 import { esPruebaGratisHotmart } from '../billing/prueba-gratis-hotmart';
+import { ingresoDelPagoConAbono } from '../billing/abono-hotmart';
 
 /**
  * CONCILIADOR DE INGRESOS — la red que hace que Contabilidad no dependa de que
@@ -695,6 +696,10 @@ export class ConciliadorDeIngresosService {
     payload: any,
     tenant: TenantMinimo | null,
   ): Promise<number | null> {
+    // Primer pago de un plan con abono: el restante, igual que el webhook (los
+    // 20 del abono ya están en el libro). Ver abono-hotmart.ts.
+    const conAbono = ingresoDelPagoConAbono(compra?.offer?.code, compra?.recurrence_number);
+    if (conAbono != null) return conAbono;
     if (tenant?.subscriptionPriceUsd != null) {
       const n = Number(tenant.subscriptionPriceUsd);
       if (Number.isFinite(n) && n > 0) return n;

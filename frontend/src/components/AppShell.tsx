@@ -840,6 +840,9 @@ export default function AppShell({
               section: tNav('secFinance'),
               items: [
                 { href: '/admin/contabilidad', label: tNav('accounting'), icon: 'cash', hideForMarketing: true, clubifyOnly: true },
+                // Abonos de 20 y su restante: vive bajo /admin/contabilidad
+                // para heredar su ruta reservada y su candado de rol.
+                { href: '/admin/contabilidad/abonos', label: tNav('deposits'), icon: 'cash', hideForMarketing: true, clubifyOnly: true },
               ],
             },
             {

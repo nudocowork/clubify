@@ -8,6 +8,43 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (176) — Abonos de 20: apartado propio y venta con abono contada una sola vez; PM con nombre; renovación de grupos (SIN DESPLEGAR, script SIN APLICAR)
+
+Respuestas de Javier al cierre de octubre, segunda vuelta.
+
+**Regla de precios (Javier):**
+- El precio sale del NOMBRE del plan, nunca de lo cobrado con cambio de moneda: Mensual 68, Trimestral 150, Semestral 278, Anual 500, Mensual básico 25, Mensual start 50 (solo los primeros negocios).
+- Con abono: 48, 130, 258 y 480 en el primer pago; las recurrencias van al precio del plan.
+
+**Verificado contra Hotmart:**
+- El Tiros, la burguesía y Café Macondo pagan la MISMA oferta `vkfveas1`, que Hotmart llama «Clubify - Tarjeta de fidelización»: 53 cobros de unos 50 USD. Es el mensual start de 50.
+- Javier pidió Macondo a 68 «si es mensual». No se tocó: queda a su decisión.
+
+**Código:**
+- `billing/abono-hotmart.ts` define las 4 ofertas con abono y la del abono de 20 (`9veek0a9`).
+- El primer pago de un plan con abono se contabiliza por el restante (130), en el webhook y en el conciliador. Antes contaba el plan completo, y con los 20 del abono sumaba 20 de más: 6 ventas, 2 de ellas de octubre (Ricuras y Alquimia). La comisión del closer no cambia: sigue sobre el plan completo y solo cuando entra el restante.
+- Apartado «Abonos» en `/admin/contabilidad/abonos` (menú Finanzas → Abonos):
+  - estados En espera / Enlazado / No pagará;
+  - enlace automático por correo; enlace manual al restante o a una venta nueva;
+  - las decisiones se guardan en `Setting` `abono.<tx>`, una fila por abono, sin migración.
+- Comisiones:
+  - el 2 % del PM sale como «Comisión Project Manager» en la columna NEGOCIO;
+  - las comisiones de GRUPO calculan la renovación por el grupo (Mística salía como venta nueva).
+- Socio: sin cambios, cobra el 10 % del total facturado.
+
+**Script `corregir-abonos-y-comisiones-2026-11.cjs` (SIN APLICAR, lo corre Javier):**
+- Pasa los 6 restantes al monto cobrado.
+- Comisión de El Carrito 6,80 → 2,50 (autorizada); la burguesía de octubre 7,50 → 2,50.
+- Recalcula el 2 % de Sara de la quincena sin pagar y el total del corte.
+- Esperado: octubre 6.035,36 → 5.995,36; 2 % de Sara 82,15 → 81,75; corte 278,25 → 277,85, solo si Sara aún no lo pagó.
+
+**Comprobado:** Apitz ya tiene su comisión de 15 (10 % de 150) a Nicolás Quintero (TAFMPWK5), PENDING.
+
+**Pendiente:**
+- Decidir Café Macondo: 50 o 68.
+- Septiembre: la burguesía, 5 pagados de más a TeamClosers.
+- Desplegar backend y frontend.
+
 ## 2026-11-03 (175) — Cierre de octubre APLICADO y desplegado; Sara avisada
 
 - Javier corrió `corregir-cierre-octubre-2026.cjs --aplicar` y desplegó el backend con `7cc9f663`.
