@@ -8,6 +8,22 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (175) — Cierre de octubre APLICADO y desplegado; Sara avisada
+
+- Javier corrió `corregir-cierre-octubre-2026.cjs --aplicar` y desplegó el backend con `7cc9f663`.
+- Verificado en la base, solo lectura:
+  - CORTE-2026-10-31 queda en **278,25** (15 comisiones, antes 316,17).
+  - El 2 % de Sara (EQUIPO-2026-10-31) es 82,15.
+  - Octubre suma 6.035,36 en 42 cobros.
+  - Un segundo ensayo del script sale «ya aplicado» en los 8 pasos.
+- Sara avisada por SMS por la línea de soporte (gDNgHE0uRFhDK3Wwhh1b): ya puede pagar el corte.
+- **Siguen esperando autorización de Javier:**
+  - las comisiones del próximo corte: la burguesía 7,50 → 2,50, El Carrito 6,80 → 2,50 y Macondo 5,22 → 5,00;
+  - lo de septiembre (5 de más a TeamClosers);
+  - asignar Apitz a Nicolás Quintero (TAFMPWK5).
+- **Por construir:** el apartado de abonos de 20.
+- Frontend sin desplegar desde la 171/172.
+
 ## 2026-11-03 (174) — Cierre de octubre: respuestas de Javier, 2 arreglos del webhook y script de correcciones (FALTA CORRERLO)
 
 Javier respondió punto por punto a la auditoría (173). Esto quedó hecho:
