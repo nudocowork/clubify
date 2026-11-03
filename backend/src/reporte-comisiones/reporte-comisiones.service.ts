@@ -75,6 +75,7 @@ import {
   negocioDeParticipacion,
 } from './participaciones';
 import { socioDeContabilidad, type SocioDeContabilidad } from './socio-de-contabilidad';
+import { CLAVE_CODIGO_SOCIO, PREFIJO_SOCIO } from '../referrals/comision-del-socio.service';
 
 /** Filtros del reporte. Todas las fechas son días de Bogotá (YYYY-MM-DD). */
 export type Filtros = {
@@ -451,6 +452,7 @@ export class ReporteComisionesService {
       const pct =
         c.appliedPercent != null ? Number(c.appliedPercent) : manual?.porcentaje != null ? Number(manual.porcentaje) : null;
       const esDeEquipo = !!c.periodKey?.startsWith('EQUIPO-');
+      const esDelSocio = !!c.periodKey?.startsWith(PREFIJO_SOCIO);
       const periodicidad = t?.planPeriodicity ?? null;
 
       const fila: FilaReporte = {
@@ -468,7 +470,9 @@ export class ReporteComisionesService {
           : esDeEquipo && !tenantId
             ? // El 2 % del PM no sale de un negocio: con nombre se reconoce a simple vista.
               { id: null, nombre: 'Comisión Project Manager', esGrupo: false }
-            : { id: tenantId, nombre: t?.brandName ?? null, esGrupo: false },
+            : esDelSocio && !tenantId
+              ? { id: null, nombre: 'Comisión del socio (10 % de la facturación)', esGrupo: false }
+              : { id: tenantId, nombre: t?.brandName ?? null, esGrupo: false },
         cliente: tenantId ? (duenoPorTenant.get(tenantId) ?? null) : null,
         plan: nombreDePlan(periodicidad),
         periodicidad,
@@ -576,6 +580,13 @@ export class ReporteComisionesService {
    */
   private async socioDelPeriodo(f: Filtros): Promise<SocioDeContabilidad | null> {
     if (f.colaborador || (f.equipo && f.equipo !== 'SOCIOS')) return null;
+    // Desde que el socio cobra por el corte de fin de mes (Javier, 2026-11-03)
+    // su parte ya es una fila real del reporte (`comision-del-socio.service`):
+    // mostrar además este dato sería enseñarla dos veces.
+    const activa = await this.sinTenant(() =>
+      this.prisma.setting.findUnique({ where: { key: CLAVE_CODIGO_SOCIO } }),
+    ).catch(() => null);
+    if (activa?.value?.trim()) return null;
     const rango = rangoBogota(f.desde, f.hasta);
     // `summary` acota con [gte, lte]; el rango de Bogotá es [gte, lt).
     const to = rango?.lt ? new Date(rango.lt.getTime() - 1) : undefined;

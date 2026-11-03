@@ -8,6 +8,29 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-03 (179) — Comisión del socio en el corte de fin de mes (SIN DESPLEGAR, SIN ACTIVAR)
+
+Pedido de Javier: el 10 % del socio entra al reporte de comisiones desde el corte
+actual (CORTE-2026-10-31), **solo en cortes de fin de mes** (un pago al mes), sobre
+TODA la facturación (manuales, abonos, Hotmart…).
+
+- `referrals/comision-del-socio.service.ts`: cron al minuto 20, una comisión
+  `SOCIO-YYYY-MM` por mes desde 2026-10, monto = EXACTAMENTE la línea «Socio» de
+  la cascada (neto desde octubre, ventas de Clubify, todo lo PAGADO). Pendiente
+  mientras el mes corre; aprobada y en el corte del último día al cerrar. Se
+  recalcula mientras no esté pagada.
+- No se resta dos veces: código con rol SOCIO → `NO_ES_COMISION_DEL_SOCIO` lo saca
+  de «Comisiones pagadas»; la cascada lo sigue restando una vez en «Socio».
+- Ajuste propio `comisiones.socio.codeId`; NO `referrals.socioCodeId` (ese paga
+  venta a venta).
+- Con la comisión activa, el bloque informativo «Socio (Javier)» del reporte se
+  esconde (si no, saldría dos veces). Columna Negocio: «Comisión del socio (10 %
+  de la facturación)».
+- Reemplaza la decisión de la bitácora 136 (socio solo en Contabilidad).
+- `scripts/activar-comision-del-socio.cjs` (ensayo OK): crea SOCIO-JAVIER (datos de
+  38454GNM, sin usuario) y guarda el ajuste. Octubre ≈ 438,36 (base neta 4.383,63).
+  El corte de fin de octubre sube de 277,85 a ≈ 716,21.
+
 ## 2026-11-03 (178) — Entrada 177 DESPLEGADA y script APLICADO; Sara avisada
 
 - Backend y frontend de e86cd896 en producción: `/api/admin/contabilidad/gastos-operativos`

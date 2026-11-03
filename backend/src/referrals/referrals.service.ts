@@ -51,6 +51,7 @@ import { ReglasDeComisionService } from './reglas-de-comision.service';
 import type { AjusteDeRegla, VentaParaRegla } from './reglas-de-comision';
 import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 import { PREFIJO as PREFIJO_EQUIPO } from './comision-de-equipo.service';
+import { PREFIJO_SOCIO } from './comision-del-socio.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -6821,7 +6822,11 @@ export class ReferralsService {
         esPagoManual,
         // El 2 % del Project Manager no sale de un negocio: sin nombre la
         // columna NEGOCIO lo pintaba «—» y no se distinguía de una huérfana.
-        concepto: c.periodKey?.startsWith(PREFIJO_EQUIPO) ? 'Comisión Project Manager' : null,
+        concepto: c.periodKey?.startsWith(PREFIJO_EQUIPO)
+          ? 'Comisión Project Manager'
+          : c.periodKey?.startsWith(PREFIJO_SOCIO)
+            ? 'Comisión del socio (10 % de la facturación)'
+            : null,
         status: c.status,
         createdAt: c.createdAt,
         // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la

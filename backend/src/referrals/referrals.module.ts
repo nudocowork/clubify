@@ -13,6 +13,7 @@ import { AdminModule } from '../admin/admin.module';
 import { AuditService } from '../audit/audit.service';
 import { CommissionRecalcModule } from './commission-recalc.module';
 import { ComisionDeEquipoService } from './comision-de-equipo.service';
+import { ComisionDelSocioService } from './comision-del-socio.service';
 import { CutoffService } from './cutoff.service';
 import { PendientesPorAsignarService } from './pendientes-por-asignar.service';
 import { PendientesPorAsignarController } from './pendientes-por-asignar.controller';
@@ -29,6 +30,7 @@ import { ParticipacionesCron, ParticipacionesService } from './participaciones.s
     AuditService,
     CutoffService,
     ComisionDeEquipoService,
+    ComisionDelSocioService,
     PendientesPorAsignarService,
     ReglasDeComisionService,
     // El servicio también lo provee FinanceModule (lo usa la captura del
