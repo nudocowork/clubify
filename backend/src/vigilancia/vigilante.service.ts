@@ -5,6 +5,11 @@ import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { respaldoVencido } from './frescura-del-respaldo';
 import {
+  CLAVE_OFERTAS_ADICIONALES,
+  codigosDeOfertasAdicionales,
+  esOfertaAdicional,
+} from '../billing/servicio-adicional-hotmart';
+import {
   ETIQUETA,
   revisarConsistencia,
   type TipoDeInconsistencia,
@@ -142,6 +147,11 @@ export class VigilanteService {
         id: { in: [...ultimoFallo.keys()] },
         status: 'ACTIVE',
         failedPaymentCount: 0,
+        // Un negocio que pasó a pago POR FUERA ya no depende de Hotmart: su
+        // fallo viejo no es mora. Caso Drive Pizza (2026-11-04): reembolso por
+        // error el 10-oct, repuesto como pago manual del anual el mismo día, y
+        // la revisión lo daba en «mora invisible» durante 30 días.
+        manualPayment: false,
       },
       select: { id: true, name: true, lastChargeAt: true },
     });
@@ -187,10 +197,22 @@ export class VigilanteService {
       orderBy: { processedAt: 'desc' },
     });
 
+    // Un servicio adicional (Paquete de Alianzas) tiene SU propio próximo cobro,
+    // que no es el del plan. Caso ALTIERI (2026-11-04): plan semestral hasta el
+    // 6-ene y la revisión lo comparaba con el 16-nov del paquete.
+    const adicionales = codigosDeOfertasAdicionales(
+      (
+        await Promise.resolve()
+          .then(() => this.prisma.setting.findUnique({ where: { key: CLAVE_OFERTAS_ADICIONALES } }))
+          .catch(() => null)
+      )?.value,
+    );
+
     const fechaHotmart = new Map<string, Date>();
     const cobradoEl = new Map<string, Date>();
     for (const e of eventos) {
       if (fechaHotmart.has(e.tenantId!)) continue;
+      if (esOfertaAdicional((e.payload as any)?.data?.purchase?.offer?.code, adicionales)) continue;
       const ms = (e.payload as any)?.data?.purchase?.date_next_charge;
       if (typeof ms === 'number') {
         fechaHotmart.set(e.tenantId!, new Date(ms));

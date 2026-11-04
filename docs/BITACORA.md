@@ -8,6 +8,32 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-04 (180) — Revisión diaria sin falsas alarmas; Romanos: el pago manual era el PRIMERO (SIN DESPLEGAR, script SIN APLICAR)
+
+**La revisión del 4-nov mandó 12 avisos y solo 2 eran reales.** Verificado uno por uno contra la base y contra la API de Hotmart. Las reglas de la revisión eran anteriores a cuatro excepciones del negocio:
+
+| Aviso | Por qué era falso | Arreglo |
+|---|---|---|
+| Drive Pizza, mora invisible | Pasó a pago manual tras el reembolso por error (127) | `moraQueNadieVio` salta `manualPayment` |
+| Altieri, fecha distinta | Comparaba con el próximo cobro del Paquete de Alianzas | `fechasQueNoCuadranConHotmart` salta ofertas adicionales |
+| Altieri / El Tiros, ingreso sin comisión | Servicio adicional (`OTRO`) / «Venta directa» | `cobroQueComisiona` |
+| 6 «monto distinto» de abonos | Restante (480) contra plan completo (500): es a propósito (176) | `esPrimerPagoConAbono` |
+
+- **Alarma nueva «Abono fuera de Contabilidad»:** abonos de 20 en `EN_REVISION`. Sara sacó 6 del libro el 3-oct cuando aún no se sabía qué eran (126,45 USD). Desde la 176 el restante se cuenta sin el abono, así que Chillin, Segundo Piso y Paicoat tienen **63,75 USD que no suman en ningún sitio**; los otros 3 (BLIC y 2 sin negocio) no tienen restante. Decisión pendiente de Sara/Javier: pasarlos a Pagado y enlazarlos en Finanzas → Abonos.
+- Corrida en vivo (solo lectura) con el código nuevo: quedan Romanos, Macondo (0,22 pagados de más en septiembre, real) y los 6 abonos. Nada más.
+- Pruebas: `consistencia-del-dinero.spec.ts` (5, nueva) y el caso Altieri en `fecha-de-cobro-hotmart.spec.ts`.
+
+**Romanos Barber Shop & Spa** (Javier): se dio de alta el 2-oct pagando 68 POR FUERA; la contadora lo registró el 3-nov y el panel lo fechó ese día. La renovación va por Hotmart con el link al mismo correo (`fjchaurio@…`). **A 2026-11-04 Hotmart no la ha cobrado** (consultado en su API: ninguna venta de ese correo ni nombre desde el 25-sep).
+
+`backend/scripts/corregir-romanos-primer-pago.cjs` (SIN APLICAR, ensayo verificado):
+1. Pago manual e ingreso → 2-oct, ciclo 2-oct a 2-nov, `NUEVA` (el ingreso pasa de noviembre a octubre).
+2. **Borra** la comisión del 3-nov (6,80, pendiente, sin corte). Anularla no basta: la de la renovación de Hotmart nace con `periodKey` = mes del cobro y la única (use, código, periodKey) la saltaría (P2002) aunque la vieja esté anulada. La crea el webhook cuando Hotmart cobre.
+3. `manualPayment` → false (renueva por Hotmart). El vencimiento (3-dic) no se toca: bajarlo lo dejaría vencido mientras paga; el webhook pone la fecha de Hotmart.
+- Efectos solos: la comisión del socio de octubre sube ~10 % del neto de 68; el 2 % de Sara del 1–15 de octubre ya está pagado (le quedan 1,36 debidos) y el del 1–15 de noviembre baja 1,36: se compensan.
+- Si Hotmart ya hubiera cobrado al correrlo, el script se detiene.
+
+**Pendiente:** correr el script (`--aplicar`), desplegar backend, y confirmar que la renovación de Romanos entra por Hotmart (si no entra, no hay segunda comisión, que es lo correcto).
+
 ## 2026-11-03 (179) — Comisión del socio en el corte de fin de mes (SIN DESPLEGAR, SIN ACTIVAR)
 
 Pedido de Javier: el 10 % del socio entra al reporte de comisiones desde el corte

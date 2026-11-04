@@ -17,6 +17,8 @@ function vigilante(opts: {
   hotmartNext: Date;
   cobroEl: Date;
   canceladaEl?: Date;
+  /** Código de oferta del último cobro (por defecto, uno de plan). */
+  oferta?: string;
 }) {
   const svc = Object.create(VigilanteService.prototype) as any;
   svc.prisma = {
@@ -32,7 +34,9 @@ function vigilante(opts: {
           {
             tenantId: 't1',
             processedAt: opts.cobroEl,
-            payload: { data: { purchase: { date_next_charge: opts.hotmartNext.getTime() } } },
+            payload: {
+              data: { purchase: { date_next_charge: opts.hotmartNext.getTime(), offer: { code: opts.oferta ?? 'f6g1gl5y' } } },
+            },
           },
         ];
       }),
@@ -56,6 +60,16 @@ describe('fecha de cobro contra Hotmart', () => {
   it('suscripción viva con fecha distinta: sí avisa', async () => {
     const r = await vigilante(base).fechasQueNoCuadranConHotmart();
     expect(r?.cuantos).toBe(1);
+  });
+
+  it('el próximo cobro de un servicio adicional no es el del plan (ALTIERI, 2026-11-04)', async () => {
+    const r = await vigilante({
+      ourDate: new Date('2027-01-06T12:00:00Z'),
+      hotmartNext: new Date('2026-11-16T12:00:00Z'),
+      cobroEl: new Date('2026-10-16T15:41:00Z'),
+      oferta: 'ticqog5c', // Paquete de Alianzas
+    }).fechasQueNoCuadranConHotmart();
+    expect(r).toBeNull();
   });
 
   it('una cancelación ANTERIOR al último cobro no la silencia (se reactivó y cobró)', async () => {

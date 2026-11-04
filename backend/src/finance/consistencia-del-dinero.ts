@@ -1,5 +1,7 @@
 import { CommissionStatus } from '@prisma/client';
 import { alcanceDeMarca, combinar, marcaClubify } from './alcance-de-marca';
+import { ABONO_USD, OFERTAS_CON_ABONO, OFERTAS_DE_ABONO } from '../billing/abono-hotmart';
+import { esCodigoVentaDirecta } from '../referrals/pendiente-por-asignar';
 
 /**
  * CONSISTENCIA DEL DINERO: una misma operación debe decir lo mismo en todos
@@ -31,7 +33,8 @@ export type TipoDeInconsistencia =
   | 'INGRESO_SIN_COMISION'
   | 'PAGO_SIN_NEGOCIO'
   | 'MONTO_DISTINTO'
-  | 'COBRO_DE_GRUPO_EN_UN_NEGOCIO';
+  | 'COBRO_DE_GRUPO_EN_UN_NEGOCIO'
+  | 'ABONO_FUERA_DEL_LIBRO';
 
 export type Inconsistencia = { tipo: TipoDeInconsistencia; quien: string; detalle: string };
 
@@ -56,7 +59,41 @@ export const ETIQUETA: Record<TipoDeInconsistencia, { titulo: string; queHacer: 
     titulo: 'Inconsistencia de grupo empresarial',
     queHacer: 'El cobro del grupo está apuntado a uno de sus negocios: correr «Conciliar ingresos»',
   },
+  ABONO_FUERA_DEL_LIBRO: {
+    titulo: 'Abono fuera de Contabilidad',
+    queHacer: 'Es un abono de 20 que sigue «En revisión», y el restante ya se cuenta sin él: pasarlo a Pagado y enlazarlo en Finanzas → Abonos',
+  },
 };
+
+/**
+ * Primer pago de un plan con abono: Contabilidad lo cuenta por el RESTANTE
+ * (480 de un anual de 500) y la comisión nace sobre el plan COMPLETO. Esa
+ * diferencia de 20 es a propósito (bitácora 176), no una inconsistencia. Sin
+ * esto, cada venta con abono avisaba «comisión sobre $500, ingreso de $480»
+ * (revisión del 2026-11-04: 6 de 7 avisos de monto eran esto).
+ */
+export function esPrimerPagoConAbono(baseComision: number, ingresoUsd: number): boolean {
+  return Object.values(OFERTAS_CON_ABONO).some(
+    (o) =>
+      Math.abs(baseComision - o.precioDelPlanUsd) <= 1 &&
+      Math.abs(ingresoUsd - o.primerPagoUsd) <= 1 &&
+      o.precioDelPlanUsd - o.primerPagoUsd === ABONO_USD,
+  );
+}
+
+/**
+ * ¿Ese cobro debería tener comisión de quien vendió?
+ *
+ * - `OTRO` es lo que no es un plan: servicios adicionales (Paquete de Alianzas),
+ *   abonos de 20, packs de créditos. No comisionan por regla (Javier,
+ *   2026-11-03); avisar de ellos era el caso ALTIERI del 2026-11-04.
+ * - «Venta directa» marca que lo vendió la empresa: queda «asignado» a
+ *   propósito y nunca genera comisión (caso El Tiros, mismo día).
+ */
+export function cobroQueComisiona(categoria: string | null, codigosDelNegocio: string[]): boolean {
+  if (categoria === 'OTRO') return false;
+  return codigosDelNegocio.some((c) => !esCodigoVentaDirecta(c));
+}
 
 /** Desde cuándo se mira (inclusive). */
 export const DESDE_SEPTIEMBRE = new Date('2026-09-01T05:00:00.000Z');
@@ -159,23 +196,29 @@ export async function revisarConsistencia(
       continue;
     }
     const base = c.baseAmountUsd != null ? Number(c.baseAmountUsd) : null;
-    if (base != null && Math.abs(base - Number(ingreso.grossUsd)) > 1) {
+    if (
+      base != null &&
+      Math.abs(base - Number(ingreso.grossUsd)) > 1 &&
+      !esPrimerPagoConAbono(base, Number(ingreso.grossUsd))
+    ) {
       out.push({ tipo: 'MONTO_DISTINTO', quien, detalle: `comisión sobre $${base}, ingreso de $${Number(ingreso.grossUsd)}` });
     }
   }
 
   // B: ingresos de negocios con afiliado sin comisión de ese cobro.
-  const conAfiliado: Array<{ tenantId: string; createdAt: Date; id: string }> = await prisma.referralUse.findMany({
-    where: {
-      tenantId: { in: [...new Set(ingresos.map((i) => i.tenantId).filter(Boolean))] as string[] },
-      status: { in: ['PAYING', 'ACTIVE'] },
-    },
-    select: { id: true, tenantId: true, createdAt: true },
-  });
+  const conAfiliado: Array<{ tenantId: string; createdAt: Date; id: string; referralCode: { code: string } | null }> =
+    await prisma.referralUse.findMany({
+      where: {
+        tenantId: { in: [...new Set(ingresos.map((i) => i.tenantId).filter(Boolean))] as string[] },
+        status: { in: ['PAYING', 'ACTIVE'] },
+      },
+      select: { id: true, tenantId: true, createdAt: true, referralCode: { select: { code: true } } },
+    });
   for (const i of ingresos) {
     if (!i.tenantId || i.saleDate < desde || i.saleDate > hasta) continue;
     const uses = conAfiliado.filter((u) => u.tenantId === i.tenantId && u.createdAt.getTime() <= i.saleDate.getTime() + 2 * DIA);
     if (!uses.length) continue;
+    if (!cobroQueComisiona(i.category, uses.map((u) => u.referralCode?.code ?? ''))) continue;
     const tiene = comisiones.some(
       (c) => c.referralUse?.tenantId === i.tenantId &&
         (c.hotmartTransactionId === i.externalTxId || cerca(c.businessDate ?? c.createdAt, i.saleDate)),
@@ -211,6 +254,36 @@ export async function revisarConsistencia(
         out.push({ tipo: 'COBRO_DE_GRUPO_EN_UN_NEGOCIO', quien: `${deGrupo.get(i.tenantId)}`, detalle: `apuntado a ${i.brandName}` });
       }
     }
+  }
+
+  // F: abonos de 20 que se quedaron «En revisión». Sara los sacó de
+  // Contabilidad el 2026-10-03 («servicios adicionales… hasta que se decida»)
+  // cuando nadie sabía qué eran. Desde el 2026-11-03 el primer pago de un plan
+  // con abono se cuenta por el restante, así que ese abono fuera del libro es
+  // dinero cobrado que no suma en ningún sitio (Chillin, Segundo Piso, Paicoat:
+  // 63,75 USD de agosto y septiembre). Sin fecha de corte: un abono de julio
+  // fuera del libro falta igual. La consulta no se repite por mes: son pocos.
+  const abonos: Array<{ tx: string; brandName: string | null; grossUsd: unknown; saleDate: Date }> =
+    // Si esta consulta falla, las otras alarmas tienen que salir igual.
+    await Promise.resolve()
+      .then(() => prisma.$queryRawUnsafe(
+        `SELECT i."externalTxId" AS tx, i."brandName" AS "brandName", i."grossUsd" AS "grossUsd", i."saleDate" AS "saleDate"
+           FROM "IncomeRecord" i
+          WHERE i.status = 'EN_REVISION'
+            AND i."externalTxId" IN (
+              SELECT e.payload->'data'->'purchase'->>'transaction'
+                FROM "HotmartWebhookEvent" e
+               WHERE lower(e.payload->'data'->'purchase'->'offer'->>'code') = ANY($1::text[]))
+          ORDER BY i."saleDate"`,
+        [...OFERTAS_DE_ABONO],
+      ))
+      .catch(() => []);
+  for (const a of abonos) {
+    out.push({
+      tipo: 'ABONO_FUERA_DEL_LIBRO',
+      quien: a.brandName ?? a.tx,
+      detalle: `$${Number(a.grossUsd)} del ${new Date(a.saleDate).toISOString().slice(0, 10)}`,
+    });
   }
   return out;
 }
