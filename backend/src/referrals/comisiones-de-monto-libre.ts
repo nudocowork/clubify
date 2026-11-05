@@ -37,7 +37,11 @@
 // comisiones, con su propia base y su propio % (`reporte-comisiones/comision-manual.ts`).
 // PART-: participación global (socio, PM) sobre un cobro. Sale de su propia
 // regla (`ParticipacionGlobal`), no del % del código (ver `reglas-de-comision.ts`).
-const MONTO_LIBRE = /^(UPG|IMPL|EQUIPO|MANUAL|PART)-/;
+// SOCIO-: la comisión mensual del socio es un % de las ventas del MES (la línea
+// «Socio» de Contabilidad, ver `comision-del-socio.service.ts`), no del plan de
+// un negocio. Sin esta marca el arqueo la veía «fantasma, sin negocio» y
+// «Corregir todo» la rechazaba.
+const MONTO_LIBRE = /^(UPG|IMPL|EQUIPO|MANUAL|PART|SOCIO)-/;
 
 /** ¿Esta comisión se calculó sobre un monto pactado aparte? */
 export const esDeMontoLibre = (periodKey: string | null | undefined): boolean =>
@@ -75,6 +79,8 @@ export const NO_ES_DEL_UPGRADE = {
         { NOT: { periodKey: { startsWith: 'EQUIPO-' } } },
         { NOT: { periodKey: { startsWith: 'MANUAL-' } } },
         { NOT: { periodKey: { startsWith: 'PART-' } } },
+        // Ni la del SOCIO: su monto es un % de las ventas del mes.
+        { NOT: { periodKey: { startsWith: 'SOCIO-' } } },
       ],
     },
   ],
@@ -106,6 +112,9 @@ export const NO_ES_DE_EQUIPO = {
         { NOT: { periodKey: { startsWith: 'EQUIPO-' } } },
         { NOT: { periodKey: { startsWith: 'MANUAL-' } } },
         { NOT: { periodKey: { startsWith: 'PART-' } } },
+        // La del SOCIO tampoco tiene referido detrás: salía «fantasma, sin
+        // negocio» y «Corregir todo» la rechazaba.
+        { NOT: { periodKey: { startsWith: 'SOCIO-' } } },
       ],
     },
   ],

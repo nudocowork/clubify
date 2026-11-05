@@ -21,6 +21,7 @@ import { ReferralsService } from './referrals.service';
 import { CommissionRecalcService } from './commission-recalc.service';
 import {
   NO_ES_DEL_UPGRADE,
+  NO_ES_DE_EQUIPO,
   esDeMontoLibre,
   esDelUpgrade,
 } from './comisiones-de-monto-libre';
@@ -250,6 +251,26 @@ describe('los recálculos de fondo dejan fuera la comisión del upgrade', () => 
   });
 });
 
+describe('la comisión mensual del socio queda fuera del arqueo y del recálculo', () => {
+  // Nace sin referido ni negocio (`SOCIO-YYYY-MM`). Antes el arqueo la marcaba
+  // PHANTOM «sin negocio» y «Corregir todo» la rechazaba.
+  const excluye = (filtro: any, pk: string) =>
+    filtro.OR[1].AND.some((c: any) => c.NOT?.periodKey?.startsWith && pk.startsWith(c.NOT.periodKey.startsWith));
+
+  it('el arqueo no la consulta', () => {
+    expect(excluye(NO_ES_DE_EQUIPO, 'SOCIO-2026-10')).toBe(true);
+  });
+
+  it('los recálculos tampoco', () => {
+    expect(excluye(NO_ES_DEL_UPGRADE, 'SOCIO-2026-10')).toBe(true);
+  });
+
+  it('una comisión normal sigue entrando', () => {
+    expect(excluye(NO_ES_DE_EQUIPO, '2026-10')).toBe(false);
+    expect(excluye(NO_ES_DEL_UPGRADE, '2026-10')).toBe(false);
+  });
+});
+
 describe('la trampa del NULL en el filtro', () => {
   /**
    * `NOT (periodKey LIKE 'UPG-%')` vale NULL —no TRUE— cuando la columna es
@@ -283,6 +304,10 @@ describe('quién es de monto libre', () => {
     expect(esDeMontoLibre('2028-02')).toBe(false);
     expect(esDeMontoLibre('ONCE')).toBe(false);
     expect(esDeMontoLibre(null)).toBe(false);
+  });
+
+  it('la comisión mensual del socio es de monto libre', () => {
+    expect(esDeMontoLibre('SOCIO-2026-10')).toBe(true);
   });
 
   it('distingue el upgrade de la implementación', () => {
