@@ -53,6 +53,7 @@ type Card = {
   stampBgImageUrl?: string | null;
   stampIconImageUrl?: string | null;
   stampsRequired: number | null;
+  welcomeStamps?: number;
   stampIcon?: string;
   heroImageUrl?: string | null;
   discountPercent?: number | null;
@@ -1031,6 +1032,7 @@ function EditCardModal({
     stampIconImageUrl: card.stampIconImageUrl ?? (null as string | null),
     freeRewards: (card.freeRewards ?? []) as FreeReward[],
     stampsRequired: card.stampsRequired ?? 10,
+    welcomeStamps: card.welcomeStamps ?? 0,
     minAmountPerStamp:
       card.minAmountPerStamp == null
         ? (null as number | null)
@@ -1148,6 +1150,7 @@ function EditCardModal({
       };
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
+        payload.welcomeStamps = form.welcomeStamps;
         payload.stampIcon = form.stampIcon;
         payload.stampIconImageUrl = form.stampIconImageUrl || null;
         payload.minAmountPerStamp = form.minAmountPerStamp;
@@ -1299,6 +1302,26 @@ function EditCardModal({
                     setForm({ ...form, stampsRequired: Number(e.target.value) })
                   }
                 />
+              </div>
+              <div>
+                <label className="label">{t('labelWelcomeStamps')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={Math.max(0, (form.stampsRequired || 1) - 1)}
+                  className="input max-w-[160px]"
+                  value={form.welcomeStamps}
+                  onChange={(e) => {
+                    // El backend lo topa igual al emitir; aquí se topa para que
+                    // el negocio no crea que configuró «10 de 10».
+                    const n = Math.trunc(Number(e.target.value)) || 0;
+                    const tope = Math.max(0, (form.stampsRequired || 1) - 1);
+                    setForm({ ...form, welcomeStamps: Math.min(tope, Math.max(0, n)) });
+                  }}
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  {t('welcomeStampsHelp')}
+                </div>
               </div>
               <div>
                 <label className="label">

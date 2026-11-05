@@ -44,6 +44,7 @@ export type CardDto = {
   cashbackMinPurchase?: number | null;
   minAmountPerStamp?: number | null;
   visitsRequired?: number | null;
+  welcomeStamps?: number;
   tiers?: Array<{
     name: string;
     threshold: number;
@@ -296,6 +297,7 @@ export class CardsService {
         cashbackMinPurchase: dto.cashbackMinPurchase ?? undefined,
         minAmountPerStamp: dto.minAmountPerStamp ?? undefined,
         visitsRequired: dto.visitsRequired ?? undefined,
+        welcomeStamps: dto.welcomeStamps ?? undefined,
         tiers: (dto.tiers ?? []) as any,
         tierMetric: dto.tierMetric ?? 'spend',
         validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
@@ -388,6 +390,12 @@ export class CardsService {
       'transformIntoCardId',
     ] as const) {
       if (k in dto) data[k] = dto[k] ?? null;
+    }
+    // El PATCH llega como Partial<CardBody> y ahí el ValidationPipe no valida:
+    // se sanea aquí para que un texto o un negativo no lleguen a la base.
+    if ('welcomeStamps' in dto) {
+      const n = Math.trunc(Number(dto.welcomeStamps));
+      data.welcomeStamps = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
     }
     if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
     if ('freeRewards' in dto) {

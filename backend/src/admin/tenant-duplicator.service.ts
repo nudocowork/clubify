@@ -397,6 +397,7 @@ export class TenantDuplicatorService {
             socialLinks: c.socialLinks ?? undefined,
             autoStampOnOrder: c.autoStampOnOrder,
             autoStampAmount: c.autoStampAmount,
+            welcomeStamps: c.welcomeStamps,
             stampIcon: c.stampIcon,
             // Ícono propio del sello (imagen). Faltaba: la copia perdía la
             // imagen y la tarjeta caía al emoji.

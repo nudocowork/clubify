@@ -23,6 +23,7 @@ import { brandAppUrl } from '../email/brand-email-creds.util';
 import { maquetarCorreo } from '../email/maquetador';
 import { normalizePassLocale } from '../wallet/pass-labels';
 import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
+import { sellosDeBienvenida } from './sellos-de-bienvenida';
 import { normalizarFormulario, revisarRegistro, type DatosDelRegistro } from './formulario-de-registro';
 
 /** Lo que hay que saber del negocio (y su marca) para avisar de una emisión. */
@@ -535,6 +536,8 @@ export class PassesService {
           serialNumber: serial,
           qrToken,
           authToken,
+          // «Sellos al instalar» de la tarjeta (0 = vacía).
+          stampsCount: sellosDeBienvenida(card),
         },
       });
     } catch (e: any) {
@@ -1069,7 +1072,9 @@ export class PassesService {
           serialNumber: serial,
           qrToken: genQrToken(),
           authToken,
-          stampsCount: bonusStamps,
+          // Los del enlace de campaña o, si no trae, los «sellos al
+          // instalar» de la tarjeta; nunca el cartón lleno.
+          stampsCount: sellosDeBienvenida(card, bonusStamps),
           pointsBalance: bonusPoints,
           dataPolicyAcceptedAt,
           dataPolicyUrl: dataPolicyUrlShown,

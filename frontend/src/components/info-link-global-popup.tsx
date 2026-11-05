@@ -100,6 +100,47 @@ export function InfoLinkGlobalPopup({
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }
 
+  // Aviso que es SOLO una imagen (sin título ni descripción): el diseño del
+  // aviso del menú — la imagen flotando, la X en la esquina y la imagen misma
+  // como botón. Antes salía metida en una caja blanca con «Registrarme» y
+  // «Cerrar» debajo, y el mismo arte se veía distinto en el InfoLink y en el
+  // menú del negocio (pedido de clientes, 2026-11-05). El texto del botón no se
+  // pinta: el arte ya trae su llamado («Haz clic aquí»).
+  const soloImagen =
+    !!popup.imageUrl && !popup.title?.trim() && !popup.description?.trim();
+  if (soloImagen) {
+    const url = popup.buttonUrl?.trim();
+    const Body = url ? 'a' : 'div';
+    const props: any = url
+      ? { href: url, target: '_blank', rel: 'noopener noreferrer', onClick: () => setActiveIndex(null) }
+      : {};
+    return (
+      <div
+        className="fixed inset-0 z-50 bg-ink/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+        onClick={() => setActiveIndex(null)}
+      >
+        <div className="relative max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setActiveIndex(null)}
+            aria-label={tt('common.close')}
+            className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-white text-ink flex items-center justify-center text-xl shadow-md hover:bg-bg2"
+          >
+            ×
+          </button>
+          <Body {...props} className="block rounded-2xl overflow-hidden shadow-2xl bg-white">
+            <img
+              {...imagenDelInfolink(popup.imageUrl!, AVISO_DEL_INFOLINK)}
+              alt=""
+              className="w-full h-auto block"
+              draggable={false}
+            />
+          </Body>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-4 animate-in fade-in"

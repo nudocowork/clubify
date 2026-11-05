@@ -201,30 +201,35 @@ function mapInfolinkButton(raw: any): Record<string, any> | null {
 // por defecto (del motor); el `message` del onboarding pisa el body.
 const AUTOMATION_EVENT_MAP: Record<
   string,
-  { trigger: Record<string, any>; title: string; defaultBody: string }
+  { trigger: Record<string, any>; nombre: string; title: string; defaultBody: string }
 > = {
   welcome: {
     trigger: { type: 'PASS_CREATED' },
+    nombre: 'Bienvenida',
     title: '¡Bienvenido/a {{customerName}}! 🎉',
     defaultBody: 'Tu tarjeta {{cardName}} está activa. Empieza a sumar.',
   },
   birthday: {
     trigger: { type: 'BIRTHDAY' },
+    nombre: 'Cumpleaños del cliente',
     title: '🎉 Feliz cumpleaños {{customerName}}',
     defaultBody: 'Ven a {{businessName}}, tenemos un obsequio para ti 🎁',
   },
   stamp: {
     trigger: { type: 'STAMP_ADDED' },
+    nombre: 'Sello agregado',
     title: '¡Sumaste un sello! ⭐',
     defaultBody: '¡Vas muy bien! Sigue sumando para tu recompensa.',
   },
   reward: {
     trigger: { type: 'PASS_COMPLETED' },
+    nombre: 'Tarjeta completada',
     title: '🎁 ¡Premio desbloqueado!',
     defaultBody: '{{rewardText}} es tuyo. Canjéalo en tu próxima visita.',
   },
   inactivity: {
     trigger: { type: 'INACTIVITY', days: 30 },
+    nombre: 'Cliente inactivo 30 días',
     title: 'Te extrañamos {{customerName}} 💌',
     defaultBody: 'Hace un mes que no nos vemos. ¡Te esperamos!',
   },
@@ -1271,7 +1276,9 @@ export class OnboardingSyncService {
         await this.prisma.automationRule.create({
           data: {
             tenantId,
-            name: `Onboarding: ${key}`,
+            // Nombre en español: la clave del evento («inactivity») le salía
+            // en inglés al negocio. El panel traduce las que ya existen así.
+            name: def.nombre,
             description: 'Sincronizado desde el onboarding.',
             trigger: def.trigger as any,
             conditions: [] as any,

@@ -2731,6 +2731,8 @@
     "labelSecondaryColor": "Secondary color",
     "labelStampIcon": "Stamp icon",
     "labelStampsRequired": "Stamps required",
+    "labelWelcomeStamps": "Stamps on install",
+    "welcomeStampsHelp": "How many stamps the customer starts with when installing the card. 0 = starts empty. It never reaches the reward: the maximum is one less than the stamps required. A campaign link with its own stamps overrides this value.",
     "labelWalletBrandName": "Name on the card (wallet)",
     "lastVisit": "Last visit {when}",
     "legendNewPasses": "New passes",

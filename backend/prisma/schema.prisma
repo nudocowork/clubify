@@ -1784,6 +1784,11 @@ model Card {
   /// quiere el automático de vuelta — pero es opt-in, no lo contrario.
   autoStampOnOrder    Boolean   @default(false)
   autoStampAmount     Int       @default(1)
+  /// Sellos con los que ARRANCA el cliente al instalar la tarjeta (0 = vacía).
+  /// Pedido de clientes 2026-11-05. Un enlace de campaña con sellos propios
+  /// manda sobre este valor. Nunca llega a completar el cartón: se topa en
+  /// stampsRequired - 1 al emitir, para que el premio salga por un sello real.
+  welcomeStamps       Int       @default(0)
   // Emoji que se usa para representar cada sello visualmente (☕, 🍕, 🍔, etc).
   // El cliente lo elige al crear la tarjeta.
   stampIcon           String    @default("☕")

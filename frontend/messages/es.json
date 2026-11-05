@@ -2731,6 +2731,8 @@
     "labelSecondaryColor": "Color secundario",
     "labelStampIcon": "Icono del sello",
     "labelStampsRequired": "Sellos requeridos",
+    "labelWelcomeStamps": "Sellos al instalar",
+    "welcomeStampsHelp": "Con cuántos sellos arranca el cliente al instalar la tarjeta. 0 = empieza vacía. Nunca llega al premio: el máximo es uno menos que los sellos requeridos. Un enlace de campaña con sellos propios manda sobre este valor.",
     "labelWalletBrandName": "Nombre en la tarjeta (wallet)",
     "lastVisit": "Última visita {when}",
     "legendNewPasses": "Pases nuevos",

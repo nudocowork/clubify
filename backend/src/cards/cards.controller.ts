@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   ValidateBy,
   ValidateIf,
@@ -102,6 +103,8 @@ class CardBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) minAmountPerStamp?: number | null;
   // VISITS: cuántas visitas para canjear el premio
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) visitsRequired?: number | null;
+  // Sellos con los que arranca el cliente al instalarla (0 = vacía).
+  @IsOptional() @IsInt() @Min(0) @Max(100) welcomeStamps?: number;
   // MEMBERSHIP con tiers VIP. tiers: [{name, threshold, perks?, color?, icon?}]
   @IsOptional() @IsArray() tiers?: Array<{
     name: string;

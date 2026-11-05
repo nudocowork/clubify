@@ -44,6 +44,17 @@ const TRIGGERS = [
   { type: 'GEO_ENTER', labelKey: 'triggerGeoEnter' },
 ];
 
+// Las reglas que creó el onboarding antes del 2026-11-05 se llaman con la
+// clave interna del evento («Onboarding: inactivity»): el negocio las veía en
+// inglés con el panel en español. Se muestran con la etiqueta del disparador,
+// sin tocar la base; las nuevas ya nacen con nombre en español.
+const NOMBRE_ONBOARDING_VIEJO = /^Onboarding: (welcome|birthday|stamp|reward|inactivity)$/;
+
+const ACTION_LABEL_KEY: Record<string, string> = {
+  SEND_PUSH: 'actionSendPush',
+  ADD_STAMPS: 'actionAddStamps',
+};
+
 const CATEGORY_LABEL_KEY: Record<TemplateBackend['category'], string> = {
   fidelizacion: 'categoryFidelizacion',
   reactivacion: 'categoryReactivacion',
@@ -52,6 +63,12 @@ const CATEGORY_LABEL_KEY: Record<TemplateBackend['category'], string> = {
 
 export default function AutomationsPage() {
   const t = useTranslations('app_automations');
+  const etiquetaDisparador = (type: string) => {
+    const trg = TRIGGERS.find((x) => x.type === type);
+    return trg ? t(trg.labelKey) : type;
+  };
+  const nombreDeRegla = (r: Rule) =>
+    NOMBRE_ONBOARDING_VIEJO.test(r.name) ? etiquetaDisparador(r.trigger.type) : r.name;
   const [list, setList] = useState<Rule[]>([]);
   const [templates, setTemplates] = useState<TemplateBackend[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -188,17 +205,17 @@ export default function AutomationsPage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <Icon name="spark" size={16} className="text-brand" />
-                  <div className="font-semibold">{r.name}</div>
+                  <div className="font-semibold">{nombreDeRegla(r)}</div>
                 </div>
                 <div className="text-xs text-mute mt-1">{r.description}</div>
                 <div className="flex flex-wrap gap-2 mt-3 text-xs">
                   <span className="badge badge-info">
-                    {t('whenPrefix')}: {r.trigger.type}
+                    {t('whenPrefix')}: {etiquetaDisparador(r.trigger.type)}
                     {r.trigger.days ? ` (${r.trigger.days}d)` : ''}
                   </span>
                   {r.actions.map((a, i) => (
                     <span key={i} className="badge badge-mute">
-                      → {a.type}
+                      → {ACTION_LABEL_KEY[a.type] ? t(ACTION_LABEL_KEY[a.type]) : a.type}
                     </span>
                   ))}
                   <span className="badge badge-mute">
@@ -215,7 +232,7 @@ export default function AutomationsPage() {
               </div>
             </div>
             <div className="mt-3 flex gap-3 text-xs">
-              <button className="btn-link" onClick={() => setEditing(r)}>
+              <button className="btn-link" onClick={() => setEditing({ ...r, name: nombreDeRegla(r) })}>
                 {t('edit')}
               </button>
               <button className="btn-link" onClick={() => toggle(r)}>
