@@ -11,10 +11,10 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import {
-  WalletPassPreview,
   LOGO_SHAPES,
   type LogoShape,
 } from '@/components/WalletPassPreview';
+import { VistaPreviaPorPlataforma } from '@/components/VistaPreviaPorPlataforma';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
@@ -418,7 +418,7 @@ export default function CardDetail() {
         {/* Preview grande — mismo componente que el wizard y el wallet del cliente */}
         <div className="space-y-4">
           <div className="flex justify-center">
-            <WalletPassPreview
+            <VistaPreviaPorPlataforma
               brandName={
                 tenant?.brandName ||
                 card.businessName ||

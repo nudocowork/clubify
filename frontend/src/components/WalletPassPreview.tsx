@@ -112,6 +112,16 @@ export type WalletPassPreviewProps = {
   size?: 'sm' | 'md' | 'lg';
   /** Si true, renderiza solo el pase sin el iPhone wrapper. */
   bare?: boolean;
+  /**
+   * En qué teléfono se ve. Ausente = iPhone, como se ha pintado siempre.
+   *
+   * ANDROID dibuja la tarjeta como la arma Google Wallet con lo que le manda
+   * `google-wallet.service.ts`: logo REDONDO + `issuerName` arriba, el nombre de
+   * la tarjeta (`programName`) en grande, titular y saldo, el código en una
+   * caja blanca y, debajo, la misma imagen de sellos que en iPhone. No es la
+   * distribución de Apple: el negocio la tenía que adivinar.
+   */
+  plataforma?: 'IPHONE' | 'ANDROID';
 };
 
 /**
@@ -206,6 +216,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     barcodeValue,
     size = 'md',
     bare = false,
+    plataforma = 'IPHONE',
   } = props;
 
   const isProgressType =
@@ -348,6 +359,266 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         ? 'w-[300px]'
         : 'w-[260px]';
 
+  // El centro del pase (cartón de sellos, saldo, descuento…). Es el mismo en
+  // iPhone y en Android: en los dos sale de la misma imagen que genera el
+  // backend, así que se dibuja una sola vez y cada marco lo coloca donde va.
+  const centro = (
+    <div className="px-4 pb-3 relative">
+      {isProgressType && dibujarCarton && (
+        <div
+          className="rounded-2xl px-3 py-3 relative overflow-hidden"
+          style={
+            // Wallet V3 — modo de fondo del área de sellos. Cada rama
+            // replica EXACTAMENTE lo que pinta generateStampsStrip en el
+            // backend (el strip real del pase) para que la vista previa
+            // no prometa nada distinto de lo instalado:
+            //  IMAGE  → imagen cover centrada (+ overlay oscuro para legibilidad)
+            //  SOLID  → uniforme: centerBgColor o el color de la tarjeta
+            //  GRADIENT (legacy) → centerBgColor sólido, o degradado
+            //  primary→secondary — el ÚNICO lugar del pase real donde
+            //  existe el degradado.
+            stampBgType === 'IMAGE' && stampBgImageUrl
+              ? {
+                  backgroundImage: `url(${stampBgImageUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }
+              : stampBgType === 'SOLID' || stampBgType === 'IMAGE'
+                ? { background: centerBgColor || primaryColor }
+                : {
+                    background: centerBgColor
+                      ? centerBgColor
+                      : `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
+                  }
+          }
+        >
+          {/* Overlay: gloss sutil (GRADIENT) u oscuro para legibilidad (IMAGE).
+              SOLID no lleva overlay → look completamente uniforme.
+              Los valores calcan los gradientes #gloss y #heroOverlay del
+              strip real (generateStampsStrip). */}
+          {stampBgType === 'IMAGE' && stampBgImageUrl ? (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(0,0,0,.30) 0%, rgba(0,0,0,.75) 100%)',
+              }}
+            />
+          ) : stampBgType === 'GRADIENT' ? (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,.10) 100%)',
+              }}
+            />
+          ) : null}
+          <div
+            className="relative grid gap-1.5 justify-items-center"
+            style={{
+              gridTemplateColumns: `repeat(${porFilaPreview}, minmax(0, 1fr))`,
+            }}
+          >
+            {Array.from({ length: previewStamps }).map((_, i) => {
+              const filled = i < current;
+              const prize = prizeByPos.get(i + 1);
+              if (prize) {
+                // Círculo de Premio Free: color propio + emoji/texto dentro +
+                // badge 🎁 en la esquina superior derecha.
+                const bg = prize.circleColor || (filled ? activeBg : inactiveBg);
+                const fg = prize.textColor || (filled ? activeFg : '#FFFFFF');
+                const label = (prize.text || '').trim();
+                return (
+                  <div
+                    key={i}
+                    className="relative aspect-square rounded-full flex flex-col items-center justify-center transition-all flex-1 overflow-visible"
+                    style={{
+                      maxWidth: previewStamps > 8 ? '32px' : '40px',
+                      background: bg,
+                      color: fg,
+                      boxShadow:
+                        '0 4px 10px -2px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.35)',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {prize.emoji ? (
+                      <span style={{ fontSize: previewStamps > 8 ? '11px' : '14px' }}>{prize.emoji}</span>
+                    ) : null}
+                    {label ? (
+                      <span
+                        className="font-bold text-center px-[1px]"
+                        style={{
+                          fontSize: previewStamps > 8 ? '5px' : '6.5px',
+                          lineHeight: 1.05,
+                          maxWidth: '100%',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {label}
+                      </span>
+                    ) : null}
+                    <span
+                      className="absolute -top-1 -right-1 rounded-full flex items-center justify-center bg-white shadow"
+                      style={{
+                        width: previewStamps > 8 ? '11px' : '14px',
+                        height: previewStamps > 8 ? '11px' : '14px',
+                        fontSize: previewStamps > 8 ? '7px' : '9px',
+                      }}
+                    >
+                      🎁
+                    </span>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={i}
+                  className="aspect-square rounded-full flex items-center justify-center transition-all flex-1"
+                  style={{
+                    maxWidth: previewStamps > 8 ? '32px' : '40px',
+                    background: filled ? activeBg : inactiveBg,
+                    color: filled ? activeFg : 'transparent',
+                    fontWeight: 600,
+                    fontSize: previewStamps > 8 ? '13px' : '17px',
+                    lineHeight: 1,
+                    boxShadow: filled
+                      ? '0 4px 10px -2px rgba(0,0,0,.22), inset 0 0 0 1px rgba(255,255,255,.55)'
+                      : 'none',
+                    border: contourCol ? `1px solid ${contourCol}` : 'none',
+                  }}
+                >
+                  {stampIconImageUrl && stampIconImageUrl.trim() ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={stampIconImageUrl}
+                      alt=""
+                      // Llena el círculo COMPLETO (igual que el strip real del
+                      // pase); recortada en círculo para que no se salga.
+                      className="object-contain rounded-full"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        opacity: filled ? 1 : 0.34,
+                      }}
+                    />
+                  ) : filled ? (
+                    stampIcon
+                  ) : (
+                    ''
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {cardType === 'CASHBACK' && (
+        <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
+          <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
+            Saldo disponible
+          </div>
+          <div className="text-2xl font-extrabold mt-1">
+            ${Math.round(cashbackBalance).toLocaleString('es-CO')}
+          </div>
+        </div>
+      )}
+
+      {cardType === 'POINTS' && (
+        <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
+          <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
+            Acumulados
+          </div>
+          <div className="text-2xl font-extrabold mt-1">
+            {Math.round(pointsBalance)} <span className="text-base">pts</span>
+          </div>
+        </div>
+      )}
+
+      {cardType === 'MEMBERSHIP' && (
+        <div className="rounded-2xl bg-black/20 px-3 py-3 text-center">
+          <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
+            Niveles del programa
+          </div>
+          <div className="text-sm font-bold mt-1">
+            {(tiers ?? []).slice(0, 3).map((t) => t.name).join(' · ') ||
+              'Membresía premium'}
+          </div>
+        </div>
+      )}
+
+      {cardType === 'DISCOUNT' && (
+        <div className="rounded-2xl bg-black/20 px-3 py-3 text-center">
+          <div className="text-3xl font-black leading-none">
+            {discountPercent ?? 10}%
+          </div>
+          <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold mt-1">
+            Descuento permanente
+          </div>
+        </div>
+      )}
+
+      {/* LA CREDENCIAL: el logo del negocio, grande y centrado.
+
+          En el pase real esto es una IMAGEN —la franja— porque Apple ancla
+          `logo.png` arriba a la izquierda y no hay forma de centrarlo con un
+          campo. Aquí se compone con CSS, pero la geometría es la misma que
+          usa `generateCredentialStrip`: la franja mide 320×123 puntos y el
+          logo ocupa como mucho el 62 % del ancho y el 58 % del alto.
+
+          Sin fondo propio: el de la franja es el color de la tarjeta, el
+          mismo que el del pase, para que no se vea dónde empieza la imagen.
+          Por eso aquí NO va el `bg-black/20` que llevan los demás tipos.
+
+          Sin logo no se pinta el hueco. El backend tampoco genera franja en
+          ese caso, y una caja vacía se lee como una imagen que no cargó. */}
+      {credencial && brandLogoUrl && (
+        <div
+          className="flex items-center justify-center"
+          style={{ aspectRatio: '320 / 123' }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={brandLogoUrl}
+            alt=""
+            className="object-contain"
+            style={{
+              maxWidth: '62%',
+              maxHeight: '58%',
+              // El chip que el negocio haya elegido para su logo. Sin chip no
+              // se pinta nada: el backend solo mete una plancha cuando MIDE
+              // que el logo no contrastaría con el fondo, y eso no se puede
+              // medir aquí sin leer los píxeles de una imagen remota.
+              ...(logoBgColor
+                ? {
+                    background: logoBgColor,
+                    padding: '4%',
+                    // Mismos radios que `generateCredentialStrip`: redondo,
+                    // a escuadra, o el 22 % por defecto.
+                    borderRadius:
+                      logoShape === 'CIRCLE'
+                        ? '9999px'
+                        : logoShape === 'SQUARE'
+                          ? 0
+                          : '11%',
+                  }
+                : null),
+            }}
+          />
+        </div>
+      )}
+
+      {(cardType === 'GIFT' || cardType === 'COUPON') && (
+        <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
+          <div className="text-3xl">{cardType === 'GIFT' ? '🎁' : '🎟'}</div>
+          <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold mt-1">
+            {cardType === 'GIFT' ? 'Tarjeta regalo' : 'Cupón especial'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const passContent = (
     <div
       className="rounded-[24px] text-white overflow-hidden flex flex-col relative"
@@ -420,261 +691,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       </div>
       )}
 
-      {/* Strip / display central según tipo */}
-      <div className="px-4 pb-3 relative">
-        {isProgressType && dibujarCarton && (
-          <div
-            className="rounded-2xl px-3 py-3 relative overflow-hidden"
-            style={
-              // Wallet V3 — modo de fondo del área de sellos. Cada rama
-              // replica EXACTAMENTE lo que pinta generateStampsStrip en el
-              // backend (el strip real del pase) para que la vista previa
-              // no prometa nada distinto de lo instalado:
-              //  IMAGE  → imagen cover centrada (+ overlay oscuro para legibilidad)
-              //  SOLID  → uniforme: centerBgColor o el color de la tarjeta
-              //  GRADIENT (legacy) → centerBgColor sólido, o degradado
-              //  primary→secondary — el ÚNICO lugar del pase real donde
-              //  existe el degradado.
-              stampBgType === 'IMAGE' && stampBgImageUrl
-                ? {
-                    backgroundImage: `url(${stampBgImageUrl})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }
-                : stampBgType === 'SOLID' || stampBgType === 'IMAGE'
-                  ? { background: centerBgColor || primaryColor }
-                  : {
-                      background: centerBgColor
-                        ? centerBgColor
-                        : `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
-                    }
-            }
-          >
-            {/* Overlay: gloss sutil (GRADIENT) u oscuro para legibilidad (IMAGE).
-                SOLID no lleva overlay → look completamente uniforme.
-                Los valores calcan los gradientes #gloss y #heroOverlay del
-                strip real (generateStampsStrip). */}
-            {stampBgType === 'IMAGE' && stampBgImageUrl ? (
-              <div
-                className="absolute inset-0 pointer-events-none"
-                style={{
-                  background:
-                    'linear-gradient(180deg, rgba(0,0,0,.30) 0%, rgba(0,0,0,.75) 100%)',
-                }}
-              />
-            ) : stampBgType === 'GRADIENT' ? (
-              <div
-                className="absolute inset-0 pointer-events-none"
-                style={{
-                  background:
-                    'linear-gradient(180deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,.10) 100%)',
-                }}
-              />
-            ) : null}
-            <div
-              className="relative grid gap-1.5 justify-items-center"
-              style={{
-                gridTemplateColumns: `repeat(${porFilaPreview}, minmax(0, 1fr))`,
-              }}
-            >
-              {Array.from({ length: previewStamps }).map((_, i) => {
-                const filled = i < current;
-                const prize = prizeByPos.get(i + 1);
-                if (prize) {
-                  // Círculo de Premio Free: color propio + emoji/texto dentro +
-                  // badge 🎁 en la esquina superior derecha.
-                  const bg = prize.circleColor || (filled ? activeBg : inactiveBg);
-                  const fg = prize.textColor || (filled ? activeFg : '#FFFFFF');
-                  const label = (prize.text || '').trim();
-                  return (
-                    <div
-                      key={i}
-                      className="relative aspect-square rounded-full flex flex-col items-center justify-center transition-all flex-1 overflow-visible"
-                      style={{
-                        maxWidth: previewStamps > 8 ? '32px' : '40px',
-                        background: bg,
-                        color: fg,
-                        boxShadow:
-                          '0 4px 10px -2px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.35)',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {prize.emoji ? (
-                        <span style={{ fontSize: previewStamps > 8 ? '11px' : '14px' }}>{prize.emoji}</span>
-                      ) : null}
-                      {label ? (
-                        <span
-                          className="font-bold text-center px-[1px]"
-                          style={{
-                            fontSize: previewStamps > 8 ? '5px' : '6.5px',
-                            lineHeight: 1.05,
-                            maxWidth: '100%',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {label}
-                        </span>
-                      ) : null}
-                      <span
-                        className="absolute -top-1 -right-1 rounded-full flex items-center justify-center bg-white shadow"
-                        style={{
-                          width: previewStamps > 8 ? '11px' : '14px',
-                          height: previewStamps > 8 ? '11px' : '14px',
-                          fontSize: previewStamps > 8 ? '7px' : '9px',
-                        }}
-                      >
-                        🎁
-                      </span>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={i}
-                    className="aspect-square rounded-full flex items-center justify-center transition-all flex-1"
-                    style={{
-                      maxWidth: previewStamps > 8 ? '32px' : '40px',
-                      background: filled ? activeBg : inactiveBg,
-                      color: filled ? activeFg : 'transparent',
-                      fontWeight: 600,
-                      fontSize: previewStamps > 8 ? '13px' : '17px',
-                      lineHeight: 1,
-                      boxShadow: filled
-                        ? '0 4px 10px -2px rgba(0,0,0,.22), inset 0 0 0 1px rgba(255,255,255,.55)'
-                        : 'none',
-                      border: contourCol ? `1px solid ${contourCol}` : 'none',
-                    }}
-                  >
-                    {stampIconImageUrl && stampIconImageUrl.trim() ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={stampIconImageUrl}
-                        alt=""
-                        // Llena el círculo COMPLETO (igual que el strip real del
-                        // pase); recortada en círculo para que no se salga.
-                        className="object-contain rounded-full"
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          opacity: filled ? 1 : 0.34,
-                        }}
-                      />
-                    ) : filled ? (
-                      stampIcon
-                    ) : (
-                      ''
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {cardType === 'CASHBACK' && (
-          <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
-            <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-              Saldo disponible
-            </div>
-            <div className="text-2xl font-extrabold mt-1">
-              ${Math.round(cashbackBalance).toLocaleString('es-CO')}
-            </div>
-          </div>
-        )}
-
-        {cardType === 'POINTS' && (
-          <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
-            <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-              Acumulados
-            </div>
-            <div className="text-2xl font-extrabold mt-1">
-              {Math.round(pointsBalance)} <span className="text-base">pts</span>
-            </div>
-          </div>
-        )}
-
-        {cardType === 'MEMBERSHIP' && (
-          <div className="rounded-2xl bg-black/20 px-3 py-3 text-center">
-            <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-              Niveles del programa
-            </div>
-            <div className="text-sm font-bold mt-1">
-              {(tiers ?? []).slice(0, 3).map((t) => t.name).join(' · ') ||
-                'Membresía premium'}
-            </div>
-          </div>
-        )}
-
-        {cardType === 'DISCOUNT' && (
-          <div className="rounded-2xl bg-black/20 px-3 py-3 text-center">
-            <div className="text-3xl font-black leading-none">
-              {discountPercent ?? 10}%
-            </div>
-            <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold mt-1">
-              Descuento permanente
-            </div>
-          </div>
-        )}
-
-        {/* LA CREDENCIAL: el logo del negocio, grande y centrado.
-
-            En el pase real esto es una IMAGEN —la franja— porque Apple ancla
-            `logo.png` arriba a la izquierda y no hay forma de centrarlo con un
-            campo. Aquí se compone con CSS, pero la geometría es la misma que
-            usa `generateCredentialStrip`: la franja mide 320×123 puntos y el
-            logo ocupa como mucho el 62 % del ancho y el 58 % del alto.
-
-            Sin fondo propio: el de la franja es el color de la tarjeta, el
-            mismo que el del pase, para que no se vea dónde empieza la imagen.
-            Por eso aquí NO va el `bg-black/20` que llevan los demás tipos.
-
-            Sin logo no se pinta el hueco. El backend tampoco genera franja en
-            ese caso, y una caja vacía se lee como una imagen que no cargó. */}
-        {credencial && brandLogoUrl && (
-          <div
-            className="flex items-center justify-center"
-            style={{ aspectRatio: '320 / 123' }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={brandLogoUrl}
-              alt=""
-              className="object-contain"
-              style={{
-                maxWidth: '62%',
-                maxHeight: '58%',
-                // El chip que el negocio haya elegido para su logo. Sin chip no
-                // se pinta nada: el backend solo mete una plancha cuando MIDE
-                // que el logo no contrastaría con el fondo, y eso no se puede
-                // medir aquí sin leer los píxeles de una imagen remota.
-                ...(logoBgColor
-                  ? {
-                      background: logoBgColor,
-                      padding: '4%',
-                      // Mismos radios que `generateCredentialStrip`: redondo,
-                      // a escuadra, o el 22 % por defecto.
-                      borderRadius:
-                        logoShape === 'CIRCLE'
-                          ? '9999px'
-                          : logoShape === 'SQUARE'
-                            ? 0
-                            : '11%',
-                    }
-                  : null),
-              }}
-            />
-          </div>
-        )}
-
-        {(cardType === 'GIFT' || cardType === 'COUPON') && (
-          <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
-            <div className="text-3xl">{cardType === 'GIFT' ? '🎁' : '🎟'}</div>
-            <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold mt-1">
-              {cardType === 'GIFT' ? 'Tarjeta regalo' : 'Cupón especial'}
-            </div>
-          </div>
-        )}
-      </div>
+      {centro}
 
       {/* Los campos de abajo. En una tarjeta de CLUB el pase real no dice
           «Titular / Recompensa» sino «Te quedan / Cliente»: no hay premio al
@@ -746,6 +763,106 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       )}
     </div>
   );
+
+  if (plataforma === 'ANDROID') {
+    // Los dos campos que Google pinta bajo el título: el titular
+    // (`accountName`) a la izquierda y el saldo (`loyaltyPoints`) a la derecha.
+    const izquierda = {
+      lbl: club ? 'Te quedan' : credencial ? 'Cliente' : 'Titular',
+      val: club && !credencial ? `${stampsCount} ${plural(club.unidad, stampsCount)}` : customerName,
+    };
+    const derecha =
+      sideHeader ??
+      (credencial
+        ? { lbl: 'Estado', val: textoDeLaCredencial({ revocada, textoDelNegocio: rewardText }) }
+        : { lbl: nextPrize ? 'Próximo premio' : 'Recompensa', val: nextPrize ? nextPrize.label : rewardText || '—' });
+
+    const googleContent = (
+      <div
+        className="rounded-[20px] text-white overflow-hidden flex flex-col"
+        style={{
+          // Mismo motivo que en iPhone: Google solo acepta `hexBackgroundColor`.
+          background: primaryColor,
+          boxShadow: '0 14px 30px -12px rgba(0,0,0,.35)',
+        }}
+      >
+        <div className="flex items-center gap-2 px-4 pt-3.5">
+          {/* Google recorta SIEMPRE el logo en círculo, elija el negocio la
+              forma que elija: así se ve en el teléfono. */}
+          <div
+            className="w-7 h-7 rounded-full shrink-0 overflow-hidden flex items-center justify-center font-bold text-[12px]"
+            style={{ background: logoBgColor || 'rgba(255,255,255,.18)' }}
+          >
+            {brandLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={brandLogoUrl} alt="" className="w-full h-full object-contain" />
+            ) : (
+              initial
+            )}
+          </div>
+          <div className="text-[12px] font-medium leading-tight break-words line-clamp-2">
+            {brandName || 'Tu marca'}
+          </div>
+        </div>
+        <div className="px-4 pt-2.5 pb-3 text-[17px] font-semibold leading-snug break-words line-clamp-3">
+          {cardName || 'Tu tarjeta'}
+        </div>
+        <div className="px-4 pb-3 grid grid-cols-[1fr_auto] gap-3 items-end">
+          <div className="min-w-0">
+            <div className="text-[10px] opacity-80">{izquierda.lbl}</div>
+            <div className="text-[13px] font-medium mt-0.5 leading-tight break-words line-clamp-2">
+              {izquierda.val}
+            </div>
+          </div>
+          <div className="text-right max-w-[55%]">
+            <div className="text-[10px] opacity-80">{derecha.lbl}</div>
+            <div className="text-[13px] font-medium mt-0.5 leading-tight line-clamp-2">{derecha.val}</div>
+          </div>
+        </div>
+        {barcodeValue && (
+          <div className="mx-4 mb-3 rounded-xl bg-white text-ink px-3 pt-2.5 pb-1.5 flex flex-col items-center">
+            <Barcode value={barcodeValue} format="CODE128" height={46} width={1.2} displayValue={false} />
+            <div className="text-[10px] text-mute mt-1 tracking-wide">{barcodeValue}</div>
+          </div>
+        )}
+        {/* Debajo del código va la imagen de sellos (el `imageModulesData`
+            del pase de Google): la misma que se ve en iPhone. */}
+        {centro}
+      </div>
+    );
+
+    if (bare) return googleContent;
+
+    return (
+      <div
+        className={`${sizeClass} mx-auto`}
+        style={{
+          background: '#1F2937',
+          borderRadius: 34,
+          padding: 7,
+          boxShadow: '0 30px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px #374151',
+          position: 'relative',
+        }}
+      >
+        <div className="rounded-[28px] overflow-hidden" style={{ background: '#F1F3F4', minHeight: 500 }}>
+          {/* Barra de estado con la cámara perforada en el centro, como un Android. */}
+          <div className="relative flex items-center justify-between px-4 pt-2.5 pb-1.5 text-[10px] font-medium text-[#3C4043]">
+            <span>11:42</span>
+            <span
+              aria-hidden
+              className="absolute left-1/2 top-2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[#1F2937]"
+            />
+            <span>▾ ▮ 100%</span>
+          </div>
+          <div className="flex items-center justify-between px-3.5 pb-2 text-[#3C4043]">
+            <span className="text-base leading-none">←</span>
+            <span className="text-base leading-none">⋮</span>
+          </div>
+          <div className="mx-2.5 mb-3">{googleContent}</div>
+        </div>
+      </div>
+    );
+  }
 
   if (bare) return passContent;
 

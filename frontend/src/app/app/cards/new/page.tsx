@@ -9,6 +9,7 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { VistaPreviaPorPlataforma } from '@/components/VistaPreviaPorPlataforma';
 import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
@@ -143,6 +144,10 @@ export default function NewCardWizard() {
     informativa: false,
   });
 
+  // Nombre y logo del negocio: las plantillas se dibujan como SU tarjeta, no
+  // como un cuadro de color con un nombre genérico.
+  const [marca, setMarca] = useState<{ nombre: string; logo: string | null }>({ nombre: '', logo: null });
+
   const [locations, setLocations] = useState<LocationLite[]>([]);
   // Cargar categoría del tenant + sedes
   useEffect(() => {
@@ -150,6 +155,7 @@ export default function NewCardWizard() {
       .then((me) => {
         if (me?.businessCategorySlug) setTenantCategorySlug(me.businessCategorySlug);
         if (me?.walletAdvanced) setWalletAdv(me.walletAdvanced);
+        setMarca({ nombre: me?.brandName ?? '', logo: me?.logoUrl ?? null });
         setModulos({
           convenios: me?.conveniosEnabled === true,
           club: me?.clubEnabled === true,
@@ -296,6 +302,7 @@ export default function NewCardWizard() {
           search={search}
           setSearch={setSearch}
           pickedId={picked?.id ?? null}
+          marca={marca}
           onPick={(t) => {
             applyTemplate(t);
             setStep(3);
@@ -442,6 +449,7 @@ function Step1Templates({
   search,
   setSearch,
   pickedId,
+  marca,
   onPick,
   onScratch,
 }: {
@@ -454,6 +462,7 @@ function Step1Templates({
   search: string;
   setSearch: (s: string) => void;
   pickedId: string | null;
+  marca: { nombre: string; logo: string | null };
   onPick: (t: CardTemplate) => void;
   onScratch: () => void;
 }) {
@@ -529,7 +538,7 @@ function Step1Templates({
         {/* Crear desde cero — siempre primero */}
         <button
           onClick={onScratch}
-          className="aspect-[3/4] rounded-2xl border-2 border-dashed border-line hover:border-brand bg-bg2/40 flex flex-col items-center justify-center gap-2 transition"
+          className="min-h-[330px] rounded-2xl border-2 border-dashed border-line hover:border-brand bg-bg2/40 flex flex-col items-center justify-center gap-2 transition"
         >
           <div className="w-10 h-10 rounded-full bg-brand-soft flex items-center justify-center text-brand">
             <Icon name="spark" size={18} />
@@ -540,33 +549,51 @@ function Step1Templates({
           </div>
         </button>
 
-        {filtered.map((t) => (
+        {/* Cada plantilla se dibuja como la tarjeta que va a quedar en el
+            teléfono del cliente, con el nombre y el logo del negocio. Antes era
+            un cuadro de color con el nombre: no se sabía qué se estaba eligiendo
+            hasta el paso de diseño. */}
+        {filtered.map((tpl) => (
           <button
-            key={t.id}
-            onClick={() => onPick(t)}
-            className={`aspect-[3/4] rounded-2xl text-left flex flex-col overflow-hidden border-2 transition ${
-              pickedId === t.id ? 'border-ink shadow-md' : 'border-transparent hover:border-line'
+            key={tpl.id}
+            onClick={() => onPick(tpl)}
+            aria-label={tpl.displayName}
+            className={`flex flex-col items-center gap-2 rounded-2xl p-2 border-2 transition ${
+              pickedId === tpl.id ? 'border-ink bg-bg2/40' : 'border-transparent hover:border-line'
             }`}
-            style={{
-              background: `linear-gradient(135deg, ${t.defaults.primaryColor}, ${t.defaults.secondaryColor})`,
-            }}
           >
-            <div className="flex-1 p-3 text-white relative overflow-hidden">
-              <div className="text-[10px] uppercase tracking-wider opacity-80 font-semibold">
-                {TYPE_LABEL[t.type]}
-              </div>
-              <div className="text-sm font-bold mt-1 leading-tight line-clamp-3">
-                {t.defaults.name}
-              </div>
-              <div
-                className="absolute -right-2 -bottom-2 text-6xl opacity-20 select-none pointer-events-none"
-                aria-hidden
-              >
-                {t.defaults.stampIcon ?? TYPE_EMOJI[t.type]}
+            <div
+              className="w-full max-w-[200px] rounded-[26px] p-1.5"
+              style={{ background: '#0F172A', boxShadow: '0 16px 32px -14px rgba(15,23,42,.45)' }}
+            >
+              <div className="rounded-[20px] bg-white h-[300px] overflow-hidden px-1.5 pt-5 pointer-events-none" aria-hidden>
+                <WalletPassPreview
+                  bare
+                  brandName={marca.nombre}
+                  brandLogoUrl={marca.logo}
+                  primaryColor={tpl.defaults.primaryColor}
+                  secondaryColor={tpl.defaults.secondaryColor}
+                  cardName={tpl.defaults.name}
+                  cardType={tpl.type}
+                  stampsRequired={tpl.defaults.stampsRequired ?? 10}
+                  stampsCount={Math.min(3, tpl.defaults.stampsRequired ?? 10)}
+                  visitsRequired={tpl.defaults.visitsRequired ?? 10}
+                  visitsCount={3}
+                  pointsBalance={120}
+                  cashbackBalance={15000}
+                  discountPercent={tpl.defaults.discountPercent ?? null}
+                  tiers={tpl.defaults.tiers}
+                  currentTier={tpl.defaults.tiers?.[0]?.name}
+                  stampIcon={tpl.defaults.stampIcon}
+                  rewardText={tpl.defaults.rewardText}
+                  customerName="TU CLIENTE"
+                  barcodeValue="DEMO123456"
+                />
               </div>
             </div>
-            <div className="bg-white px-3 py-2 text-[11px] text-ink">
-              <div className="font-semibold truncate">{t.displayName}</div>
+            <div className="w-full text-center">
+              <div className="text-xs font-semibold text-ink truncate">{tpl.displayName}</div>
+              <div className="text-[10px] text-mute">{TYPE_LABEL[tpl.type]}</div>
             </div>
           </button>
         ))}
@@ -1064,10 +1091,10 @@ function Step3Configure({
 
       <div>
         <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-          {t('iphonePreview')}
+          {t('preview')}
         </div>
         <div className="flex justify-center">
-          <WalletPassPreview
+          <VistaPreviaPorPlataforma
             brandName={brand}
             primaryColor={form.primaryColor}
             secondaryColor={form.secondaryColor}
@@ -1400,7 +1427,7 @@ function Step4Design({
           {t('preview')}
         </div>
         <div className="flex justify-center">
-          <WalletPassPreview
+          <VistaPreviaPorPlataforma
             showNextReward={showNextReward}
             brandName={brand}
             primaryColor={form.primaryColor}

@@ -1141,62 +1141,9 @@ export default function AppShell({
                   : []),
               ],
             },
-            // Comunidad (Lab + Tutoriales) se gatea por el módulo COMMUNITY de
-            // la marca del negocio (Fase 4, genérico). Default true mientras
-            // carga. Oculto para marcas sin COMMUNITY (ej. Sellea).
-            ...(tenantInfo?.communityEnabled !== false
-              ? [
-                  {
-                    section: tNav('secCommunity'),
-                    items: [
-                      // Lab — propuestas y votación pública (item 13 sprint).
-                      // Solo negocios de Clubify o sin marca: en una marca blanca
-                      // el Lab es de su administrador general (Javier, 2026-09-15)
-                      // y el backend les responde 403. Con la marca sin resolver
-                      // no se pinta, para no ofrecerlo y quitarlo al cargar; y sin
-                      // nombre, «Lab» a secas (nunca «Clubify» por defecto).
-                      ...(tenantInfo && (!tenantInfo.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify')
-                        ? [{ href: '/lab', label: tenantInfo.whiteLabelName ? `🧪 ${tenantInfo.whiteLabelName} Lab` : '🧪 Lab', icon: 'spark' as IconName }]
-                        : []),
-                      // LA ACADEMIA DE SU MARCA, no la de Clubify.
-                      //
-                      // Esto era «Tutoriales» con el enlace de Clubify escrito
-                      // a mano (`academy.soyclubify.lat/cliente`). Medido el
-                      // 2026-09-28: **13 negocios de Sellea** acababan en la
-                      // academia de Clubify desde su propio panel. Es el mismo
-                      // fallo que ya se arregló en el panel del AFILIADO con
-                      // `WhiteLabel.academiaUrl`, vivo en la otra pantalla.
-                      //
-                      // Ahora el enlace sale de `academiaNegociosUrl` de su
-                      // marca y el nombre lleva el de la marca —«Clubify
-                      // Academy», «Sellea Academy»—, igual que el Lab de
-                      // arriba. Sin marca resuelta se queda en «Academy» a
-                      // secas: nunca «Clubify» por defecto.
-                      //
-                      // SIN URL PROPIA NO SE PINTA. Una marca sin academia no
-                      // hereda la ajena; enseñarle al dueño de un local la
-                      // academia de otra plataforma es la fuga de marca de
-                      // siempre. Lo mismo que hace el panel del afiliado.
-                      //
-                      // `tutorialsEnabled` sigue mandando: el SUPER_ADMIN puede
-                      // apagarlo por negocio desde /admin/tenants/[id].
-                      ...(tenantInfo?.tutorialsEnabled !== false &&
-                      tenantInfo?.academiaNegociosUrl
-                        ? [
-                            {
-                              href: tenantInfo.academiaNegociosUrl,
-                              label: tenantInfo.whiteLabelName
-                                ? `🎓 ${tenantInfo.whiteLabelName} Academy`
-                                : '🎓 Academy',
-                              icon: 'book' as IconName,
-                              external: true,
-                            },
-                          ]
-                        : []),
-                    ],
-                  },
-                ]
-              : []),
+            // La sección «Comunidad» (Lab + Academy) se quitó del panel del negocio
+            // el 2026-11-07, a pedido de Javier. Las rutas /lab y la academia de
+            // cada marca siguen existiendo; solo dejan de ofrecerse en este menú.
           ];
 
           // Mientras tenantInfo no llegó (primer paint), mostramos todos los
