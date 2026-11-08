@@ -17,8 +17,12 @@
  *
  * Uso:
  *   railway run --service backend --environment production --project ba90d94d-7e6d-4056-85ad-0e3f24e8d43a \
- *     node scripts/pasar-a-pago-por-fuera.cjs motilart [--monto=68] [--metodo=TRANSFERENCIA] \
- *     [--fecha=2026-11-07] [--referencia=...] [--aplicar]
+ *     node scripts/pasar-a-pago-por-fuera.cjs motilart [--monto=50] [--metodo=TRANSFERENCIA] \
+ *     [--fecha=2026-11-07] [--referencia=...] [--precio=50] [--aplicar]
+ *
+ * --precio fija el precio PACTADO (subscriptionPriceUsd), que es la base de
+ * las comisiones. Sin él la comisión sale del canónico (68 mensual), y a un
+ * cliente de mensualidad estándar de 50 se le pagaría de más al afiliado.
  *
  * --monto va en USD (Contabilidad es en dólares; el conciliador nocturno lo
  * lleva al libro). Sin monto el ciclo queda cubierto pero no suma ingreso.
@@ -59,6 +63,8 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
   if (!METODOS.includes(metodo)) throw new Error(`--metodo debe ser uno de ${METODOS.join(', ')}`);
   const monto = opt('monto') != null ? Number(opt('monto')) : null;
   if (monto != null && !(monto >= 0)) throw new Error('--monto inválido');
+  const precio = opt('precio') != null ? Number(opt('precio')) : null;
+  if (precio != null && !(precio > 0)) throw new Error('--precio inválido');
   const ahora = new Date();
   const pagadoEl = opt('fecha') ? new Date(`${opt('fecha')}T12:00:00-05:00`) : ahora;
   if (Number.isNaN(pagadoEl.getTime()) || pagadoEl.getTime() > ahora.getTime() + 864e5) {
@@ -79,7 +85,7 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
       manualPayment: true, hotmartSubscriberCode: true,
       currentPeriodEnd: true, lastChargeAt: true, trialEndsAt: true,
       canceledAt: true, suspendedAt: true, failedPaymentCount: true, firstFailedAt: true,
-      notes: true,
+      notes: true, subscriptionPriceUsd: true,
     },
   });
   if (candidatos.length !== 1) {
@@ -112,6 +118,9 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
   console.log(` - manualPayment: ${t.manualPayment} → true`);
   console.log(` - status: ${t.status} → ACTIVE${t.canceledAt ? ' (y se quita la cancelación de Hotmart)' : ''}`);
   console.log(` - próximo cobro: ${f(t.currentPeriodEnd)} → ${f(fin)}${cambiaFecha ? '' : ' (sin cambio)'}`);
+  const precioActual = t.subscriptionPriceUsd != null ? Number(t.subscriptionPriceUsd) : null;
+  console.log(` - precio pactado (base de la comisión): ${precioActual ?? 'sin fijar → canónico'}${precio != null && precio !== precioActual ? ` → ${precio}` : ' (sin cambio)'}`);
+  if (precio == null && precioActual == null) console.log('   OJO: sin --precio la comisión sale del canónico (68 mensual).');
   console.log(` - plan y periodicidad: ${t.plan?.name} / ${t.planPeriodicity} (sin cambio)`);
   console.log(inicio
     ? ` - pago por fuera ${metodo} del ${f(pagadoEl)} que cubre ${f(inicio)} → ${f(fin)}`
@@ -169,8 +178,9 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
       graceNoticeSentAt: null,
       creditReleasedAt: null,
       notes: t.notes ? `${t.notes}\n${nota}` : nota,
+      ...(precio != null ? { subscriptionPriceUsd: precio } : {}),
     },
-    select: { id: true, status: true, manualPayment: true, currentPeriodEnd: true, lastChargeAt: true, planPeriodicity: true },
+    select: { id: true, status: true, manualPayment: true, currentPeriodEnd: true, lastChargeAt: true, planPeriodicity: true, subscriptionPriceUsd: true },
   }));
   const r = await p.$transaction(ops);
   console.log('\nDESPUÉS', JSON.stringify(r[r.length - 1], null, 2));
