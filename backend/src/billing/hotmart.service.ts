@@ -1775,6 +1775,26 @@ export class HotmartService {
     payload: HotmartWebhookPayload,
   ) {
     if (!tenant) return { ok: true, action: 'tenant_not_found' as const };
+    // Un negocio que pasó a pagar POR FUERA (Motilart, 2026-11-07) puede seguir
+    // teniendo viva la suscripción vieja en Hotmart, y el negocio se sigue
+    // encontrando por el código o por el correo del comprador. Hotmart reintenta
+    // el cobro, avisa del atraso y acaba cancelando: sin esto, cada uno de esos
+    // avisos le marcaba mora, le ponía `canceledAt` (que corta los recordatorios)
+    // o lo suspendía, aunque ya hubiera pagado por Nequi o transferencia. Los
+    // reembolsos y contracargos SÍ siguen actuando: ahí el dinero volvió.
+    if (
+      event === 'PURCHASE_DELAYED' ||
+      event === 'PURCHASE_PROTEST' ||
+      event === 'PURCHASE_BILLET_PRINTED' ||
+      event === 'SUBSCRIPTION_CANCELLATION'
+    ) {
+      if (tenant.manualPayment) {
+        this.logger.log(
+          `Hotmart ${event} ignorado para ${tenant.brandName} (${tenant.id}): el negocio paga por fuera.`,
+        );
+        return { ok: true, action: 'ignorado_paga_por_fuera' as const };
+      }
+    }
     switch (event) {
       case 'PURCHASE_APPROVED':
       case 'PURCHASE_COMPLETE':
@@ -2845,6 +2865,7 @@ export class HotmartService {
           currentPeriodEnd: true,
           firstFailedAt: true,
           failedPaymentCount: true,
+          manualPayment: true,
         },
       });
       if (t) return t;
@@ -2897,6 +2918,7 @@ export class HotmartService {
             currentPeriodEnd: true,
             firstFailedAt: true,
             failedPaymentCount: true,
+            manualPayment: true,
           },
         });
       }

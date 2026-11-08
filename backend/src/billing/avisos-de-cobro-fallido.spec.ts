@@ -207,6 +207,25 @@ describe('negocio suelto: «tu pago falló» una vez por episodio', () => {
     expect(m.tenants.get('hydor')!.firstFailedAt.getTime()).toBeGreaterThan(viejo.getTime());
     expect(m.sms).toHaveLength(1);
   });
+
+  // Motilart (2026-11-07): pasó de Hotmart a pago por fuera con la suscripción
+  // vieja todavía viva. Los atrasos y la cancelación de Hotmart no pueden
+  // ponerlo en mora ni cancelarlo: ya pagó por otro lado.
+  it.each(['PURCHASE_DELAYED', 'SUBSCRIPTION_CANCELLATION'])(
+    'si paga por fuera, %s de Hotmart no lo toca ni avisa',
+    async (evento) => {
+      const m = montar([negocio('motilart', { manualPayment: true })]);
+      const r = await m.svc.runEventLogic(evento, m.foto('motilart'), {});
+      await m.drenar();
+      expect(r.action).toBe('ignorado_paga_por_fuera');
+      const fila = m.tenants.get('motilart')!;
+      expect(fila.failedPaymentCount).toBe(0);
+      expect(fila.status).toBe('ACTIVE');
+      expect(fila.canceledAt).toBeUndefined();
+      expect(m.sms).toHaveLength(0);
+      expect(m.equipo).toHaveLength(0);
+    },
+  );
 });
 
 describe('grupo: el fallo del cobro llega a CADA negocio del grupo', () => {
