@@ -117,6 +117,7 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
     ? ` - pago por fuera ${metodo} del ${f(pagadoEl)} que cubre ${f(inicio)} → ${f(fin)}`
     : ' - el ciclo actual sigue cubierto hasta esa fecha: no se registra pago nuevo');
   console.log(` - nota interna: «${nota}»`);
+  console.log(` - fecha del cobro (y de la comisión al pulsar «Generar comisión ahora»): ${f(pagadoEl)}`);
 
   if (inicio) {
     const DIA = 864e5;
@@ -154,7 +155,9 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
       canceledAt: null,
       trialEndsAt: null,
       currentPeriodEnd: fin,
-      ...(inicio ? { lastChargeAt: pagadoEl } : {}),
+      // La comisión del afiliado («Generar comisión ahora») toma su fecha de
+      // aquí: es la del cobro real, así nace en el mes en que pagaron.
+      lastChargeAt: pagadoEl,
       failedPaymentCount: 0,
       firstFailedAt: null,
       // Sin limpiar estas marcas el negocio no recibe ningún aviso del ciclo
