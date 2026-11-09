@@ -8,6 +8,32 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-09 (181) — Pagos sin activar: un pago viejo no activa, pagos de marca blanca, reembolsos; bienvenida solo por push; Motilart por fuera (SIN DESPLEGAR, 2 scripts SIN APLICAR)
+
+**Pagos sin activar** (`3a9f8ca7`, PDF de Javier con 5 puntos):
+- **Un pago se asigna como HISTORIAL** si el ciclo que pagó ya terminó o el negocio ya está cubierto más allá por renovaciones (`modoDeLaAsignacion` en `pending-assignment.service.ts`). En ese caso no se tocan el estado, las fechas ni el correo/código con que renueva, y no se genera comisión. Solo activa un pago que cubre hoy. El botón dice «Asignar y activar» o «Asignar sin activar», y la vista previa explica por qué.
+  - DINOROLLS quedó activo con el pago de su primera suscripción.
+  - RICURAS pagó la primera vez con `dmoreno758@unab.edu.co`.
+- **«Asignar a marca»:** Humberto (`info@medicenache.com`, admin de Sellea) pagaba servicios y caían aquí.
+  - Va al libro con `payerWhiteLabelId` = la marca. Un servicio queda `INTERMEDIADO`.
+  - La fila muestra «Admin de Sellea». Solo lo ve la plataforma (403 para un admin de marca).
+- **«Quitar»** (reembolso, duplicado, otro): Angelica Barrantes tenía un reembolso y seguía en la lista. Además:
+  - el webhook cierra el pendiente al llegar `PURCHASE_REFUNDED`/`CHARGEBACK`;
+  - la lista esconde los ya devueltos, sea por el aviso o por el libro en `REEMBOLSADO`.
+- **Por correr en producción, tras desplegar backend y frontend:**
+  - `node scripts/revertir-asignacion-de-pago.cjs dinorolls [--aplicar]`: lo devuelve a la foto «before» de la asignación, lo deja SUSPENDED y rechaza la comisión sin pagar que nació con la asignación.
+  - `node scripts/cerrar-pagos-reembolsados.cjs [--aplicar]`.
+  - Si Angelica no aparece en ese script, Hotmart no avisó: hay que quitarla con el botón.
+
+**Bienvenida a la tarjeta solo por push** (`ff360fc3`, SIN DESPLEGAR): a un cliente de Exentrix le llegó un SMS de bienvenida.
+- El motor descarta SMS y WhatsApp en `PASS_CREATED`, en reglas y en workflows.
+- Se quitó la pestaña WhatsApp de la vista previa de tarjetas.
+
+**Motilart**:
+- pasa a pago por fuera con `scripts/pasar-a-pago-por-fuera.cjs`; conserva la fecha de cobro (el 22), precio pactado 50 y comisión fechada el 07-11;
+- el webhook de Hotmart ignora atrasos y cancelaciones de un negocio `manualPayment` (`f7b08523`, desplegado).
+- Falta confirmar que Javier corrió `--aplicar` y «Generar comisión ahora».
+
 ## 2026-11-04 (180) — Revisión diaria sin falsas alarmas; Romanos: el pago manual era el PRIMERO (SIN DESPLEGAR, script SIN APLICAR)
 
 **La revisión del 4-nov mandó 12 avisos y solo 2 eran reales.** Verificado uno por uno contra la base y contra la API de Hotmart. Las reglas de la revisión eran anteriores a cuatro excepciones del negocio:
