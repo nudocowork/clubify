@@ -222,7 +222,9 @@ export class AutomationsService {
 
       try {
         for (const action of rule.actions as Action[]) {
-          await this.executeAction(action, payload, rule.id);
+          await this.executeAction(action, payload, rule.id, {
+            soloPush: eventType === 'PASS_CREATED',
+          });
         }
         await this.logRun(rule.id, payload, 'SUCCESS');
         await this.prisma.automationRule.update({
@@ -317,7 +319,7 @@ export class AutomationsService {
       customerId: string;
       stepIndex: number;
     },
-    workflow: { id: string; steps: any },
+    workflow: { id: string; steps: any; triggerType?: string | null },
   ) {
     const steps = (workflow.steps as WorkflowStep[]) ?? [];
     let idx = enr.stepIndex;
@@ -345,6 +347,7 @@ export class AutomationsService {
           step as Action,
           { tenantId: enr.tenantId, customerId: enr.customerId },
           `wf:${workflow.id}`,
+          { soloPush: workflow.triggerType === 'PASS_CREATED' },
         );
       } catch (e) {
         this.logger.warn(
@@ -379,9 +382,31 @@ export class AutomationsService {
     }
   }
 
-  private async executeAction(action: Action, payload: any, ruleId: string) {
+  private async executeAction(
+    action: Action,
+    payload: any,
+    ruleId: string,
+    opts: { soloPush?: boolean } = {},
+  ) {
     const tenantId = payload.tenantId;
     const customerId = payload.customerId;
+
+    // La BIENVENIDA a la tarjeta es solo push (Javier, 2026-11-09, tras un SMS de
+    // bienvenida a un cliente de Exentrix). Un «Enviar SMS» añadido a la regla
+    // sale por la línea de la MARCA si el negocio no tiene la suya: un número
+    // que no es del negocio, a costa de la marca, a alguien que solo se inscribió. Lo que se configure en el panel
+    // no puede saltarse esto: se descarta aquí, en el único sitio que envía.
+    if (
+      opts.soloPush &&
+      (action.type === 'SEND_SMS' ||
+        action.type === 'SEND_WHATSAPP' ||
+        action.type === 'SEND_WHATSAPP_LINK')
+    ) {
+      this.logger.warn(
+        `${action.type} (rule ${ruleId}) descartado: la bienvenida a la tarjeta solo sale por push`,
+      );
+      return;
+    }
 
     switch (action.type) {
       case 'SEND_WHATSAPP_LINK': {
