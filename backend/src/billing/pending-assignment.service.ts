@@ -9,6 +9,11 @@ import { AuditService } from '../audit/audit.service';
 import { IncomeRecordService } from '../finance/income-record.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { addPlanPeriod, normalizePlanPeriod } from '../common/plan-period';
+import { mesContable } from '../common/periodo-contable';
+import { marcaClubify } from '../finance/alcance-de-marca';
+import { CONCEPTOS } from '../finance/ingresos-de-marcas';
+import { precioDePackUsd } from './precio-de-pack';
+import { nombreDelServicio } from './servicio-adicional-hotmart';
 
 export type PendingGateway = 'HOTMART' | 'STRIPE' | 'CROSS';
 
@@ -37,6 +42,16 @@ export type PendingGateway = 'HOTMART' | 'STRIPE' | 'CROSS';
  * Qué NO hace, a propósito:
  *  - No envía NINGÚN mensaje al cliente: ya recibió lo que tenía que recibir
  *    (o de más); una «bienvenida» aquí sería otro mensaje equivocado.
+ *  - No activa con un pago VIEJO (Javier, 2026-11-09). Un pago se asigna
+ *    como HISTORIAL —queda enlazado al negocio, con su dinero, sin tocar ni el
+ *    estado ni las fechas ni el correo/código de la suscripción— cuando:
+ *      · el ciclo que pagó ya terminó (DINOROLLS: se asignó el pago de su
+ *        primera suscripción, de meses atrás, y el negocio que había decidido
+ *        no renovar quedó activo), o
+ *      · el negocio ya está cubierto más allá por renovaciones posteriores
+ *        (RICURAS: el primer pago llegó con otro correo; sus renovaciones ya
+ *        están aplicadas y siguen con el correo nuevo).
+ *    Ver `modoDeLaAsignacion`.
  */
 @Injectable()
 export class PendingAssignmentService {
@@ -123,6 +138,10 @@ export class PendingAssignmentService {
       paymentsToApply: r.pendingIds.length,
       paidAt: r.lastChargeAt.toISOString(),
       nextChargeAt: r.nextChargeAt.toISOString(),
+      /** ACTIVA = el pago cubre hoy y mueve el ciclo; HISTORICO = solo se
+       *  registra. El botón del panel dice una cosa u otra según esto. */
+      modo: r.modo,
+      motivo: r.motivo,
       tenant: {
         id: r.tenant.id,
         brandName: r.tenant.brandName,
@@ -185,7 +204,10 @@ export class PendingAssignmentService {
         );
       }
 
-      await tx.tenant.update({
+      // Un pago histórico no toca el negocio: ni estado, ni fechas, ni el
+      // correo/código con el que sigue renovando. Solo queda consumido (sale
+      // de la lista y deja de mandar recordatorios) y, más abajo, su dinero.
+      if (r.modo === 'ACTIVA') await tx.tenant.update({
         where: { id: r.tenant.id },
         data: {
           // Identificadores de la pasarela: son los que hacen que el
@@ -212,7 +234,7 @@ export class PendingAssignmentService {
       // Cross no guarda identificador de suscripción en Tenant: las
       // renovaciones se resuelven por CrossTransaction.tenantId o por el
       // email del dueño. Enlazar la transacción es lo único persistible.
-      if (gateway === 'CROSS' && r.crossProviderRef) {
+      if (r.modo === 'ACTIVA' && gateway === 'CROSS' && r.crossProviderRef) {
         await tx.crossTransaction.updateMany({
           where: { providerRef: r.crossProviderRef },
           data: { tenantId: r.tenant.id },
@@ -232,36 +254,51 @@ export class PendingAssignmentService {
         pendingIds: r.pendingIds,
         paymentEmail: r.paymentEmail,
         tenantEmail: r.tenantEmail,
+        modo: r.modo,
+        motivo: r.motivo,
+        pagoCubreHasta: r.nextChargeAt,
         before,
-        after: {
-          status: 'ACTIVE',
-          lastChargeAt: r.lastChargeAt,
-          currentPeriodEnd: r.nextChargeAt,
-          ...r.identifiers,
-        },
+        after:
+          r.modo === 'ACTIVA'
+            ? {
+                status: 'ACTIVE',
+                lastChargeAt: r.lastChargeAt,
+                currentPeriodEnd: r.nextChargeAt,
+                ...r.identifiers,
+              }
+            : before,
       },
     });
     this.logger.log(
-      `Pago pendiente ${gateway}:${pendingId} asignado a ${r.tenant.brandName} ` +
-        `(${r.tenant.id}); próximo cobro ${r.nextChargeAt.toISOString()}`,
+      r.modo === 'ACTIVA'
+        ? `Pago pendiente ${gateway}:${pendingId} asignado a ${r.tenant.brandName} ` +
+            `(${r.tenant.id}); próximo cobro ${r.nextChargeAt.toISOString()}`
+        : `Pago pendiente ${gateway}:${pendingId} registrado como HISTORIAL de ${r.tenant.brandName} ` +
+            `(${r.tenant.id}, ${r.motivo}); el negocio no se toca`,
     );
 
     // El dinero, después de la transacción (un fallo aquí no deshace la
     // asignación, que ya es correcta) pero ESPERADO y contado en la respuesta:
     // quien asigna tiene que ver si quedó el ingreso y la comisión.
-    const dinero = await this.enlazarElDinero(gateway, r).catch((e) => ({
+    const dinero = await this.enlazarElDinero(gateway, r, r.modo === 'ACTIVA').catch((e) => ({
       ingreso: 'error' as const,
       comision: `error: ${(e as Error).message}`,
     }));
 
+    const activa = r.modo === 'ACTIVA';
     return {
       ok: true,
       ...dinero,
+      modo: r.modo,
+      motivo: r.motivo,
       tenantId: r.tenant.id,
       brandName: r.tenant.brandName,
       statusBefore: before.status,
-      lastChargeAt: r.lastChargeAt,
-      currentPeriodEnd: r.nextChargeAt,
+      statusAfter: activa ? 'ACTIVE' : before.status,
+      lastChargeAt: activa ? r.lastChargeAt : before.lastChargeAt,
+      currentPeriodEnd: activa ? r.nextChargeAt : before.currentPeriodEnd,
+      /** Hasta cuándo cubría el pago asignado (aunque sea historial). */
+      pagoCubreHasta: r.nextChargeAt,
       consumedPendingIds: r.pendingIds,
       gateway,
     };
@@ -278,6 +315,7 @@ export class PendingAssignmentService {
   private async enlazarElDinero(
     gateway: PendingGateway,
     r: { tenant: { id: string; brandName: string }; identifiers: Record<string, string>; lastChargeAt: Date },
+    conComision: boolean,
   ): Promise<{ ingreso: 'enlazado' | 'pendiente-del-conciliador' | 'no-aplica'; comision: string }> {
     let ingreso: 'enlazado' | 'pendiente-del-conciliador' | 'no-aplica' = 'no-aplica';
     const tx = gateway === 'HOTMART' ? r.identifiers.hotmartTransactionId : undefined;
@@ -301,6 +339,12 @@ export class PendingAssignmentService {
         ingreso = 'pendiente-del-conciliador';
       }
     }
+    // La comisión que genera esto es la del ciclo ACTUAL del negocio (la fecha
+    // sale de `Tenant.lastChargeAt`). Con un pago histórico el negocio no se
+    // movió: crearla sería pagar un ciclo que no es el de este pago.
+    if (!conComision) {
+      return { ingreso, comision: 'no se genera: es un pago de un ciclo pasado' };
+    }
     const c = await this.referrals
       .backfillCommissionForCurrentAssignment(r.tenant.id, false)
       .catch((e) => ({ creadas: 0, motivo: (e as Error).message }));
@@ -309,6 +353,204 @@ export class PendingAssignmentService {
       ingreso,
       comision: creadas > 0 ? `creada (${creadas})` : ((c as { motivo?: string }).motivo ?? 'sin comisión'),
     };
+  }
+
+  // ── Pagos que no son de un negocio ────────────────────────────────────────
+
+  /** Marcas blancas a las que se puede asignar un pago (todas menos Clubify). */
+  async marcasBlancas() {
+    const clubify = await marcaClubify(this.prisma);
+    return this.prisma.whiteLabel.findMany({
+      where: clubify ? { id: { not: clubify } } : {},
+      select: { id: true, name: true, slug: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
+   * Asigna un pago de Hotmart a una MARCA BLANCA (Javier, 2026-11-09): lo que
+   * paga Humberto (info@medicenache.com, admin de Sellea) no es la compra de
+   * un negocio, es Sellea pagándole a la plataforma —la automatización de
+   * WhatsApp, créditos—. Caía en «sin activar» y no había a dónde llevarlo.
+   *
+   * Entra al libro como lo registra «Marcas blancas → Registrar pago»: ingreso
+   * con `payerWhiteLabelId` = la marca, y un SERVICIO queda INTERMEDIADO (pasa
+   * por Clubify, no es suyo). Si el conciliador ya había apuntado esa
+   * transacción sin dueño, se le pone la marca en vez de duplicarla. No toca
+   * ningún negocio. Se aplican todos los pendientes del mismo correo.
+   */
+  async assignToBrand(args: {
+    pendingId: string;
+    whiteLabelId: string;
+    concepto: 'SERVICIO' | 'CREDITOS' | 'OTRO';
+    actorId: string | null;
+  }) {
+    const chosen = await this.prisma.pendingHotmartPayment.findUnique({
+      where: { id: args.pendingId },
+    });
+    if (!chosen) throw new NotFoundException('Pago pendiente no encontrado');
+    if (chosen.consumedAt) throw new BadRequestException('Este pago ya fue aplicado.');
+    const marcas = await this.marcasBlancas();
+    const marca = marcas.find((m) => m.id === args.whiteLabelId);
+    if (!marca) throw new BadRequestException('Elige la marca blanca que pagó.');
+    const clubify = await marcaClubify(this.prisma);
+
+    const filas = await this.prisma.pendingHotmartPayment.findMany({
+      where: { consumedAt: null, email: chosen.email },
+      orderBy: { createdAt: 'asc' },
+    });
+    const now = new Date();
+    const consumed = await this.prisma.pendingHotmartPayment.updateMany({
+      where: { id: { in: filas.map((f) => f.id) }, consumedAt: null },
+      data: { consumedAt: now },
+    });
+    if (consumed.count === 0) {
+      throw new BadRequestException('Este pago ya fue aplicado por otro proceso. Actualiza la lista.');
+    }
+
+    let enLibro = 0;
+    let totalUsd = 0;
+    const sinImporte: string[] = [];
+    for (const f of filas) {
+      const raw = (f.rawPayload as any) ?? {};
+      const compra = raw?.data?.purchase;
+      const aprobado = compra?.approved_date;
+      const fecha = typeof aprobado === 'number' ? new Date(aprobado) : f.createdAt;
+      const productName =
+        args.concepto === 'SERVICIO'
+          ? `${CONCEPTOS.SERVICIO}: ${nombreDelServicio(raw)}`
+          : CONCEPTOS[args.concepto];
+      // Un servicio pasa por Clubify pero no es suyo: fuera de todo total.
+      const status = args.concepto === 'SERVICIO' ? 'INTERMEDIADO' : 'PAGADO';
+      const datosDeMarca = {
+        tenantId: null,
+        whiteLabelId: clubify,
+        payerWhiteLabelId: marca.id,
+        brandName: `${marca.name} (marca blanca)`,
+        productName,
+        category: 'MARCA_BLANCA',
+      };
+      const tx = f.transactionId;
+      const existente = tx
+        ? await this.prisma.incomeRecord.findUnique({
+            where: { gateway_externalTxId: { gateway: 'HOTMART', externalTxId: tx } },
+            select: { id: true, tenantId: true, status: true, grossUsd: true },
+          })
+        : null;
+      if (existente) {
+        // Si ya es de un negocio, no es de la marca: no se le quita.
+        if (!existente.tenantId) {
+          await this.prisma.incomeRecord.update({
+            where: { id: existente.id },
+            data: {
+              ...datosDeMarca,
+              // Solo se mueve lo que contaba como ingreso; un reembolso se queda.
+              ...(existente.status === 'PAGADO' ? { status } : {}),
+            },
+          });
+          enLibro++;
+          totalUsd += Number(existente.grossUsd);
+        }
+        continue;
+      }
+      const precio = precioDePackUsd(compra, null);
+      if (!tx || precio.usd == null) {
+        sinImporte.push(f.transactionId ?? f.id);
+        continue;
+      }
+      const { fee, tax, netExpected } = await this.income.desglose('HOTMART', precio.usd);
+      await this.prisma.incomeRecord.create({
+        data: {
+          gateway: 'HOTMART',
+          externalTxId: tx,
+          ...datosDeMarca,
+          currency: 'USD',
+          grossUsd: precio.usd,
+          gatewayFeeUsd: fee,
+          taxUsd: tax,
+          otherDiscountUsd: 0,
+          netExpectedUsd: netExpected,
+          status,
+          periodKey: mesContable(fecha),
+          saleDate: fecha,
+          reconStatus: 'PENDING',
+          note: 'Pago sin activar asignado a la marca blanca desde «Pagos sin activar».',
+        },
+      });
+      enLibro++;
+      totalUsd += precio.usd;
+    }
+
+    await this.audit.log({
+      actorId: args.actorId,
+      tenantId: null,
+      action: 'pending_payment.assigned_to_brand',
+      resource: `pending_hotmart_payment:${args.pendingId}`,
+      metadata: {
+        whiteLabelId: marca.id,
+        marca: marca.name,
+        concepto: args.concepto,
+        email: chosen.email,
+        pendingIds: filas.map((f) => f.id),
+        enLibro,
+        sinImporte,
+      },
+    });
+    return {
+      ok: true,
+      marca: marca.name,
+      pagos: filas.length,
+      enLibro,
+      totalUsd: Math.round(totalUsd * 100) / 100,
+      intermediado: args.concepto === 'SERVICIO',
+      sinImporte,
+    };
+  }
+
+  /**
+   * Quita un pago de la lista sin asignarlo a nadie. Existe por los
+   * REEMBOLSOS (Angelica Barrantes, 2026-11-09): Hotmart devolvió el dinero y
+   * el pago seguía ahí —y, peor, si creaba la cuenta, /activar la habría
+   * activado con un pago devuelto—. Queda consumido y auditado con el motivo;
+   * solo esa fila, no las demás del comprador.
+   */
+  async discard(args: {
+    gateway: PendingGateway;
+    pendingId: string;
+    motivo: 'REEMBOLSO' | 'DUPLICADO' | 'OTRO';
+    actorId: string | null;
+  }) {
+    const delegate =
+      args.gateway === 'HOTMART'
+        ? this.prisma.pendingHotmartPayment
+        : args.gateway === 'STRIPE'
+          ? this.prisma.pendingStripePayment
+          : this.prisma.pendingCrossPayment;
+    const r = await (delegate as any).updateMany({
+      where: { id: args.pendingId, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    if (r.count === 0) throw new BadRequestException('Este pago ya no está en la lista.');
+    if (args.gateway === 'HOTMART' && args.motivo === 'REEMBOLSO') {
+      const fila = await this.prisma.pendingHotmartPayment.findUnique({
+        where: { id: args.pendingId },
+        select: { transactionId: true },
+      });
+      // Si el conciliador lo apuntó como ingreso, deja de contar.
+      if (fila?.transactionId) {
+        await this.income
+          .marcarDevuelto('HOTMART', fila.transactionId, 'REEMBOLSADO', new Date())
+          .catch(() => false);
+      }
+    }
+    await this.audit.log({
+      actorId: args.actorId,
+      tenantId: null,
+      action: 'pending_payment.discarded',
+      resource: `pending_${args.gateway.toLowerCase()}_payment:${args.pendingId}`,
+      metadata: { motivo: args.motivo },
+    });
+    return { ok: true };
   }
 
   // ── Resolución compartida (preview y assign calculan EXACTAMENTE igual) ──
@@ -496,7 +738,15 @@ export class PendingAssignmentService {
     crossProviderRef?: string | null;
     brandMismatch: boolean;
   }) {
+    const nextChargeAt = addPlanPeriod(args.lastChargeAt, args.tenant.planPeriodicity);
+    const { modo, motivo } = modoDeLaAsignacion({
+      pagoCubreHasta: nextChargeAt,
+      negocioCubiertoHasta: args.tenant.currentPeriodEnd,
+      ahora: new Date(),
+    });
     return {
+      modo,
+      motivo,
       tenant: args.tenant,
       tenantEmail: args.tenant.users[0]?.email ?? args.tenant.email,
       paymentEmail: args.paymentEmail,
@@ -505,12 +755,40 @@ export class PendingAssignmentService {
       // Periodicidad REAL del plan (1/3/6/12 meses de calendario, fin de mes
       // acotado) — jamás 30 días fijos: un anual con +30 se suspendería con
       // once meses ya pagados.
-      nextChargeAt: addPlanPeriod(args.lastChargeAt, args.tenant.planPeriodicity),
+      nextChargeAt,
       identifiers: args.identifiers,
       crossProviderRef: args.crossProviderRef ?? null,
       brandMismatch: args.brandMismatch,
     };
   }
+}
+
+export type ModoDeAsignacion = 'ACTIVA' | 'HISTORICO';
+export type MotivoDeAsignacion = 'cubre_hoy' | 'ciclo_vencido' | 'ya_cubierto_por_renovacion';
+
+/**
+ * ¿El pago asignado activa el negocio o solo queda como historial?
+ *
+ * Activa SOLO si el ciclo que pagó sigue corriendo hoy y llega más lejos que
+ * lo que el negocio ya tiene cubierto. Cualquier otra cosa es un pago del
+ * pasado: activarlo resucitó a DINOROLLS (no renovó, venció en octubre) y
+ * habría retrasado el ciclo de RICURAS a la fecha de su primer pago.
+ */
+export function modoDeLaAsignacion(args: {
+  pagoCubreHasta: Date;
+  negocioCubiertoHasta: Date | null;
+  ahora: Date;
+}): { modo: ModoDeAsignacion; motivo: MotivoDeAsignacion } {
+  if (
+    args.negocioCubiertoHasta &&
+    args.negocioCubiertoHasta.getTime() >= args.pagoCubreHasta.getTime()
+  ) {
+    return { modo: 'HISTORICO', motivo: 'ya_cubierto_por_renovacion' };
+  }
+  if (args.pagoCubreHasta.getTime() <= args.ahora.getTime()) {
+    return { modo: 'HISTORICO', motivo: 'ciclo_vencido' };
+  }
+  return { modo: 'ACTIVA', motivo: 'cubre_hoy' };
 }
 
 type TenantSnapshot = {

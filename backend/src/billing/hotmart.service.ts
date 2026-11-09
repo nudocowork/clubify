@@ -752,6 +752,24 @@ export class HotmartService {
       return { ok: true, action: groupAction };
     }
 
+    // Un reembolso o contracargo cierra el «pago sin activar» de esa misma
+    // transacción. Sin esto el pago devuelto seguía en la lista (Angelica
+    // Barrantes, 2026-11-09) y, si el comprador creaba la cuenta, /activar lo
+    // consumía y activaba un negocio con un dinero que ya se le devolvió.
+    if ((event === 'PURCHASE_REFUNDED' || event === 'PURCHASE_CHARGEBACK') && transactionId) {
+      const cerrados = await this.prisma.pendingHotmartPayment
+        .updateMany({
+          where: { transactionId, consumedAt: null },
+          data: { consumedAt: new Date() },
+        })
+        .catch(() => ({ count: 0 }));
+      if (cerrados.count > 0) {
+        this.logger.log(
+          `Hotmart ${event} tx=${transactionId}: ${cerrados.count} pago(s) sin activar cerrado(s) por devolución`,
+        );
+      }
+    }
+
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
     // Scopeado a la marca: nunca matchea tenants de otra marca.
     const tenant = await this.findTenant({ buyerEmail, subscriberCode, scope });
@@ -2647,6 +2665,15 @@ export class HotmartService {
       }),
     ]);
 
+    // Pagos que Hotmart ya devolvió: no son «sin activar», son dinero que no
+    // está. Los anteriores al cierre automático del webhook se esconden aquí.
+    const devueltas = await this.transaccionesDevueltas(
+      hot.map((p) => p.transactionId).filter((t): t is string => !!t),
+    );
+    // Correos que son de un ADMIN de marca blanca: lo que paga Humberto
+    // (Sellea) es la marca pagándole a la plataforma, no un negocio nuevo.
+    const marcaDelCorreo = await this.marcasPagadoras(hot.map((p) => p.email));
+
     type Row = {
       /** id de la fila en SU tabla Pending* — lo necesita «Asignar a negocio». */
       id: string;
@@ -2665,10 +2692,13 @@ export class HotmartService {
       activationLink: string;
       createdAt: Date;
       ageHours: number;
+      /** La marca blanca cuyo admin hizo el pago; null si no es de una marca. */
+      marcaPagadora?: { id: string; name: string } | null;
     };
     const out: Row[] = [];
 
     for (const p of hot) {
+      if (p.transactionId && devueltas.has(p.transactionId)) continue;
       const raw = (p.rawPayload as any) ?? {};
       const buyer = raw?.data?.buyer ?? {};
       const approved = raw?.data?.purchase?.approved_date;
@@ -2719,6 +2749,7 @@ export class HotmartService {
         activationLink: link(p.email),
         createdAt: p.createdAt,
         ageHours: ageHours(p.createdAt),
+        marcaPagadora: marcaDelCorreo.get(p.email.toLowerCase()) ?? null,
       });
     }
     for (const p of stripe) {
@@ -2775,6 +2806,50 @@ export class HotmartService {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
     return out;
+  }
+
+  /** Transacciones de la lista que Hotmart reembolsó o contracargó: por el
+   *  aviso que llegó, o porque el libro ya las tiene como REEMBOLSADO. */
+  private async transaccionesDevueltas(txs: string[]): Promise<Set<string>> {
+    if (txs.length === 0) return new Set();
+    const [eventos, libro] = await Promise.all([
+      this.prisma
+        .$queryRaw<Array<{ tx: string }>>`
+          SELECT DISTINCT payload->'data'->'purchase'->>'transaction' AS tx
+            FROM "HotmartWebhookEvent"
+           WHERE "eventType" IN ('PURCHASE_REFUNDED', 'PURCHASE_CHARGEBACK')
+             AND payload->'data'->'purchase'->>'transaction' = ANY(${txs})`
+        .catch(() => [] as Array<{ tx: string }>),
+      this.prisma.incomeRecord
+        .findMany({
+          where: { gateway: 'HOTMART', externalTxId: { in: txs }, status: 'REEMBOLSADO' },
+          select: { externalTxId: true },
+        })
+        .catch(() => [] as Array<{ externalTxId: string }>),
+    ]);
+    return new Set([...eventos.map((e) => e.tx), ...libro.map((l) => l.externalTxId)]);
+  }
+
+  /** correo → marca blanca, para los correos que son de un admin de marca. */
+  private async marcasPagadoras(correos: string[]) {
+    const mapa = new Map<string, { id: string; name: string }>();
+    const unicos = [...new Set(correos.map((c) => c.toLowerCase()))];
+    if (unicos.length === 0) return mapa;
+    const clubify = await marcaClubify(this.prisma);
+    const admins = await this.prisma.user
+      .findMany({
+        where: {
+          email: { in: unicos, mode: 'insensitive' },
+          role: 'SUPER_ADMIN',
+          whiteLabelId: clubify ? { not: clubify } : { not: null },
+        },
+        select: { email: true, whiteLabel: { select: { id: true, name: true } } },
+      })
+      .catch(() => []);
+    for (const a of admins) {
+      if (a.whiteLabel) mapa.set(a.email.toLowerCase(), a.whiteLabel);
+    }
+    return mapa;
   }
 
   /**

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, NotFoundException, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { IsEmail, IsIn, IsOptional, IsString } from 'class-validator';
 import { HotmartService } from './hotmart.service';
 import { StripeService } from './stripe.service';
@@ -28,6 +36,19 @@ class AssignBody {
   @IsIn(['HOTMART', 'STRIPE', 'CROSS']) gateway!: PendingGateway;
   /** Negocio EXISTENTE al que se aplica el pago. */
   @IsString() tenantId!: string;
+}
+
+class AssignBrandBody {
+  /** Fila de PendingHotmartPayment: los pagos de marca llegan por Hotmart. */
+  @IsString() pendingId!: string;
+  @IsString() whiteLabelId!: string;
+  @IsIn(['SERVICIO', 'CREDITOS', 'OTRO']) concepto!: 'SERVICIO' | 'CREDITOS' | 'OTRO';
+}
+
+class DiscardBody {
+  @IsString() pendingId!: string;
+  @IsIn(['HOTMART', 'STRIPE', 'CROSS']) gateway!: PendingGateway;
+  @IsIn(['REEMBOLSO', 'DUPLICADO', 'OTRO']) motivo!: 'REEMBOLSO' | 'DUPLICADO' | 'OTRO';
 }
 
 /**
@@ -114,6 +135,51 @@ export class PendingPaymentsController {
       gateway: body.gateway,
       pendingId: body.pendingId,
       tenantId: body.tenantId,
+      actorId: user?.id ?? null,
+    });
+  }
+
+  /**
+   * Solo la plataforma (Clubify) cobra a las marcas blancas: el admin de una
+   * marca no puede llevarse un pago a otra marca ni ver la lista de marcas.
+   */
+  private async exigirPlataforma(user: AuthUser | undefined) {
+    const scope = await resolveBrandScope(this.prisma, user?.whiteLabelId ?? null);
+    if (!scope.isClubify) {
+      throw new ForbiddenException('Solo la plataforma asigna pagos a una marca blanca.');
+    }
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('brands')
+  async brands(@CurrentUser() user: AuthUser) {
+    await this.exigirPlataforma(user);
+    return this.assignment.marcasBlancas();
+  }
+
+  /** El pago es de una marca blanca (Sellea pagándole a la plataforma). */
+  @Roles('SUPER_ADMIN')
+  @Post('assign-brand')
+  async assignBrand(@CurrentUser() user: AuthUser, @Body() body: AssignBrandBody) {
+    await this.exigirPlataforma(user);
+    await this.exigirAlcance(user, 'HOTMART', body.pendingId);
+    return this.assignment.assignToBrand({
+      pendingId: body.pendingId,
+      whiteLabelId: body.whiteLabelId,
+      concepto: body.concepto,
+      actorId: user?.id ?? null,
+    });
+  }
+
+  /** Quita un pago de la lista sin asignarlo (reembolsado, duplicado). */
+  @Roles('SUPER_ADMIN')
+  @Post('discard')
+  async discard(@CurrentUser() user: AuthUser, @Body() body: DiscardBody) {
+    await this.exigirAlcance(user, body.gateway, body.pendingId);
+    return this.assignment.discard({
+      gateway: body.gateway,
+      pendingId: body.pendingId,
+      motivo: body.motivo,
       actorId: user?.id ?? null,
     });
   }

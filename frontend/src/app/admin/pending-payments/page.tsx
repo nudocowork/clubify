@@ -10,7 +10,12 @@ import { toast } from '@/components/Toast';
 // que YA existen cuyo pago no se reconoció (caso MOTILART: el correo del pago
 // era del contador, no el de la cuenta, y sus 3 meses recurrentes cayeron
 // acá). El modal asigna el pago al negocio real y deja el ciclo como si el
-// webhook lo hubiera reconocido bien.
+// webhook lo hubiera reconocido bien — SOLO si ese pago cubre hoy. Un pago de
+// un ciclo que ya pasó se registra sin activar (DINOROLLS, RICURAS).
+//
+// «Asignar a marca»: lo que paga el admin de una marca blanca (Humberto,
+// Sellea) es la marca pagándole a la plataforma, no un negocio nuevo.
+// «Quitar»: pagos reembolsados o duplicados que no deben seguir aquí.
 type PendingRow = {
   id: string;
   gateway: 'HOTMART' | 'STRIPE' | 'CROSS';
@@ -27,7 +32,11 @@ type PendingRow = {
   activationLink: string;
   createdAt: string;
   ageHours: number;
+  /** La marca blanca cuyo admin hizo el pago (solo Hotmart). */
+  marcaPagadora?: { id: string; name: string } | null;
 };
+
+type Marca = { id: string; name: string; slug: string };
 
 type TenantHit = {
   id: string;
@@ -60,6 +69,9 @@ type AssignPreview = {
   };
   emailsDiffer: boolean;
   brandMismatch: boolean;
+  /** ACTIVA = el pago cubre hoy y activa; HISTORICO = solo se registra. */
+  modo: 'ACTIVA' | 'HISTORICO';
+  motivo: 'cubre_hoy' | 'ciclo_vencido' | 'ya_cubierto_por_renovacion';
 };
 
 function fmtDate(s: string | null) {
@@ -108,6 +120,11 @@ export default function PendingPaymentsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [resending, setResending] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<PendingRow | null>(null);
+  const [toBrand, setToBrand] = useState<PendingRow | null>(null);
+  const [discarding, setDiscarding] = useState<PendingRow | null>(null);
+  // Solo la plataforma ve las marcas blancas; el admin de una marca recibe 403
+  // y la lista queda vacía — así nunca ve el botón ni los nombres de marcas.
+  const [marcas, setMarcas] = useState<Marca[]>([]);
 
   async function load() {
     setLoading(true);
@@ -115,6 +132,9 @@ export default function PendingPaymentsPage() {
     try {
       const data = await api<PendingRow[]>('/admin/pending-payments');
       setRows(data ?? []);
+      api<Marca[]>('/admin/pending-payments/brands')
+        .then((m) => setMarcas(m ?? []))
+        .catch(() => setMarcas([]));
     } catch (e) {
       // Distinguir "error" de "vacío": sin esto un fallo de red se ve como
       // "no hay pagos pendientes" y nadie persigue los casos.
@@ -235,6 +255,11 @@ export default function PendingPaymentsPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{r.name ?? '—'}</div>
                       <div className="text-[11px] text-mute">{r.email}</div>
+                      {r.marcaPagadora && marcas.length > 0 && (
+                        <div className="mt-1 inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700">
+                          Admin de {r.marcaPagadora.name}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {r.phone ? (
@@ -310,6 +335,22 @@ export default function PendingPaymentsPage() {
                       >
                         Asignar a negocio
                       </button>
+                      {r.gateway === 'HOTMART' && marcas.length > 0 && (
+                        <button
+                          className="btn-ghost text-xs mr-1"
+                          onClick={() => setToBrand(r)}
+                          title="Lo pagó una marca blanca (servicio, créditos), no un negocio"
+                        >
+                          Asignar a marca
+                        </button>
+                      )}
+                      <button
+                        className="btn-ghost text-xs mr-1 text-red-600"
+                        onClick={() => setDiscarding(r)}
+                        title="Reembolsado o duplicado: sacarlo de la lista sin asignarlo"
+                      >
+                        Quitar
+                      </button>
                       <button
                         className="btn-primary text-xs"
                         disabled={resending === r.email}
@@ -339,6 +380,222 @@ export default function PendingPaymentsPage() {
           }}
         />
       )}
+      {toBrand && (
+        <AssignToBrandModal
+          row={toBrand}
+          marcas={marcas}
+          onClose={() => setToBrand(null)}
+          onDone={() => {
+            setToBrand(null);
+            load();
+          }}
+        />
+      )}
+      {discarding && (
+        <DiscardModal
+          row={discarding}
+          onClose={() => setDiscarding(null)}
+          onDone={() => {
+            setDiscarding(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+const CONCEPTOS_DE_MARCA = [
+  {
+    id: 'SERVICIO',
+    label: 'Servicio',
+    hint: 'Automatización de WhatsApp u otro servicio. Queda registrado como intermediado: no suma a los ingresos de Clubify.',
+  },
+  { id: 'CREDITOS', label: 'Créditos', hint: 'Compra de créditos. Suma a los ingresos de Clubify.' },
+  { id: 'OTRO', label: 'Otro', hint: 'Cualquier otro pago de la marca. Suma a los ingresos de Clubify.' },
+] as const;
+
+/** «Asignar a marca»: el pago lo hizo una marca blanca, no un negocio. */
+function AssignToBrandModal({
+  row,
+  marcas,
+  onClose,
+  onDone,
+}: {
+  row: PendingRow;
+  marcas: Marca[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [marcaId, setMarcaId] = useState(row.marcaPagadora?.id ?? '');
+  const [concepto, setConcepto] = useState<'SERVICIO' | 'CREDITOS' | 'OTRO'>('SERVICIO');
+  const [busy, setBusy] = useState(false);
+  const marca = marcas.find((m) => m.id === marcaId);
+
+  async function confirm() {
+    if (!marca) return;
+    setBusy(true);
+    try {
+      const r = await api<{ marca: string; pagos: number; enLibro: number; totalUsd: number; sinImporte: string[] }>(
+        '/admin/pending-payments/assign-brand',
+        {
+          method: 'POST',
+          body: JSON.stringify({ pendingId: row.id, whiteLabelId: marca.id, concepto }),
+        },
+      );
+      toast(
+        `${r.pagos === 1 ? 'Pago asignado' : `${r.pagos} pagos asignados`} a ${r.marca}` +
+          (r.enLibro > 0 ? ` · $${r.totalUsd.toFixed(2)} USD en Contabilidad.` : '.') +
+          (r.sinImporte.length > 0 ? ` ${r.sinImporte.length} sin importe en USD: regístralo a mano en Marcas blancas.` : ''),
+        'success',
+      );
+      onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo asignar el pago', 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-line2">
+          <div className="font-semibold">Asignar pago a una marca blanca</div>
+          <div className="text-xs text-mute mt-0.5">
+            Pago de <span className="font-medium text-ink">{row.email}</span>
+            {row.purchaseDate ? ` · ${fmtDate(row.purchaseDate)}` : ''}
+          </div>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-mute uppercase tracking-wider">
+              ¿Qué marca pagó?
+            </label>
+            <select
+              className="input w-full mt-1"
+              value={marcaId}
+              onChange={(e) => setMarcaId(e.target.value)}
+            >
+              <option value="">Elige la marca…</option>
+              {marcas.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-mute uppercase tracking-wider mb-1">
+              ¿Qué pagó?
+            </div>
+            <div className="space-y-1.5">
+              {CONCEPTOS_DE_MARCA.map((c) => (
+                <label
+                  key={c.id}
+                  className={`flex gap-3 items-start rounded-lg border px-3 py-2 cursor-pointer ${
+                    concepto === c.id ? 'border-brand bg-brand/5' : 'border-line2'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={concepto === c.id}
+                    onChange={() => setConcepto(c.id)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{c.label}</span>
+                    <span className="block text-[11px] text-mute">{c.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl bg-bg2 text-[13px] px-4 py-3">
+            Se aplican todos los pagos sin activar de este correo. No se crea ni
+            se activa ningún negocio y no se envía ningún mensaje.
+          </div>
+          <div className="pt-3 border-t border-line2 flex justify-end gap-2">
+            <button className="btn-ghost text-sm" disabled={busy} onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="btn-primary text-sm" disabled={busy || !marca} onClick={confirm}>
+              {busy ? 'Asignando…' : marca ? `Asignar a ${marca.name}` : 'Asignar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const MOTIVOS_PARA_QUITAR = [
+  { id: 'REEMBOLSO', label: 'Se devolvió el dinero (reembolso o contracargo)' },
+  { id: 'DUPLICADO', label: 'Está duplicado' },
+  { id: 'OTRO', label: 'Otro motivo' },
+] as const;
+
+/** «Quitar»: el pago no debe seguir en la lista ni activar a nadie. */
+function DiscardModal({
+  row,
+  onClose,
+  onDone,
+}: {
+  row: PendingRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [motivo, setMotivo] = useState<'REEMBOLSO' | 'DUPLICADO' | 'OTRO'>('REEMBOLSO');
+  const [busy, setBusy] = useState(false);
+
+  async function confirm() {
+    setBusy(true);
+    try {
+      await api('/admin/pending-payments/discard', {
+        method: 'POST',
+        body: JSON.stringify({ pendingId: row.id, gateway: row.gateway, motivo }),
+      });
+      toast('Pago quitado de la lista.', 'success');
+      onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo quitar el pago', 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-line2">
+          <div className="font-semibold">Quitar pago de la lista</div>
+          <div className="text-xs text-mute mt-0.5">
+            Pago de <span className="font-medium text-ink">{row.email}</span>
+            {row.purchaseDate ? ` · ${fmtDate(row.purchaseDate)}` : ''}
+          </div>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="space-y-1.5">
+            {MOTIVOS_PARA_QUITAR.map((m) => (
+              <label key={m.id} className="flex gap-2 items-center text-sm cursor-pointer">
+                <input type="radio" checked={motivo === m.id} onChange={() => setMotivo(m.id)} />
+                {m.label}
+              </label>
+            ))}
+          </div>
+          <div className="rounded-xl bg-bg2 text-[13px] px-4 py-3">
+            No se asigna a ningún negocio y el comprador ya no podrá activar una
+            cuenta con este pago.
+            {motivo === 'REEMBOLSO' && ' Si estaba en Contabilidad, deja de sumar.'}
+          </div>
+          <div className="pt-3 border-t border-line2 flex justify-end gap-2">
+            <button className="btn-ghost text-sm" disabled={busy} onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="btn-primary text-sm" disabled={busy} onClick={confirm}>
+              {busy ? 'Quitando…' : 'Quitar de la lista'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -444,7 +701,8 @@ function AssignToTenantModal({
       const r = await api<{
         ok: boolean;
         brandName: string;
-        currentPeriodEnd: string;
+        currentPeriodEnd: string | null;
+        modo: 'ACTIVA' | 'HISTORICO';
       }>('/admin/pending-payments/assign', {
         method: 'POST',
         body: JSON.stringify({
@@ -454,7 +712,9 @@ function AssignToTenantModal({
         }),
       });
       toast(
-        `Pago asignado a ${r.brandName}. Próximo cobro: ${fmtDateLong(r.currentPeriodEnd)}.`,
+        r.modo === 'ACTIVA' && r.currentPeriodEnd
+          ? `Pago asignado a ${r.brandName}. Próximo cobro: ${fmtDateLong(r.currentPeriodEnd)}.`
+          : `Pago registrado en el historial de ${r.brandName}. El negocio queda como estaba.`,
         'success',
       );
       onAssigned();
@@ -618,18 +878,38 @@ function AssignToTenantModal({
                 <div className="mt-3 rounded-xl bg-bg2 text-sm px-4 py-3 space-y-1">
                   <div className="font-medium">Al asignar:</div>
                   <ul className="text-[13px] space-y-1 list-disc pl-4">
-                    <li>
-                      <span className="font-semibold">
-                        {preview.tenant.brandName}
-                      </span>{' '}
-                      quedará <span className="font-semibold">activo</span> y su
-                      próximo cobro pasará al{' '}
-                      <span className="font-semibold">
+                    {preview.modo === 'ACTIVA' ? (
+                      <li>
+                        <span className="font-semibold">
+                          {preview.tenant.brandName}
+                        </span>{' '}
+                        quedará <span className="font-semibold">activo</span> y su
+                        próximo cobro pasará al{' '}
+                        <span className="font-semibold">
+                          {fmtDateLong(preview.nextChargeAt)}
+                        </span>{' '}
+                        (plan {preview.tenant.planPeriodicity.toLowerCase()},
+                        pago del {fmtDateLong(preview.paidAt)}).
+                      </li>
+                    ) : (
+                      <li>
+                        El pago del {fmtDateLong(preview.paidAt)} cubría hasta el{' '}
                         {fmtDateLong(preview.nextChargeAt)}
-                      </span>{' '}
-                      (plan {preview.tenant.planPeriodicity.toLowerCase()},
-                      pago del {fmtDateLong(preview.paidAt)}).
-                    </li>
+                        {preview.motivo === 'ya_cubierto_por_renovacion'
+                          ? ', y el negocio ya tiene pagado hasta el '
+                          : ', una fecha que ya pasó. '}
+                        {preview.motivo === 'ya_cubierto_por_renovacion' &&
+                          preview.tenant.currentPeriodEnd && (
+                            <>{fmtDateLong(preview.tenant.currentPeriodEnd)} con sus renovaciones. </>
+                          )}
+                        Se registra en su historial y{' '}
+                        <span className="font-semibold">
+                          {preview.tenant.brandName} queda como está
+                        </span>{' '}
+                        ({(STATUS_LABEL[preview.tenant.status]?.label ?? preview.tenant.status).toLowerCase()}),
+                        con el mismo correo y la misma fecha de cobro.
+                      </li>
+                    )}
                     {preview.paymentsToApply > 1 && (
                       <li>
                         Se aplicarán{' '}
@@ -640,10 +920,12 @@ function AssignToTenantModal({
                         reciente).
                       </li>
                     )}
-                    <li>
-                      Los próximos cobros de esta suscripción se reconocerán
-                      como renovación.
-                    </li>
+                    {preview.modo === 'ACTIVA' && (
+                      <li>
+                        Los próximos cobros de esta suscripción se reconocerán
+                        como renovación.
+                      </li>
+                    )}
                     <li>
                       No se enviará ningún correo ni mensaje al cliente.
                     </li>
@@ -674,7 +956,11 @@ function AssignToTenantModal({
                       disabled={busy}
                       onClick={confirm}
                     >
-                      {busy ? 'Asignando…' : 'Asignar y activar'}
+                      {busy
+                        ? 'Asignando…'
+                        : preview.modo === 'ACTIVA'
+                          ? 'Asignar y activar'
+                          : 'Asignar sin activar'}
                     </button>
                   </div>
                 </div>
