@@ -30,6 +30,12 @@ const nextConfig = {
         source: '/api/:path*',
         destination: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/:path*`,
       },
+      // La presentación de ventas es un HTML exportado de Claude Design que se
+      // desempaqueta solo en el navegador (3,6 MB con las imágenes dentro). Se
+      // sirve tal cual desde public/ en vez de convertirla a página de Next:
+      // así reemplazarla es copiar el archivo nuevo encima. Estos rewrites van
+      // antes de las rutas dinámicas, así que /[slug] no la tapa.
+      { source: '/presentacion', destination: '/presentacion.html' },
     ];
   },
   // next/image necesita whitelist de hosts remotos. Sin esto,

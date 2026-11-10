@@ -8,6 +8,14 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-09 (182) — Presentación de ventas en soyclubify.com/presentacion (SIN DESPLEGAR)
+
+- El HTML exportado de Claude Design (`Clubify Presentacion (1).html`, 3,6 MB con las imágenes dentro, se desempaqueta solo en el navegador) quedó en `frontend/public/presentacion.html`.
+- `next.config.js`: rewrite `/presentacion` → `/presentacion.html`. Los rewrites corren antes de las rutas dinámicas, así que `/[slug]` no la tapa. En `soyclubify.com` y `app.` el middleware no reescribe (hosts reservados).
+- **Para cambiarla:** copiar el HTML nuevo encima de `public/presentacion.html` y desplegar el frontend. No hay que tocar código.
+- Pide fuentes a `fonts.googleapis.com` y un script a `unpkg.com`; no hay CSP que los bloquee.
+- **Falta:** `node scripts/desplegar.cjs frontend` y comprobar `curl -s https://soyclubify.com/presentacion -o /dev/null -w "%{http_code}\n"` → 200.
+
 ## 2026-11-09 (181) — Pagos sin activar: un pago viejo no activa, pagos de marca blanca, reembolsos; bienvenida solo por push; Motilart por fuera (SIN DESPLEGAR, 2 scripts SIN APLICAR)
 
 **Pagos sin activar** (`3a9f8ca7`, PDF de Javier con 5 puntos):
