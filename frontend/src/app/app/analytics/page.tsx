@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useTranslations, useLocale } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { ActionsMenu } from '@/components/ActionsMenu';
+import { descargarCsv, descargarXlsx, type Celda } from '@/lib/exportar-hoja';
 
 type Funnel = {
   stages: { key: string; label: string; count: number; pct: number }[];
@@ -34,6 +36,7 @@ const COP = (n: number) =>
 
 export default function AnalyticsPage() {
   const t = useTranslations('app_analytics');
+  const locale = useLocale();
   const [days, setDays] = useState(30);
   const [orderFunnel, setOrderFunnel] = useState<Funnel | null>(null);
   const [loyaltyFunnel, setLoyaltyFunnel] = useState<Funnel | null>(null);
@@ -73,6 +76,53 @@ export default function AnalyticsPage() {
     loyaltyFunnel.stages[0]?.count === 0 &&
     customerFunnel.stages[0]?.count === 0;
 
+  /**
+   * Descarga lo mismo que se ve en pantalla, con el periodo elegido. Se arma
+   * en el navegador con los datos ya cargados: no hace falta otro endpoint y
+   * lo descargado coincide exactamente con lo que el negocio está mirando.
+   */
+  function exportar(formato: 'xlsx' | 'csv') {
+    if (!orderFunnel || !loyaltyFunnel || !customerFunnel || !series || !heatmap) {
+      toast(t('exportNothing'), 'error');
+      return;
+    }
+    const dia = new Date().toISOString().slice(0, 10);
+    const porDia: Celda[][] = [
+      [t('colDate'), t('colOrders'), t('colRevenue')],
+      ...series.series.map((s) => [s.date, s.count, Number(s.total)]),
+    ];
+    if (formato === 'csv') {
+      descargarCsv(`analitica-pedidos-${days}d-${dia}.csv`, porDia);
+      return;
+    }
+    const embudos: Celda[][] = [[t('colFunnel'), t('colPeriod'), t('colStage'), t('colCount'), t('colPctPrev')]];
+    const agregar = (nombre: string, periodo: string, f: Funnel) => {
+      f.stages.forEach((s, i) =>
+        embudos.push([nombre, periodo, s.label, s.count, i === 0 ? null : Number(s.pct.toFixed(1))]),
+      );
+      if (f.cancelled !== undefined) embudos.push([nombre, periodo, t('rowCancelled'), f.cancelled, null]);
+      if (f.cancelRate !== undefined) embudos.push([nombre, periodo, t('rowCancelRate'), f.cancelRate, null]);
+      if (f.repeatRate !== undefined) embudos.push([nombre, periodo, t('rowRepeatRate'), f.repeatRate, null]);
+    };
+    agregar(t('orderFunnel'), t('lastDays', { days }), orderFunnel);
+    agregar(t('loyaltyFunnel'), t('allTime'), loyaltyFunnel);
+    agregar(t('customerFunnel'), t('cumulative'), customerFunnel);
+    const horas = Array.from({ length: 24 }, (_, h) => `${h}:00`);
+    const calor: Celda[][] = [
+      [t('colDay'), ...horas, t('colTotal')],
+      ...heatmap.cells.map((fila, i) => [
+        nombreDelDia(locale, i),
+        ...fila,
+        fila.reduce((a, v) => a + v, 0),
+      ]),
+    ];
+    descargarXlsx(`analitica-${dia}.xlsx`, [
+      { nombre: t('sheetFunnels'), filas: embudos },
+      { nombre: `${t('sheetDaily')} (${days}d)`, filas: porDia },
+      { nombre: t('sheetHeatmap'), filas: calor },
+    ]);
+  }
+
   return (
     <div>
       <PanelHeader
@@ -80,7 +130,35 @@ export default function AnalyticsPage() {
         title={t('title')}
         crumb={t('crumb')}
       />
-      <div className="page-head justify-end">
+      <div className="page-head justify-end gap-2">
+        <ActionsMenu
+          label={<>⤓ {t('export')} ▾</>}
+          buttonClassName="btn-ghost text-xs shrink-0 whitespace-nowrap"
+          menuWidth={220}
+        >
+          {(close) => (
+            <>
+              {(
+                [
+                  ['xlsx', t('exportExcel')],
+                  ['csv', t('exportCsvDaily')],
+                ] as const
+              ).map(([formato, etiqueta]) => (
+                <button
+                  key={formato}
+                  type="button"
+                  onClick={() => {
+                    close();
+                    exportar(formato);
+                  }}
+                  className="block w-full text-left text-xs font-semibold px-3 py-2 text-ink transition hover:bg-gray-50"
+                >
+                  {etiqueta}
+                </button>
+              ))}
+            </>
+          )}
+        </ActionsMenu>
         <div className="flex gap-1">
           {[7, 30, 90].map((d) => (
             <button
@@ -325,19 +403,21 @@ function Sparkline({
   );
 }
 
+// Los nombres de los días los manda el backend en español fijo («Dom»,
+// «Lun»…). Se rehacen con el idioma activo: es texto que se lee, y en un
+// negocio en inglés quedaba en medio de una tabla traducida. 2026-01-04 es
+// domingo, que es donde empieza la semana del backend.
+function nombreDelDia(locale: string, i: number) {
+  return new Date(Date.UTC(2026, 0, 4 + i)).toLocaleDateString(locale, {
+    weekday: 'short',
+    timeZone: 'UTC',
+  });
+}
+
 function HeatGrid({ heatmap }: { heatmap: Heatmap }) {
   const t = useTranslations('app_analytics');
   const locale = useLocale();
   const HOURS = Array.from({ length: 24 }, (_, h) => h);
-  // Los nombres de los días los manda el backend en español fijo
-  // («Dom», «Lun»…). Se rehacen aquí con el idioma activo: es texto que se
-  // lee, y en un negocio en inglés quedaba en medio de una tabla traducida.
-  // 2026-01-04 es domingo, que es donde empieza la semana del backend.
-  const nombreDelDia = (i: number) =>
-    new Date(Date.UTC(2026, 0, 4 + i)).toLocaleDateString(locale, {
-      weekday: 'short',
-      timeZone: 'UTC',
-    });
   return (
     <div className="overflow-x-auto">
       <table className="text-[10px] text-mute">
@@ -355,7 +435,7 @@ function HeatGrid({ heatmap }: { heatmap: Heatmap }) {
           {heatmap.cells.map((row, i) => (
             <tr key={i}>
               <td className="px-1.5 py-0.5 text-right font-medium text-ink">
-                {nombreDelDia(i)}
+                {nombreDelDia(locale, i)}
               </td>
               {row.map((v, h) => {
                 const intensity = heatmap.max === 0 ? 0 : v / heatmap.max;
@@ -364,7 +444,7 @@ function HeatGrid({ heatmap }: { heatmap: Heatmap }) {
                   <td
                     key={h}
                     title={t('heatCellTitle', {
-                      day: nombreDelDia(i),
+                      day: nombreDelDia(locale, i),
                       hour: h,
                       count: v,
                     })}

@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-11 (183) — Analítica del negocio descargable + por qué «no le llegó» el correo a Café Momento (SIN DESPLEGAR)
+
+**Analítica descargable.** `/app/analytics` (panel del negocio) tiene ahora un botón «⤓ Descargar» igual que el de Clientes:
+- **Excel: toda la analítica**: tres hojas, *Embudos* (pedidos del periodo elegido, fidelización y clientes, con cancelados, % cancelados y recurrencia), *Pedidos por día* (fecha, pedidos, ingresos) y *Mapa de calor* (día × hora, con total por día).
+- **CSV: pedidos por día** del periodo elegido (7/30/90 d).
+
+Se arma en el navegador con los datos que ya están en pantalla (`lib/exportar-hoja.ts`): no hay endpoint nuevo y lo descargado coincide con lo que se ve. `nombreDelDia` pasó a función de módulo para usarla en la tabla y en el Excel. Hay textos nuevos en `app_analytics` (es/en/pt). Las métricas del administrador (`/admin/metricas`) ya se podían descargar desde antes.
+
+**Café Momento, «no me llegó el correo para restablecer».** Diagnóstico con `scripts/diag-recuperar-contrasena.cjs momento` (solo lectura): el correo **sí salió y sí llegó**. Hubo dos solicitudes (10-nov 21:14 y 21:19 UTC), las dos `sent` por la subcuenta Clubify Oficial, y **los dos enlaces se usaron** (21:17 y 21:20), o sea que la contraseña se cambió dos veces por el enlace. Después vinieron tres cambios manuales desde el panel (21:37–21:41). Lo que falló fue entrar después del cambio, no el envío: puede que se probara la contraseña vieja, que alguien del equipo usara el enlace, o que lo abriera otra persona. No se tocó código por esto.
+
+Desplegar: `node scripts/desplegar.cjs frontend`.
+
 ## 2026-11-09 (182) — Presentación de ventas en soyclubify.com/presentacion (SIN DESPLEGAR)
 
 - El HTML exportado de Claude Design (`Clubify Presentacion (1).html`, 3,6 MB con las imágenes dentro, se desempaqueta solo en el navegador) quedó en `frontend/public/presentacion.html`.
