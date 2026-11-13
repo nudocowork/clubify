@@ -8,6 +8,27 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-13 (185) — Estadísticas de recompra por negocio (encargo «MODIFICACIÓN ESTADÍSTICAS CLUBIFY»); SMS a Nico y Sara
+
+- `backend/scripts/estadisticas-casos-de-exito.cjs` (SOLO LECTURA): recompra, visitas por
+  cliente, días entre visitas e ingresos registrados por negocio, en dos ventanas (90 días e
+  histórico), más Paso 0 y una revisión de Momento. Sale como JSON al final (`@@JSON@@`).
+- **Cambio de método que mueve todas las cifras:** una VISITA = los sellos del mismo cliente con
+  menos de 2 h entre sí. Antes, un cliente con dos tarjetas sellado en ambas en la misma compra
+  contaba como «volvió». Momento salía con 97 % por eso (31 clientes, 60 sellos en 2 días, 49 en
+  uno, un solo operador, 19 de 30 «segundos sellos» a menos de 10 min). Konys bajó 47 → 18 %,
+  Sugar & Kiss 53 → 28 %.
+- Decisiones de Javier: dos vistas (90 días e histórico); Nudo y La Gloriosa (prueba) SÍ entran;
+  ingresos para todos, cada uno en su moneda (8 monedas, no se suman, sin TRM); Momento fuera.
+- Promedio por negocio (los que califican: 30+ clientes y 60+ días): histórico ~21 % de
+  recompra, 1,2 visitas por cliente, ~22 días entre visitas; 90 días ~32 %. Primeros: Amor
+  Espresso 69 %, Danlu 56 %, Motilart 48 %.
+- Tablero privado: https://claude.ai/artifact/Wm95DCpyHCV9XQkWrC8pyY (borrador, NO usar en ventas
+  hasta que Javier apruebe).
+- SMS enviados por la subcuenta Clubify: a Nico (avance de estadísticas) y a Sara (respuesta a la
+  revisión del 12-nov y los 8 enlaces de las guías; esas guías siguen PRIVADAS).
+- `backend/estadisticas.txt` y los `diag-*.txt` tienen datos de producción: no commitear, borrar.
+
 ## 2026-11-13 (184) — Notificaciones a una alianza; cumpleaños de Motilart; respuestas a la revisión del 12-nov (SIN DESPLEGAR)
 
 **Altieri: «no se pueden enviar notificaciones a las tarjetas de alianza».** El selector de tarjeta de Notificaciones usaba `GET /cards`, que esconde a propósito las plantillas de alianza (`convenioId`). Por eso el negocio solo podía mandar a «Todas las tarjetas», que les llega también a todos sus clientes. El servidor ya aceptaba el envío con el `cardId` de la alianza (`pasesDestino` filtra por tarjeta y negocio), y en la billetera la alianza sí avisa: `lastMessage` con `changeMessage` en Apple; en Google la rama `alianza` de `genericWorthNotifying` más el mensaje propio.
