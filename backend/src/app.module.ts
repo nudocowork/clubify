@@ -60,6 +60,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
 import { SettingsModule } from './settings/settings.module';
 import { SystemHealthModule } from './system-health/system-health.module';
 import { ServerStatusModule } from './server-status/server-status.module';
+import { EstadisticasRecompraModule } from './estadisticas-recompra/estadisticas-recompra.module';
 import { SupportModule } from './support/support.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { QrPostersModule } from './qr-posters/qr-posters.module';
@@ -155,6 +156,7 @@ import { VigilanciaModule } from './vigilancia/vigilancia.module';
     SettingsModule,
     SystemHealthModule,
     ServerStatusModule,
+    EstadisticasRecompraModule,
     SupportModule,
     ReviewsModule,
     QrPostersModule,

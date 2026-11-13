@@ -31,6 +31,7 @@ function buildNavGroups(badges: Badges): NavGroup[] {
       items: [
         { href: '/superadmin', label: 'Dashboard', icon: '▦' },
         { href: '/superadmin/marcas', label: 'Marcas Blancas', icon: '🏛', badge: badges.whiteLabels },
+        { href: '/superadmin/recompra', label: 'Recompra', icon: '↻' },
       ],
     },
     {
