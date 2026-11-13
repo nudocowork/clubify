@@ -1611,6 +1611,8 @@
     "addEmojiMessage": "Add emoji to message",
     "addEmojiTitle": "Add emoji to title",
     "allCards": "All cards",
+    "groupOwnCards": "Your cards",
+    "groupAlliances": "Alliances · only that company's employees",
     "automationsDescPrefix": "",
     "automationsDescSuffix": " send pushes or stamp credits to your customers when an event happens (birthday, reward close, inactive customer, etc.). You set them up once and they fire on their own.",
     "automationsTab": "⚡ Automations",

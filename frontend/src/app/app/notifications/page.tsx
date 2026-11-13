@@ -102,7 +102,12 @@ export default function NotificationsPage() {
     try {
       const [h, c, me, rec] = await Promise.all([
         api('/notifications'),
-        api('/cards'),
+        // `especiales=1`: sin él el listado esconde las tarjetas de alianza
+        // (`cards.service.ts` → `list`), y un negocio con alianzas no podía
+        // mandarles nada a los empleados de una empresa: solo «Todas las
+        // tarjetas», que le llega también a todos sus clientes. Lo reportó
+        // Altieri (2026-11-13). El servidor ya aceptaba el envío a esa tarjeta.
+        api('/cards?especiales=1'),
         api('/tenants/me').catch(() => null),
         api('/notifications/recurring').catch(() => []),
       ]);
@@ -382,13 +387,24 @@ export default function NotificationsPage() {
               onChange={(e) => setForm({ ...form, cardId: e.target.value })}
             >
               <option value="">{t('allCards')}</option>
-              {cards
-                .filter((c) => c.name && c.name.trim().length > 0)
-                .map((c) => (
+              {(() => {
+                const conNombre = cards.filter((c) => c.name && c.name.trim().length > 0);
+                const propias = conNombre.filter((c) => !c.convenioId);
+                const alianzas = conNombre.filter((c) => c.convenioId);
+                const opcion = (c: any) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
-                ))}
+                );
+                // Sin alianzas, la lista queda igual que antes: sin grupos.
+                if (!alianzas.length) return propias.map(opcion);
+                return (
+                  <>
+                    <optgroup label={t('groupOwnCards')}>{propias.map(opcion)}</optgroup>
+                    <optgroup label={t('groupAlliances')}>{alianzas.map(opcion)}</optgroup>
+                  </>
+                );
+              })()}
             </select>
           </div>
           <div className="mt-3">

@@ -8,6 +8,22 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-13 (184) — Notificaciones a una alianza; cumpleaños de Motilart; respuestas a la revisión del 12-nov (SIN DESPLEGAR)
+
+**Altieri: «no se pueden enviar notificaciones a las tarjetas de alianza».** El selector de tarjeta de Notificaciones usaba `GET /cards`, que esconde a propósito las plantillas de alianza (`convenioId`). Por eso el negocio solo podía mandar a «Todas las tarjetas», que les llega también a todos sus clientes. El servidor ya aceptaba el envío con el `cardId` de la alianza (`pasesDestino` filtra por tarjeta y negocio), y en la billetera la alianza sí avisa: `lastMessage` con `changeMessage` en Apple; en Google la rama `alianza` de `genericWorthNotifying` más el mensaje propio.
+- Arreglo: la pantalla pide `/cards?especiales=1` y muestra dos grupos, «Tus tarjetas» y «Alianzas · solo a los empleados de esa empresa». Sin alianzas, la lista queda igual que antes. Textos nuevos en `app_notifications` (es/en/pt).
+- Para la parte de «no llegan»: `scripts/diag-push-alianzas.cjs altieri` (solo lectura). Muestra pases por alianza, cuántos están en un celular (Apple/Google) y los envíos masivos de 45 días con su resultado. Pendiente de correr.
+
+**Motilart: «los clientes no reciben el push de cumpleaños».** Diagnóstico con `scripts/diag-cumpleanos.cjs motilart` (solo lectura). La regla está activa y corrió todos los días a las 8:00 de Bogotá, siempre SUCCESS. De 25 cumpleañeros (13-oct a 12-nov), Apple o Google aceptaron el push en 23. Los otros dos: Susan Velásquez nunca instaló la tarjeta, y una de las dos fichas duplicadas de Orlando Lizarazo no tiene la tarjeta en el celular. «Aceptado» no prueba que el cliente lo vio: puede tener apagadas las notificaciones de la tarjeta o haberla borrado de Google Wallet (Google no avisa). Se pidieron a Motilart nombres concretos para revisarlos uno por uno.
+
+**Revisión diaria del 12-nov** (`scripts/diag-revision-diaria.cjs`, solo lectura):
+- **La burguesía:** Clubify tiene el 16-dic; el pago del 29-oct en Hotmart (el del ciclo del 16-oct, pagado tarde) traía el 16-nov. Ese mismo 29-oct llegó `UPDATE_SUBSCRIPTION_CHARGE_DATE`, que es lo que escribe `currentPeriodEnd`, y la revisión no mira ese evento. Sara lo confirma en Hotmart (suscripción L5OJ250G). Si Hotmart dice 16-dic, la alerta es falsa y hay que enseñarle a la revisión ese evento.
+- **Café Macondo:** la comisión de SEPTIEMBRE se calculó sobre 52,24 (163.956 COP pasados a USD) y no sobre los 50 fijos. Son 0,22 USD de más, ya pagados en el lote de septiembre. La de octubre salió bien (base 50). La alerta se apaga sola cuando septiembre sale de la ventana de 60 días (~16-nov).
+- **Abonos:** son 6. HP4008664774 y HP2721330536 no tienen negocio asignado.
+- El SMS a Sara quedó redactado. El envío por `enviar-aviso-interno.cjs` lo bloquea el modo auto y lo corre Javier.
+
+Desplegar: `node scripts/desplegar.cjs frontend`.
+
 ## 2026-11-11 (183) — Analítica del negocio descargable + por qué «no le llegó» el correo a Café Momento (SIN DESPLEGAR)
 
 **Analítica descargable.** `/app/analytics` (panel del negocio) tiene ahora un botón «⤓ Descargar» igual que el de Clientes:

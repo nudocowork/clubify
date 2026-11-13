@@ -1611,6 +1611,8 @@
     "addEmojiMessage": "Agregar emoji al mensaje",
     "addEmojiTitle": "Agregar emoji al título",
     "allCards": "Todas las tarjetas",
+    "groupOwnCards": "Tus tarjetas",
+    "groupAlliances": "Alianzas · solo a los empleados de esa empresa",
     "automationsDescPrefix": "Las ",
     "automationsDescSuffix": " envían push o sumas de sellos a tus clientes cuando ocurre un evento (cumpleaños, recompensa cerca, cliente inactivo, etc.). Las configuras una vez y se disparan solas.",
     "automationsTab": "⚡ Automatizaciones",
