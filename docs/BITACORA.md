@@ -8,6 +8,16 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-13 (186) — Pantalla «Recompra» en el superadmin
+
+Lleva al panel lo de la entrada 185: **/superadmin → General → Recompra** (solo `PLATFORM_OWNER`; cruza todas las marcas y `SUPER_ADMIN` no aísla marcas).
+
+- **Backend:** `src/estadisticas-recompra/`, endpoint `GET /superadmin/recompra` (`?refrescar=1` recalcula). Mismo SQL que `scripts/estadisticas-casos-de-exito.cjs` (visita = sellos a menos de 2 h, monto = el mayor). Se guarda 6 h en memoria; un error no queda guardado. La serie mensual tarda unos 2 s contra producción.
+- **Reglas puras** en `recompra-calculo.ts` con 10 pruebas: quién entra al promedio (30+ clientes, 60+ días, no suspendido), Momento fuera por sellos de prueba, montos dudosos, promedio por negocio (cada negocio pesa igual).
+- **Pantalla:** cifras del negocio típico (90 días / histórico), curva mensual de «clientes que regresan» (de los clientes del mes, cuántos ya habían venido) al estilo de las gráficas de Whop, ranking de los 20 primeros, tabla completa con buscador y con los que quedan fuera y por qué. Tocar un negocio pasa la curva a ese negocio.
+- Curva de la plataforma al día de hoy: jun 11 % → jul 24 % → ago 24 % → sep 33 % → oct 47 % → nov 55 % (mes abierto).
+- Nada de clientes finales: solo agregados por negocio.
+
 ## 2026-11-13 (185) — Estadísticas de recompra por negocio (encargo «MODIFICACIÓN ESTADÍSTICAS CLUBIFY»); SMS a Nico y Sara
 
 - `backend/scripts/estadisticas-casos-de-exito.cjs` (SOLO LECTURA): recompra, visitas por
