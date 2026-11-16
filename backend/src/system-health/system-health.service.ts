@@ -263,7 +263,7 @@ export class SystemHealthService {
   private async jobsBacklog() {
     // Notificaciones agendadas que aún no se enviaron (sentAt = null).
     try {
-      return await this.prisma.notification.count({ where: { sentAt: null } });
+      return await this.prisma.notification.count({ where: { sentAt: null, triggerType: 'SCHEDULED' } });
     } catch {
       return 0;
     }

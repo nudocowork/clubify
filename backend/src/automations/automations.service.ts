@@ -17,6 +17,11 @@ import {
 } from '../integrations/brand-sms-creds.util';
 import { plantillaEnIdioma } from './plantillas-en-ingles';
 import { fechaLocal, horaLocal, restarDias } from './hora-local';
+import {
+  BIENVENIDA_CADUCA_MS,
+  BIENVENIDA_PENDIENTE,
+  paseListoParaBienvenida,
+} from './bienvenida-en-espera';
 
 export type AutomationEvent =
   | 'STAMP_ADDED'
@@ -506,6 +511,27 @@ export class AutomationsService {
           break;
         }
 
+        // BIENVENIDA: no se empuja ahora. El pase se acaba de crear y todavía
+        // no está en ningún Wallet: el push no llegaba a nadie (Burrata,
+        // 2026-11-16 — ver `bienvenida-en-espera.ts`). Nace en espera, SIN
+        // `sentAt` para que el .pkpass que descarga el cliente no la traiga
+        // ya puesta, y `entregarBienvenidasEnEspera` la envía en cuanto la
+        // tarjeta está instalada.
+        if (opts.soloPush) {
+          await this.prisma.notification.create({
+            data: {
+              tenantId,
+              customerId,
+              title,
+              body,
+              triggerType: 'AUTOMATION',
+              sentAt: null,
+              stats: { customerId, pendiente: BIENVENIDA_PENDIENTE, ruleId },
+            },
+          });
+          break;
+        }
+
         // ORDEN IMPORTANTE: creamos la Notification ANTES de pushear. El pase
         // Apple, al re-armarse en pushPassUpdate, lee la ÚLTIMA Notification del
         // cliente para el campo `lastMessage` (lockscreen). Si la creáramos
@@ -534,28 +560,12 @@ export class AutomationsService {
           },
           select: { id: true },
         });
-        let delivered = 0;
-        for (const p of passes) {
-          try {
-            await this.prisma.pass.update({
-              where: { id: p.id },
-              data: { lastActivityAt: new Date() },
-            });
-            // Pasamos el texto renderizado: Apple lo muestra vía el campo
-            // lastMessage (ya scopeado al cliente) y Google lo usa en el
-            // addMessage (en vez del texto genérico de saldo/sellos).
-            const r = await this.wallet.pushPassUpdate(p.id, {
-              message: { header: title, body },
-            });
-            // Apple + Google, igual que en el envío inmediato: `sent` son
-            // los de Apple y Google solo cuenta si de verdad salió.
-            delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
-          } catch (e) {
-            this.logger.warn(
-              `SEND_PUSH pass ${p.id} (rule ${ruleId}) falló: ${(e as Error).message}`,
-            );
-          }
-        }
+        const delivered = await this.empujarAPases(
+          passes.map((x) => x.id),
+          title,
+          body,
+          ruleId,
+        );
         await this.prisma.notification.update({
           where: { id: notif.id },
           data: { stats: { targeted: passes.length, delivered, customerId } },
@@ -718,6 +728,113 @@ export class AutomationsService {
     });
 
     return out;
+  }
+
+  /**
+   * Empuja un mensaje a estos pases (uno por uno, nunca a pases de otros
+   * clientes). Devuelve cuántos dispositivos lo recibieron: Apple cuenta sus
+   * envíos y Google solo si de verdad salió.
+   */
+  private async empujarAPases(
+    passIds: string[],
+    title: string,
+    body: string,
+    ruleId: string,
+  ): Promise<number> {
+    let delivered = 0;
+    for (const id of passIds) {
+      try {
+        await this.prisma.pass.update({
+          where: { id },
+          data: { lastActivityAt: new Date() },
+        });
+        // Texto ya renderizado: Apple lo muestra vía `lastMessage` (scopeado
+        // al cliente) y Google lo usa en el addMessage.
+        const r = await this.wallet.pushPassUpdate(id, {
+          message: { header: title, body },
+        });
+        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
+      } catch (e) {
+        this.logger.warn(
+          `SEND_PUSH pass ${id} (rule ${ruleId}) falló: ${(e as Error).message}`,
+        );
+      }
+    }
+    return delivered;
+  }
+
+  /**
+   * Cron (cada minuto): entrega las bienvenidas en espera cuya tarjeta ya está
+   * en el Wallet (`paseListoParaBienvenida`). Reclamo atómico por `sentAt`
+   * null: dos instancias o dos ticks no la envían dos veces. Pasadas 48 h sin
+   * instalar, no se envía.
+   */
+  @Cron('* * * * *')
+  async entregarBienvenidasEnEspera() {
+    const ahora = new Date();
+    const pendientes = await this.prisma.notification.findMany({
+      where: {
+        triggerType: 'AUTOMATION',
+        sentAt: null,
+        createdAt: { gte: new Date(ahora.getTime() - BIENVENIDA_CADUCA_MS) },
+        stats: { path: ['pendiente'], equals: BIENVENIDA_PENDIENTE },
+      },
+      select: { id: true, tenantId: true, customerId: true, title: true, body: true, stats: true },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    for (const n of pendientes) {
+      if (!n.customerId) continue;
+      try {
+        const pases = await this.prisma.pass.findMany({
+          where: { tenantId: n.tenantId, customerId: n.customerId, status: 'ACTIVE' },
+          select: {
+            id: true,
+            walletPlatform: true,
+            walletInstalledAt: true,
+            _count: { select: { walletDevices: true } },
+          },
+        });
+        const listos = pases.filter((x) =>
+          paseListoParaBienvenida(
+            {
+              walletPlatform: x.walletPlatform,
+              walletInstalledAt: x.walletInstalledAt,
+              dispositivosApple: x._count.walletDevices,
+            },
+            ahora,
+          ),
+        );
+        if (!listos.length) continue;
+        // `sentAt` ANTES de empujar: el .pkpass que Apple pide tras el push
+        // lee la última notificación enviada para su `lastMessage`.
+        const reclamo = await this.prisma.notification.updateMany({
+          where: { id: n.id, sentAt: null },
+          data: { sentAt: new Date() },
+        });
+        if (reclamo.count !== 1) continue;
+        const ruleId = String((n.stats as any)?.ruleId ?? 'bienvenida');
+        const delivered = await this.empujarAPases(
+          listos.map((x) => x.id),
+          n.title,
+          n.body,
+          ruleId,
+        );
+        await this.prisma.notification.update({
+          where: { id: n.id },
+          data: {
+            stats: {
+              customerId: n.customerId,
+              targeted: listos.length,
+              delivered,
+              entregadaTrasInstalar: true,
+            },
+          },
+        });
+      } catch (e) {
+        this.logger.warn(`bienvenida en espera ${n.id} falló: ${(e as Error).message}`);
+      }
+    }
   }
 
   private logRun(

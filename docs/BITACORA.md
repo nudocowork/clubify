@@ -8,6 +8,20 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-16 (190) — La bienvenida no le llegaba a nadie: ahora espera a que la tarjeta esté en el Wallet
+
+Burrata reportó que la notificación de bienvenida no llega. Regla «Bienvenida al inscribirse» activa y ejecutándose (5 clientes en 14 días), pero las 5 notificaciones con `delivered: 0`. **No era de Burrata:** en 30 días casi ninguna bienvenida de la plataforma se entregó (Yummy Sushi 0/307, Drive Pizza 0/65, Master Sushi 0/67…; solo PRIMOR tuvo algunas).
+
+Causa: la regla PASS_CREATED empujaba el push en el mismo segundo en que se crea el pase, antes de que el cliente lo agregue al Wallet. El iPhone registra la tarjeta ~29 s después (mediana; p90 ~4 min). Y en Apple, como la Notification ya tenía `sentAt`, el .pkpass descargado traía el saludo puesto: un push posterior no cambiaba nada → sin aviso.
+
+Arreglo (sin desplegar):
+- `automations/bienvenida-en-espera.ts` (+4 tests): la bienvenida nace con `sentAt` null y `stats.pendiente='bienvenida'` (el .pkpass sale sin ella).
+- `AutomationsService.entregarBienvenidasEnEspera` (cron cada minuto): la entrega cuando el pase tiene dispositivo Apple registrado, o en Google 1 min después de pulsar «Guardar». Reclamo atómico por `sentAt` null; caduca a las 48 h. El push inmediato de las demás reglas no cambia (`empujarAPases` compartido).
+- `system-health`: el backlog cuenta solo las programadas (las bienvenidas en espera no son cola atascada).
+- El panel no las muestra hasta que salen (lista por `sentAt` o `scheduledAt`).
+
+Las bienvenidas ya «enviadas» sin llegar no se reenvían. Diagnóstico: `scripts/diag-bienvenida-negocio.cjs <slug> [días]` y `scripts/diag-bienvenida-global.cjs`.
+
 ## 2026-11-16 (189) — Motilart: comisión del pago por fuera fechada mal, afiliados en CHURNED y un mes regalado
 
 Javier generó a mano («Generar comisión ahora») la comisión del pago por fuera del 7-nov ($50, transferencia) y no la veía. Existía (Santiago $12,50 + Juan Camilo $2,50), pero fechada el 16-nov → disponible el 1-dic → corte de diciembre. Cadena:
