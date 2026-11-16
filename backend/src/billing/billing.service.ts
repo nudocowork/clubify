@@ -9,6 +9,7 @@ import { fmtSmsDate } from './sms-templates';
 import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
 import { addPlanPeriod } from '../common/plan-period';
+import { pagoConFechaVieja } from './pago-con-fecha-vieja';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
@@ -1101,12 +1102,12 @@ export class BillingService {
     lastChargeAt: Date | null;
     currentPeriodEnd: Date | null;
     planPeriodicity: string | null;
+    hotmartSubscriberCode?: string | null;
   }): boolean {
-    if (!t.lastChargeAt || !t.currentPeriodEnd) return false;
-    if (t.lastChargeAt.getTime() >= t.currentPeriodEnd.getTime()) return true;
-    const dayMs = 24 * 60 * 60 * 1000;
-    const expectedNext = addPlanPeriod(t.lastChargeAt, t.planPeriodicity);
-    return t.currentPeriodEnd.getTime() < expectedNext.getTime() - 2 * dayMs;
+    // Regla en `pago-con-fecha-vieja.ts`: con Hotmart, un pago TARDÍO no es
+    // una fecha vieja (caso La Burguesía, 2026-10-29: le regalaba un mes y le
+    // borraba la mora).
+    return pagoConFechaVieja(t);
   }
 
   /**
@@ -1274,6 +1275,7 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        hotmartSubscriberCode: true,
         preReminder7dSentFor: true,
         manualPayment: true,
       },
@@ -1384,6 +1386,7 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        hotmartSubscriberCode: true,
         preReminder3dSentFor: true,
         manualPayment: true,
       },
@@ -1470,6 +1473,7 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        hotmartSubscriberCode: true,
         preReminderTodaySentFor: true,
         manualPayment: true,
       },
@@ -1552,6 +1556,7 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        hotmartSubscriberCode: true,
         paymentReminderSentFor: true,
         manualPayment: true,
       },
@@ -1655,6 +1660,7 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        hotmartSubscriberCode: true,
         paymentFailureNoticeSentAt: true,
         pausePendingNoticeSentAt: true,
         graceNoticeSentAt: true,
