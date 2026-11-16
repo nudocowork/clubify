@@ -126,7 +126,9 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
     ? ` - pago por fuera ${metodo} del ${f(pagadoEl)} que cubre ${f(inicio)} → ${f(fin)}`
     : ' - el ciclo actual sigue cubierto hasta esa fecha: no se registra pago nuevo');
   console.log(` - nota interna: «${nota}»`);
-  console.log(` - fecha del cobro (y de la comisión al pulsar «Generar comisión ahora»): ${f(pagadoEl)}`);
+  // La comisión del afiliado ya no espera al botón: el backend la crea en ≤10
+  // min (`ComisionDePagosPorFueraService`), y con ella sale el aviso de venta.
+  console.log(` - fecha del cobro (y de la comisión, que el sistema crea solo en ≤10 min): ${f(pagadoEl)}`);
   // La cancelación de Hotmart que precede a este paso dejó sus afiliados en
   // CHURNED, y con eso ningún pago por fuera les genera comisión (Motilart,
   // 2026-11-16). El negocio no se va: vuelven a PAYING, como en el upgrade.

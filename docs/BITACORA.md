@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-16 (191) — El aviso de comisión de Motilart llegó 9 días tarde: el pago por fuera ya deja su comisión solo
+
+A las 11:00 de hoy salió el «📣 Renovación: MOTILART…» (a Jhon y a los dos afiliados), pero el pago por transferencia era del 7-nov. El aviso cuelga de la COMISIÓN (`AffiliateSaleAlertsService`), no del pago, y la comisión nació hoy a las 10:57, cuando Javier pulsó «Generar comisión ahora».
+
+Causa: el pago se registró el 8-nov con `scripts/pasar-a-pago-por-fuera.cjs` (actor null), y ese script anota el pago pero NO crea la comisión; dependía del botón. «Registrar pago manual» del panel sí la crea al instante. En 60 días, el único afectado fue Motilart: Drive Pizza fue un pago de agosto ya comisionado, y Habibi es «Venta directa (empresa)», código desactivado.
+
+Arreglo (sin desplegar):
+- `referrals/comision-de-pagos-por-fuera.service.ts` (+5 tests): cron cada 10 min. Toma los `ManualPayment` de las últimas 48 h; si el negocio está activo, con el ciclo vigente, tiene afiliado y su `lastChargeAt` es ese pago, pide la comisión por el mismo camino que el botón (`backfillCommissionForCurrentAssignment`). No duplica: la defensa de 25 días frena cualquier comisión del cobro, en cualquier estado. También cubre si el «dispara y olvida» del panel falla.
+- `pasar-a-pago-por-fuera.cjs`: el texto ya no manda a pulsar el botón.
+
+La corrección de fechas de Motilart (entrada 189) ya está aplicada: AuditLog `commission.fecha_corregida` a las 13:18. Diagnóstico: `scripts/diag-motilart-aviso-tardio.cjs` y `scripts/diag-pagos-por-fuera-sin-comision.cjs <negocio…>`.
+
 ## 2026-11-16 (190) — La bienvenida no le llegaba a nadie: ahora espera a que la tarjeta esté en el Wallet
 
 Burrata reportó que la notificación de bienvenida no llega. Regla «Bienvenida al inscribirse» activa y ejecutándose (5 clientes en 14 días), pero las 5 notificaciones con `delivered: 0`. **No era de Burrata:** en 30 días casi ninguna bienvenida de la plataforma se entregó (Yummy Sushi 0/307, Drive Pizza 0/65, Master Sushi 0/67…; solo PRIMOR tuvo algunas).
