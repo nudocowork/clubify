@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-16 (188) — Arqueo del Corte 21 (CORTE-2026-11-15) para Sara: cuadra
+
+Solo lectura: `scripts/arqueo-corte.cjs <reporte.tsv> 2026-11-15` (pagos del reporte de Hotmart → Contabilidad → referido → comisión → corte, ingresos de la quincena, 2 % de equipo, socio) y `scripts/diag-ingresos-fuera-de-reporte.cjs` (ingresos que el reporte no trae: manuales, Stripe). `scripts/diag-cortes.cjs` lista los cortes («Corte N» = quincena del año: 21 = 1–15 nov).
+
+- 44 pagos del reporte de octubre: todos en Contabilidad salvo 3 pruebas gratis de $0. 26 avisos de Hotmart del 1–15 nov: ninguno sin ingreso.
+- El corte trae 26 comisiones por $390,08 (ventas del 17 al 31-oct + el 2 % de Sara): Nicolás Quintero 18 / $277,50 · Gabriel Ruiz 4 / $65 · Nicolás TeamClosers 3 / $17,50 · Sara $30,08. Ninguna disponible en la ventana quedó fuera.
+- Manual de @mrbigbaq ($500) comisionó; Dinorolls reembolsado, sin comisión; El Tiros venta directa.
+- 2 % de Sara = 2 % de $1.504 (12 ingresos 1–15 nov, incluido el manual de Motilart). Socio SOCIO-2026-11 sin corte, como debe.
+- Para Javier: el manual de Motilart del 7-nov no comisiona (sus dos referidos están CHURNED). Calderitos (venta 31-oct) tiene `periodKey` 2026-11: está en el corte correcto, solo la etiqueta de mes no coincide con el ingreso.
+
+SMS con el resultado a Sara (2026-11-16).
+
 ## 2026-11-16 (187) — Arqueo de la revisión diaria: La Burguesía, Macondo, abonos (SIN DESPLEGAR, 2 scripts SIN APLICAR)
 
 Javier: la revisión diaria trae lo mismo cada día y se espera «hoy todo está bien». Arqueo de los 3 avisos del 16-nov (`scripts/diag-arqueo-revision.cjs`, `diag-grupo-burguesia.cjs`, solo lectura):
