@@ -8,6 +8,16 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-16 (187) — Arqueo de la revisión diaria: La Burguesía, Macondo, abonos (SIN DESPLEGAR, 2 scripts SIN APLICAR)
+
+Javier: la revisión diaria trae lo mismo cada día y se espera «hoy todo está bien». Arqueo de los 3 avisos del 16-nov (`scripts/diag-arqueo-revision.cjs`, `diag-grupo-burguesia.cjs`, solo lectura):
+
+- **La Burguesía — aviso VERDADERO y era un bug.** Pagó el 29-oct (tarde) el cobro del 16-oct; Hotmart dijo «próximo cobro 16-nov». El cobrador (`paidButStale`, regla 2: «la fecha está antes de último pago + 1 período») la «sanó» al 16-dic: un mes gratis y la mora borrada. El 16-nov el cobro falló de verdad (`PURCHASE_DELAYED`, fallos=1). Arreglo en `billing/pago-con-fecha-vieja.ts` (5 pruebas): con Hotmart solo vale la regla 1 (el pago entró después de la fecha). Datos: `scripts/corregir-fecha-burguesia.cjs --aplicar` la devuelve al 16-nov. **Correrlo DESPUÉS de desplegar**, o el cron la vuelve a mover. Era el único negocio afectado (la revisión compara todos y solo salía él).
+- **Café Macondo — real, de una sola vez, ya cobrado.** La comisión de septiembre se calculó sobre 52,24 (COP pasados a USD) y no sobre 50: 0,22 USD de más, pagados. La de octubre salió bien (base 50): el origen ya estaba arreglado. Sale sola de la ventana de 60 días el 17-nov. No se toca una comisión pagada.
+- **6 abonos de 20 «En revisión»** (Chillin, Segundo Piso, BLIC, Paicoat y dos sin negocio: compradores Mauren Castillo Serna y Alejandro Montoya). Desde la bitácora 176 el restante se cuenta sin el abono, así que en revisión son 127,25 USD cobrados que no suman. `scripts/pasar-abonos-a-pagado.cjs --aplicar` los pasa a PAGADO (categoría OTRO: no generan aviso de pago sin negocio) y deja AuditLog `income.abono_a_pagado` para deshacer. Suma a agosto y septiembre en Contabilidad.
+
+Pendiente (el modo auto bloquea despliegue y escrituras a producción): `node scripts/desplegar.cjs backend`, luego los dos scripts con `--aplicar`. Con eso la revisión del 17-nov debería no mandar nada.
+
 ## 2026-11-13 (186) — Pantalla «Recompra» en el superadmin
 
 Lleva al panel lo de la entrada 185: **/superadmin → General → Recompra** (solo `PLATFORM_OWNER`; cruza todas las marcas y `SUPER_ADMIN` no aísla marcas).
