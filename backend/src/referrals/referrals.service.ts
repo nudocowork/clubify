@@ -3000,6 +3000,9 @@ export class ReferralsService {
         // Sin ella la comisión nace sin recibo y la dedup por transacción no
         // puede verla — ver el comentario del branch VENDOR más abajo.
         hotmartTransactionId: true,
+        // Con pago por fuera esa transacción es la del ÚLTIMO cobro de Hotmart,
+        // no la del pago que se está comisionando (ver `txDelCobro`).
+        manualPayment: true,
         // La fecha de ese mismo cobro: de ella salen businessDate, periodKey y
         // availableAt. Pago manual y «marcar pagado» la escriben antes de llamar.
         lastChargeAt: true,
@@ -3007,6 +3010,12 @@ export class ReferralsService {
       },
     });
     if (!tenant) return 'El negocio no existe.';
+    // Recibo del cobro que paga esta comisión. Con PAGO POR FUERA no hay
+    // transacción de Hotmart: la que guarda el negocio es la de su último cobro
+    // por Hotmart. Motilart (2026-11-16): la comisión del pago por fuera del
+    // 7-nov nació con la transacción de septiembre, y un reembolso de ese cobro
+    // viejo la habría anulado.
+    const txDelCobro = tenant.manualPayment ? null : (tenant.hotmartTransactionId ?? null);
     // Si el tenant está suspendido, NO generar comisión incluso con force.
     if (tenant.suspendedAt) return 'El negocio está suspendido.';
     // Sin force: requerir ciclo de pago vigente (currentPeriodEnd futuro).
@@ -3180,7 +3189,7 @@ export class ReferralsService {
       await this.generateCommissionsForPayment({
         tenantId,
         paymentAmountUsd: price,
-        hotmartTransactionId: tenant.hotmartTransactionId ?? null,
+        hotmartTransactionId: txDelCobro,
         // La fecha ya validada contra el ciclo vigente (arriba). Sin ella el
         // generador fecha con el `lastChargeAt` crudo: con un cobro viejo, las
         // filas del split nacerían en un ciclo cerrado y disponibles al instante.
@@ -3206,7 +3215,7 @@ export class ReferralsService {
     const aj = await this.ajustesDeReglas(
       tenantId,
       { influencer: null, embajador: { id: code.id }, vendor: null },
-      await this.ventaParaReglas(tenantId, tenant.hotmartTransactionId ?? null, businessDate),
+      await this.ventaParaReglas(tenantId, txDelCobro, businessDate),
     );
     const pct = aj.pct.embajador ?? pctDelCodigo;
     const direct =
@@ -3230,7 +3239,7 @@ export class ReferralsService {
             aj.fijos.embajador != null ? Math.min(999.99, round2((direct / price) * 100)) : pct,
           // Mismo motivo que en el branch VENDOR: sin el recibo del cobro que
           // paga esta comisión, un re-anuncio del mismo pago la duplica.
-          externalTxId: tenant.hotmartTransactionId ?? null,
+          externalTxId: txDelCobro,
           ...(aj.reglas.embajador ? { reglaColaboradorId: aj.reglas.embajador } : {}),
         },
       })

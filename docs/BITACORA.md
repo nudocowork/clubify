@@ -8,6 +8,23 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-16 (189) — Motilart: comisión del pago por fuera fechada mal, afiliados en CHURNED y un mes regalado
+
+Javier generó a mano («Generar comisión ahora») la comisión del pago por fuera del 7-nov ($50, transferencia) y no la veía. Existía (Santiago $12,50 + Juan Camilo $2,50), pero fechada el 16-nov → disponible el 1-dic → corte de diciembre. Cadena:
+
+1. La cancelación de Hotmart (4-nov) dejó los 2 `ReferralUse` en CHURNED → el pago por fuera no generó comisión sola.
+2. `pasar-a-pago-por-fuera.cjs` (8 y 9-nov) dejó «próximo cobro 22-nov», pero la **regla 2 de `pago-con-fecha-vieja`** lo «sanó» al 22-dic (7-nov + 1 mes > 22-nov): un mes gratis, el mismo bug que La Burguesía (187).
+3. Con el ciclo inventado 22-nov→22-dic, «Generar comisión ahora» vio el pago del 7-nov fuera del ciclo y fechó HOY. Además copió `tenant.hotmartTransactionId` (la tx de septiembre) a la comisión de Santiago.
+
+Código (sin desplegar):
+- `pago-con-fecha-vieja.ts`: la regla 2 tampoco aplica con `manualPayment` (+1 test). Los 5 selects ya traían `manualPayment`.
+- `referrals.service.ts` (backfill de «Generar comisión ahora»): `txDelCobro` = null con pago por fuera; ya no copia la tx vieja de Hotmart.
+- `pasar-a-pago-por-fuera.cjs`: devuelve a PAYING los afiliados en CHURNED (como el upgrade a anual).
+
+Datos — **PENDIENTE de Javier** (el modo auto bloquea escrituras a prod): `scripts/corregir-motilart-comision.cjs --aplicar` → próximo cobro 22-nov, las 2 comisiones a fecha 7-nov / disponibles 22-nov (corte del 30-nov) sin la tx de septiembre, afiliados a PAYING, AuditLog `commission.fecha_corregida`. Simulación verificada.
+
+Barrido (`diag-pago-por-fuera-afectados.cjs`, 12 negocios con pago por fuera): solo Motilart. FarCentro (suspendida, sin afiliados) tiene la fecha 13 días por delante; no se toca.
+
 ## 2026-11-16 (188) — Arqueo del Corte 21 (CORTE-2026-11-15) para Sara: cuadra
 
 Solo lectura: `scripts/arqueo-corte.cjs <reporte.tsv> 2026-11-15` (pagos del reporte de Hotmart → Contabilidad → referido → comisión → corte, ingresos de la quincena, 2 % de equipo, socio) y `scripts/diag-ingresos-fuera-de-reporte.cjs` (ingresos que el reporte no trae: manuales, Stripe). `scripts/diag-cortes.cjs` lista los cortes («Corte N» = quincena del año: 21 = 1–15 nov).

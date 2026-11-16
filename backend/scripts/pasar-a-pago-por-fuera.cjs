@@ -127,6 +127,11 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
     : ' - el ciclo actual sigue cubierto hasta esa fecha: no se registra pago nuevo');
   console.log(` - nota interna: «${nota}»`);
   console.log(` - fecha del cobro (y de la comisión al pulsar «Generar comisión ahora»): ${f(pagadoEl)}`);
+  // La cancelación de Hotmart que precede a este paso dejó sus afiliados en
+  // CHURNED, y con eso ningún pago por fuera les genera comisión (Motilart,
+  // 2026-11-16). El negocio no se va: vuelven a PAYING, como en el upgrade.
+  const dadosDeBaja = await p.referralUse.count({ where: { tenantId: t.id, status: 'CHURNED' } });
+  console.log(` - afiliados dados de baja por la cancelación de Hotmart: ${dadosDeBaja}${dadosDeBaja ? ' → vuelven a PAYING' : ''}`);
 
   if (inicio) {
     const DIA = 864e5;
@@ -182,6 +187,9 @@ const f = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
     },
     select: { id: true, status: true, manualPayment: true, currentPeriodEnd: true, lastChargeAt: true, planPeriodicity: true, subscriptionPriceUsd: true },
   }));
+  if (dadosDeBaja) {
+    ops.unshift(p.referralUse.updateMany({ where: { tenantId: t.id, status: 'CHURNED' }, data: { status: 'PAYING' } }));
+  }
   const r = await p.$transaction(ops);
   console.log('\nDESPUÉS', JSON.stringify(r[r.length - 1], null, 2));
   console.log('Listo. El panel lo verá activo en ≤30 s (caché del estado).');

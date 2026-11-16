@@ -1103,6 +1103,7 @@ export class BillingService {
     currentPeriodEnd: Date | null;
     planPeriodicity: string | null;
     hotmartSubscriberCode?: string | null;
+    manualPayment?: boolean | null;
   }): boolean {
     // Regla en `pago-con-fecha-vieja.ts`: con Hotmart, un pago TARDÍO no es
     // una fecha vieja (caso La Burguesía, 2026-10-29: le regalaba un mes y le

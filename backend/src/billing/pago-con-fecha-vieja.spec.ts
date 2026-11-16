@@ -38,6 +38,19 @@ describe('pago con fecha vieja (blindaje anti-desincronización)', () => {
     ).toBe(true);
   });
 
+  it('Motilart: pago por fuera anclado a su vencimiento NO corre la fecha un mes', () => {
+    // Pagó por fuera el 7-nov el ciclo del 22-oct; próximo cobro 22-nov.
+    expect(
+      pagoConFechaVieja({
+        lastChargeAt: f('2026-11-07'),
+        currentPeriodEnd: f('2026-11-22'),
+        planPeriodicity: 'MENSUAL',
+        hotmartSubscriberCode: null,
+        manualPayment: true,
+      }),
+    ).toBe(false);
+  });
+
   it('una fecha al día no es vieja', () => {
     expect(
       pagoConFechaVieja({

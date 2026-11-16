@@ -18,16 +18,24 @@ import { addPlanPeriod } from '../common/plan-period';
  * El 16-nov el cobro falló y Clubify lo seguía teniendo al día hasta diciembre.
  * Con Hotmart la fecha la escribe `date_next_charge` en cada pago (desde
  * f8b067df, 2026-08-18): si va por detrás del pago, es la regla 1 quien la ve.
+ *
+ * Tampoco vale con PAGO POR FUERA (Motilart, 2026-11-16): ahí la fecha la pone
+ * una persona a propósito. `pasar-a-pago-por-fuera.cjs` registró el pago del
+ * 7-nov anclado a su vencimiento («próximo cobro 22-nov»), y la regla 2 lo
+ * «sanó» al 22-dic. Además de regalar el mes, «Generar comisión ahora» vio el
+ * pago fuera de ese ciclo inventado y fechó la comisión el día que se pulsó:
+ * se fue al corte equivocado.
  */
 export function pagoConFechaVieja(t: {
   lastChargeAt: Date | null;
   currentPeriodEnd: Date | null;
   planPeriodicity: string | null;
   hotmartSubscriberCode?: string | null;
+  manualPayment?: boolean | null;
 }): boolean {
   if (!t.lastChargeAt || !t.currentPeriodEnd) return false;
   if (t.lastChargeAt.getTime() >= t.currentPeriodEnd.getTime()) return true;
-  if (t.hotmartSubscriberCode) return false;
+  if (t.hotmartSubscriberCode || t.manualPayment) return false;
   const dayMs = 24 * 60 * 60 * 1000;
   const expectedNext = addPlanPeriod(t.lastChargeAt, t.planPeriodicity);
   return t.currentPeriodEnd.getTime() < expectedNext.getTime() - 2 * dayMs;
