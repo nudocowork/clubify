@@ -8,6 +8,15 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-20 (193) — Menú «Secciones»: las tarjetas desaparecían ~2,5 s al recargar (Nudo, Motilart)
+
+Queja de Javier: tras deslizar para recargar en Safari del iPhone, las tarjetas con foto del menú (Recomendados, café…) se ponen blancas y vuelven, varias veces en unos 4 s.
+
+- **Causa (medida en producción, Chrome, iframe de 390 px):** `LayoutSections` daba a cada tarjeta `animation: slideUp … both` (y `slideInRight`/`cardIn` en el detalle), con los `@keyframes` en un `<style jsx>`. Ese estilo **no sale en el HTML del servidor**: llega al hidratar. Desde que la carta se pinta en el servidor, las tarjetas se ven a ~0,4 s; al hidratar (~0,6 s) aparece la regla, el `both` las deja en **opacidad 0** y no vuelven hasta ~3,1 s. Ni remontaje, ni peticiones repetidas, ni `src` que cambie: medido, cero nodos quitados y cero cambios de `src`/`srcset`.
+- Al recargar se nota más porque fotos y JS salen de la caché: la tarjeta está entera ANTES de desaparecer. En una primera visita la foto aún está llegando y el apagón se confunde con la carga.
+- **Arreglo:** las animaciones de entrada solo después de que el cliente toque algo (entrar a una sección, volver, cambiar de subsección). Lo que ya está pintado no «entra». Solo afecta al diseño SECTIONS (el único con este patrón; los demás no usan keyframes de `styled-jsx`).
+- No probado en un iPhone físico. Tras desplegar: abrir `/m/nudocowork`, recargar 3 veces y mirar que las tarjetas no se apaguen.
+
 ## 2026-11-20 (192) — Rol «Personalizado» del equipo: cada miembro ve solo las secciones que el dueño le marca
 
 Pedido de Javier: un rol de equipo donde el dueño marca qué ve el miembro (p. ej. Sellos y Clientes, o solo Pedidos de su sede).

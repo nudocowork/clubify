@@ -4426,6 +4426,15 @@ function LayoutSections({
       : null,
   );
   const [transitioning, setTransitioning] = useState(false);
+  // Las animaciones de entrada (slideUp, slideInRight, cardIn) solo después de
+  // que el cliente TOQUE algo. Sus `@keyframes` van en `<style jsx>`, que NO
+  // sale en el HTML del servidor: llegan al hidratar. Con la carta pintada
+  // desde el servidor, las tarjetas se veían, al hidratar aparecía la regla y
+  // el `both` las dejaba en opacidad 0 hasta que la animación arrancaba —
+  // medido en Nudo Cowork: visibles a 0,4 s, invisibles de 0,6 s a 3,1 s. Es
+  // el «parpadeo al recargar» (2026-11-20). Lo que ya está en pantalla no
+  // tiene que «entrar».
+  const [navego, setNavego] = useState(false);
 
   // ── Deep-link: al cargar, resolver IDs desde slugs de la URL.
   useEffect(() => {
@@ -4529,6 +4538,7 @@ function LayoutSections({
             key={m.id}
             type="button"
             onClick={() => {
+              setNavego(true);
               setTransitioning(true);
               setActiveSection(m.id);
               setActiveSub(null);
@@ -4536,9 +4546,9 @@ function LayoutSections({
               window.setTimeout(() => setTransitioning(false), 50);
             }}
             className="block w-full text-left active:scale-[0.98] hover:scale-[1.005] transition-transform duration-150"
-            style={{
-              animation: `slideUp 0.35s ease-out ${idx * 60}ms both`,
-            }}
+            style={
+              navego ? { animation: `slideUp 0.35s ease-out ${idx * 60}ms both` } : undefined
+            }
           >
             <SectionBanner cat={m} primary={primary} primera={idx < 2} />
           </button>
@@ -4577,13 +4587,14 @@ function LayoutSections({
     <div
       key={section.id}
       className="space-y-4"
-      style={{ animation: 'slideInRight 0.3s ease-out' }}
+      style={navego ? { animation: 'slideInRight 0.3s ease-out' } : undefined}
     >
       {/* Header con back + banner reducido */}
       <div className="relative">
         <button
           type="button"
           onClick={() => {
+            setNavego(true);
             setActiveSection(null);
             setActiveSub(null);
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4610,7 +4621,10 @@ function LayoutSections({
             label="Todo"
             count={section.products.length + subs.reduce((n, s) => n + s.products.length, 0)}
             active={!activeSub}
-            onClick={() => setActiveSub(null)}
+            onClick={() => {
+              setNavego(true);
+              setActiveSub(null);
+            }}
             primary={primary}
           />
           {subs.map((s) => (
@@ -4619,7 +4633,10 @@ function LayoutSections({
               label={s.name}
               count={s.products.length}
               active={activeSub === s.id}
-              onClick={() => setActiveSub(s.id)}
+              onClick={() => {
+                setNavego(true);
+                setActiveSub(s.id);
+              }}
               primary={primary}
             />
           ))}
@@ -4642,9 +4659,9 @@ function LayoutSections({
           {visibleProducts.map((p, idx) => (
             <div
               key={p.id}
-              style={{
-                animation: `cardIn 0.3s ease-out ${idx * 30}ms both`,
-              }}
+              style={
+                navego ? { animation: `cardIn 0.3s ease-out ${idx * 30}ms both` } : undefined
+              }
             >
               <SectionProductCard
                 product={p}
