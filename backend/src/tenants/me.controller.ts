@@ -467,7 +467,7 @@ export class TenantMeController {
    * trata null como "sin tenant context" y cae al default.
    */
   @Get()
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN', 'MARKETING')
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'TENANT_CUSTOM', 'SUPER_ADMIN', 'MARKETING')
   get(@CurrentUser() user: AuthUser) {
     if (!user.tenantId) return null;
     return this.svc.getMine(user.tenantId);

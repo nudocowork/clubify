@@ -8,6 +8,19 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-20 (192) — Rol «Personalizado» del equipo: cada miembro ve solo las secciones que el dueño le marca
+
+Pedido de Javier: un rol de equipo donde el dueño marca qué ve el miembro (p. ej. Sellos y Clientes, o solo Pedidos de su sede).
+
+- Esquema: `Role.TENANT_CUSTOM` + `User.permisos String[]`. **Migración aditiva sin aplicar**: `scripts/apply-rol-personalizado-migration.cjs`. **Hay que correrla ANTES de desplegar el backend**: con el código nuevo y sin la columna, Prisma falla al leer cualquier `User` (login caído).
+- Backend: catálogo y regla en `common/permisos-de-equipo.ts` (+8 tests). 11 secciones: sellos, clientes, tarjetas, notificaciones, reseñas, reservas, servicios, marketing (QR), menú, pedidos y estadísticas; cada una abre sus rutas de API. `RolesGuard` (ahora async) decide para este rol por la ruta del controlador y lee los permisos de la base (caché 30 s): quitar una sección se aplica sin re-login. Una casilla abre su sección aunque hoy sea solo del dueño (p. ej. Notificaciones). Equipo, Suscripción, Configuración, Sedes y Referidos quedan cerrados siempre.
+- Pedidos: solo los de su sede (`sedeDeSoloPedidos`, igual que TENANT_ORDERS); push de pedidos solo si tiene «pedidos».
+- `/auth/me` devuelve `permisos`; `tenants/me` y `users/me` admiten el rol; `InfoLinkOnlyGuard` lo trata como staff.
+- Frontend: Equipo → opción «Personalizado» con casillas al invitar, y botón «Secciones» por miembro. `AppShell` pide los permisos al abrir, filtra el menú y redirige a la primera sección del panel que tiene (el escáner solo es la entrada si no tiene otra).
+- `prisma format` realineó espacios del `schema.prisma` en disco (solo espaciado). El commit se armó desde HEAD sin eso ni los cambios sin commitear de la otra máquina.
+
+Orden para desplegar: 1) migración, 2) `desplegar.cjs backend`, 3) `desplegar.cjs frontend`.
+
 ## 2026-11-16 (191) — El aviso de comisión de Motilart llegó 9 días tarde: el pago por fuera ya deja su comisión solo
 
 A las 11:00 de hoy salió el «📣 Renovación: MOTILART…» (a Jhon y a los dos afiliados), pero el pago por transferencia era del 7-nov. El aviso cuelga de la COMISIÓN (`AffiliateSaleAlertsService`), no del pago, y la comisión nació hoy a las 10:57, cuando Javier pulsó «Generar comisión ahora».

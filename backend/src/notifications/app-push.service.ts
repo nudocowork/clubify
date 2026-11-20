@@ -80,8 +80,19 @@ export class AppPushService {
       const roles = opts.soloPedidos
         ? ['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS']
         : ['TENANT_OWNER', 'TENANT_STAFF'];
+      // El rol personalizado recibe los avisos de pedidos solo si tiene la
+      // sección Pedidos; los demás avisos, nunca (no ve el resto del panel).
       const usuarios = await this.prisma.user.findMany({
-        where: { tenantId, isActive: true, role: { in: roles as any } },
+        where: {
+          tenantId,
+          isActive: true,
+          OR: [
+            { role: { in: roles as any } },
+            ...(opts.soloPedidos
+              ? [{ role: 'TENANT_CUSTOM' as any, permisos: { has: 'pedidos' } }]
+              : []),
+          ],
+        },
         select: { id: true },
       });
       let enviados = 0;

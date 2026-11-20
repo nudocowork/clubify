@@ -5,18 +5,65 @@ import { api, getUser } from '@/lib/api';
 import { PanelHeader } from '@/components/PanelHeader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { SECCIONES_DEL_EQUIPO } from '@/lib/permisos-de-equipo';
+
+type Rol = 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS' | 'TENANT_CUSTOM';
+
+/** Nombres de las secciones marcadas, en el orden del catálogo. */
+function nombresDeSecciones(permisos: string[] | undefined) {
+  return SECCIONES_DEL_EQUIPO.filter((x) => permisos?.includes(x.clave)).map((x) => x.nombre);
+}
+
+/**
+ * Casillas del rol «Personalizado»: lo que se marca es lo único que verá el
+ * miembro en el panel (y lo único que el backend le deja usar).
+ */
+function CasillasDeSecciones({
+  valor,
+  onChange,
+}: {
+  valor: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const alternar = (clave: string) =>
+    onChange(valor.includes(clave) ? valor.filter((x) => x !== clave) : [...valor, clave]);
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {SECCIONES_DEL_EQUIPO.map((sec) => (
+        <label
+          key={sec.clave}
+          className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer ${
+            valor.includes(sec.clave) ? 'border-brand bg-brand-soft' : 'border-line2'
+          }`}
+        >
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={valor.includes(sec.clave)}
+            onChange={() => alternar(sec.clave)}
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">{sec.nombre}</span>
+            <span className="block text-[11px] text-mute">{sec.detalle}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
 
 type Staff = {
   id: string;
   email: string;
   fullName: string;
   phone: string | null;
-  role: 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS';
+  role: Rol;
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
   locationId: string | null;
   location: { id: string; name: string } | null;
+  permisos?: string[];
 };
 
 type Location = {
@@ -69,9 +116,12 @@ export default function StaffPage() {
     fullName: '',
     email: '',
     phone: '',
-    role: 'TENANT_STAFF' as 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS',
+    role: 'TENANT_STAFF' as Rol,
     locationId: '' as string,
+    permisos: [] as string[],
   });
+  // Miembro personalizado cuyas secciones se están editando, y el borrador.
+  const [editando, setEditando] = useState<{ id: string; permisos: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [tempCred, setTempCred] = useState<{
     email: string;
@@ -113,6 +163,10 @@ export default function StaffPage() {
   async function invite(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (form.role === 'TENANT_CUSTOM' && form.permisos.length === 0) {
+      setErr('Marca al menos una sección para el rol personalizado.');
+      return;
+    }
     setBusy(true);
     try {
       const body = {
@@ -121,6 +175,7 @@ export default function StaffPage() {
         phone: form.phone || undefined,
         role: form.role,
         locationId: form.locationId || null,
+        ...(form.role === 'TENANT_CUSTOM' ? { permisos: form.permisos } : {}),
       };
       const r = await api<Staff & { tempPassword: string }>('/tenants/me/staff', {
         method: 'POST',
@@ -128,7 +183,7 @@ export default function StaffPage() {
       });
       setTempCred({ email: r.email, tempPassword: r.tempPassword });
       setShowInvite(false);
-      setForm({ fullName: '', email: '', phone: '', role: 'TENANT_STAFF', locationId: '' });
+      setForm({ fullName: '', email: '', phone: '', role: 'TENANT_STAFF', locationId: '', permisos: [] });
       await load();
     } catch (e: any) {
       setErr(e.message);
@@ -150,13 +205,39 @@ export default function StaffPage() {
     }
   }
 
-  async function changeRole(u: Staff, role: 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS') {
+  async function changeRole(u: Staff, role: Rol) {
+    // A «Personalizado» se pasa eligiendo sus secciones: hasta guardar, sigue
+    // con su rol de antes (y sin ver nada nuevo).
+    if (role === 'TENANT_CUSTOM') {
+      setEditando({ id: u.id, permisos: u.role === 'TENANT_CUSTOM' ? u.permisos ?? [] : [] });
+      return;
+    }
     try {
       await api(`/tenants/me/staff/${u.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ role }),
       });
       toast(t('roleUpdated'), 'success');
+      if (editando?.id === u.id) setEditando(null);
+      await load();
+    } catch (e: any) {
+      toast(e.message || t('errChangeRole'), 'error');
+    }
+  }
+
+  async function guardarSecciones() {
+    if (!editando) return;
+    if (editando.permisos.length === 0) {
+      toast('Marca al menos una sección.', 'error');
+      return;
+    }
+    try {
+      await api(`/tenants/me/staff/${editando.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role: 'TENANT_CUSTOM', permisos: editando.permisos }),
+      });
+      toast('Secciones guardadas. Las verá la próxima vez que abra el panel.', 'success');
+      setEditando(null);
       await load();
     } catch (e: any) {
       toast(e.message || t('errChangeRole'), 'error');
@@ -268,6 +349,7 @@ export default function StaffPage() {
                 <option value="TENANT_STAFF">{t('roleStaffDesc')}</option>
                 <option value="TENANT_OWNER">{t('roleOwnerDesc')}</option>
                 <option value="TENANT_ORDERS">Solo pedidos — solo ve la sección Pedidos</option>
+                <option value="TENANT_CUSTOM">Personalizado — solo las secciones que marques</option>
               </select>
             </label>
             <label className="block">
@@ -291,6 +373,15 @@ export default function StaffPage() {
               </div>
             </label>
           </div>
+          {form.role === 'TENANT_CUSTOM' && (
+            <div className="mt-4">
+              <div className="label mb-2">Secciones que verá</div>
+              <CasillasDeSecciones
+                valor={form.permisos}
+                onChange={(permisos) => setForm({ ...form, permisos })}
+              />
+            </div>
+          )}
           {err && (
             <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink mt-3">
               {err}
@@ -385,6 +476,11 @@ export default function StaffPage() {
                   📍 {u.location.name}
                 </div>
               )}
+              {u.role === 'TENANT_CUSTOM' && (
+                <div className="text-[11px] text-mute mt-0.5">
+                  Ve: {nombresDeSecciones(u.permisos).join(' · ') || 'ninguna sección'}
+                </div>
+              )}
               {u.lastLoginAt && (
                 <div className="text-[11px] text-mute mt-0.5">
                   {t('lastAccess')}{' '}
@@ -402,7 +498,9 @@ export default function StaffPage() {
                   ? t('roleOwner')
                   : u.role === 'TENANT_ORDERS'
                     ? 'Solo pedidos'
-                    : t('roleStaff')}
+                    : u.role === 'TENANT_CUSTOM'
+                      ? 'Personalizado'
+                      : t('roleStaff')}
               </span>
               <span
                 className={`badge ${u.isActive ? 'badge-ok' : 'badge-mute'}`}
@@ -421,7 +519,16 @@ export default function StaffPage() {
                     <option value="TENANT_STAFF">{t('roleStaff')}</option>
                     <option value="TENANT_OWNER">{t('roleOwner')}</option>
                     <option value="TENANT_ORDERS">Solo pedidos</option>
+                    <option value="TENANT_CUSTOM">Personalizado</option>
                   </select>
+                  {u.role === 'TENANT_CUSTOM' && editando?.id !== u.id && (
+                    <button
+                      className="btn-link text-xs"
+                      onClick={() => setEditando({ id: u.id, permisos: u.permisos ?? [] })}
+                    >
+                      Secciones
+                    </button>
+                  )}
                   {locations.length > 0 && (
                     <select
                       className="input text-xs py-1 max-w-[160px]"
@@ -458,6 +565,23 @@ export default function StaffPage() {
                 </>
               )}
             </div>
+            {editando?.id === u.id && (
+              <div className="w-full border-t border-line2 pt-3">
+                <div className="label mb-2">Secciones que verá {u.fullName}</div>
+                <CasillasDeSecciones
+                  valor={editando.permisos}
+                  onChange={(permisos) => setEditando({ id: u.id, permisos })}
+                />
+                <div className="flex gap-2 mt-3">
+                  <button className="btn-primary text-xs" onClick={guardarSecciones}>
+                    Guardar secciones
+                  </button>
+                  <button className="btn-ghost text-xs" onClick={() => setEditando(null)}>
+                    {tc('cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

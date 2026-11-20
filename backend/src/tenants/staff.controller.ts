@@ -11,6 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
@@ -26,22 +27,36 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 import { BrandEmailService } from '../email/brand-email.service';
 import { welcomeStaffTemplate } from '../email/templates/templates';
+import { limpiarPermisos } from '../common/permisos-de-equipo';
+
+/**
+ * Permisos a guardar. Solo el rol personalizado los lleva: al pasar a otro
+ * rol se vacían, para que volver a «Personalizado» no resucite secciones
+ * viejas sin que el dueño las vuelva a marcar.
+ */
+function permisosParaGuardar(rol: Role | undefined, permisos: unknown): string[] | undefined {
+  if (rol === undefined) return permisos === undefined ? undefined : limpiarPermisos(permisos);
+  return rol === 'TENANT_CUSTOM' ? limpiarPermisos(permisos) : [];
+}
 
 class InviteStaffBody {
   @IsString() fullName!: string;
   @IsEmail() email!: string;
   @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS']) role?: Role;
+  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'TENANT_CUSTOM']) role?: Role;
   // Fase F 2026-06-07: opcional; null = sin sede asignada / aplica a todas.
   @IsOptional() @IsString() locationId?: string | null;
+  // Rol personalizado: las secciones que verá. Se limpian contra el catálogo.
+  @IsOptional() @IsArray() permisos?: string[];
 }
 
 class UpdateStaffBody {
   @IsOptional() @IsString() fullName?: string;
   @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS']) role?: Role;
+  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'TENANT_CUSTOM']) role?: Role;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() locationId?: string | null;
+  @IsOptional() @IsArray() permisos?: string[];
 }
 
 class ChangePasswordBody {
@@ -84,6 +99,7 @@ export class StaffController {
         createdAt: true,
         locationId: true,
         location: { select: { id: true, name: true } },
+        permisos: true,
       },
     });
     return users;
@@ -118,6 +134,7 @@ export class StaffController {
         role: body.role ?? 'TENANT_STAFF',
         isActive: true,
         locationId: body.locationId ?? null,
+        permisos: permisosParaGuardar(body.role ?? 'TENANT_STAFF', body.permisos) ?? [],
       },
       select: {
         id: true,
@@ -207,6 +224,11 @@ export class StaffController {
         phone: body.phone,
         role: body.role,
         isActive: body.isActive,
+        // Permisos sin cambiar el rol: solo valen si YA es personalizado.
+        permisos:
+          body.role === undefined && body.permisos !== undefined && target.role !== 'TENANT_CUSTOM'
+            ? undefined
+            : permisosParaGuardar(body.role, body.permisos),
         // Permite explícitamente desasignar pasando null o '' (lo
         // normalizamos a null para no chocar con la FK).
         locationId:
@@ -226,6 +248,7 @@ export class StaffController {
         lastLoginAt: true,
         locationId: true,
         location: { select: { id: true, name: true } },
+        permisos: true,
       },
     });
     return updated;
@@ -343,7 +366,7 @@ export class StaffController {
 }
 
 @Controller('users/me/password')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'TENANT_CUSTOM', 'SUPER_ADMIN')
 export class ChangePasswordController {
   constructor(
     private prisma: PrismaService,
@@ -385,7 +408,7 @@ class UpdateProfileBody {
 }
 
 @Controller('users/me')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'TENANT_CUSTOM', 'SUPER_ADMIN')
 export class UserMeController {
   constructor(private prisma: PrismaService) {}
 

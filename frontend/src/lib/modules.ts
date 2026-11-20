@@ -142,6 +142,10 @@ export function modulesForUser(user: { role?: string | null } | null): AppModule
       // "Solo pedidos": el resto de /app está bloqueado por guard y por
       // default-deny en el backend, así que no se le ofrece nada más.
       return [MODULES.pedidos];
+    case 'TENANT_CUSTOM':
+      // Personalizado: entra a /app y AppShell lo lleva a la primera sección
+      // que tiene marcada (sus permisos se piden al abrir, no van aquí).
+      return [MODULES.negocio];
     case 'DELIVERY_COMPANY':
       return [MODULES.domicilios];
     case 'CUPONERA_ADMIN':

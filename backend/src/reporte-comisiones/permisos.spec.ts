@@ -69,9 +69,10 @@ describe('el reporte de comisiones es solo de la plataforma', () => {
 
   it.each(['MARKETING', 'AFFILIATE_INFLUENCER', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_VENDOR', 'TENANT_OWNER'])(
     '%s no pasa el control de rol',
-    (role) => {
-      const roles = new RolesGuard(new Reflector());
-      expect(() => roles.canActivate(contexto({ role }))).toThrow(ForbiddenException);
+    async (role) => {
+      // Sin base: solo el rol personalizado la consulta.
+      const roles = new RolesGuard(new Reflector(), {} as any);
+      await expect(roles.canActivate(contexto({ role }))).rejects.toBeInstanceOf(ForbiddenException);
     },
   );
 });

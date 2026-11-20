@@ -26,6 +26,11 @@ enum Role {
   // otras secciones). Solo se le agrega a orders + catalog/products + customers
   // (lo que Pedidos necesita para ver/gestionar/crear pedidos manuales).
   TENANT_ORDERS
+  // Personalizado (2026-11-20): del mismo negocio. Ve SOLO las secciones que
+  // el dueño le marcó (`User.permisos`); lo demás queda oculto en el panel y
+  // cerrado en el backend (`RolesGuard` + `common/permisos-de-equipo.ts`).
+  // Con «pedidos», solo los de su sede, como TENANT_ORDERS.
+  TENANT_CUSTOM
   // Rol global con acceso solo a marketing y diseño en todos los negocios.
   // Sin scanner, sin financiero, sin crear negocios, sin gestión de admins.
   MARKETING
@@ -1286,6 +1291,9 @@ model User {
   // asignada o aplica a todas (ej: TENANT_OWNER, SUPER_ADMIN).
   locationId String?
   location   Location? @relation("UserLocation", fields: [locationId], references: [id], onDelete: SetNull)
+  // Rol personalizado (TENANT_CUSTOM): las secciones del panel que ve. Claves
+  // de `common/permisos-de-equipo.ts`. Vacío para cualquier otro rol.
+  permisos   String[]  @default([])
 
   // Master Admin (2026-06-13): invitaciones a otros PLATFORM_OWNERs que
   // creó este user, y la (única) invitación que aceptó si fue invitado.

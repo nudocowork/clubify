@@ -1142,12 +1142,20 @@ export class AuthService {
    * desde GET /auth/me — el frontend hidrata el i18n provider con
    * este valor al login para que el idioma elegido siga al user.
    */
-  async meWithPreferredLocale(user: AuthUser): Promise<AuthUser & { preferredLocale: string | null }> {
+  async meWithPreferredLocale(
+    user: AuthUser,
+  ): Promise<AuthUser & { preferredLocale: string | null; permisos: string[] }> {
     const row = await this.prisma.user.findUnique({
       where: { id: user.id },
-      select: { preferredLocale: true },
+      select: { preferredLocale: true, permisos: true },
     });
-    return { ...user, preferredLocale: row?.preferredLocale ?? null };
+    // Las secciones del rol personalizado: el panel pinta su menú con esto y
+    // lo vuelve a pedir al abrir, así un cambio del dueño se ve sin re-login.
+    return {
+      ...user,
+      preferredLocale: row?.preferredLocale ?? null,
+      permisos: user.role === 'TENANT_CUSTOM' ? (row?.permisos ?? []) : [],
+    };
   }
 
   /**

@@ -89,7 +89,7 @@ export class InfoLinkOnlyGuard implements CanActivate {
     if (!user) return true; // pasa al JwtAuthGuard
     // Solo dueños/staff de negocio quedan bajo esta restricción. Admins de
     // marca, plataforma, marketing, afiliados, etc. no.
-    if (user.role !== 'TENANT_OWNER' && user.role !== 'TENANT_STAFF') return true;
+    if (user.role !== 'TENANT_OWNER' && user.role !== 'TENANT_STAFF' && user.role !== 'TENANT_CUSTOM') return true;
     if (!user.tenantId) return true;
 
     // Fast-path: si el path no es de un módulo bloqueable, ni consultamos DB.

@@ -20,6 +20,7 @@ import { useBranding } from '@/lib/useBranding';
 import { panelBrandCss } from '@/lib/panel-brand-theme';
 import { SECCIONES_ADMIN } from '@/lib/secciones-admin';
 import { EVENTO_PENDIENTES_POR_ASIGNAR } from '@/lib/pendientes-por-asignar';
+import { paginaPermitida, primeraPaginaPermitida } from '@/lib/permisos-de-equipo';
 import {
   getCategoryBySlug,
   resolveMainSectionLabel,
@@ -163,6 +164,11 @@ export default function AppShell({
   // mismo, pero SÍ cuando se cambia de negocio dentro del mismo mount).
   const lastSyncedLocaleRef = useRef<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  // Rol personalizado (TENANT_CUSTOM): las secciones que el dueño le marcó.
+  // null = todavía no llegaron. Se piden al abrir el panel y no se guardan con
+  // la sesión: si el dueño las cambia, se ven en la siguiente carga sin
+  // volver a entrar.
+  const [permisos, setPermisos] = useState<string[] | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   // Hueco de la barra superior donde cada sección pinta su título y su
   // «Ver tutorial» (ver components/PanelHeader). Se guarda en estado, no en
@@ -560,6 +566,31 @@ export default function AppShell({
       router.replace('/admin');
     }
   }, [pathname, user, variant, router]);
+
+  useEffect(() => {
+    if (user?.role !== 'TENANT_CUSTOM') return;
+    let vivo = true;
+    api<{ permisos?: string[] }>('/auth/me')
+      .then((r) => {
+        if (vivo) setPermisos(Array.isArray(r?.permisos) ? r.permisos : []);
+      })
+      .catch(() => {
+        if (vivo) setPermisos([]);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [user?.role]);
+
+  // Route guard del rol personalizado: fuera de sus secciones (también el
+  // inicio /app, que es el resumen del negocio) se le lleva a la primera que
+  // tiene. El backend cierra lo mismo por su lado (RolesGuard).
+  useEffect(() => {
+    if (!user || variant !== 'app' || user.role !== 'TENANT_CUSTOM' || !permisos) return;
+    if (paginaPermitida(pathname, permisos)) return;
+    const destino = primeraPaginaPermitida(permisos);
+    if (destino && destino !== pathname) router.replace(destino);
+  }, [pathname, user, variant, router, permisos]);
 
   // Route guard "Solo pedidos" (TENANT_ORDERS): este empleado solo puede estar
   // en /app/orders*. Cualquier otra ruta de /app (o el root) lo redirige a
@@ -1148,6 +1179,23 @@ export default function AppShell({
 
           // Mientras tenantInfo no llegó (primer paint), mostramos todos los
           // items para no flickear. Una vez carga, se filtran.
+          // Personalizado: solo sus secciones, sin el inicio. Mientras no
+          // llegan sus permisos no se enseña nada (no parpadear el menú
+          // entero para luego recortarlo).
+          if (user?.role === 'TENANT_CUSTOM') {
+            const suyos = permisos ?? [];
+            return all
+              .map((g) => ({
+                ...g,
+                items: g.items.filter(
+                  (it) =>
+                    paginaPermitida(it.href, suyos) &&
+                    (!tenantInfo || !it.module || has(it.module)),
+                ),
+              }))
+              .filter((g) => g.items.length > 0);
+          }
+
           if (!tenantInfo) return all;
 
           // #3 módulo Reseñas: si la marca lo apaga, ocultar los items de
@@ -1691,7 +1739,18 @@ export default function AppShell({
           <CommandHint />
         </div>
         <main className="bg-bg p-4 sm:p-6 lg:p-7 lg:pt-4">
-          <PanelHeaderSlotContext.Provider value={headerCtx}>{children}</PanelHeaderSlotContext.Provider>
+          <PanelHeaderSlotContext.Provider value={headerCtx}>
+            {user.role === 'TENANT_CUSTOM' && variant === 'app' && permisos && permisos.length === 0 ? (
+              <div className="card card-pad text-center py-10 max-w-md mx-auto mt-6">
+                <div className="font-semibold">Todavía no tienes secciones asignadas</div>
+                <p className="text-sm text-mute mt-1">
+                  Pídele al administrador del negocio que te dé acceso desde Equipo.
+                </p>
+              </div>
+            ) : user.role === 'TENANT_CUSTOM' && variant === 'app' && (!permisos || !paginaPermitida(pathname, permisos)) ? null : (
+              children
+            )}
+          </PanelHeaderSlotContext.Provider>
         </main>
       </div>
 

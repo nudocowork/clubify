@@ -1856,7 +1856,9 @@ export class OrdersService {
   }
 
   private async sedeDeSoloPedidos(user: AuthUser): Promise<string | null> {
-    if (user.role !== 'TENANT_ORDERS') return null;
+    // El rol personalizado con «pedidos» ve, como «Solo pedidos», solo los de
+    // su sede (Javier, 2026-11-20). Sin sede asignada, los de todas.
+    if (user.role !== 'TENANT_ORDERS' && user.role !== 'TENANT_CUSTOM') return null;
     const u = await this.prisma.user.findUnique({
       where: { id: user.id },
       select: { locationId: true },
