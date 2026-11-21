@@ -1,5 +1,5 @@
 'use client';
-import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, Fragment, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as ReactDOM from 'react-dom';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
@@ -214,6 +214,8 @@ type Storefront = {
   theme?: {
     badgeColor?: string | null;
     categoryTitleColor?: string | null;
+    /** false = el negocio esconde los precios del menú. Ausente = se ven. */
+    showPrices?: boolean;
   } | null;
   pageBackgroundGradient?: string | null;
   pageBackgroundImageUrl?: string | null;
@@ -296,6 +298,19 @@ function fmt(n: number, currency = 'COP', symbolOverride: string | null = null) 
     const sym = symbolOverride?.trim();
     return `${sym || '$'}${n.toFixed(frac)}`;
   }
+}
+
+/** «Mostrar precios: No» del panel (`theme.showPrices === false`).
+ *
+ *  Contexto y no una prop más: el precio se pinta en 8 diseños de menú y en la
+ *  ficha del producto, y pasar un booleano por cada uno dejaba fácil olvidar
+ *  uno — que es justo el sitio donde el negocio vería el precio que escondió.
+ *  Por defecto true: un negocio que nunca tocó el botón ve sus precios. */
+const PreciosVisibles = createContext(true);
+
+/** Pinta el precio solo si el negocio los muestra. */
+function SiPrecios({ children }: { children: React.ReactNode }) {
+  return useContext(PreciosVisibles) ? <>{children}</> : null;
 }
 
 /** Formato del precio del producto según priceMode. Resuelve en un solo
@@ -988,6 +1003,7 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
   }
 
   return (
+    <PreciosVisibles.Provider value={s.theme?.showPrices !== false}>
     <div
       className={`min-h-screen pb-32 ${isCluvi ? 'text-white' : ''}`}
       style={{
@@ -1586,6 +1602,7 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
         />
       )}
     </div>
+    </PreciosVisibles.Provider>
   );
 }
 
@@ -1612,6 +1629,7 @@ function ProductModal({
   mode: StorefrontMode;
 }) {
   const tt = useT();
+  const verPrecios = useContext(PreciosVisibles);
   // ViewContent: abrir la ficha ES el clic en el producto. Se manda al montar,
   // una vez por apertura — no al cambiar variante o cantidad dentro de ella,
   // que inflaría el conteo de «vieron este producto».
@@ -1792,6 +1810,7 @@ function ProductModal({
                       />
                       <span className="text-sm">{v.name}</span>
                     </div>
+                    <SiPrecios>
                     <span className="text-sm text-mute">
                       {product.variantPriceMode === 'ABSOLUTE'
                         ? fmt(Number(v.priceDelta), currency, currencySymbol)
@@ -1801,6 +1820,7 @@ function ProductModal({
                         ? fmt(Number(v.priceDelta), currency, currencySymbol)
                         : ''}
                     </span>
+                    </SiPrecios>
                   </label>
                   );
                 })}
@@ -1871,9 +1891,11 @@ function ProductModal({
                       />
                       <span className="text-sm">{e.name}</span>
                     </div>
+                    <SiPrecios>
                     <span className="text-sm text-mute">
                       +{fmt(Number(e.price), currency, currencySymbol)}
                     </span>
+                    </SiPrecios>
                   </label>
                   );
                 })}
@@ -1917,13 +1939,19 @@ function ProductModal({
                 className="rounded-pill text-white font-semibold py-3 px-6 hover:opacity-95 active:scale-[0.97] transition shadow-md"
                 style={{ background: primary }}
               >
-                {tt('product.add_to_cart', { total: fmt(total, currency, currencySymbol) })}
+                {/* Con los precios ocultos el botón no los delata; el total sí
+                    se ve en el carrito, que es donde el cliente confirma. */}
+                {verPrecios
+                  ? tt('product.add_to_cart', { total: fmt(total, currency, currencySymbol) })
+                  : tt('product.add_no_price')}
               </button>
             </div>
           ) : (
+            <SiPrecios>
             <div className="mt-5 text-center text-2xl font-bold" style={{ color: primary }}>
               {fmt(unit, currency, currencySymbol)}
             </div>
+            </SiPrecios>
           )}
         </div>
       </div>
@@ -3922,7 +3950,7 @@ function LayoutClassic({ menu, primary, currency, currencySymbol, onPick, catego
                   <div className="font-semibold text-sm">{p.name}</div>
                   <div className="text-xs text-mute mt-0.5 line-clamp-2">{p.description}</div>
                   <div className="flex items-center justify-between mt-2">
-                    <div className="font-bold text-sm">{fmtProductPrice(p, currency, currencySymbol)}</div>
+                    <SiPrecios><div className="font-bold text-sm">{fmtProductPrice(p, currency, currencySymbol)}</div></SiPrecios>
                     <div className="flex gap-1 flex-wrap">
                       {p.tags.map((t) => (
                         <ProductBadge key={t} tag={t} variant="inline" />
@@ -4030,9 +4058,11 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick, categoryC
                       {p.description}
                     </div>
                   )}
+                  <SiPrecios>
                   <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
                     {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
+                  </SiPrecios>
                 </div>
               </button>
                 ))}
@@ -4114,9 +4144,11 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick, cate
                       >
                         {p.name}
                       </div>
+                      <SiPrecios>
                       <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
                         {fmtProductPrice(p, currency, currencySymbol)}
                       </div>
+                      </SiPrecios>
                     </div>
                   </button>
                 ))}
@@ -4178,9 +4210,11 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick, category
                   style={textColor ? { color: textColor } : undefined}
                 >
                   <div className="text-[15px] font-semibold">{p.name}</div>
+                  <SiPrecios>
                   <div className="text-sm tracking-tight">
                     {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
+                  </SiPrecios>
                 </div>
                 {p.description && (
                   <div
@@ -4278,9 +4312,11 @@ function LayoutCompact({ menu, primary, currency, currencySymbol, onPick, catego
                     {p.name}
                     <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="inline" />
                   </div>
+                  <SiPrecios>
                   <div className="font-bold text-sm whitespace-nowrap">
                     {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
+                  </SiPrecios>
                 </div>
                 {p.description && (
                   <div className="text-[11px] text-mute mt-0.5 line-clamp-1">{p.description}</div>
@@ -4358,9 +4394,11 @@ function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick, category
                     </div>
                   )}
                   <div className="flex items-end justify-between mt-2 gap-2">
+                    <SiPrecios>
                     <div className="font-bold text-sm">
                       {fmtProductPrice(p, currency, currencySymbol)}
                     </div>
+                    </SiPrecios>
                     <span
                       className="px-3 py-1 rounded-full text-xs font-semibold text-ink shrink-0"
                       style={{ background: primary }}
@@ -4857,9 +4895,11 @@ function SectionProductCard({
             />
           </div>
         )}
+        <SiPrecios>
         <div className="font-bold text-sm mt-1.5 text-ink">
           {fmtProductPrice(product, currency, currencySymbol)}
         </div>
+        </SiPrecios>
       </div>
     </button>
   );

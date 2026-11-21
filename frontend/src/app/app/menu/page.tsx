@@ -40,6 +40,8 @@ type Category = {
   popupConfig?: PopupConfig | null;
   parentId?: string | null;
   children?: Category[];
+  /** false = oculta en el menú público (con sus subsecciones y productos). */
+  isActive?: boolean;
 };
 
 export type PopupConfig = {
@@ -222,6 +224,9 @@ export default function MenuEditor() {
   const [dineInEnabled, setDineInEnabled] = useState<boolean | null>(null);
   const [togglingPickup, setTogglingPickup] = useState(false);
   const [togglingDineIn, setTogglingDineIn] = useState(false);
+  // «Mostrar precios» (theme.showPrices). null = /storefront aún no respondió.
+  const [showPrices, setShowPrices] = useState<boolean | null>(null);
+  const [togglingPrices, setTogglingPrices] = useState(false);
   // PEDIDOS AGENDADOS (theme.pedidosAgendados). null = /storefront aún no
   // respondió: no se enseña el interruptor, para no guardar a ciegas encima de
   // unos ajustes que no conocemos (mismo criterio que los métodos de pago).
@@ -369,6 +374,7 @@ export default function MenuEditor() {
         menuLayout?: EstiloDeMenu | null;
         theme?: {
           fulfillment?: { pickup?: boolean; dineIn?: boolean };
+          showPrices?: boolean;
           paymentMethods?: string[];
           pedidosAgendados?: unknown;
         };
@@ -387,6 +393,8 @@ export default function MenuEditor() {
       // PDF1145: pickup/dineIn viven en theme.fulfillment (default false).
       setPickupEnabled(!!sf.theme?.fulfillment?.pickup);
       setDineInEnabled(!!sf.theme?.fulfillment?.dineIn);
+      // Sin la clave = se muestran: es lo que veía todo negocio antes del botón.
+      setShowPrices(sf.theme?.showPrices !== false);
       // Métodos de pago del checkout: sin configurar = todos activos.
       const rawPay = sf.theme?.paymentMethods;
       const validPay = Array.isArray(rawPay)
@@ -526,6 +534,25 @@ export default function MenuEditor() {
     }
   }
 
+  async function toggleShowPrices() {
+    if (showPrices === null) return;
+    const next = !showPrices;
+    setTogglingPrices(true);
+    setShowPrices(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ showPrices: next }),
+      });
+      toast(next ? t('pricesOnToast') : t('pricesOffToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setShowPrices(!next);
+    } finally {
+      setTogglingPrices(false);
+    }
+  }
+
   async function toggleDineIn() {
     if (dineInEnabled === null) return;
     const next = !dineInEnabled;
@@ -644,6 +671,24 @@ export default function MenuEditor() {
     } catch (e: any) {
       toast(e.message || t('couldNotRename'), 'error');
       load(false); // rollback desde server
+    }
+  }
+
+  // Ocultar no borra: la categoría, sus subsecciones y sus productos siguen
+  // aquí para volver a mostrarlos con un clic. El menú público ya filtraba
+  // `isActive`; solo faltaba el botón.
+  async function toggleCategoryVisible(c: Category) {
+    const next = c.isActive === false;
+    setCats((prev) => prev.map((x) => (x.id === c.id ? { ...x, isActive: next } : x)));
+    try {
+      await api(`/catalog/categories/${c.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
+      toast(next ? t('categoryShownToast') : t('categoryHiddenToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      load(false);
     }
   }
 
@@ -1152,6 +1197,17 @@ export default function MenuEditor() {
               {pickupEnabled ? t('pickupOnBtn') : t('pickupOffBtn')}
             </button>
           )}
+          {showPrices !== null && (
+            <button
+              type="button"
+              onClick={toggleShowPrices}
+              disabled={togglingPrices}
+              className={`btn-ghost ${showPrices ? 'text-ok' : 'text-mute'}`}
+              title={t('pricesTitle')}
+            >
+              {showPrices ? t('pricesOnBtn') : t('pricesOffBtn')}
+            </button>
+          )}
           {dineInEnabled !== null && (
             <button
               type="button"
@@ -1464,7 +1520,7 @@ export default function MenuEditor() {
                   activeCat === c.id
                     ? 'bg-brand-soft text-brand-700'
                     : 'hover:bg-bg2'
-                }`}
+                } ${c.isActive === false ? 'opacity-60' : ''}`}
               >
                 <DragHandle {...dragHandleProps} />
                 <div className="flex-1 min-w-0">
@@ -1491,6 +1547,7 @@ export default function MenuEditor() {
                     <>
                       <div className="font-medium text-sm truncate">{c.name}</div>
                       <div className="text-xs text-mute">
+                        {c.isActive === false && `${t('hiddenLabel')} · `}
                         {t('productsCount', { count: c._count?.products ?? 0 })}
                         {subs.length > 0 && ` · ${t('subCount', { count: subs.length })}`}
                       </div>
@@ -1506,6 +1563,17 @@ export default function MenuEditor() {
                   title={t('addSubsection')}
                 >
                   ＋
+                </button>
+                <button
+                  className={`p-1 ${c.isActive === false ? 'text-bad' : 'text-mute hover:text-brand'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCategoryVisible(c);
+                  }}
+                  title={c.isActive === false ? t('showCategory') : t('hideCategory')}
+                  aria-pressed={c.isActive === false}
+                >
+                  {c.isActive === false ? '🙈' : '👁'}
                 </button>
                 <button
                   className="text-mute hover:text-brand p-1"
@@ -1573,7 +1641,7 @@ export default function MenuEditor() {
                         activeCat === s.id
                           ? 'bg-brand-soft text-brand-700'
                           : 'hover:bg-bg2'
-                      }`}
+                      } ${s.isActive === false ? 'opacity-60' : ''}`}
                     >
                       <span className="text-mute">↳</span>
                       <div className="flex-1 min-w-0">
@@ -1597,11 +1665,20 @@ export default function MenuEditor() {
                           <>
                             <div className="font-medium truncate">{s.name}</div>
                             <div className="text-[10px] text-mute">
+                              {s.isActive === false && `${t('hiddenLabel')} · `}
                               {t('productsCount', { count: s._count?.products ?? 0 })}
                             </div>
                           </>
                         )}
                       </div>
+                      <button
+                        className={`p-0.5 ${s.isActive === false ? 'text-bad' : 'text-mute hover:text-brand'}`}
+                        onClick={(e) => { e.stopPropagation(); toggleCategoryVisible(s); }}
+                        title={s.isActive === false ? t('showCategory') : t('hideCategory')}
+                        aria-pressed={s.isActive === false}
+                      >
+                        {s.isActive === false ? '🙈' : '👁'}
+                      </button>
                       <button
                         className="text-mute hover:text-brand p-0.5"
                         onClick={(e) => { e.stopPropagation(); setCoverCat(s); }}

@@ -8,6 +8,16 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-21 (196) — Menú: «Mostrar precios: SÍ/NO» y ocultar categorías
+
+Pedido de Javier: un botón en la configuración del menú para mostrar u ocultar los precios, y poder ocultar categorías.
+
+- **Mostrar precios** (barra de `/app/menu`, junto a Recoger/Mesa): se guarda en `theme.showPrices`, sin migración, igual que `theme.fulfillment`. Sin la clave = se muestran, así que ningún negocio cambia hasta que lo toque.
+  - En el menú público lo lee un contexto (`PreciosVisibles` en `storefront-client.tsx`) y no una prop, porque el precio se pinta en 8 diseños más la ficha del producto, y olvidar uno era fácil. Se esconden: el precio de la tarjeta en todos los diseños, el precio de tamaños y adicionales en la ficha, el precio grande de la ficha sin carrito, y el total del botón «Agregar», que pasa a decir solo «Agregar».
+  - **Siguen viéndose a propósito:** el carrito y el checkout (el cliente tiene que saber lo que paga antes de confirmar) y las promociones, cuyo precio es la oferta misma.
+- **Ocultar categorías:** un ojo 👁/🙈 en cada categoría y subsección. Ocultar no borra nada. La columna `Category.isActive` ya existía y el menú público ya la filtraba (con sus subsecciones, sus productos y sus Recomendados); solo faltaba aceptarla en `PATCH /catalog/categories/:id` y el botón. En el panel la categoría oculta sale atenuada y con «Oculta».
+- Compilan backend y frontend; las 120 pruebas de `src/catalog` y `src/storefront` pasan. **Sin desplegar.** Necesita backend y frontend, y el backend ya lleva el rol «Personalizado», cuya migración va primero (ver 192).
+
 ## 2026-11-21 (195) — El menú de Nudo Cowork copiado a la cuenta DEMO CLUBIFY
 
 Pedido de Javier: sustituir el menú de DEMO CLUBIFY (`demo-clubify`) por el que tiene hoy Nudo Cowork (`nudocowork`).

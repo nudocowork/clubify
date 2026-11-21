@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   IsArray,
+  IsBoolean,
   IsObject,
   IsOptional,
   IsString,
@@ -32,6 +33,9 @@ class CategoryBody {
   menuId?: string | null;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() imageUrl?: string;
+  // Ocultar/mostrar la categoría en el menú público sin borrarla. La columna
+  // existía y el menú público ya la filtraba; solo faltaba poder tocarla.
+  @IsOptional() @IsBoolean() isActive?: boolean;
   // tagline acepta string o null (null para limpiar). MaxLength 200
   // por si el dueño se entusiasma — UI debería avisarle ~80.
   @IsOptional()

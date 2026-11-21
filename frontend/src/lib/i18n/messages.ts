@@ -94,6 +94,7 @@ export const messages = {
     'product.extrasLimitReached': 'Llegaste al máximo. Quita uno para cambiar.',
     'product.notes': 'Notas (opcional)',
     'product.add_to_cart': 'Agregar · {{total}}',
+    'product.add_no_price': 'Agregar',
 
     // Carrito
     'cart.title': 'Tu pedido',
@@ -371,6 +372,7 @@ export const messages = {
     'product.extrasLimitReached': 'You reached the maximum. Remove one to swap.',
     'product.notes': 'Notes (optional)',
     'product.add_to_cart': 'Add · {{total}}',
+    'product.add_no_price': 'Add',
 
     // Cart
     'cart.title': 'Your order',
@@ -642,6 +644,7 @@ export const messages = {
     'product.extrasLimitReached': 'Você chegou ao máximo. Remova um para trocar.',
     'product.notes': 'Notas (opcional)',
     'product.add_to_cart': 'Adicionar · {{total}}',
+    'product.add_no_price': 'Adicionar',
 
     // Cart
     'cart.title': 'Seu pedido',
@@ -913,6 +916,7 @@ export const messages = {
     'product.extrasLimitReached': 'Hai raggiunto il massimo. Rimuovine uno per cambiare.',
     'product.notes': 'Note (facoltativo)',
     'product.add_to_cart': 'Aggiungi · {{total}}',
+    'product.add_no_price': 'Aggiungi',
 
     // Cart
     'cart.title': 'Il tuo ordine',

@@ -29,6 +29,8 @@ export type CategoryDto = {
   /** Popup opcional por categoría. Mismo patrón que coverConfig:
    *  estructura libre, null = sin popup. Validación en frontend. */
   popupConfig?: Record<string, any> | null;
+  /** false = oculta en el menú público (con sus subsecciones y productos). */
+  isActive?: boolean;
 };
 
 @Injectable()

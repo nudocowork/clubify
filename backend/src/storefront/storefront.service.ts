@@ -25,6 +25,9 @@ export type StorefrontDto = {
   // theme.menuPopups). Domicilio sigue en la columna ordersDeliveryEnabled.
   fulfillmentPickupEnabled?: boolean;
   fulfillmentDineInEnabled?: boolean;
+  // «Mostrar precios» del menú público: theme.showPrices. Ausente = se
+  // muestran, que es lo que veían todos los negocios antes del interruptor.
+  showPrices?: boolean;
   // Pedidos agendados (solo domicilio): theme.pedidosAgendados. Ver
   // `orders/pedidos-agendados.ts`.
   pedidosAgendados?: Record<string, unknown>;
@@ -176,6 +179,7 @@ export class StorefrontService {
     if (
       dto.fulfillmentPickupEnabled !== undefined ||
       dto.fulfillmentDineInEnabled !== undefined ||
+      dto.showPrices !== undefined ||
       dto.acceptedPaymentMethods !== undefined ||
       agendados
     ) {
@@ -190,6 +194,7 @@ export class StorefrontService {
       if (dto.fulfillmentDineInEnabled !== undefined)
         fulfillment.dineIn = dto.fulfillmentDineInEnabled;
       themeToWrite = { ...base, fulfillment };
+      if (dto.showPrices !== undefined) themeToWrite.showPrices = dto.showPrices;
       // Se guarda SIEMPRE con los tres campos, ya validados: lo que lee el
       // menú público y lo que valida `createPublic` salen de aquí.
       if (agendados?.ok) themeToWrite.pedidosAgendados = agendados.ajustes;
