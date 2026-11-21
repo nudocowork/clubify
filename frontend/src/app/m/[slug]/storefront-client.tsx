@@ -216,6 +216,8 @@ type Storefront = {
     categoryTitleColor?: string | null;
     /** false = el negocio esconde los precios del menú. Ausente = se ven. */
     showPrices?: boolean;
+    /** false = sin pestaña «Promociones» (botón del panel de /app/menu). */
+    showPromotions?: boolean;
   } | null;
   pageBackgroundGradient?: string | null;
   pageBackgroundImageUrl?: string | null;
@@ -1175,7 +1177,9 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs. Con «Promociones: NO» no hay segunda pestaña, y una barra con
+          una sola no sirve de nada: se quita entera. */}
+      {s.theme?.showPromotions !== false && (
       <div className="px-5 max-w-2xl mx-auto sticky top-2 z-20">
         <div className="flex gap-1 p-1 rounded-pill bg-white border border-line shadow-sm">
           {(['menu', 'promos'] as const).map((t) => (
@@ -1200,10 +1204,11 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
           ))}
         </div>
       </div>
+      )}
 
       {/* Menú — FLIPBOOK se renderiza arriba con early return; aquí solo
           los layouts tradicionales por productos. */}
-      {tab === 'menu' && (
+      {(tab === 'menu' || s.theme?.showPromotions === false) && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
           {localizedMenu.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">
@@ -1288,7 +1293,7 @@ function StorefrontPublicInner({ inicial }: { inicial: MenuInicial | null }) {
       )}
 
       {/* Promos */}
-      {tab === 'promos' && (
+      {tab === 'promos' && s.theme?.showPromotions !== false && (
         <div className="max-w-2xl mx-auto mt-4 px-5 pb-24 space-y-3">
           {s.promotions.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">

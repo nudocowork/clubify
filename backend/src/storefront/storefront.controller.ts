@@ -34,6 +34,8 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() fulfillmentDineInEnabled?: boolean;
   // «Mostrar precios» del menú público. Va a theme.showPrices (sin migración).
   @IsOptional() @IsBoolean() showPrices?: boolean;
+  // «Promociones» del menú público: theme.showPromotions (sin migración).
+  @IsOptional() @IsBoolean() showPromotions?: boolean;
   // Pedidos agendados: `{ activo, anticipacionHoras, diasMaximos }`. Se guarda
   // en theme.pedidosAgendados (sin migración, como theme.fulfillment). El
   // detalle de los rangos lo valida el servicio con `validarAjustesAgendado`,

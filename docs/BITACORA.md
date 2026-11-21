@@ -8,6 +8,15 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-21 (197) — Menú: «Promociones: SÍ/NO»
+
+Pedido de Javier: poder ocultar el apartado de promociones del menú público.
+
+- Botón «🎁 Promociones: SÍ/NO» en la barra de `/app/menu`, junto a «Mostrar precios». Se guarda en `theme.showPromotions`, sin migración, igual que `showPrices`. Sin la clave = se muestra, así que ningún negocio cambia hasta que lo toque.
+- En el menú público, con «NO» se quita la barra de pestañas entera (una barra con una sola pestaña no sirve) y no se pinta la lista de promociones aunque algo dejara `tab = 'promos'`.
+- No toca las promociones en sí: siguen existiendo en `/app/promos`, y el bloque «Promociones» del InfoLink sigue funcionando aparte.
+- Compilan backend y frontend; pruebas de `src/storefront` pasan. **Sin desplegar**: necesita backend y frontend.
+
 ## 2026-11-21 (196) — Menú: «Mostrar precios: SÍ/NO» y ocultar categorías
 
 Pedido de Javier: un botón en la configuración del menú para mostrar u ocultar los precios, y poder ocultar categorías.

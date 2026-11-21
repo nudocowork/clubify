@@ -227,6 +227,9 @@ export default function MenuEditor() {
   // «Mostrar precios» (theme.showPrices). null = /storefront aún no respondió.
   const [showPrices, setShowPrices] = useState<boolean | null>(null);
   const [togglingPrices, setTogglingPrices] = useState(false);
+  // «Promociones» (theme.showPromotions): la pestaña del menú público.
+  const [showPromos, setShowPromos] = useState<boolean | null>(null);
+  const [togglingPromos, setTogglingPromos] = useState(false);
   // PEDIDOS AGENDADOS (theme.pedidosAgendados). null = /storefront aún no
   // respondió: no se enseña el interruptor, para no guardar a ciegas encima de
   // unos ajustes que no conocemos (mismo criterio que los métodos de pago).
@@ -375,6 +378,7 @@ export default function MenuEditor() {
         theme?: {
           fulfillment?: { pickup?: boolean; dineIn?: boolean };
           showPrices?: boolean;
+          showPromotions?: boolean;
           paymentMethods?: string[];
           pedidosAgendados?: unknown;
         };
@@ -395,6 +399,7 @@ export default function MenuEditor() {
       setDineInEnabled(!!sf.theme?.fulfillment?.dineIn);
       // Sin la clave = se muestran: es lo que veía todo negocio antes del botón.
       setShowPrices(sf.theme?.showPrices !== false);
+      setShowPromos(sf.theme?.showPromotions !== false);
       // Métodos de pago del checkout: sin configurar = todos activos.
       const rawPay = sf.theme?.paymentMethods;
       const validPay = Array.isArray(rawPay)
@@ -550,6 +555,25 @@ export default function MenuEditor() {
       setShowPrices(!next);
     } finally {
       setTogglingPrices(false);
+    }
+  }
+
+  async function toggleShowPromos() {
+    if (showPromos === null) return;
+    const next = !showPromos;
+    setTogglingPromos(true);
+    setShowPromos(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ showPromotions: next }),
+      });
+      toast(next ? t('promosOnToast') : t('promosOffToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setShowPromos(!next);
+    } finally {
+      setTogglingPromos(false);
     }
   }
 
@@ -1206,6 +1230,17 @@ export default function MenuEditor() {
               title={t('pricesTitle')}
             >
               {showPrices ? t('pricesOnBtn') : t('pricesOffBtn')}
+            </button>
+          )}
+          {showPromos !== null && (
+            <button
+              type="button"
+              onClick={toggleShowPromos}
+              disabled={togglingPromos}
+              className={`btn-ghost ${showPromos ? 'text-ok' : 'text-mute'}`}
+              title={t('promosTitle')}
+            >
+              {showPromos ? t('promosOnBtn') : t('promosOffBtn')}
             </button>
           )}
           {dineInEnabled !== null && (
