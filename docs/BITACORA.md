@@ -8,6 +8,17 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-21 (195) — El menú de Nudo Cowork copiado a la cuenta DEMO CLUBIFY
+
+Pedido de Javier: sustituir el menú de DEMO CLUBIFY (`demo-clubify`) por el que tiene hoy Nudo Cowork (`nudocowork`).
+
+- **Hecho en producción** con `backend/scripts/copiar-menu-entre-negocios.cjs nudocowork demo-clubify --respaldo=… --aplicar` (sin `--aplicar` solo mira). Una sola transacción.
+- **Se copió el menú principal** (`menuId = null`): 13 categorías, 99 productos, 83 variantes, 17 extras y 596 traducciones ya pagadas, con ids nuevos. También el diseño de la página: tema, portada, imagen del popup, colores, botón volver y portada de Recomendados.
+- **Se borró** el menú principal que tenía la demo: 12 categorías y 73 productos. Respaldo en `backend/respaldo-menu-demo-clubify-2026-11-21.json` (sin commitear, solo en disco).
+- **No se copiaron:** las 11 cartas extra de Nudo (una por oficina o sala: Comfenalco 1-3, Oficina 7…), la tarjeta del popup (la demo conserva la suya), el menú libro de la demo (sigue activo) ni el dominio.
+- **Las fotos son las mismas URL de Nudo en R2**: si Nudo borra una foto, la demo también la pierde.
+- **Verificado:** `GET /api/public/m/demo-clubify/menu` devuelve exactamente lo mismo que el de Nudo (76.584 bytes, 12 secciones con Recomendados, 99 productos).
+
 ## 2026-11-20 (194) — Cupones canjeados que seguían a la vista en el Wallet (&N COFFEE y 13 negocios más)
 
 Queja: a clientes de &N COFFEE les sigue apareciendo el pase de café gratis (cupón BIENVENIDA, «Reclama Gratis 1 Americano») después de canjearlo.
