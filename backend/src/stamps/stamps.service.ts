@@ -545,6 +545,7 @@ export class StampsService {
       let datosDelFinal: Prisma.PassUncheckedUpdateInput = passUpdateData;
       let habiaTarjetaDeSellos = false;
       let absorbidoEnSellos = false;
+      let cuponCerrado: string | null = null;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
         const previo = await tx.pass.findUnique({
           where: {
@@ -587,7 +588,20 @@ export class StampsService {
                 where: { passId: pass.id },
                 data: { passId: existing.id },
               });
-              await tx.pass.delete({ where: { id: pass.id } });
+              // El cupón se CIERRA, no se borra (2026-11-20). Borrado, su copia
+              // en el teléfono seguía diciendo «Reclama Gratis 1 Americano»
+              // para siempre: sin fila no hay a quién avisar (la cascada se
+              // llevaba también sus registros de Apple) y el objeto de Google
+              // quedaba activo. Medido en &N COFFEE: 5 cupones canjeados
+              // seguían vivos en Google, 3 guardados por clientes. Cerrado, se
+              // le avisa abajo y pasa a «Canjeado», archivado. Su QR sigue
+              // llevando a la tarjeta de sellos: el escáner, ante un cupón
+              // cerrado, prefiere el pase que heredó ese QR.
+              await tx.pass.update({
+                where: { id: pass.id },
+                data: { status: 'COMPLETED', lastActivityAt: new Date() },
+              });
+              cuponCerrado = pass.id;
               passIdFinal = existing.id;
               absorbidoEnSellos = true;
               datosDelFinal = {
@@ -697,6 +711,7 @@ export class StampsService {
         transicion,
         habiaTarjetaDeSellos,
         absorbidoEnSellos,
+        cuponCerrado,
       };
     });
     const { stamp, updatedPass, passIdFinal, transicion } = resultado;
@@ -806,6 +821,17 @@ export class StampsService {
           .pushPassUpdate(passIdFinal, { message: mensajeDeConversion })
           .catch(() => null);
       });
+    // El cupón que se fundió en la tarjeta de sellos: su copia en el teléfono
+    // tiene que enterarse de que ya se usó. Sin mensaje: el aviso de canje ya
+    // le llega por la tarjeta que queda.
+    if (resultado.cuponCerrado) {
+      const cupon = resultado.cuponCerrado;
+      this.jobs
+        .enqueue('wallet.push', { passId: cupon, reason: dto.action })
+        .catch(() => {
+          this.wallet.pushPassUpdate(cupon).catch(() => null);
+        });
+    }
 
     // Hito de multiRewards alcanzado → push de "ganaste X". Solo cuando
     // sumamos sellos (STAMP), no en REFUND/REDEEM. Disparamos cuando

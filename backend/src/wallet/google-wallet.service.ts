@@ -1067,7 +1067,15 @@ export class GoogleWalletService {
         resourceId: pass.googleObjectId,
         requestBody: {
           ...objectBody,
-          state: pass.status === 'REVOKED' ? 'INACTIVE' : 'ACTIVE',
+          // Revocado, o cupón de un solo uso ya canjeado: INACTIVE lo saca de la
+          // vista principal de Google Wallet a «pases vencidos». Un cupón usado
+          // que seguía ACTIVE era el «café gratis» que el cliente volvía a
+          // enseñar en caja (&N COFFEE, 2026-11-20).
+          state:
+            pass.status === 'REVOKED' ||
+            (pass.card?.type === 'COUPON' && pass.status === 'COMPLETED')
+              ? 'INACTIVE'
+              : 'ACTIVE',
         } as any,
       });
       this.logger.log(`Google Wallet patched: ${pass.googleObjectId}`);

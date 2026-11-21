@@ -193,6 +193,18 @@ export class ScannerService {
       where: { qrToken: value },
       include: this.passInclude,
     });
+    // Un cupón CERRADO cuyo QR heredó la tarjeta de sellos en la que se fundió
+    // (`stamps.service`, canje con tarjeta de sellos ya instalada): el cliente
+    // sigue enseñando el cupón y el cajero tiene que caer en la tarjeta que
+    // suma, no en un «ya fue redimido». Antes el cupón se borraba y el QR
+    // llegaba solo por el respaldo de abajo; ahora se conserva cerrado.
+    if (direct && direct.card.type === 'COUPON' && direct.status === 'COMPLETED') {
+      const heredero = await this.prisma.pass.findFirst({
+        where: { legacyQrTokens: { has: value }, id: { not: direct.id } },
+        include: this.passInclude,
+      });
+      if (heredero) return heredero;
+    }
     if (direct) return direct;
     // Fallback: token ANTERIOR (pass fusionado/regenerado). Garantiza que un
     // código ya instalado en la billetera del cliente NUNCA deje de escanear

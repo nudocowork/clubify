@@ -8,6 +8,18 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-20 (194) — Cupones canjeados que seguían a la vista en el Wallet (&N COFFEE y 13 negocios más)
+
+Queja: a clientes de &N COFFEE les sigue apareciendo el pase de café gratis (cupón BIENVENIDA, «Reclama Gratis 1 Americano») después de canjearlo.
+
+- **Lo que NO era:** la conversión normal cupón → sellos funciona. De los últimos 59 cupones convertidos en &N, los 56 que existen en Google tienen ya la clase de sellos (`arqueo-cupon-convertido-google.cjs`). En Apple siempre es `storeCard`, mismo tipo.
+- **La causa:** si el cliente ya tenía INSTALADA la tarjeta de sellos, el cupón se fundía en ella y su fila se **borraba** (`stamps.service`, rama «sobrevive la de sellos»). Su copia en el teléfono seguía ofreciendo el premio para siempre: sin fila no hay a quién avisar (la cascada borraba también los registros de Apple) y el objeto de Google quedaba ACTIVE. Además un cupón cerrado (COMPLETED) seguía ACTIVE en Google y sin anular en Apple.
+- **Medido en Google (todas las tarjetas COUPON):** 64 objetos activos de cupones ya canjeados, en 14 negocios; 24 guardados por clientes. Primor 33, Limorada 9, &N 6, Café Macondo 5…
+- **Arreglo (sin desplegar):** el cupón fundido se CIERRA (COMPLETED) en vez de borrarse y recibe su propio aviso al Wallet; un cupón COMPLETED sale `INACTIVE` en Google y `voided` en Apple (pasa a «pases vencidos»); el escáner, ante un cupón cerrado cuyo QR heredó la tarjeta de sellos, va a la tarjeta de sellos (como antes con el borrado). Spec `cupon-absorbe-sellos` actualizada (6/6).
+- **Reparación pendiente (Google):** `node scripts/archivar-cupones-canjeados-google.cjs --aplicar` (sin `--aplicar` solo mira; idempotente). Los de **Apple ya borrados no se pueden arreglar** desde aquí: el cliente tiene que borrar el pase a mano.
+- **Otro agujero, sin tocar:** tras convertirse el cupón, el cliente puede volver a registrarse y recibe OTRO cupón de bienvenida (3 casos en &N). Decidir si se cierra.
+- `scanner-tipos.spec` falla en 2 casos de club también con el escáner de HEAD: no es de este cambio (hay cambios sin commitear del club en disco).
+
 ## 2026-11-20 (193) — Menú «Secciones»: las tarjetas desaparecían ~2,5 s al recargar (Nudo, Motilart)
 
 Queja de Javier: tras deslizar para recargar en Safari del iPhone, las tarjetas con foto del menú (Recomendados, café…) se ponen blancas y vuelven, varias veces en unos 4 s.

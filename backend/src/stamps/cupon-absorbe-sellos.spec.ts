@@ -159,8 +159,15 @@ describe('tarjeta de sellos previa INSTALADA: sobrevive la de sellos', () => {
 
     const r = await svc.record(CAJERO, { passId: 'cupon-p', action: 'REDEEM' });
 
-    expect(bd.pases.map((p) => p.id)).toEqual(['sellos-p']);
-    const queda = bd.pases[0];
+    // El cupón NO se borra: queda cerrado, en su propia tarjeta, para que su
+    // copia en el teléfono pase a «Canjeado» en vez de seguir ofreciendo el
+    // premio (&N COFFEE, 2026-11-20).
+    expect(bd.pases.map((p) => p.id).sort()).toEqual(['cupon-p', 'sellos-p']);
+    expect(bd.pases.find((p) => p.id === 'cupon-p')).toMatchObject({
+      cardId: 'cupon',
+      status: 'COMPLETED',
+    });
+    const queda = bd.pases.find((p) => p.id === 'sellos-p')!;
     expect(queda).toMatchObject({
       cardId: 'sellos',
       stampsCount: 4,
@@ -179,10 +186,11 @@ describe('tarjeta de sellos previa INSTALADA: sobrevive la de sellos', () => {
       expect.arrayContaining(['QR-sellos-fusionado', 'QR-cupon-p', 'QR-cupon-viejo']),
     );
 
-    // Todo lo de después apunta al que queda, no al pase borrado.
+    // Todo lo de después apunta al que queda; el cupón cerrado recibe su
+    // propio aviso para que el Wallet lo archive.
     expect((r.pass as { id: string }).id).toBe('sellos-p');
     expect(r.transformedToStamps).toBe(true);
-    expect(d.empujes.map((e) => e.passId)).toEqual(['sellos-p']);
+    expect(d.empujes.map((e) => e.passId)).toEqual(['sellos-p', 'cupon-p']);
     const cupon = d.eventos.find((e) => e.tipo === 'COUPON_REDEEMED');
     expect(cupon?.payload).toMatchObject({
       couponPassId: 'cupon-p',
@@ -198,8 +206,8 @@ describe('tarjeta de sellos previa INSTALADA: sobrevive la de sellos', () => {
 
     await svc.record(CAJERO, { passId: 'cupon-p', action: 'REDEEM' });
 
-    expect(bd.pases.map((p) => p.id)).toEqual(['sellos-p']);
-    expect(bd.pases[0].stampsCount).toBe(4);
+    expect(bd.pases.find((p) => p.id === 'cupon-p')?.status).toBe('COMPLETED');
+    expect(bd.pases.find((p) => p.id === 'sellos-p')?.stampsCount).toBe(4);
   });
 
   it('el mismo cupón no se puede canjear dos veces', async () => {
@@ -214,6 +222,6 @@ describe('tarjeta de sellos previa INSTALADA: sobrevive la de sellos', () => {
 
     expect([a.status, b.status].sort()).toEqual(['fulfilled', 'rejected']);
     expect(bd.sellos.filter((s) => s.action === 'REDEEM')).toHaveLength(1);
-    expect(bd.pases.map((p) => p.id)).toEqual(['sellos-p']);
+    expect(bd.pases.find((p) => p.id === 'cupon-p')?.status).toBe('COMPLETED');
   });
 });
