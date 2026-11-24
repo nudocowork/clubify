@@ -8,6 +8,40 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-24 (200) — Cupón de bienvenida repetido, cupón usado que parecía vigente, y el aviso de «tarjeta actualizada» de Konys
+
+**Cupones (`f9856a62`). Migración YA aplicada. Falta desplegar backend y frontend.**
+
+- **Verificado en producción:** el arreglo del 194 funciona. Desde el 21-nov hubo 18 canjes en todos los negocios y ninguno dejó el cupón vigente en el teléfono.
+- **Lo que quedaba: el cupón de bienvenida repetido.** Al canjear, el pase se transforma en la tarjeta de sellos y deja de estar en la tarjeta del cupón. Al volver a abrir el enlace, el cliente recibía OTRO café gratis.
+  - Son **21 casos en 7 negocios**: Limorada 7, Café Macondo 4, Konys 3, &N 3, El Punto del Sabor 2, Monet 1 y Panama SmashPoint 1. Todos anteriores al 20-nov.
+  - En &N: Maria Alejandra Chaparro, Karen Dayana Flórez y John Fredy Velandia (a este le llegó 9 min después de canjear).
+- **Arreglo:**
+  - `Stamp.cardId` guarda la tarjeta en la que estaba el pase en cada movimiento.
+    - La migración `apply-stamp-cardid-migration.cjs` ya se aplicó.
+    - Vinculó 1.225 canjes históricos de negocios con un solo cupón.
+  - `enrollPublic`: a quien ya canjeó ese cupón se le devuelve su tarjeta de sellos (`passes/cupon-ya-canjeado.ts`).
+  - Hay una sola regla de «cupón usado» (`wallet/cupon-usado.ts`) para Apple (voided), Google (state) y la página `/w`.
+    - Ahora incluye DESCUENTO y REGALO de un uso.
+    - Google ya no crea el objeto ACTIVE para un cupón canjeado: abrir `/w` de uno usado lo instalaba otra vez.
+  - `/w/<pase>` de un cupón usado dice USADO y no ofrece los botones de instalar.
+- **Sin tocar, a decidir:**
+  - Los **21 cupones ya re-emitidos** siguen vivos. Propuesta: cerrarlos y desactivarlos en el Wallet. Esos clientes verían desaparecer el cupón.
+  - Andrés Mendoza (Konys) y Richie Quintero (Amor Espresso) tienen cupones viejos canjeados que siguen ACTIVE.
+- **Pendientes menores del repaso del código:**
+  - Fusionar o borrar un cliente borra sus pases sin avisar al Wallet.
+  - «Restaurar» un cupón revocado lo deja canjeable otra vez.
+  - El aviso del cupón cerrado no es silencioso: en Android salen dos notificaciones.
+  - `backfillCouponPromotion` ignora `transformOnRedeem=false`.
+  - Los iPhone con cupones borrados antes del 20-nov no se pueden arreglar desde aquí.
+
+**Konys, «no llega el aviso de que se actualizó la tarjeta» (sin cambios de código, a decidir):**
+- No se pierde nada: 417 pases × 2 guardados = 834 envíos, sin fallos.
+- Lo que ve el cliente depende de la plataforma:
+  - **iPhone nunca muestra aviso** por un cambio de diseño: Apple solo avisa cuando cambia un campo con `changeMessage`. 138 de 158 iPhone sí bajaron la tarjeta nueva.
+  - **Android muestra un «Sellos: X/10» genérico**, y solo a quien tiene ≥1 sello. Lo recibieron unos 214, dos veces porque guardaron dos veces. Es porque `cards.service.ts` ~444 no manda `silent`, aunque el comentario dice que es silencioso.
+- Propuesta: silenciar el aviso automático y añadir «Avisar a mis clientes» al guardar, con un mensaje propio que sí llega en las dos plataformas.
+
 ## 2026-11-24 (199) — Drive Pizza: cobro devuelto con pago sustituto (no se descuenta ni se cancela)
 
 Pedido de Javier (auditoría de pagos y comisiones de Drive Pizza). Código en `503c4cb1`, **subido sin desplegar** (el modo auto bloquea el deploy): falta `node scripts/desplegar.cjs backend`. Los datos YA están corregidos en producción.
