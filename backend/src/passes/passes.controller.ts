@@ -527,7 +527,10 @@ export class PassesController {
    * Refresh global: encola un push update para TODOS los passes activos
    * del tenant. Útil tras cambiar branding (logo, colores, strip) para
    * que todos los wallets se actualicen sin tener que tocar uno por
-   * uno. Solo SUPER_ADMIN (operación masiva sensible, 2026-06-12 D).
+   * uno. SUPER_ADMIN y MARKETING (Samuel, 2026-11-24): el equipo comercial lo
+   * necesita a mano cuando un negocio cambia el diseño y sus clientes no ven el
+   * cambio. Es silencioso y no toca sellos ni beneficios, así que no hay nada
+   * que proteger más allá de que no lo pulse cualquiera.
    *
    * Estrategia:
    *  - Filtra passes no-REVOKED del tenant.
@@ -536,7 +539,7 @@ export class PassesController {
    *  - Encola un job wallet.push por cada pass. El worker BullMQ
    *    procesa en background con su throttle/retry default.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Post('refresh-all/:tenantId')
   async refreshAllForTenant(
     @CurrentUser() user: AuthUser,

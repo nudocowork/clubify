@@ -1019,6 +1019,15 @@ export default function TenantDetail() {
           </CollapsibleSection>
         )}
 
+        {/* Samuel (MARKETING) no ve «Integraciones», pero sí necesita el
+            refresco de wallets para cuando un negocio cambia el diseño y sus
+            clientes no lo ven (2026-11-24). El backend ya lo permite. */}
+        {me?.role === 'MARKETING' && (
+          <div className="md:col-span-2">
+            <WalletsGlobalRefreshCard tenantId={t.id} />
+          </div>
+        )}
+
         {isSuperAdmin && (
           <CollapsibleSection title={tr('sectionIntegrations')} className="md:col-span-2">
             <AcademyTogglesCard tenant={t} onSaved={load} />
