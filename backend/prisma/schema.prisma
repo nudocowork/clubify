@@ -1994,6 +1994,15 @@ model Stamp {
   /// Barber veía «SELLOS 2 · RECOMPENSAS 122» en su panel: las 122 eran
   /// cupones de bienvenida, no premios ganados con sellos.
   redeemKind     String?
+  /// Tarjeta en la que estaba el pase AL momento de este movimiento. En un
+  /// canje de cupón es la tarjeta del CUPÓN: el pase se transforma acto
+  /// seguido en la de sellos y su `cardId` deja de decirlo. Sin esto no hay
+  /// forma de saber que un cliente ya canjeó la bienvenida, y al volver a
+  /// registrarse recibía otro café gratis (&N COFFEE y 6 negocios más,
+  /// 2026-11-24). Sin FK a propósito: el histórico sobrevive al borrado de
+  /// la tarjeta. Null en filas anteriores. Migración aditiva:
+  /// scripts/apply-stamp-cardid-migration.cjs.
+  cardId         String?
   note           String?
   // Wallet V3 — auditoría de ajustes manuales de sellos (+1/-1 desde escáner).
   // "note" cumple como Motivo; estos dos completan el rastro (IP + navegador/

@@ -637,6 +637,9 @@ export class StampsService {
           tenantId: pass.tenantId,
           passId: passIdFinal,
           customerId: pass.customerId,
+          // La tarjeta ANTES de transformar: en un canje de cupón es la del
+          // cupón. Es lo que deja al registro saber que ya canjeó la bienvenida.
+          cardId: pass.cardId,
           locationId: dto.locationId,
           operatorId: user.id,
           action: dto.action,

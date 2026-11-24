@@ -24,6 +24,7 @@ import { maquetarCorreo } from '../email/maquetador';
 import { normalizePassLocale } from '../wallet/pass-labels';
 import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
 import { sellosDeBienvenida } from './sellos-de-bienvenida';
+import { canjeAnteriorDelCupon } from './cupon-ya-canjeado';
 import { normalizarFormulario, revisarRegistro, type DatosDelRegistro } from './formulario-de-registro';
 
 /** Lo que hay que saber del negocio (y su marca) para avisar de una emisión. */
@@ -1023,6 +1024,12 @@ export class PassesService {
     });
     if (existing) {
       return { passId: existing.id, customerId: customer.id, isNew: false };
+    }
+    // Ya canjeó este cupón y el pase se transformó en su tarjeta de sellos: le
+    // devolvemos ESA, no un cupón nuevo (ver cupon-ya-canjeado.ts).
+    const canje = await canjeAnteriorDelCupon(this.prisma, card, customer.id);
+    if (canje) {
+      return { passId: canje.passId, customerId: customer.id, isNew: false };
     }
 
     // Aplicamos bonus de bienvenida si vino vía link UTM con bonus activo.

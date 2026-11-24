@@ -53,6 +53,8 @@ export type WalletPassPreviewProps = {
    * usan los dos pases. Ver `lib/credencial.mjs`.
    */
   revocada?: boolean;
+  /** Cupón/descuento/regalo de un uso ya canjeado: arriba dice USADO. */
+  usado?: boolean;
   /**
    * Tarjeta de CLUB. Por dentro es `STAMPS` —el saldo vive en el mismo
    * contador— así que sin esto se pinta como un cartón: «SELLOS 7/10», con el
@@ -188,6 +190,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     cardName,
     cardType,
     revocada = false,
+    usado = false,
     club = null,
     alianza = null,
     stampsRequired = 10,
@@ -297,8 +300,10 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
           val: currentTier || tiers?.[0]?.name || 'Activa',
         };
       case 'DISCOUNT':
+        if (usado) return { lbl: 'DESCUENTO', val: 'USADO' };
         return { lbl: 'OFF', val: `${discountPercent ?? 10}%` };
       case 'COUPON':
+        if (usado) return { lbl: 'CUPÓN', val: 'USADO' };
         // CUPÓN no muestra conteo de sellos. Muestra el % SOLO si hay
         // discountPercent y NO hay premio custom (rewardText); si el negocio
         // definió un premio, ese es el beneficio → "DISPONIBLE" (matchea el

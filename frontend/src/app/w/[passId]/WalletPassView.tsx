@@ -121,8 +121,17 @@ export function WalletPassView({
     </a>
   );
 
+  // Cupón, descuento o regalo de un uso YA canjeado. Esta página lo pintaba
+  // «DISPONIBLE» y con los botones de instalar: el cliente volvía a enseñar el
+  // café gratis en caja (&N COFFEE, 2026-11-24). Misma regla que el pase real
+  // (`wallet/cupon-usado.ts`): un cupón indefinido nunca queda COMPLETED.
+  const cuponUsado =
+    data.status === 'COMPLETED' && ['COUPON', 'DISCOUNT', 'GIFT'].includes(data.card.type);
+
   // En Android el botón principal es Google Wallet. iOS y escritorio → Apple.
-  const botones = (
+  const botones = cuponUsado ? (
+    <div className="card card-pad text-center text-sm text-mute">{tt('wallet.coupon_used')}</div>
+  ) : (
     <div className="space-y-2.5">
       {platform === 'android' && googleBtn ? (
         <>
@@ -177,6 +186,7 @@ export function WalletPassView({
       // vez de dar un 404: quien abre su enlace merece saber qué pasó con su
       // tarjeta, no toparse con una página que no existe.
       revocada={data.status === 'REVOKED'}
+      usado={cuponUsado}
       // Tarjeta de club: lo manda el backend cuando la tarjeta es de un plan.
       // Sin esto, la página que el negocio le manda al socio para instalarla
       // le enseñaba «SELLOS 7/10» — el número al revés.

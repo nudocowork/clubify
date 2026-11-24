@@ -32,6 +32,7 @@ import {
 } from './pass-labels';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
+import { esCuponUsado } from './cupon-usado';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -319,7 +320,7 @@ export class WalletService implements OnModuleDestroy {
       // Un cupón de un solo uso ya canjeado se ANULA: iOS lo apaga y lo manda a
       // «pases vencidos». Sin esto seguía en la pila del cliente con su premio a
       // la vista, y en caja lo volvía a enseñar (&N COFFEE, 2026-11-20).
-      ...(pass.card.type === 'COUPON' && pass.status === 'COMPLETED' ? { voided: true } : {}),
+      ...(esCuponUsado(pass) ? { voided: true } : {}),
       description,
       // LA CREDENCIAL NO LLEVA EL NOMBRE ESCRITO EN LA CABECERA.
       //

@@ -10,6 +10,7 @@ import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.uti
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 import { ordenarSedesParaPase } from './orden-de-sedes';
+import { estadoDelObjetoDeGoogle } from './cupon-usado';
 
 /**
  * Google Wallet integration end-to-end.
@@ -488,7 +489,10 @@ export class GoogleWalletService {
     return {
       id: objectId,
       classId,
-      state: 'ACTIVE',
+      // El MISMO estado al crear que al actualizar. Antes se creaba siempre
+      // ACTIVE: abrir la página de un cupón ya usado que nunca se guardó creaba
+      // un objeto ACTIVE y «Guardar en Google Wallet» instalaba el café gratis.
+      state: estadoDelObjetoDeGoogle(pass),
       accountName: pass.customer.fullName,
       accountId: pass.customer.id.replace(/[^a-zA-Z0-9._]/g, '_'),
       loyaltyPoints: balance,
@@ -1071,11 +1075,7 @@ export class GoogleWalletService {
           // vista principal de Google Wallet a «pases vencidos». Un cupón usado
           // que seguía ACTIVE era el «café gratis» que el cliente volvía a
           // enseñar en caja (&N COFFEE, 2026-11-20).
-          state:
-            pass.status === 'REVOKED' ||
-            (pass.card?.type === 'COUPON' && pass.status === 'COMPLETED')
-              ? 'INACTIVE'
-              : 'ACTIVE',
+          state: estadoDelObjetoDeGoogle(pass),
         } as any,
       });
       this.logger.log(`Google Wallet patched: ${pass.googleObjectId}`);
