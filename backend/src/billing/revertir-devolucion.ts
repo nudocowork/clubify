@@ -81,7 +81,133 @@ export type AjusteCreado = {
   resultado: 'creado' | 'yaExistia' | 'simulado';
 };
 
+/**
+ * PAGO SUSTITUTO: otro cobro del mismo negocio que paga LO MISMO que el cobro
+ * devuelto (Drive Pizza, 2026-11-24).
+ *
+ * Drive Pizza pagó su anual por Hotmart el 24-ago; el banco lo reembolsó el
+ * 10-oct y el cliente lo volvió a pagar por transferencia, registrado con la
+ * fecha y el monto del cobro original. Las comisiones ya pagadas por ese cobro
+ * PASARON al pago manual: misma obligación, mismas personas, mismo dinero.
+ * La red de seguridad nocturna del 24-11, con la regla nueva («lo pagado de un
+ * cobro devuelto se recupera»), no sabía que el cobro tenía sustituto y creó
+ * descuentos de $100 y $25: al pagar el siguiente corte, Nicolás y Samuel se
+ * habrían quedado SIN comisión por una venta que sí se cobró. Y como el negocio
+ * ya no tiene transacción de Hotmart, el webhook habría tomado cualquier aviso
+ * tardío de ese cobro como «el del período actual» y lo habría cancelado.
+ *
+ * Regla: si existe un sustituto, revertir y volver a generar las comisiones da
+ * cero, así que se hace en un solo paso: las comisiones del cobro devuelto
+ * pasan al sustituto (quedan vinculadas a él, con la historia en la nota), no
+ * hay descuento, y el negocio no se cancela porque el período está pagado.
+ * Se hace como TRASPASO, no como «ajuste −X + comisión nueva +X», porque el
+ * reporte de comisiones no cuenta los ajustes y mostraría la venta pagada dos
+ * veces.
+ *
+ * Qué cuenta como sustituto: un cobro PAGADO, de otra transacción, a ±3 días
+ * del devuelto y por al menos el mismo monto. Se excluyen UPGRADE (genera su
+ * propia comisión: no paga el período devuelto) y OTRO (no es plan).
+ */
+export const MARGEN_SUSTITUTO_DIAS = 3;
+const NO_SUSTITUYEN = new Set(['UPGRADE', 'OTRO']);
+
+export type PagoSustituto = {
+  id: string;
+  externalTxId: string;
+  gateway: string;
+  saleDate: Date;
+  grossUsd: number;
+};
+
+export function elegirPagoSustituto(
+  devuelto: { externalTxId: string; saleDate: Date; grossUsd?: number | null },
+  candidatos: Array<{
+    id: string;
+    externalTxId: string;
+    gateway: string;
+    saleDate: Date;
+    grossUsd: unknown;
+    status: string;
+    category?: string | null;
+  }>,
+): PagoSustituto | null {
+  const margen = MARGEN_SUSTITUTO_DIAS * 86_400_000;
+  const minimo = Number(devuelto.grossUsd ?? 0) - 1;
+  const validos = candidatos
+    .filter(
+      (c) =>
+        c.externalTxId !== devuelto.externalTxId &&
+        c.status === 'PAGADO' &&
+        !NO_SUSTITUYEN.has(String(c.category ?? '')) &&
+        Math.abs(c.saleDate.getTime() - devuelto.saleDate.getTime()) <= margen &&
+        Number(c.grossUsd) >= minimo,
+    )
+    // El más cercano en fecha: es el que paga ese mismo período.
+    .sort(
+      (a, b) =>
+        Math.abs(a.saleDate.getTime() - devuelto.saleDate.getTime()) -
+        Math.abs(b.saleDate.getTime() - devuelto.saleDate.getTime()),
+    );
+  const s = validos[0];
+  return s
+    ? { id: s.id, externalTxId: s.externalTxId, gateway: s.gateway, saleDate: s.saleDate, grossUsd: Number(s.grossUsd) }
+    : null;
+}
+
+/** Busca en Contabilidad el sustituto del cobro `tx`, si lo hay. */
+export async function buscarPagoSustituto(
+  db: Db,
+  args: { tx: string; tenantId?: string | null; fechaDelCobro?: Date | null },
+): Promise<PagoSustituto | null> {
+  const devuelto = await db.incomeRecord
+    .findFirst({
+      where: { externalTxId: args.tx },
+      select: { tenantId: true, saleDate: true, grossUsd: true },
+    })
+    .catch(() => null);
+  const tenantId = devuelto?.tenantId ?? args.tenantId ?? null;
+  const fecha: Date | null = devuelto?.saleDate ?? args.fechaDelCobro ?? null;
+  if (!tenantId || !fecha) return null;
+  const margen = MARGEN_SUSTITUTO_DIAS * 86_400_000;
+  const candidatos = await db.incomeRecord
+    .findMany({
+      where: {
+        tenantId,
+        status: 'PAGADO',
+        externalTxId: { not: args.tx },
+        saleDate: { gte: new Date(fecha.getTime() - margen), lte: new Date(fecha.getTime() + margen) },
+      },
+      select: { id: true, externalTxId: true, gateway: true, saleDate: true, grossUsd: true, status: true, category: true },
+    })
+    .catch(() => []);
+  return elegirPagoSustituto(
+    { externalTxId: args.tx, saleDate: fecha, grossUsd: devuelto ? Number(devuelto.grossUsd) : null },
+    candidatos,
+  );
+}
+
+/** Marca en la nota de una comisión traspasada (y candado contra repetirla). */
+export const MARCA_TRASPASO = 'Pasa al pago';
+
+export function notaDelTraspaso(tx: string, s: PagoSustituto, cuando: Date): string {
+  const via = s.gateway === 'MANUAL' ? 'pago manual' : `pago ${s.gateway}`;
+  return (
+    `[${cuando.toISOString().slice(0, 10)}] ${MARCA_TRASPASO} ${s.externalTxId.slice(0, 13)} (${via} del ` +
+    `${s.saleDate.toISOString().slice(0, 10)}, $${s.grossUsd.toFixed(2)}): su cobro original ${tx} se devolvió y ` +
+    `este pago lo sustituyó. Comisión del cobro devuelto revertida y generada de nuevo sobre el sustituto; ` +
+    `lo ya pagado cubre la nueva, no se descuenta nada.`
+  );
+}
+
 export type ResultadoDeDevolucion = {
+  /** Pago que sustituyó al devuelto: sus comisiones pasaron a él. */
+  sustituto?: PagoSustituto | null;
+  /** Comisiones que pasaron al sustituto (en vez de anularse o descontarse). */
+  traspasadas?: Array<{ id: string; monto: number; pagada: boolean }>;
+  /** Descuentos creados antes de conocer el sustituto que se anularon ahora. */
+  ajustesAnulados?: Array<{ id: string; montoUsd: number }>;
+  /** Descuentos que un corte ya aplicó: hay que devolverlos a mano. */
+  ajustesYaDescontados?: string[];
   anulacion: ResultadoDeAnulacion;
   ajustes: AjusteCreado[];
   /** Pagadas a nadie (sin destinatario): no hay de quién descontar. Se informa. */
@@ -301,6 +427,10 @@ export async function revertirComisionesDeDevolucion(
   const cuando = args.cuando ?? new Date();
   const simular = !!args.simular;
 
+  // 0) ¿Lo pagó otro cobro? Entonces nada se revierte: se traspasa.
+  const sustituto = await buscarPagoSustituto(db, args);
+  if (sustituto) return traspasarAlSustituto(db, args, sustituto, cuando, simular);
+
   // 1) Closers, influencers, embajadores, vendedores: por transacción.
   const anulacion = await anularComisionesDeTransaccion(db, args.tx, args.motivo, {
     tenantId: args.tenantId,
@@ -346,8 +476,113 @@ export async function revertirComisionesDeDevolucion(
   };
 }
 
+/**
+ * El cobro `tx` se devolvió pero `s` pagó lo mismo: sus comisiones pasan a
+ * `s` en vez de anularse o descontarse, y los descuentos que se hubieran
+ * creado antes de saberlo (la pasada nocturna del 24-11) se anulan si aún no
+ * se habían aplicado en un corte. Idempotente: la marca en la nota impide
+ * traspasar dos veces y un ajuste anulado ya no está pendiente.
+ */
+async function traspasarAlSustituto(
+  db: Db,
+  args: { tx: string; motivo: string; tenantId?: string | null; fechaDelCobro?: Date | null },
+  s: PagoSustituto,
+  cuando: Date,
+  simular: boolean,
+): Promise<ResultadoDeDevolucion> {
+  // Las mismas comisiones que anularía la reversión (por transacción, o por
+  // negocio y fecha del cobro), vistas SIN escribir.
+  const vistas = await anularComisionesDeTransaccion(db, args.tx, args.motivo, {
+    tenantId: args.tenantId,
+    fechaDelCobro: args.fechaDelCobro,
+    simular: true,
+  });
+  const manual = s.gateway === 'MANUAL';
+  const nota = notaDelTraspaso(args.tx, s, cuando);
+  const traspasadas: Array<{ id: string; monto: number; pagada: boolean }> = [];
+  for (const d of vistas.detalle) {
+    if (d.que !== 'anulada' && d.que !== 'pagada') continue;
+    traspasadas.push({ id: d.id, monto: d.monto, pagada: d.que === 'pagada' });
+    if (simular) continue;
+    const c = await db.commission.findFirst({ where: { id: d.id }, select: { notes: true } });
+    if (c?.notes?.includes(MARCA_TRASPASO)) continue;
+    await db.commission.updateMany({
+      where: { id: d.id },
+      data: {
+        // Vinculada al cobro que de verdad la paga. Una de pago manual va sin
+        // transacción: así la reconoce la etiqueta «Pago manual».
+        ingresoId: s.id,
+        externalTxId: manual ? null : s.externalTxId,
+        hotmartTransactionId: manual ? null : s.gateway === 'HOTMART' ? s.externalTxId : null,
+        notes: c?.notes ? `${c.notes}\n${nota}` : nota,
+      },
+    });
+  }
+
+  // Descuentos de este cobro creados antes de saber del sustituto.
+  const ajustesAnulados: Array<{ id: string; montoUsd: number }> = [];
+  const ajustesYaDescontados: string[] = [];
+  const previos: any[] = await db.commission.findMany({
+    where: { status: CommissionStatus.ADJUSTMENT, externalTxId: args.tx },
+    select: { id: true, amount: true, paymentStatus: true, periodKey: true, notes: true },
+  });
+  for (const a of previos) {
+    if (!String(a.periodKey ?? '').startsWith(`${PREFIJO_AJUSTE}${args.tx}-`)) continue;
+    if (a.paymentStatus !== 'PENDING') {
+      ajustesYaDescontados.push(a.id);
+      continue;
+    }
+    ajustesAnulados.push({ id: a.id, montoUsd: round2(-Number(a.amount)) });
+    if (simular) continue;
+    const n =
+      `[${cuando.toISOString().slice(0, 10)}] Anulado: el cobro ${args.tx} tiene un pago sustituto ` +
+      `(${s.externalTxId.slice(0, 13)}, ${manual ? 'manual' : s.gateway}) y la comisión pasó a ese pago. No hay nada que recuperar.`;
+    // Condicional: si un corte lo acaba de aplicar, no se toca.
+    await db.commission.updateMany({
+      where: { id: a.id, status: CommissionStatus.ADJUSTMENT, paymentStatus: 'PENDING' },
+      data: { status: CommissionStatus.REJECTED, notes: a.notes ? `${a.notes}\n${n}` : n },
+    });
+  }
+
+  const vacia: ResultadoDeAnulacion = {
+    anuladas: 0,
+    yaPagadas: 0,
+    reactivadas: vistas.reactivadas,
+    deOtroCiclo: vistas.deOtroCiclo,
+    cortesRecalculados: 0,
+    detalle: [],
+  };
+  const sinCambio = `sin cambio: el pago ${s.externalTxId.slice(0, 13)} ocupa su lugar en Contabilidad`;
+  return {
+    sustituto: s,
+    traspasadas,
+    ajustesAnulados,
+    ajustesYaDescontados,
+    anulacion: vacia,
+    ajustes: [],
+    pagadasSinDestinatario: [],
+    equipo: sinCambio,
+    socio: sinCambio,
+  };
+}
+
 /** Una línea para el log y la auditoría. */
 export function resumenDeDevolucion(tx: string, r: ResultadoDeDevolucion): string {
+  if (r.sustituto) {
+    const partes = [
+      `sustituido por ${r.sustituto.externalTxId} (${r.sustituto.gateway})`,
+      `${r.traspasadas?.length ?? 0} comisión(es) pasan a ese pago`,
+    ];
+    if (r.ajustesAnulados?.length) {
+      partes.push(
+        `${r.ajustesAnulados.length} descuento(s) anulado(s) ($${round2(r.ajustesAnulados.reduce((a, x) => a + x.montoUsd, 0)).toFixed(2)})`,
+      );
+    }
+    if (r.ajustesYaDescontados?.length) {
+      partes.push(`${r.ajustesYaDescontados.length} descuento(s) YA aplicado(s) en un corte: devolver a mano`);
+    }
+    return `Devolución ${tx}: ${partes.join(' · ')}.`;
+  }
   // En simulación cuentan los que se CREARÍAN.
   const creados = r.ajustes.filter((a) => a.resultado !== 'yaExistia');
   const existian = r.ajustes.filter((a) => a.resultado === 'yaExistia');

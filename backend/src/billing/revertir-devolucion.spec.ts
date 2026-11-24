@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claveDelAjuste, revertirComisionesDeDevolucion } from './revertir-devolucion';
+import { claveDelAjuste, elegirPagoSustituto, revertirComisionesDeDevolucion } from './revertir-devolucion';
 
 /**
  * Reversión de comisiones de un pago devuelto (Javier, 2026-11-23).
@@ -89,7 +89,21 @@ function baseFalsa(opts: { comisiones: Fila[]; ajustes?: Record<string, string>;
     setting: { findUnique: async ({ where }: any) => (where.key in settings ? { value: settings[where.key] } : null) },
     whiteLabel: { findFirst: async () => ({ id: 'wl-clubify' }) },
     incomeRecord: {
-      findMany: async ({ where }: any) => ingresos.filter((i) => i.externalTxId === where.externalTxId),
+      findFirst: async ({ where }: any) => ingresos.find((i) => i.externalTxId === where.externalTxId) ?? null,
+      findMany: async ({ where }: any) => {
+        // Búsqueda de un pago sustituto: mismo negocio, PAGADO, otra tx, ventana de fechas.
+        if (where.tenantId) {
+          return ingresos.filter(
+            (i) =>
+              i.tenantId === where.tenantId &&
+              i.status === where.status &&
+              i.externalTxId !== where.externalTxId.not &&
+              i.saleDate >= where.saleDate.gte &&
+              i.saleDate <= where.saleDate.lte,
+          );
+        }
+        return ingresos.filter((i) => i.externalTxId === where.externalTxId);
+      },
       count: async () => 1,
     },
   };
@@ -243,5 +257,129 @@ describe('Project Manager (2 % de la quincena) y socio (10 % del mes)', () => {
     const r = await revertirComisionesDeDevolucion(db, { tx: TX, tipo: 'REEMBOLSO', motivo: 'm', cuando: AHORA, simular: true });
     expect(ajustesDe(com)).toHaveLength(0);
     expect(r.ajustes.map((a) => a.resultado)).toEqual(['simulado', 'simulado']);
+  });
+});
+
+/**
+ * PAGO SUSTITUTO — caso Drive Pizza (2026-11-24). Anual de $500 por Hotmart
+ * (HP2009265423, 24-ago), comisiones de Nicolás ($100) y Samuel ($25) pagadas;
+ * el banco lo reembolsó el 10-oct y el cliente pagó otra vez a mano, con la
+ * fecha y el monto del cobro original. La pasada nocturna del 24-11 creó
+ * descuentos de −$100 y −$25 como si nadie hubiera pagado.
+ */
+describe('cobro devuelto con un pago que lo sustituye (Drive Pizza)', () => {
+  const HP = 'HP2009265423';
+  const AGO = new Date('2026-08-24T21:52:00.000Z');
+  const MANUAL = '6898628a-8b68-4605-b729-4b83e9bb683e';
+  const ingresosDrive = [
+    { id: 'ing-hp', tenantId: 't-drive', externalTxId: HP, gateway: 'HOTMART', saleDate: AGO, grossUsd: 500, status: 'REEMBOLSADO', category: 'RENOVACION' },
+    { id: 'ing-man', tenantId: 't-drive', externalTxId: MANUAL, gateway: 'MANUAL', saleDate: AGO, grossUsd: 500, status: 'PAGADO', category: 'RENOVACION' },
+  ];
+  const pagadas = () => [
+    { externalTxId: null, amount: 100, status: 'PAID', paymentStatus: 'PAID', amountPaid: 100, recipientCodeId: 'rc-nicolas', businessDate: AGO, referralUse: { tenantId: 't-drive' } },
+    { hotmartTransactionId: HP, externalTxId: HP, amount: 25, status: 'PAID', paymentStatus: 'PAID', amountPaid: 25, recipientCodeId: 'rc-samuel', businessDate: AGO, referralUse: { tenantId: 't-drive' } },
+  ];
+  const args = { tx: HP, tipo: 'REEMBOLSO' as const, motivo: 'm', tenantId: 't-drive', fechaDelCobro: AGO, cuando: AHORA };
+
+  it('no crea descuentos: las comisiones pagadas pasan al pago manual', async () => {
+    const { db, com } = baseFalsa({ comisiones: pagadas(), ingresos: ingresosDrive });
+    const r = await revertirComisionesDeDevolucion(db, args);
+    expect(ajustesDe(com)).toHaveLength(0);
+    expect(r.sustituto?.externalTxId).toBe(MANUAL);
+    expect(r.traspasadas).toEqual([
+      { id: 'c1', monto: 100, pagada: true },
+      { id: 'c2', monto: 25, pagada: true },
+    ]);
+    // Siguen pagadas UNA vez, ahora vinculadas al pago manual y sin la tx devuelta.
+    for (const c of com) {
+      expect(c).toMatchObject({ status: 'PAID', ingresoId: 'ing-man', externalTxId: null, hotmartTransactionId: null });
+      expect(c.notes).toContain('Pasa al pago');
+      expect(c.notes).toContain(HP);
+    }
+  });
+
+  it('anula los descuentos pendientes creados antes de saberlo, y es idempotente', async () => {
+    const { db, com } = baseFalsa({
+      comisiones: [
+        ...pagadas(),
+        { status: 'ADJUSTMENT', paymentStatus: 'PENDING', amount: -100, externalTxId: HP, periodKey: `DEVOL-${HP}-c1`, recipientCodeId: 'rc-nicolas' },
+        { status: 'ADJUSTMENT', paymentStatus: 'PENDING', amount: -25, externalTxId: HP, periodKey: `DEVOL-${HP}-c2`, recipientCodeId: 'rc-samuel' },
+      ],
+      ingresos: ingresosDrive,
+    });
+    const r = await revertirComisionesDeDevolucion(db, args);
+    expect(r.ajustesAnulados).toEqual([
+      { id: 'c3', montoUsd: 100 },
+      { id: 'c4', montoUsd: 25 },
+    ]);
+    // El historial queda: el descuento no se borra, se anula con su porqué.
+    expect(com[2].status).toBe('REJECTED');
+    expect(com[2].notes).toContain('pago sustituto');
+    const notas = com.map((c) => c.notes);
+
+    // La pasada de la noche siguiente no cambia nada.
+    const r2 = await revertirComisionesDeDevolucion(db, args);
+    expect(r2.ajustesAnulados).toEqual([]);
+    expect(com.map((c) => c.notes)).toEqual(notas);
+  });
+
+  it('un descuento YA aplicado en un corte no se toca: se informa para devolverlo a mano', async () => {
+    const { db, com } = baseFalsa({
+      comisiones: [
+        ...pagadas(),
+        { status: 'ADJUSTMENT', paymentStatus: 'PAID', amount: -100, externalTxId: HP, periodKey: `DEVOL-${HP}-c1`, recipientCodeId: 'rc-nicolas' },
+      ],
+      ingresos: ingresosDrive,
+    });
+    const r = await revertirComisionesDeDevolucion(db, args);
+    expect(r.ajustesYaDescontados).toEqual(['c3']);
+    expect(com[2].status).toBe('ADJUSTMENT');
+  });
+
+  it('una comisión SIN pagar tampoco se anula: es la del pago que sí entró', async () => {
+    const { db, com } = baseFalsa({
+      comisiones: [{ externalTxId: HP, hotmartTransactionId: HP, amount: 100, recipientCodeId: 'rc-nicolas', businessDate: AGO, referralUse: { tenantId: 't-drive' } }],
+      ingresos: ingresosDrive,
+    });
+    const r = await revertirComisionesDeDevolucion(db, args);
+    expect(com[0].status).toBe('APPROVED');
+    expect(r.anulacion.anuladas).toBe(0);
+    expect(r.traspasadas).toEqual([{ id: 'c1', monto: 100, pagada: false }]);
+  });
+
+  it('simular no escribe nada', async () => {
+    const { db, com } = baseFalsa({ comisiones: pagadas(), ingresos: ingresosDrive });
+    const r = await revertirComisionesDeDevolucion(db, { ...args, simular: true });
+    expect(r.traspasadas).toHaveLength(2);
+    expect(com[0].notes).toBeNull();
+    expect(com[1].hotmartTransactionId).toBe(HP);
+  });
+});
+
+describe('elegirPagoSustituto', () => {
+  const D = new Date('2026-08-24T12:00:00.000Z');
+  const dev = { externalTxId: 'HP1', saleDate: D, grossUsd: 500 };
+  const base = { id: 'x', externalTxId: 'M1', gateway: 'MANUAL', saleDate: D, grossUsd: 500, status: 'PAGADO', category: 'RENOVACION' };
+  const dias = (n: number) => new Date(D.getTime() + n * 86_400_000);
+
+  it('el mismo período pagado de nuevo cuenta', () => {
+    expect(elegirPagoSustituto(dev, [base])?.externalTxId).toBe('M1');
+  });
+  it('lejos en fecha NO: es otro período (Protein Station renovó 3 meses antes)', () => {
+    expect(elegirPagoSustituto(dev, [{ ...base, saleDate: dias(-92) }])).toBeNull();
+    expect(elegirPagoSustituto(dev, [{ ...base, saleDate: dias(4) }])).toBeNull();
+  });
+  it('un upgrade, un ingreso OTRO, un monto menor o un cobro no pagado NO sustituyen', () => {
+    expect(elegirPagoSustituto(dev, [{ ...base, category: 'UPGRADE' }])).toBeNull();
+    expect(elegirPagoSustituto(dev, [{ ...base, category: 'OTRO' }])).toBeNull();
+    expect(elegirPagoSustituto(dev, [{ ...base, grossUsd: 150 }])).toBeNull();
+    expect(elegirPagoSustituto(dev, [{ ...base, status: 'REEMBOLSADO' }])).toBeNull();
+  });
+  it('el propio cobro devuelto no se sustituye a sí mismo', () => {
+    expect(elegirPagoSustituto(dev, [{ ...base, externalTxId: 'HP1' }])).toBeNull();
+  });
+  it('cobro doble de Hotmart: el que se quedó sustituye al reembolsado', () => {
+    const s = elegirPagoSustituto(dev, [{ ...base, externalTxId: 'HP2', gateway: 'HOTMART', saleDate: dias(0.01) }]);
+    expect(s?.gateway).toBe('HOTMART');
   });
 });

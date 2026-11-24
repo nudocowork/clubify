@@ -96,6 +96,20 @@ describe('reembolso y contracargo', () => {
     await evento('PURCHASE_REFUNDED', 'HP-DE-JULIO');
     expect(billing.aplicarDevolucion).toHaveBeenCalledWith(expect.objectContaining({ esDelPeriodoActual: false }));
   });
+
+  it('con un pago SUSTITUTO manda la decisión final: sin referido perdido ni correo de cierre (Drive Pizza)', async () => {
+    const { svc, billing, brandEmail, evento } = montar();
+    billing.aplicarDevolucion.mockImplementationOnce(async () => ({
+      ingresoMarcado: true,
+      comisiones: null,
+      cancelacion: null,
+      esDelPeriodoActual: false,
+    }));
+    const r = await evento('PURCHASE_REFUNDED', 'HP0032012122');
+    expect(r.action).toBe('refund_of_old_charge');
+    expect((svc as any).churnReferral).not.toHaveBeenCalled();
+    expect(brandEmail.sendTemplate).not.toHaveBeenCalled();
+  });
 });
 
 describe('2 · el cliente cancela EN Hotmart', () => {

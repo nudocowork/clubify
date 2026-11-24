@@ -885,7 +885,7 @@ export class BillingService {
       orderBy: { saleDate: 'desc' },
       select: { id: true },
     });
-    const esDelPeriodoActual = !ultimo || ultimo.id === ingreso.id;
+    const pedidoComoActual = !ultimo || ultimo.id === ingreso.id;
     const r = await this.aplicarDevolucion({
       tenantId,
       tx,
@@ -894,8 +894,10 @@ export class BillingService {
       fechaDelCobro: ingreso.saleDate,
       actorId,
       nota: body.nota ?? null,
-      esDelPeriodoActual,
+      esDelPeriodoActual: pedidoComoActual,
     });
+    // Lo que se decidió de verdad: un pago sustituto lo vuelve «cobro viejo».
+    const esDelPeriodoActual = r.esDelPeriodoActual;
     await this.notifyBillingTeam(
       'cancelado',
       esDelPeriodoActual
@@ -1089,6 +1091,8 @@ export class BillingService {
     ingresoMarcado: boolean;
     comisiones: ResultadoDeDevolucion | null;
     cancelacion: ResultadoDeCancelacion | null;
+    /** Lo que se decidió al final (falso si un pago sustituto cubre el período). */
+    esDelPeriodoActual: boolean;
   }> {
     const ahora = new Date();
     const evento =
@@ -1120,10 +1124,15 @@ export class BillingService {
     });
     if (comisiones) this.logger.log(resumenDeDevolucion(args.tx, comisiones));
 
-    // 3) El negocio.
+    // 3) El negocio. Con un pago sustituto el período sigue PAGADO: no se
+    //    cancela ni se le manda el SMS, aunque el que llamó creyera que era el
+    //    cobro actual. Drive Pizza (2026-11-24): ya no tiene transacción de
+    //    Hotmart porque paga a mano, y el webhook toma «sin transacción» como
+    //    «es el actual»; un aviso tardío de su cobro reembolsado la habría
+    //    cancelado con el año pagado.
+    const actual = args.esDelPeriodoActual !== false && !comisiones?.sustituto;
     let cancelacion: ResultadoDeCancelacion | null = null;
     if (args.tenantId) {
-      const actual = args.esDelPeriodoActual !== false;
       if (actual) {
         cancelacion = await this.registrarCancelacion(args.tenantId, {
           origen: args.tipo,
@@ -1145,7 +1154,10 @@ export class BillingService {
         gateway: args.gateway,
         nota: args.nota ?? null,
         registradaPor: args.actorId ? 'colaborador' : 'pasarela',
-        esDelPeriodoActual: args.esDelPeriodoActual !== false,
+        esDelPeriodoActual: actual,
+        pagoSustituto: comisiones?.sustituto?.externalTxId ?? null,
+        comisionesTraspasadas: comisiones?.traspasadas ?? [],
+        descuentosAnulados: comisiones?.ajustesAnulados ?? [],
         ingresoMarcado,
         comisionesAnuladas: comisiones?.anulacion.detalle.filter((d) => d.que === 'anulada').map((d) => ({ id: d.id, monto: d.monto })) ?? [],
         comisionesYaPagadas: comisiones?.anulacion.detalle.filter((d) => d.que === 'pagada').map((d) => ({ id: d.id, pagado: d.pagado ?? d.monto })) ?? [],
@@ -1157,7 +1169,7 @@ export class BillingService {
         aviso: cancelacion?.aviso ?? null,
       },
     });
-    return { ingresoMarcado, comisiones, cancelacion };
+    return { ingresoMarcado, comisiones, cancelacion, esDelPeriodoActual: actual };
   }
 
   /**

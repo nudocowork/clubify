@@ -1856,7 +1856,7 @@ export class HotmartService {
         // ¿Es el cobro del período en curso? `hotmartTransactionId` es el
         // último que se aplicó al negocio. Devolver un cobro VIEJO (de un
         // ciclo ya consumido) no le quita el período que pagó después.
-        const esDelPeriodoActual =
+        const pedidoComoActual =
           !transactionId || !tenant.hotmartTransactionId || transactionId === tenant.hotmartTransactionId;
         const r = transactionId
           ? await this.billing
@@ -1866,13 +1866,18 @@ export class HotmartService {
                 tipo,
                 gateway: 'HOTMART',
                 fechaDelCobro: fechaDelCobroDeHotmart(payload.data?.purchase?.approved_date),
-                esDelPeriodoActual,
+                esDelPeriodoActual: pedidoComoActual,
               })
               .catch((e) => {
                 this.logger.error(`Devolución ${transactionId} de ${tenant.brandName} falló: ${(e as Error).message}`);
                 return null;
               })
           : null;
+        // La decisión final es la de `aplicarDevolucion`: si otro pago sustituyó
+        // a este cobro (Drive Pizza: reembolsado y pagado de nuevo a mano), el
+        // período sigue pagado. Sin esto, el negocio no se cancelaba pero sí se
+        // le marcaba el referido como perdido y le llegaba el correo de cierre.
+        const esDelPeriodoActual = r?.esDelPeriodoActual ?? pedidoComoActual;
         if (!transactionId) {
           // Sin transacción no hay qué revertir, pero el negocio sí perdió el
           // servicio: se cancela igual.

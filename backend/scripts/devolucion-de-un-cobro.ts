@@ -48,14 +48,13 @@ async function main() {
     select: { id: true, gateway: true, saleDate: true, status: true, grossUsd: true },
   });
   if (!ingreso) throw new Error(`El cobro ${tx} no está en Contabilidad para ${t.brandName}`);
-  const actual = !t.hotmartTransactionId || t.hotmartTransactionId === tx;
+  let actual = !t.hotmartTransactionId || t.hotmartTransactionId === tx;
   const ahora = new Date();
   const evento = tipo === 'CONTRACARGO' ? 'PURCHASE_CHARGEBACK' : tipo === 'DISPUTA' ? 'PURCHASE_PROTEST' : 'PURCHASE_REFUNDED';
 
   console.log(`${APLICAR ? '── APLICANDO ──' : '── SIMULACIÓN (no escribe nada) ──'}`);
   console.log(`Negocio: ${t.brandName} · ${t.status}${t.canceledAt ? ` · cancelado el ${t.canceledAt.toISOString().slice(0, 10)}` : ''}`);
   console.log(`Cobro: ${tx} · ${ingreso.gateway} · $${Number(ingreso.grossUsd).toFixed(2)} · ${ingreso.saleDate.toISOString().slice(0, 10)} · ${ingreso.status}`);
-  console.log(`¿Es el cobro del período actual? ${actual ? 'sí → el negocio queda CANCELADO y desconectado' : 'no → solo se revierte el dinero'}`);
 
   // 1) Contabilidad (antes que las comisiones, como en el backend).
   const nuevoEstado = tipo === 'DISPUTA' ? 'EN_DISPUTA' : 'REEMBOLSADO';
@@ -89,6 +88,19 @@ async function main() {
       })
     ).map((c) => [c.id, `${c.ownerName} (${c.code})`]),
   );
+  // Un pago sustituto (otro cobro que pagó lo mismo) manda: el período sigue
+  // pagado y las comisiones pasan a él. Drive Pizza, 2026-11-24.
+  if (r.sustituto) {
+    actual = false;
+    const s = r.sustituto;
+    console.log(`\nPAGO SUSTITUTO: ${s.externalTxId} (${s.gateway}, ${s.saleDate.toISOString().slice(0, 10)}, $${s.grossUsd.toFixed(2)}).`);
+    for (const c of r.traspasadas ?? []) {
+      console.log(`  · ${c.id.slice(0, 8)} $${c.monto.toFixed(2)} ${c.pagada ? '(ya pagada)' : '(sin pagar)'} → pasa al sustituto`);
+    }
+    for (const a of r.ajustesAnulados ?? []) console.log(`  · descuento ${a.id.slice(0, 8)} −$${a.montoUsd.toFixed(2)} → se anula`);
+    for (const id of r.ajustesYaDescontados ?? []) console.log(`  · descuento ${id.slice(0, 8)} YA aplicado en un corte → devolver a mano`);
+  }
+  console.log(`\n¿Es el cobro del período actual? ${actual ? 'sí → el negocio queda CANCELADO y desconectado' : 'no → el negocio no se toca'}`);
   console.log('\nComisiones de ese cobro:');
   for (const d of r.anulacion.detalle) {
     const que =
