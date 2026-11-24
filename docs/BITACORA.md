@@ -8,6 +8,44 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-24 (199) — Drive Pizza: cobro devuelto con pago sustituto (no se descuenta ni se cancela)
+
+Pedido de Javier (auditoría de pagos y comisiones de Drive Pizza). Código en `503c4cb1`, **subido sin desplegar** (el modo auto bloquea el deploy): falta `node scripts/desplegar.cjs backend`. Los datos YA están corregidos en producción.
+
+**Secuencia real (verificada en la base):**
+1. 24-ago: anual de $500 por Hotmart, `HP2009265423`. Comisiones: Nicolás Rojas $100 y Samuel Navarro $25.
+   - Un aviso repetido del 01-sep creó otro par de comisiones. El 07-sep se rechazaron como duplicados: `f281eaa7` ($100) y `36475b0b` ($25).
+   - Quedó UNA comisión por persona: `4a3db7ad` ($100, pagada el 02-oct) y `6af6c170` ($25, pagada el 17-sep). No hubo doble pago.
+2. 10-oct: el banco reembolsó el cobro. Con la regla de entonces («lo pagado no se retracta»), las comisiones pagadas se quedaron.
+3. 10-oct 19:07: pago manual por transferencia de $500, con la fecha y el monto del cobro original (`reactivar-tras-reembolso-con-pago-manual.cjs`, «como si siempre hubiera sido manual, las comisiones igual»).
+   - El negocio quedó ACTIVO hasta el 24-08-2027.
+   - Las dos comisiones pagadas PASARON a ese pago. No se generaron otras, a propósito.
+4. 24-nov 04:00: la red de seguridad nocturna, con la regla nueva (198), vio comisiones pagadas de un cobro reembolsado y creó descuentos de **−$100 (Nicolás) y −$25 (Samuel)**. No sabía que otro pago había cubierto ese cobro. En el corte del 30 se habrían quedado SIN comisión por una venta que sí se cobró.
+
+Además, un riesgo latente: Drive Pizza ya no tiene `hotmartTransactionId` (paga a mano), y el webhook toma «sin transacción» como «cobro del período actual». Un aviso tardío de Hotmart sobre `HP2009265423` la habría **cancelado** con el año pagado y le habría mandado el SMS.
+
+**Arreglo (`billing/revertir-devolucion.ts`):**
+- **Pago sustituto** = otro cobro PAGADO del mismo negocio, a ±3 días del devuelto, por el mismo monto o más, que no sea UPGRADE ni OTRO.
+- Si existe, revertir y volver a generar da cero, así que se hace como **traspaso**:
+  - las comisiones quedan vinculadas al sustituto (`ingresoId`, y sin transacción si es manual), con la historia en la nota;
+  - no se anulan ni se descuentan;
+  - los descuentos pendientes de ese cobro se anulan (REJECTED con nota, no se borran);
+  - un descuento ya aplicado en un corte se informa para devolverlo a mano.
+- **No se representa como «ajuste −X + comisión nueva +X»** porque el reporte de comisiones no cuenta los ajustes: mostraría la venta pagada dos veces.
+- `aplicarDevolucion`: con sustituto el período sigue pagado, así que no cancela ni manda SMS. Devuelve la decisión final, y el webhook y «Registrar devolución» la usan para el referido, el correo y el aviso al equipo.
+- Pruebas: 11 nuevas. 980 en verde en billing, finance, referrals y tenants.
+
+**Aplicado en producción** con `scripts/devolucion-de-un-cobro.ts drive-pizza HP2009265423 REEMBOLSO --aplicar` (la misma función):
+- `4a3db7ad` y `6af6c170` vinculadas al pago manual `6898628a`.
+- Descuentos `6cbf4329` y `db8da0bd` anulados.
+- Negocio sin tocar: ACTIVO.
+
+Aunque el despliegue tarde, la pasada de esta noche no los recrea: la clave única `DEVOL-…` sigue ocupada.
+
+**Barrido:** de los 6 cobros devueltos, solo Drive Pizza tiene sustituto. Protein Station está bien.
+
+**Sigue pendiente de Javier:** HP4082379809 (contracargo del 2-nov), Sara −$3 y socio −$10,86 retroactivos. No tiene sustituto.
+
 ## 2026-11-23 (198) — Cancelado ≠ suspendido, SMS de «verifica en Hotmart», devoluciones que revierten TODAS las comisiones
 
 Pedido de Javier (documento «Gestión de suscripciones, cancelaciones, suspensiones y devoluciones»). **Sin desplegar.** Necesita migración + backend + frontend (ver abajo).
