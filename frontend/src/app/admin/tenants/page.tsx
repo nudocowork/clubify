@@ -16,6 +16,29 @@ function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   return `avatar-${(sum % 7) + 1}`;
 }
+/**
+ * El logo del negocio, y la inicial solo si no tiene o si la imagen no carga
+ * (un logo borrado de S3 dejaba un ícono roto). `<img>` y no `next/image`: los
+ * logos vienen de hosts que no están todos en `next.config`, y en una lista de
+ * cientos de filas `loading="lazy"` basta.
+ */
+function AvatarDelNegocio({ nombre, logoUrl }: { nombre: string; logoUrl: string | null }) {
+  const [roto, setRoto] = useState(false);
+  if (logoUrl && !roto) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logoUrl}
+        alt=""
+        loading="lazy"
+        onError={() => setRoto(true)}
+        className="w-8 h-8 rounded-full object-cover bg-white border border-slate-200 shrink-0"
+      />
+    );
+  }
+  return <span className={`avatar w-8 h-8 text-xs ${avatarClass(nombre)}`}>{initials(nombre)}</span>;
+}
+
 function initials(name: string) {
   return name
     .split(' ')
@@ -497,11 +520,7 @@ export default function TenantsPage() {
               >
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2.5">
-                    <span
-                      className={`avatar w-8 h-8 text-xs ${avatarClass(tn.brandName)}`}
-                    >
-                      {initials(tn.brandName)}
-                    </span>
+                    <AvatarDelNegocio nombre={tn.brandName} logoUrl={tn.logoUrl ?? null} />
                     <div>
                       <div className="font-medium group-hover:text-brand transition">
                         {tn.brandName}
