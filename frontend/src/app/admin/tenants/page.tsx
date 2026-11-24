@@ -550,7 +550,11 @@ export default function TenantsPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3.5">
-                  <span className={`badge whitespace-nowrap ${BADGE_DE_ESTADO[estadoDe(tn)].clase}`}>
+                  <span
+                    className={`badge whitespace-nowrap ${BADGE_DE_ESTADO[estadoDe(tn)].clase}`}
+                    // Por qué está cancelado o suspendido (backend: notaDelEstado).
+                    title={tn.notaDelEstado ?? undefined}
+                  >
                     {t(BADGE_DE_ESTADO[estadoDe(tn)].texto as never)}
                   </span>
                 </td>

@@ -47,6 +47,9 @@ type Status = {
   // Prueba PAGA (tarjeta anclada, ej. 7 días de Sellea): en TRIAL pero con cobro
   // automático al terminar. NO es la prueba gratis ("Esperando pago").
   paidTrial?: boolean;
+  /** Ya canceló y le quedan días pagados: hasta cuándo (backend `getStatus`). */
+  canceledAt?: string | null;
+  canceladaHasta?: string | null;
 };
 
 const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: string }> = {
@@ -281,7 +284,24 @@ export default function BillingPage() {
                 </div>
               )
             )}
-            {s.status === 'ACTIVE' && s.currentPeriodEnd && (
+            {s.canceladaHasta && (
+              // Ya canceló: no hay «próximo cobro». Se le dice hasta cuándo
+              // conserva el servicio y que confirme la cancelación en Hotmart
+              // (lo mismo que dice el SMS; 2026-11-23).
+              <div className="text-sm mt-1">
+                <span className="text-bad font-medium">
+                  {t('canceledUntil')}{' '}
+                  {new Date(s.canceladaHasta).toLocaleDateString('es-CO', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                  .
+                </span>{' '}
+                <span className="text-mute">{t('checkHotmartReminder')}</span>
+              </div>
+            )}
+            {s.status === 'ACTIVE' && s.currentPeriodEnd && !s.canceledAt && (
               <div className="text-sm text-mute mt-1">
                 {t('nextCharge')}{' '}
                 <span className="font-medium text-ink">
@@ -414,7 +434,9 @@ export default function BillingPage() {
       </div>
 
       {/* Cancelar */}
-      {(s.status === 'TRIAL' || s.status === 'ACTIVE') && (
+      {/* Ya cancelada: no se ofrece cancelar otra vez (antes volvían a pulsar
+          porque nada indicaba que la cancelación se había guardado). */}
+      {(s.status === 'TRIAL' || s.status === 'ACTIVE') && !s.canceledAt && (
         <div className="mt-6 text-center">
           <button
             onClick={() => setCancelOpen(true)}

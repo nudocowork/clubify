@@ -336,10 +336,10 @@ export class TenantsController {
   @Roles('SUPER_ADMIN')
   status(
     @Param('id') id: string,
-    @Body() body: { status: TenantStatus },
+    @Body() body: { status: TenantStatus; motivo?: string },
     @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.setStatus(id, body.status, user.id);
+    return this.svc.setStatus(id, body.status, user.id, body.motivo);
   }
 
   @Post(':id/extend-trial')

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { BillingService } from './billing.service';
 
 /**
@@ -77,6 +77,11 @@ describe('el estado que lee el panel', () => {
   });
 
   it('en PRUEBA cancelada, el límite es el fin de la prueba', async () => {
+    // Con el reloj quieto ANTES del fin de la prueba: sin esto la prueba
+    // empezó a fallar sola el 05-10-2026, cuando el «fin de la prueba» pasó a
+    // ser pasado y el aviso, con razón, dejó de pintarse.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-27T12:00:00.000Z'));
     const finPrueba = new Date('2026-10-05T00:00:00.000Z');
     const r = await servicio({
       ...NEGOCIO,
@@ -86,6 +91,7 @@ describe('el estado que lee el panel', () => {
       canceledAt: new Date('2026-09-26T10:00:00.000Z'),
     }).getStatus('t1');
     expect(r.canceladaHasta).toEqual(finPrueba);
+    vi.useRealTimers();
   });
 
   it('LA PRUEBA SABE PONERSE EN ROJO: sin `canceledAt` en el select no hay aviso', async () => {

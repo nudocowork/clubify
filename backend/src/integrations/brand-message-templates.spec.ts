@@ -58,6 +58,10 @@ const GEMELO_POR_CORREO: Record<string, string> = {
   admin_chargeback: 'email_chargeback',
   admin_cancellation: 'email_cancellation',
   admin_charge_date_moved: 'email_charge_date_moved',
+  cancel_aviso_panel: 'email_cancellation',
+  cancel_aviso_colaborador: 'email_cancellation',
+  cancel_aviso_reembolso: 'email_refunded',
+  cancel_aviso_contracargo: 'email_chargeback',
 };
 
 const CARPETAS_CON_CORREO = ['cobros', 'administrativa'];

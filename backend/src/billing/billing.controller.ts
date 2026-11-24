@@ -1,5 +1,5 @@
-import { Body, Controller, ForbiddenException, Get, Patch, Post, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUrl, Max, MaxLength, Min } from 'class-validator';
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, Max, MaxLength, Min } from 'class-validator';
 import { BillingService } from './billing.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -9,6 +9,21 @@ import { MAX_MENSAJE, MAX_URL } from './datos-de-pago-manual';
 
 class CancelDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+/** Un colaborador cancela la suscripción de un negocio. */
+class CancelarPorColaboradorDto {
+  @IsString() @IsNotEmpty({ message: 'Escribe el motivo de la cancelación.' }) @MaxLength(500) motivo!: string;
+  /** true = desconectar ya aunque le queden días pagados. */
+  @IsOptional() @IsBoolean() desconectarYa?: boolean;
+}
+
+/** Un colaborador registra que un cobro del negocio se devolvió. */
+class DevolucionPorColaboradorDto {
+  /** La transacción del cobro, tal como sale en Contabilidad (HP…, id del pago manual…). */
+  @IsString() @IsNotEmpty() @MaxLength(120) externalTxId!: string;
+  @IsIn(['REEMBOLSO', 'CONTRACARGO']) tipo!: 'REEMBOLSO' | 'CONTRACARGO';
+  @IsOptional() @IsString() @MaxLength(500) nota?: string;
 }
 
 class GraceDto {
@@ -51,6 +66,40 @@ export class BillingController {
   async cancel(@CurrentUser() user: AuthUser, @Body() dto: CancelDto) {
     if (!user.tenantId) throw new ForbiddenException();
     return this.svc.cancelSubscription(user.tenantId, dto.reason);
+  }
+
+  // ── Lo que hace el EQUIPO (Javier, 2026-11-23) ──────────────────────────
+  // Solo la plataforma: una devolución mueve comisiones de colaboradores de
+  // Clubify, que no son de ninguna marca blanca.
+
+  /** Estado comercial del negocio con su motivo, avisos, cobros y reversiones. */
+  @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
+  @Get('admin/tenants/:id/estado')
+  async estadoDelNegocio(@Param('id') id: string) {
+    return this.svc.estadoDelNegocio(id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
+  @Post('admin/tenants/:id/cancelar')
+  async cancelarPorColaborador(
+    @Param('id') id: string,
+    @Body() dto: CancelarPorColaboradorDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.cancelarPorColaborador(id, user.id, dto);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
+  @Post('admin/tenants/:id/devolucion')
+  async devolucionPorColaborador(
+    @Param('id') id: string,
+    @Body() dto: DevolucionPorColaboradorDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.devolucionPorColaborador(id, user.id, dto);
   }
 
   @Roles('TENANT_OWNER')

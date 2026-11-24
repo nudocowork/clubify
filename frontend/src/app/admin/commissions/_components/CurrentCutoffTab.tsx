@@ -64,7 +64,11 @@ export type CutoffPerson = {
   profileStatus: 'APPROVED' | 'PENDING_REVIEW' | 'REJECTED' | 'NONE' | 'MISSING_USER';
   canTransfer: boolean;
   commissionsCount: number;
+  /** Lo que se le transfiere: comisiones menos el descuento por devoluciones. */
   totalUsd: number;
+  brutoUsd?: number;
+  /** Comisiones ya pagadas cuyo cobro se devolvió: se descuentan al pagarle. */
+  descuentoUsd?: number;
   commissions: CutoffCommission[];
 };
 
@@ -525,6 +529,14 @@ export default function CurrentCutoffTab() {
                       <td className="px-4 py-3 text-center">{p.commissionsCount}</td>
                       <td className="px-4 py-3 text-right font-bold">
                         {fmtUsd(p.totalUsd)}
+                        {(p.descuentoUsd ?? 0) > 0 && (
+                          <div
+                            className="text-[11px] font-normal text-bad"
+                            title={t('discountForRefundsHint', { bruto: fmtUsd(p.brutoUsd ?? p.totalUsd) })}
+                          >
+                            {t('discountForRefunds', { monto: fmtUsd(p.descuentoUsd ?? 0) })}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <button

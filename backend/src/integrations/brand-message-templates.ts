@@ -123,7 +123,7 @@ export const ADMIN_TEMPLATES: BrandMsgTemplateDef[] = [
     id: 'admin_refunded',
     label: 'Reembolso',
     description:
-      'Se procesó un reembolso (la cuenta se suspende). Hoy no se envía ningún mensaje; escríbelo y se activará su envío en un paso posterior.',
+      'Se procesó un reembolso en STRIPE (la cuenta se suspende). Apagado por defecto. Los reembolsos de Hotmart usan «Cancelación por reembolso: verificar en la pasarela».',
     vars: ['platform', 'brandName'],
     folder: 'administrativa',
     status: 'pending',
@@ -136,7 +136,7 @@ export const ADMIN_TEMPLATES: BrandMsgTemplateDef[] = [
     id: 'admin_chargeback',
     label: 'Chargeback',
     description:
-      'Se registró un contracargo (la cuenta se suspende). Hoy no se envía ningún mensaje; escríbelo y se activará su envío en un paso posterior.',
+      'Se registró un contracargo en STRIPE (la cuenta se suspende). Apagado por defecto. Los de Hotmart usan «Cancelación por contracargo: verificar en la pasarela».',
     vars: ['platform', 'brandName'],
     folder: 'administrativa',
     status: 'pending',
@@ -170,6 +170,65 @@ export const ADMIN_TEMPLATES: BrandMsgTemplateDef[] = [
     audience: 'Al negocio',
     default:
       '{platform}: Actualizamos la fecha de tu próximo cobro de {brandName}. Revísala en tu panel.',
+  },
+  // ── «Verifica la cancelación en la pasarela» (Javier, 2026-11-23) ─────────
+  // Cancelar en Clubify no garantiza que la pasarela deje de cobrar: si la
+  // suscripción sigue viva en Hotmart, el cliente recibe el cobro siguiente.
+  // Estos avisos dejan constancia de que se le dijo que lo verificara. Salen
+  // SOLOS (encendidos por defecto), uno por proceso de cancelación, y quedan en
+  // el historial de mensajes del negocio con su resultado. Ver
+  // `billing/estado-del-negocio.ts` (qué plantilla toca y cuándo se repite).
+  {
+    id: 'cancel_aviso_panel',
+    label: 'Cancelación desde el panel: verificar en la pasarela',
+    description:
+      'El cliente pulsó «Cancelar mi suscripción» en su panel. Se envía al instante, una sola vez por proceso de cancelación.',
+    vars: ['platform', 'brandName', 'ownerName', 'pasarela'],
+    folder: 'administrativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al negocio',
+    default:
+      '{platform}: Hola {ownerName}, recibimos tu solicitud de cancelar la suscripción de {brandName}. Cancelar en {platform} no siempre detiene el cobro: entra a tu cuenta de {pasarela} y confirma que la suscripción también quedó cancelada allí, para evitar cobros automáticos futuros.',
+  },
+  {
+    id: 'cancel_aviso_colaborador',
+    label: 'Cancelación por el equipo: verificar en la pasarela',
+    description:
+      'Un colaborador canceló la suscripción desde el panel de administración. Se envía al instante, una sola vez por proceso de cancelación.',
+    vars: ['platform', 'brandName', 'ownerName', 'pasarela'],
+    folder: 'administrativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al negocio',
+    default:
+      '{platform}: Hola {ownerName}, iniciamos la cancelación de la suscripción de {brandName}. Entra a tu cuenta de {pasarela} y confirma que la suscripción también aparece cancelada: es lo que evita cobros automáticos futuros.',
+  },
+  {
+    id: 'cancel_aviso_reembolso',
+    label: 'Cancelación por reembolso: verificar en la pasarela',
+    description:
+      'Se devolvió el dinero del pago (aviso de Hotmart o registrado por un colaborador) y el servicio se canceló. Se envía al instante.',
+    vars: ['platform', 'brandName', 'ownerName', 'pasarela'],
+    folder: 'administrativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al negocio',
+    default:
+      '{platform}: Hola {ownerName}, registramos el reembolso de tu pago de {brandName} y tu servicio quedó cancelado. Confirma en tu cuenta de {pasarela} que la suscripción también esté cancelada, para evitar cobros automáticos futuros.',
+  },
+  {
+    id: 'cancel_aviso_contracargo',
+    label: 'Cancelación por contracargo o disputa: verificar en la pasarela',
+    description:
+      'El pago entró en disputa o el banco lo retiró (contracargo), y el servicio se canceló. Se envía al instante.',
+    vars: ['platform', 'brandName', 'ownerName', 'pasarela'],
+    folder: 'administrativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al negocio',
+    default:
+      '{platform}: Hola {ownerName}, recibimos una disputa o contracargo sobre el pago de {brandName} y tu servicio quedó cancelado. Confirma en tu cuenta de {pasarela} que la suscripción esté cancelada para evitar cobros futuros. Si es un error, responde este mensaje.',
   },
 ];
 
@@ -426,6 +485,14 @@ export const EMAIL_TWIN: Record<string, string> = {
   admin_chargeback: 'email_chargeback',
   admin_cancellation: 'email_cancellation',
   admin_charge_date_moved: 'email_charge_date_moved',
+  // «Verifica la cancelación en la pasarela» (2026-11-23). Comparten el correo
+  // que ya sale en cada caso: el de cancelación lo manda el aviso de Hotmart
+  // que provoca la cancelación por la API; el de reembolso y el de contracargo,
+  // el aviso de la devolución.
+  cancel_aviso_panel: 'email_cancellation',
+  cancel_aviso_colaborador: 'email_cancellation',
+  cancel_aviso_reembolso: 'email_refunded',
+  cancel_aviso_contracargo: 'email_chargeback',
 };
 
 export function brandMsgTplKey(whiteLabelId: string, id: string): string {

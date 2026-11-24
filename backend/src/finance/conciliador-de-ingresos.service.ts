@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  anularComisionesDeTransaccion,
   fechaDelCobroDeHotmart,
   motivoDeAnulacion,
   type QuePasoConLaComision,
 } from '../billing/anular-comisiones-de-reembolso';
+import {
+  revertirComisionesDeDevolucion,
+  resumenDeDevolucion,
+  type TipoDeDevolucion,
+} from '../billing/revertir-devolucion';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { PaymentGateway } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -128,6 +132,11 @@ export interface InformeDeConciliacion {
     monto: number;
     que: QuePasoConLaComision;
   }>;
+  /**
+   * Ajustes por recuperar que se CREARON esta pasada (comisiones ya pagadas de
+   * un cobro devuelto). Los que ya existían no salen: idempotente.
+   */
+  ajustesDeDevoluciones?: Array<{ tx: string; comisionId: string; montoUsd: number; origen: string }>;
 }
 
 export interface SinRespaldo {
@@ -482,35 +491,28 @@ export class ConciliadorDeIngresosService {
           }
         }
         // RED DE SEGURIDAD de las comisiones (2026-09-18). El aviso de Hotmart
-        // ya las anula al llegar, pero esa puerta falla si el negocio no se
+        // ya las revierte al llegar, pero esa puerta falla si el negocio no se
         // encuentra, si el aviso es de un grupo empresarial (que sale antes) o
         // si el proceso se cayó justo ahí. Esta pasada no depende de nada de
-        // eso: va por transacción, es idempotente, y además recoge los casos de
-        // ANTES de este arreglo. Una comisión ya pagada no se toca nunca, y una
-        // que alguien reactivó a mano tampoco. En simulación solo dice qué haría.
-        const r = await anularComisionesDeTransaccion(
-          this.prisma,
-          tx,
-          motivoDeAnulacion(e.eventType, tx, e.processedAt ?? new Date()),
-          {
-            // El negocio que guardó el aviso: el mismo que resolvió el webhook.
-            // Sin él solo se anula por transacción.
-            tenantId: e.tenantId,
-            fechaDelCobro: fechaDelCobroDeHotmart(compra.approved_date),
-            simular,
-          },
-        ).catch((err) => {
-          this.logger.warn(`Anular comisiones de ${tx} falló: ${(err as Error).message}`);
-          return null;
-        });
-        for (const d of r?.detalle ?? []) {
-          informe.comisionesDeDevoluciones.push({ tx, ...d });
-        }
+        // eso: va por transacción y es idempotente (lo anulado ya no es
+        // anulable; cada ajuste tiene clave única). Desde el 2026-11-23 lo ya
+        // pagado ya no «se queda»: deja un ajuste que se descuenta del
+        // siguiente corte. En simulación solo dice qué haría.
+        await this.revertirDevolucion(informe, e, tx, compra, simular);
         continue;
       }
       if (HOTMART_DISPUTA.test(e.eventType)) {
         if (!yaDevueltos.has(tx) && enLibro.has(`HOTMART|${tx}`)) {
           enDisputa.add(tx);
+          // Una disputa ya no es «solo una señal» (Javier, 2026-11-23): el
+          // dinero está retenido y no cuenta como cobrado, y sus comisiones se
+          // revierten igual que en un reembolso. `marcarDevuelto` a EN_DISPUTA
+          // solo toca un cobro PAGADO: si después llegó el reembolso, no lo
+          // devuelve a disputa.
+          if (!simular) {
+            await this.income.marcarDevuelto('HOTMART', tx, 'EN_DISPUTA', e.processedAt);
+          }
+          await this.revertirDevolucion(informe, e, tx, compra, simular);
         }
         continue;
       }
@@ -676,6 +678,47 @@ export class ConciliadorDeIngresosService {
       select,
     });
     return (t as TenantMinimo) ?? null;
+  }
+
+  /** La misma reversión que hace el aviso de Hotmart al llegar. */
+  private async revertirDevolucion(
+    informe: InformeDeConciliacion,
+    e: { eventType: string; tenantId: string | null; processedAt: Date | null },
+    tx: string,
+    compra: any,
+    simular: boolean,
+  ) {
+    const tipo: TipoDeDevolucion =
+      e.eventType === 'PURCHASE_CHARGEBACK'
+        ? 'CONTRACARGO'
+        : e.eventType === 'PURCHASE_PROTEST'
+          ? 'DISPUTA'
+          : 'REEMBOLSO';
+    const r = await revertirComisionesDeDevolucion(this.prisma, {
+      tx,
+      tipo,
+      motivo: motivoDeAnulacion(e.eventType, tx, e.processedAt ?? new Date()),
+      // El negocio que guardó el aviso: el mismo que resolvió el webhook. Sin
+      // él solo se revierte por transacción.
+      tenantId: e.tenantId,
+      fechaDelCobro: fechaDelCobroDeHotmart(compra.approved_date),
+      simular,
+    }).catch((err) => {
+      this.logger.warn(`Revertir comisiones de ${tx} falló: ${(err as Error).message}`);
+      return null;
+    });
+    if (!r) return;
+    for (const d of r.anulacion.detalle) {
+      informe.comisionesDeDevoluciones.push({ tx, id: d.id, monto: d.monto, que: d.que });
+    }
+    const nuevos = r.ajustes.filter((a) => a.resultado !== 'yaExistia');
+    if (nuevos.length) {
+      informe.ajustesDeDevoluciones = [
+        ...(informe.ajustesDeDevoluciones ?? []),
+        ...nuevos.map((a) => ({ tx, comisionId: a.comisionId, montoUsd: a.montoUsd, origen: a.origen })),
+      ];
+      if (!simular) this.logger.warn(resumenDeDevolucion(tx, r));
+    }
   }
 
   /**

@@ -7,6 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CANCELACION_DESHECHA } from '../billing/estado-del-negocio';
 import type { PaymentGateway } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -840,8 +841,9 @@ export class PlanUpgradeService {
             // todo ACTIVE con `canceledAt` en cuanto le vence el período. Sin
             // limpiarlo, este negocio queda condenado a que lo apaguen al
             // acabar el año que acaba de pagar (o antes, si le entra un cobro
-            // fallido: ese cron también mira `failedPaymentCount`).
-            canceledAt: null,
+            // fallido: ese cron también mira `failedPaymentCount`). Con su
+            // origen y su motivo: si no, sale ACTIVO con la nota «Cancelado…».
+            ...CANCELACION_DESHECHA,
             // Dedup por ciclo: los crons de aviso comparan estos campos contra
             // `currentPeriodEnd`. Al moverla un año, si no se limpian, el
             // negocio NO recibe NINGÚN aviso del ciclo nuevo — el fallo

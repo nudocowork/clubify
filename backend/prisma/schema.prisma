@@ -796,6 +796,28 @@ model Tenant {
   /// devolvió.
   canceledAt                  DateTime?
   suspendedAt                 DateTime?
+  /// DE DÓNDE salió la cancelación: CLIENTE_PANEL (botón «Cancelar mi
+  /// suscripción»), CLIENTE_PASARELA (canceló en Hotmart/Stripe),
+  /// COLABORADOR (alguien del equipo), REEMBOLSO, CONTRACARGO o DISPUTA.
+  /// Cancelar y suspender NO son lo mismo (Javier, 2026-11-23): esto y
+  /// `suspendReason` son lo que permite contar qué pasó con cada negocio.
+  /// Ver `billing/estado-del-negocio.ts`.
+  cancelSource                String?
+  /// Por qué, en texto: el motivo que escribió el cliente o el colaborador, o
+  /// la transacción devuelta. Se lee junto a `cancelSource`.
+  cancelReason                String?                    @db.Text
+  /// Por qué está SUSPENDIDO, cuando lo está: FALTA_DE_PAGO, PRUEBA_VENCIDA,
+  /// FIN_DEL_PERIODO_CANCELADO, MANUAL, DEVOLUCION… Solo se lee con
+  /// `status = SUSPENDED`.
+  suspendReason               String?                    @db.Text
+  /// Cuándo se le avisó al dueño, por SMS, que verifique la cancelación en la
+  /// pasarela. Uno por proceso de cancelación: pulsar el botón tres veces no
+  /// manda tres SMS. Se limpia cuando el negocio se reactiva.
+  cancelNoticeSentAt          DateTime?
+  /// Qué plantilla se mandó en ese aviso. Una devolución que llega DESPUÉS de
+  /// una cancelación sí manda su propio aviso (es otra noticia: el dinero
+  /// volvió); una segunda cancelación, no.
+  cancelNoticeTemplate        String?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
   // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
   //   enviamos el "tu cobro es mañana". Evita re-enviar si el cron corre

@@ -11,6 +11,7 @@ import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
 import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
 import { PaymentHistoryCard } from '@/components/PaymentHistoryCard';
+import { EstadoDeSuscripcionCard } from '@/components/EstadoDeSuscripcionCard';
 import {
   UpgradeAnualButton,
   UpgradesHistoryCard,
@@ -231,11 +232,19 @@ export default function TenantDetail() {
     ) {
       return;
     }
+    // Suspender a mano queda con su motivo: suspender NO es cancelar
+    // (2026-11-23). Cancelar está en «Estado de la suscripción».
+    let motivo: string | undefined;
+    if (status === 'SUSPENDED') {
+      const escrito = prompt(tr('suspendReasonPrompt'));
+      if (escrito === null) return;
+      motivo = escrito.trim() || undefined;
+    }
     setActioning(true);
     try {
       await api(`/tenants/${id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, motivo }),
       });
       await load();
       toast(
@@ -602,6 +611,11 @@ export default function TenantDetail() {
           </div>
         )}
       </div>
+
+      {/* Cancelado o suspendido, y POR QUÉ; cancelar y registrar devoluciones.
+          Solo la plataforma (el endpoint lo gatea; a una marca le da 403 y la
+          tarjeta no se pinta). */}
+      {isSuperAdmin && <EstadoDeSuscripcionCard tenantId={t.id} onChanged={load} />}
 
       {/* Historial de Trial — audit log de adjust-trial. Solo SUPER_ADMIN
           ve esto (el endpoint detrás también lo gatea). */}

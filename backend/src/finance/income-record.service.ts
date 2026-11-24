@@ -490,11 +490,16 @@ export class IncomeRecordService {
   async marcarDevuelto(
     gateway: PaymentGateway,
     externalTxId: string,
-    estado: 'REEMBOLSADO' | 'CANCELADO',
+    estado: 'REEMBOLSADO' | 'CANCELADO' | 'EN_DISPUTA',
     cuando: Date,
   ): Promise<boolean> {
+    // Una disputa solo se abre sobre un cobro PAGADO; un reembolso o un
+    // contracargo cierran también la disputa que hubiera (EN_DISPUTA →
+    // REEMBOLSADO). Nunca al revés: una disputa que llega tarde no «des-
+    // reembolsa» nada.
+    const desde = estado === 'EN_DISPUTA' ? ['PAGADO'] : ['PAGADO', 'EN_DISPUTA'];
     const r = await this.prisma.incomeRecord.updateMany({
-      where: { gateway, externalTxId, status: 'PAGADO' },
+      where: { gateway, externalTxId, status: { in: desde } },
       data: { status: estado, refundedAt: cuando },
     });
     if (r.count > 0) {

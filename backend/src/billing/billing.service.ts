@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { estadoComercial } from '../common/estado-comercial';
 import { telefonoConIndicativo } from '../common/telefono-con-indicativo';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -23,6 +24,24 @@ import {
 } from './dunning';
 import { diasDeFechaTardia } from './fecha-de-cobro';
 import { desconectaAlCancelar, esCodigoHotmartReal } from './cancelacion';
+import {
+  PLANTILLA_DEL_AVISO,
+  esOrigenDeDevolucion,
+  nombreDeLaPasarela,
+  notaDelEstado,
+  origenQueManda,
+  tocaAvisar,
+  type OrigenDeCancelacion,
+} from './estado-del-negocio';
+import {
+  revertirComisionesDeDevolucion,
+  resumenDeDevolucion,
+  type ResultadoDeDevolucion,
+  type TipoDeDevolucion,
+} from './revertir-devolucion';
+import { MARCA_DE_ANULACION, motivoDeAnulacion } from './anular-comisiones-de-reembolso';
+import { PREFIJO_AJUSTE } from './revertir-devolucion';
+import { IncomeRecordService } from '../finance/income-record.service';
 import { HotmartApiService } from './hotmart-api.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { horaLocal, fechaLocal } from '../automations/hora-local';
@@ -53,7 +72,7 @@ const BILLING_ALERT_PHONES = [
   '+573248088401',
 ];
 
-export type MotivoDeBaja = 'cancelacion' | 'reembolso' | 'contracargo';
+export type MotivoDeBaja = 'cancelacion' | 'reembolso' | 'contracargo' | 'disputa';
 
 /**
  * El SMS al equipo cuando un negocio se va. Hasta el 15-09-2026 una
@@ -70,7 +89,9 @@ export function textoDeCancelacion(
       ? '💸 REEMBOLSO'
       : motivo === 'contracargo'
         ? '💸 CONTRACARGO'
-        : '🚫 CANCELÓ la suscripción';
+        : motivo === 'disputa'
+          ? '💸 DISPUTA del pago'
+          : '🚫 CANCELÓ la suscripción';
   const cuando = estado.desconectado
     ? ' Servicio desconectado.'
     : estado.hasta
@@ -150,6 +171,10 @@ export class BillingService {
     private audit: AuditService,
     private prereg: PreregAlertsService,
     private hotmartApi: HotmartApiService,
+    // Para marcar el cobro como devuelto en Contabilidad en el mismo instante de
+    // la devolución (antes esperaba a la conciliación de las 4:00, y mientras
+    // tanto la comisión de la PM seguía contándolo).
+    private incomeRecord?: IncomeRecordService,
   ) {}
 
   /**
@@ -492,16 +517,17 @@ export class BillingService {
     });
     if (!t) throw new Error('Tenant not found');
 
-    const now = new Date();
-    const desconectarYa = desconectaAlCancelar(t, now);
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        canceledAt: now,
-        ...(desconectarYa ? { status: 'SUSPENDED' as const, suspendedAt: now } : {}),
-      },
+    // La misma puerta que el colaborador y las devoluciones: marca la
+    // cancelación con su ORIGEN (el cliente, desde el panel), desconecta solo
+    // si no le quedan días pagados, y le manda el SMS de «verifica también en
+    // Hotmart» — una vez por proceso, aunque pulse el botón tres veces.
+    const r = await this.registrarCancelacion(tenantId, {
+      origen: 'CLIENTE_PANEL',
+      motivo: reason?.trim() || null,
+      desconectar: 'segun_lo_pagado',
+      auditar: false,
     });
-    invalidateTenantStatusCache(tenantId);
+    const desconectarYa = r.desconectadoAhora;
 
     const accessUntil = t.currentPeriodEnd ?? t.trialEndsAt;
     this.audit.log({
@@ -515,6 +541,7 @@ export class BillingService {
         previousStatus: t.status,
         suspendedNow: desconectarYa,
         accessUntil: accessUntil?.toISOString() ?? null,
+        aviso: r.aviso,
       },
     });
     this.logger.log(
@@ -561,7 +588,576 @@ export class BillingService {
         );
       }
     }
-    return { ok: true, accessUntil, suspendedNow: desconectarYa, canceladaEnPasarela };
+    return {
+      ok: true,
+      accessUntil,
+      suspendedNow: desconectarYa,
+      canceladaEnPasarela,
+      // Para que el panel pueda decir «te enviamos un SMS…» o no.
+      avisoEnviado: r.aviso.resultado === 'enviado',
+    };
+  }
+
+  /**
+   * LA puerta de toda cancelación: el cliente desde su panel, el cliente en la
+   * pasarela, un colaborador, un reembolso, un contracargo o una disputa.
+   *
+   * Qué hace, siempre igual:
+   *  1. Marca `canceledAt` (la primera fecha se conserva) con su ORIGEN y su
+   *     MOTIVO. Una devolución pisa el origen de una cancelación anterior; al
+   *     revés, no (ver `origenQueManda`).
+   *  2. Desconecta según `desconectar`:
+   *       · 'ya'             → en el acto (devolución del período actual).
+   *       · 'segun_lo_pagado'→ solo si no le quedan días pagados
+   *                            (`desconectaAlCancelar`): quien canceló hoy y
+   *                            pagó el trimestre sigue hasta el final del
+   *                            trimestre, y el cron lo desconecta ese día.
+   *  3. Audita el cambio (`billing.cancelacion`) con origen, motivo y quién.
+   *  4. Manda el SMS de «verifica que también quede cancelada en la pasarela»
+   *     de la plantilla de su situación, una vez por proceso (`tocaAvisar`).
+   *
+   * Nunca lanza por el aviso: la cancelación ya quedó escrita.
+   */
+  async registrarCancelacion(
+    tenantId: string,
+    opts: {
+      origen: OrigenDeCancelacion;
+      motivo?: string | null;
+      desconectar: 'ya' | 'segun_lo_pagado';
+      actorId?: string | null;
+      /** false si quien llama ya deja su propia auditoría (el panel del dueño). */
+      auditar?: boolean;
+      /** false para no mandar SMS (p. ej. una devolución de un cobro viejo). */
+      avisar?: boolean;
+    },
+  ): Promise<ResultadoDeCancelacion> {
+    const t: any = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        trialEndsAt: true,
+        currentPeriodEnd: true,
+        failedPaymentCount: true,
+        canceledAt: true,
+        cancelSource: true,
+        cancelReason: true,
+        cancelNoticeSentAt: true,
+        cancelNoticeTemplate: true,
+      },
+    });
+    if (!t) throw new Error('Tenant not found');
+    const now = new Date();
+    const origen = t.canceledAt ? origenQueManda(t.cancelSource, opts.origen) : opts.origen;
+    const manda = origen === opts.origen;
+    const desconectar =
+      t.status !== 'SUSPENDED' &&
+      (opts.desconectar === 'ya' || desconectaAlCancelar(t, now));
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        canceledAt: t.canceledAt ?? now,
+        cancelSource: origen,
+        cancelReason: manda ? (opts.motivo?.trim() || null) : (t.cancelReason ?? null),
+        ...(desconectar
+          ? {
+              status: 'SUSPENDED' as const,
+              suspendedAt: now,
+              suspendReason: esOrigenDeDevolucion(opts.origen) ? 'DEVOLUCION' : 'FIN_DEL_PERIODO_CANCELADO',
+            }
+          : {}),
+      },
+    });
+    invalidateTenantStatusCache(tenantId);
+    if (desconectar) {
+      await this.releaseBrandCreditOnSuspend(tenantId, `cancelacion_${opts.origen.toLowerCase()}`).catch(() => false);
+    }
+    if (opts.auditar !== false) {
+      this.audit.log({
+        actorId: opts.actorId ?? null,
+        tenantId,
+        action: 'billing.cancelacion',
+        resource: `tenant:${tenantId}`,
+        metadata: {
+          brandName: t.brandName,
+          origen: opts.origen,
+          origenQueQueda: origen,
+          motivo: opts.motivo ?? null,
+          estadoAnterior: t.status,
+          canceladoAntes: t.canceledAt?.toISOString?.() ?? null,
+          desconectadoAhora: desconectar,
+          accesoHasta: !desconectar && t.status === 'ACTIVE' ? (t.currentPeriodEnd?.toISOString?.() ?? null) : null,
+        },
+      });
+    }
+    const aviso =
+      opts.avisar === false
+        ? ({ resultado: 'no_aplica', detalle: 'aviso desactivado para este caso' } as AvisoDeCancelacion)
+        : await this.avisarCancelacion(tenantId, opts.origen, t).catch(
+            (e) => ({ resultado: 'fallido', detalle: (e as Error).message }) as AvisoDeCancelacion,
+          );
+    return { desconectadoAhora: desconectar, origen, aviso };
+  }
+
+  /**
+   * El SMS de «verifica que tu suscripción también quede cancelada en la
+   * pasarela». Va al teléfono de cobros del negocio (el mismo de los
+   * recordatorios de renovación: `billingAlertsPhone` → el del dueño), por la
+   * subcuenta de su marca, y queda en el historial de mensajes del negocio
+   * (MessageLog con su `tenantId`) con su resultado.
+   *
+   * UNA VEZ por proceso: el aviso se «reclama» con un UPDATE condicional sobre
+   * lo que había (dos cancelaciones simultáneas: solo una gana) y, si el envío
+   * falla, se devuelve el reclamo para que un intento posterior pueda avisar.
+   * El resultado —enviado, fallido, sin destino, apagado— queda en la
+   * auditoría: es la constancia de que se le informó.
+   */
+  async avisarCancelacion(
+    tenantId: string,
+    origen: OrigenDeCancelacion,
+    previo?: { cancelNoticeSentAt: Date | null; cancelNoticeTemplate: string | null },
+  ): Promise<AvisoDeCancelacion> {
+    const plantilla = PLANTILLA_DEL_AVISO[origen];
+    if (!plantilla) return { resultado: 'no_aplica', detalle: 'esta situación no lleva aviso' };
+    const antes =
+      previo ??
+      (await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { cancelNoticeSentAt: true, cancelNoticeTemplate: true },
+      }));
+    const ya = {
+      cancelNoticeSentAt: antes?.cancelNoticeSentAt ?? null,
+      cancelNoticeTemplate: antes?.cancelNoticeTemplate ?? null,
+    };
+    if (!tocaAvisar(ya, plantilla)) {
+      return { resultado: 'ya_avisado', detalle: `ya se avisó (${ya.cancelNoticeTemplate}) el ${ya.cancelNoticeSentAt?.toISOString?.()}`, plantilla };
+    }
+    const reclamo = await this.prisma.tenant.updateMany({
+      where: { id: tenantId, cancelNoticeSentAt: ya.cancelNoticeSentAt, cancelNoticeTemplate: ya.cancelNoticeTemplate },
+      data: { cancelNoticeSentAt: new Date(), cancelNoticeTemplate: plantilla },
+    });
+    if (reclamo.count === 0) {
+      return { resultado: 'ya_avisado', detalle: 'otro proceso acaba de avisar', plantilla };
+    }
+    const devolverReclamo = () =>
+      this.prisma.tenant
+        .updateMany({
+          where: { id: tenantId, cancelNoticeTemplate: plantilla },
+          data: { cancelNoticeSentAt: ya.cancelNoticeSentAt, cancelNoticeTemplate: ya.cancelNoticeTemplate },
+        })
+        .catch(() => null);
+
+    let aviso: AvisoDeCancelacion;
+    const target = await this.resolveBillingTarget(tenantId);
+    if (!target) {
+      aviso = {
+        resultado: 'sin_destino',
+        detalle: 'sin canal de SMS o sin teléfono (revisar los avisos de cobro del negocio)',
+        plantilla,
+      };
+    } else {
+      const negocio = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { brandName: true, hotmartSubscriberCode: true, stripeSubscriptionId: true },
+      });
+      const brandName = negocio?.brandName ?? '';
+      const ownerName = (await this.ownerFirstName(tenantId)) || brandName;
+      const texto = await this.smsTemplates.render(
+        plantilla,
+        { brandName, ownerName, pasarela: nombreDeLaPasarela(negocio ?? {}) },
+        tenantId,
+      );
+      if (!texto.trim()) {
+        aviso = { resultado: 'apagado', detalle: 'la plantilla está apagada en Automatizaciones', plantilla, telefono: target.phone };
+      } else {
+        const r: any = await this.growBusiness.sendSmsWithCreds(target.creds, target.phone, texto, {
+          tenantId,
+          templateId: plantilla,
+          feature: 'billing',
+        });
+        aviso = r?.ok
+          ? { resultado: 'enviado', detalle: 'SMS enviado', plantilla, telefono: target.phone }
+          : { resultado: 'fallido', detalle: r?.message ?? 'el proveedor no confirmó el envío', plantilla, telefono: target.phone };
+      }
+    }
+    if (aviso.resultado !== 'enviado') await devolverReclamo();
+    this.audit.log({
+      actorId: null,
+      tenantId,
+      action: 'billing.aviso_cancelacion',
+      resource: `tenant:${tenantId}`,
+      metadata: { origen, ...aviso },
+    });
+    if (aviso.resultado !== 'enviado') {
+      this.logger.warn(`Aviso de cancelación a ${tenantId} (${plantilla}) NO enviado: ${aviso.resultado} — ${aviso.detalle}`);
+    }
+    return aviso;
+  }
+
+  /**
+   * Un COLABORADOR cancela la suscripción desde el panel de administración.
+   *
+   * Hasta hoy el equipo solo tenía «Suspender», que dejaba al negocio como si
+   * no hubiera pagado. Esto lo deja CANCELADO, con el motivo que escribió el
+   * colaborador y quién lo hizo, cancela también en Hotmart por la API (lo
+   * mismo que el botón del dueño) y le manda al dueño el SMS de «verifica que
+   * quede cancelada en Hotmart» (Javier, 2026-11-23: que el colaborador cancele
+   * en Clubify no garantiza que Hotmart deje de cobrar).
+   *
+   * Respeta lo pagado salvo que se pida desconectar ya: cancelar hoy un
+   * trimestre pagado deja el servicio hasta el final del trimestre.
+   */
+  async cancelarPorColaborador(
+    tenantId: string,
+    actorId: string | null,
+    body: { motivo: string; desconectarYa?: boolean },
+  ) {
+    // findFirst: pasa por el aislamiento por marca del middleware.
+    const t = await this.prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: { id: true, brandName: true, status: true, currentPeriodEnd: true, hotmartSubscriberCode: true },
+    });
+    if (!t) throw new NotFoundException('Negocio no encontrado');
+    const motivo = body.motivo?.trim();
+    if (!motivo) throw new BadRequestException('Escribe el motivo de la cancelación.');
+
+    const r = await this.registrarCancelacion(tenantId, {
+      origen: 'COLABORADOR',
+      motivo,
+      desconectar: body.desconectarYa ? 'ya' : 'segun_lo_pagado',
+      actorId,
+    });
+
+    let pasarela: { intentada: boolean; ok: boolean; motivo?: string } = { intentada: false, ok: false };
+    if (esCodigoHotmartReal(t.hotmartSubscriberCode) && this.hotmartApi.estaConfigurada()) {
+      const c = await this.hotmartApi.cancelarSuscripcion(t.hotmartSubscriberCode!, { mandarCorreo: false });
+      pasarela = c.ok ? { intentada: true, ok: true } : { intentada: true, ok: false, motivo: c.motivo };
+      this.audit.log({
+        actorId,
+        tenantId,
+        action: c.ok ? 'billing.gateway_cancel_ok' : 'billing.gateway_cancel_failed',
+        resource: `tenant:${tenantId}`,
+        metadata: { subscriberCode: t.hotmartSubscriberCode, por: 'colaborador', ...(c.ok ? { status: c.status } : { motivo: c.motivo }) },
+      });
+    }
+    await this.notifyBillingTeam('cancelado', `${t.brandName} (por un colaborador)`, {
+      motivo: 'cancelacion',
+      desconectado: r.desconectadoAhora || t.status === 'SUSPENDED',
+      hasta: !r.desconectadoAhora && t.status === 'ACTIVE' ? (t.currentPeriodEnd ?? null) : null,
+    }).catch(() => null);
+    return { ok: true as const, ...r, pasarela };
+  }
+
+  /**
+   * Un COLABORADOR registra que un cobro de este negocio se devolvió (lo
+   * reembolsó él en la pasarela, o le llegó el contracargo por otra vía).
+   *
+   * Hace EXACTAMENTE lo mismo que el aviso de Hotmart (`aplicarDevolucion`), y
+   * por eso da igual el orden: si después llega el aviso de Hotmart del mismo
+   * cobro, no se revierte nada dos veces ni se manda un segundo SMS.
+   *
+   * NO devuelve el dinero en Hotmart: eso se hace en Hotmart. Esto registra
+   * en Clubify lo que ya pasó allí.
+   */
+  async devolucionPorColaborador(
+    tenantId: string,
+    actorId: string | null,
+    body: { externalTxId: string; tipo: 'REEMBOLSO' | 'CONTRACARGO'; nota?: string },
+  ) {
+    const t = await this.prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: { id: true, brandName: true },
+    });
+    if (!t) throw new NotFoundException('Negocio no encontrado');
+    const tx = body.externalTxId?.trim();
+    const ingreso = await this.prisma.incomeRecord.findFirst({
+      where: { tenantId, externalTxId: tx },
+      select: { id: true, gateway: true, saleDate: true, status: true, grossUsd: true },
+    });
+    if (!ingreso) {
+      throw new BadRequestException('Ese cobro no aparece en Contabilidad para este negocio. Revisa la transacción.');
+    }
+    // ¿Es el cobro del período en curso? El más reciente de sus cobros de plan.
+    // Devolver uno viejo no le quita el período que pagó después.
+    const ultimo = await this.prisma.incomeRecord.findFirst({
+      where: { tenantId, category: { not: 'OTRO' } },
+      orderBy: { saleDate: 'desc' },
+      select: { id: true },
+    });
+    const esDelPeriodoActual = !ultimo || ultimo.id === ingreso.id;
+    const r = await this.aplicarDevolucion({
+      tenantId,
+      tx,
+      tipo: body.tipo,
+      gateway: ingreso.gateway as any,
+      fechaDelCobro: ingreso.saleDate,
+      actorId,
+      nota: body.nota ?? null,
+      esDelPeriodoActual,
+    });
+    await this.notifyBillingTeam(
+      'cancelado',
+      esDelPeriodoActual
+        ? `${t.brandName} (registrada por un colaborador)`
+        : `${t.brandName} (cobro ANTERIOR ${tx}; el negocio sigue activo, solo se revirtió el dinero)`,
+      {
+        motivo: body.tipo === 'CONTRACARGO' ? 'contracargo' : 'reembolso',
+        desconectado: !!r.cancelacion?.desconectadoAhora,
+        hasta: null,
+      },
+    ).catch(() => null);
+    return {
+      ok: true as const,
+      esDelPeriodoActual,
+      ingresoMarcado: r.ingresoMarcado,
+      estadoAnteriorDelIngreso: ingreso.status,
+      comisionesAnuladas: r.comisiones?.anulacion.anuladas ?? 0,
+      comisionesYaPagadas: r.comisiones?.anulacion.yaPagadas ?? 0,
+      ajustes: r.comisiones?.ajustes ?? [],
+      equipo: r.comisiones?.equipo ?? null,
+      socio: r.comisiones?.socio ?? null,
+      cancelacion: r.cancelacion,
+    };
+  }
+
+  /**
+   * Todo lo que explica en qué está el negocio, para la ficha del admin:
+   * estado comercial con su nota (por qué está cancelado o suspendido), los
+   * avisos de cancelación con su resultado, sus cobros con el estado en
+   * Contabilidad, y lo que se revirtió de cada devolución.
+   */
+  async estadoDelNegocio(tenantId: string) {
+    const t: any = await this.prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        canceledAt: true,
+        cancelSource: true,
+        cancelReason: true,
+        suspendReason: true,
+        suspendedAt: true,
+        currentPeriodEnd: true,
+        trialEndsAt: true,
+        lastChargeAt: true,
+        cancelNoticeSentAt: true,
+        cancelNoticeTemplate: true,
+      },
+    });
+    if (!t) throw new NotFoundException('Negocio no encontrado');
+    const [historial, mensajes, ingresos] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: {
+          tenantId,
+          action: {
+            in: [
+              'billing.cancelacion',
+              'billing.devolucion',
+              'billing.aviso_cancelacion',
+              'billing.canceled_by_owner',
+              'billing.gateway_cancel_ok',
+              'billing.gateway_cancel_failed',
+              'tenant.status_changed',
+              'subscription.suspended',
+              'subscription.canceled',
+            ],
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: { id: true, createdAt: true, action: true, actorId: true, metadata: true },
+      }),
+      this.prisma.messageLog.findMany({
+        where: { tenantId, templateId: { startsWith: 'cancel_aviso_' } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, createdAt: true, status: true, toPhone: true, templateId: true, error: true, preview: true },
+      }),
+      this.prisma.incomeRecord.findMany({
+        where: { tenantId },
+        orderBy: { saleDate: 'desc' },
+        take: 15,
+        select: {
+          id: true,
+          externalTxId: true,
+          gateway: true,
+          grossUsd: true,
+          status: true,
+          category: true,
+          saleDate: true,
+          refundedAt: true,
+        },
+      }),
+    ]);
+    const txs = ingresos.map((i: any) => i.externalTxId).filter(Boolean);
+    const comisiones = txs.length
+      ? await this.prisma.commission.findMany({
+          where: {
+            OR: [
+              // Los ajustes por recuperar de sus devoluciones…
+              { periodKey: { startsWith: PREFIJO_AJUSTE }, externalTxId: { in: txs } },
+              // …y lo que se anuló por ellas.
+              {
+                status: 'REJECTED',
+                notes: { contains: MARCA_DE_ANULACION },
+                OR: [{ externalTxId: { in: txs } }, { hotmartTransactionId: { in: txs } }],
+              },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            amount: true,
+            amountPaid: true,
+            status: true,
+            paymentStatus: true,
+            externalTxId: true,
+            hotmartTransactionId: true,
+            periodKey: true,
+            notes: true,
+            createdAt: true,
+            recipientCode: { select: { code: true, ownerName: true } },
+          },
+        })
+      : [];
+    return {
+      id: t.id,
+      brandName: t.brandName,
+      status: t.status,
+      estadoComercial: estadoComercial(t),
+      nota: notaDelEstado(t),
+      canceledAt: t.canceledAt,
+      cancelSource: t.cancelSource,
+      cancelReason: t.cancelReason,
+      suspendReason: t.suspendReason,
+      suspendedAt: t.suspendedAt,
+      currentPeriodEnd: t.currentPeriodEnd,
+      avisoDeCancelacion: t.cancelNoticeSentAt
+        ? { enviadoEl: t.cancelNoticeSentAt, plantilla: t.cancelNoticeTemplate }
+        : null,
+      mensajes,
+      ingresos: ingresos.map((i: any) => ({ ...i, grossUsd: Number(i.grossUsd) })),
+      reversiones: comisiones.map((c: any) => ({
+        id: c.id,
+        tipo: c.periodKey?.startsWith(PREFIJO_AJUSTE) ? 'AJUSTE_POR_RECUPERAR' : 'ANULADA',
+        montoUsd: Number(c.amount),
+        // En un ajuste: cuánto ya se descontó en un corte (negativo).
+        aplicadoUsd: Number(c.amountPaid),
+        estado: c.status,
+        pago: c.paymentStatus,
+        tx: c.externalTxId ?? c.hotmartTransactionId,
+        colaborador: c.recipientCode?.ownerName ?? c.recipientCode?.code ?? '—',
+        nota: c.notes,
+        creada: c.createdAt,
+      })),
+      historial,
+    };
+  }
+
+  /**
+   * DEVOLUCIÓN de un cobro: reembolso, contracargo o disputa. Misma lógica
+   * venga de un aviso de Hotmart o de un colaborador que la registra a mano.
+   *
+   *  1. Contabilidad: el cobro deja de contar (REEMBOLSADO, o EN_DISPUTA
+   *     mientras la disputa no se resuelve). No se borra.
+   *  2. Comisiones: se revierten todas las de ese cobro —anuladas si no se
+   *     pagaron, ajuste por recuperar si sí— (`revertir-devolucion.ts`).
+   *  3. El negocio: si el cobro devuelto es el del PERÍODO ACTUAL, pierde el
+   *     derecho al servicio → CANCELADO y desconectado en el acto. Si es de un
+   *     ciclo anterior (ya consumido), el negocio sigue y solo se revierte lo
+   *     financiero; el equipo lo ve en la auditoría.
+   *
+   * Idempotente de punta a punta: el ingreso solo cambia desde PAGADO, las
+   * comisiones se revierten una vez por transacción, y el SMS sale una vez.
+   */
+  async aplicarDevolucion(args: {
+    tenantId: string | null;
+    tx: string;
+    tipo: TipoDeDevolucion;
+    gateway: 'HOTMART' | 'MANUAL' | 'STRIPE' | 'CROSS' | 'WHOP';
+    /** `approved_date` del cobro devuelto, si se conoce. */
+    fechaDelCobro?: Date | null;
+    /** Quién la registró, si fue un colaborador. */
+    actorId?: string | null;
+    /** Lo que escribió el colaborador. */
+    nota?: string | null;
+    /** El cobro es el del período en curso (o no se sabe). Por defecto, sí. */
+    esDelPeriodoActual?: boolean;
+  }): Promise<{
+    ingresoMarcado: boolean;
+    comisiones: ResultadoDeDevolucion | null;
+    cancelacion: ResultadoDeCancelacion | null;
+  }> {
+    const ahora = new Date();
+    const evento =
+      args.tipo === 'CONTRACARGO' ? 'PURCHASE_CHARGEBACK' : args.tipo === 'DISPUTA' ? 'PURCHASE_PROTEST' : 'PURCHASE_REFUNDED';
+
+    // 1) Contabilidad, ANTES que las comisiones: la de la PM y la del socio se
+    //    recalculan sobre lo cobrado, y el cobro tiene que haber dejado de
+    //    contar para que su próxima pasada lo saque.
+    const ingresoMarcado = this.incomeRecord
+      ? await this.incomeRecord
+          .marcarDevuelto(args.gateway as any, args.tx, args.tipo === 'DISPUTA' ? 'EN_DISPUTA' : 'REEMBOLSADO', ahora)
+          .catch((e) => {
+            this.logger.warn(`Marcar devuelto ${args.tx} falló: ${(e as Error).message}`);
+            return false;
+          })
+      : false;
+
+    // 2) Comisiones.
+    const comisiones = await revertirComisionesDeDevolucion(this.prisma, {
+      tx: args.tx,
+      tipo: args.tipo,
+      motivo: motivoDeAnulacion(evento, args.tx, ahora),
+      tenantId: args.tenantId,
+      fechaDelCobro: args.fechaDelCobro ?? null,
+      cuando: ahora,
+    }).catch((e) => {
+      this.logger.error(`Revertir comisiones de ${args.tx} falló: ${(e as Error).message}`);
+      return null;
+    });
+    if (comisiones) this.logger.log(resumenDeDevolucion(args.tx, comisiones));
+
+    // 3) El negocio.
+    let cancelacion: ResultadoDeCancelacion | null = null;
+    if (args.tenantId) {
+      const actual = args.esDelPeriodoActual !== false;
+      if (actual) {
+        cancelacion = await this.registrarCancelacion(args.tenantId, {
+          origen: args.tipo,
+          motivo: `tx ${args.tx}${args.nota?.trim() ? ` · ${args.nota.trim()}` : ''}`,
+          desconectar: 'ya',
+          actorId: args.actorId ?? null,
+        });
+      }
+    }
+
+    this.audit.log({
+      actorId: args.actorId ?? null,
+      tenantId: args.tenantId ?? undefined,
+      action: 'billing.devolucion',
+      resource: args.tenantId ? `tenant:${args.tenantId}` : `tx:${args.tx}`,
+      metadata: {
+        tx: args.tx,
+        tipo: args.tipo,
+        gateway: args.gateway,
+        nota: args.nota ?? null,
+        registradaPor: args.actorId ? 'colaborador' : 'pasarela',
+        esDelPeriodoActual: args.esDelPeriodoActual !== false,
+        ingresoMarcado,
+        comisionesAnuladas: comisiones?.anulacion.detalle.filter((d) => d.que === 'anulada').map((d) => ({ id: d.id, monto: d.monto })) ?? [],
+        comisionesYaPagadas: comisiones?.anulacion.detalle.filter((d) => d.que === 'pagada').map((d) => ({ id: d.id, pagado: d.pagado ?? d.monto })) ?? [],
+        ajustes: comisiones?.ajustes ?? [],
+        equipo: comisiones?.equipo ?? null,
+        socio: comisiones?.socio ?? null,
+        negocioCancelado: !!cancelacion,
+        desconectado: cancelacion?.desconectadoAhora ?? false,
+        aviso: cancelacion?.aviso ?? null,
+      },
+    });
+    return { ingresoMarcado, comisiones, cancelacion };
   }
 
   /**
@@ -992,7 +1588,7 @@ export class BillingService {
     for (const t of vencidos) {
       const r = await this.prisma.tenant.updateMany({
         where: { id: t.id, status: 'ACTIVE' },
-        data: { status: 'SUSPENDED', suspendedAt: now },
+        data: { status: 'SUSPENDED', suspendedAt: now, suspendReason: 'FIN_DEL_PERIODO_CANCELADO' },
       });
       if (r.count === 0) continue;
       n++;
@@ -1052,7 +1648,7 @@ export class BillingService {
       }
       await this.prisma.tenant.update({
         where: { id: t.id },
-        data: { status: 'SUSPENDED', suspendedAt: now },
+        data: { status: 'SUSPENDED', suspendedAt: now, suspendReason: 'PRUEBA_VENCIDA' },
       });
       trialSuspendedCount++;
       this.logger.warn(`Tenant ${t.brandName} (${t.id}) suspended: trial expired`);
@@ -1730,7 +2326,9 @@ export class BillingService {
         // último ManualPayment + periodicidad). Sigue en /manual-payments/review.
         await this.prisma.tenant.update({
           where: { id: t.id },
-          data: { status: 'SUSPENDED', suspendedAt: now },
+          // SUSPENDIDO, no cancelado: es la única vía que de verdad es «falta
+          // de pago» (Javier, 2026-11-23).
+          data: { status: 'SUSPENDED', suspendedAt: now, suspendReason: 'FALTA_DE_PAGO' },
         });
         suspended++;
         // Fase 3: alerta interna al equipo (los 3 números).
@@ -1898,3 +2496,18 @@ export class BillingService {
     return { reminders, notices, suspended };
   }
 }
+
+/** Qué pasó con el SMS de «verifica la cancelación en la pasarela». */
+export type AvisoDeCancelacion = {
+  resultado: 'enviado' | 'fallido' | 'sin_destino' | 'apagado' | 'ya_avisado' | 'no_aplica';
+  detalle: string;
+  plantilla?: string;
+  telefono?: string;
+};
+
+/** Lo que devuelve `registrarCancelacion`. */
+export type ResultadoDeCancelacion = {
+  desconectadoAhora: boolean;
+  origen: OrigenDeCancelacion;
+  aviso: AvisoDeCancelacion;
+};

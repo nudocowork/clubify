@@ -132,7 +132,13 @@ type PersonBucket = {
   profileStatus: string;
   canTransfer: boolean;
   commissionsCount: number;
+  /** Lo que se le TRANSFIERE: comisiones menos el descuento por devoluciones. */
   totalUsd: number;
+  /** Lo que suman sus comisiones, antes del descuento. */
+  brutoUsd: number;
+  /** Ajustes por recuperar de devoluciones que se le descuentan aquí. */
+  descuentoUsd: number;
+  ajustes: Array<{ id: string; montoUsd: number; nota: string | null }>;
   commissions: Array<{
     id: string;
     amount: number;
@@ -499,6 +505,11 @@ export class CutoffService {
 
     const people = this.groupByPerson(rows, profileByUser);
     const holdPeople = this.groupByPerson(holdRows, profileByUser);
+    // Lo que se le recupera a cada persona por devoluciones de comisiones que
+    // ya se le habían pagado: se ve AQUÍ, antes de transferir, y se aplica al
+    // marcarla pagada (`aplicarAjustes`). Solo en lo transferible de hoy: el
+    // hold todavía no se paga.
+    await this.descontarAjustes(people, brandCommWhere);
 
     const toPayNow = round2(people.reduce((s, p) => s + p.totalUsd, 0));
     const readyToTransfer = round2(
@@ -633,6 +644,9 @@ export class CutoffService {
           canTransfer: profileStatus === 'APPROVED' && !!prof?.method,
           commissionsCount: 0,
           totalUsd: 0,
+          brutoUsd: 0,
+          descuentoUsd: 0,
+          ajustes: [],
           commissions: [],
         };
         byPerson.set(rc.id, p);
@@ -648,6 +662,7 @@ export class CutoffService {
       );
       p.commissionsCount += 1;
       p.totalUsd = round2(p.totalUsd + outstanding);
+      p.brutoUsd = p.totalUsd;
       p.commissions.push({
         id: c.id,
         amount: outstanding,
@@ -700,7 +715,7 @@ export class CutoffService {
 
     const pending = await this.prisma.commission.findMany({
       where: { ...PAYABLE_BASE, payoutBatchId: batch.id },
-      select: { id: true, amount: true, amountPaid: true, notes: true },
+      select: { id: true, amount: true, amountPaid: true, notes: true, recipientCodeId: true },
     });
 
     const stamp = bogotaYmd();
@@ -710,11 +725,15 @@ export class CutoffService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       let paidTotal = 0;
+      const porPersona = new Map<string, number>();
       for (const c of pending) {
         const amount = Number(c.amount);
         const outstanding = Math.max(0, amount - Number(c.amountPaid));
         if (outstanding <= 0) continue;
         paidTotal += outstanding;
+        if (c.recipientCodeId) {
+          porPersona.set(c.recipientCodeId, round2((porPersona.get(c.recipientCodeId) ?? 0) + outstanding));
+        }
         await tx.commission.update({
           where: { id: c.id },
           data: {
@@ -726,6 +745,18 @@ export class CutoffService {
             paidAt,
             notes: c.notes ? `${c.notes}\n${noteTxt}` : noteTxt,
           },
+        });
+      }
+      // Lo que se le recupera a cada uno por devoluciones sale de lo que se le
+      // transfiere en este cierre.
+      for (const [recipientCodeId, disponible] of porPersona) {
+        paidTotal -= await this.aplicarAjustes(tx, {
+          batchId: batch.id,
+          batchCode: batch.code,
+          recipientCodeId,
+          disponible,
+          paidAt,
+          stamp,
         });
       }
       const totalUsd = await this.recalcBatchTotal(tx, batch.id);
@@ -886,6 +917,16 @@ export class CutoffService {
         }
         paid += out;
       }
+      // Lo que se le recupera por devoluciones sale de ESTE pago.
+      const descontado = await this.aplicarAjustes(tx, {
+        batchId,
+        batchCode: batch.code,
+        recipientCodeId,
+        disponible: paid,
+        paidAt,
+        stamp,
+      });
+      paid = round2(paid - descontado);
       await this.registrarMovimiento(tx, {
         batchId,
         recipientCodeId,
@@ -1143,15 +1184,36 @@ export class CutoffService {
       byPerson.set(id, cur);
     }
 
+    // Descuento por devoluciones: lo ya descontado en ESTE corte a quien se
+    // pagó, y lo pendiente de descontar a quien falta por pagar.
+    const ajustes = byPerson.size
+      ? await this.prisma.commission.findMany({
+          where: {
+            status: CommissionStatus.ADJUSTMENT,
+            recipientCodeId: { in: [...byPerson.keys()] },
+            OR: [{ payoutBatchId: batchId, paymentStatus: 'PAID' }, { paymentStatus: 'PENDING', amount: { lt: 0 } }],
+          },
+          select: { recipientCodeId: true, amount: true, paymentStatus: true },
+        })
+      : [];
+
     const people = [...byPerson.values()]
       .map((p) => {
         const pay = payByCode.get(p.codeId);
         const paid = p.outstanding <= 0.001;
+        const suyos = ajustes.filter(
+          (a) => a.recipientCodeId === p.codeId && a.paymentStatus === (paid ? 'PAID' : 'PENDING'),
+        );
+        const descuento = round2(
+          Math.min(p.totalUsd, suyos.reduce((acc, a) => acc - Number(a.amount), 0)),
+        );
         return {
           codeId: p.codeId,
           code: p.code,
           ownerName: p.ownerName,
-          amountUsd: p.totalUsd,
+          // Lo que se le transfiere: sus comisiones menos el descuento.
+          amountUsd: round2(p.totalUsd - descuento),
+          descuentoUsd: descuento,
           paid,
           paidAt: pay?.paidAt ?? null,
           proofUrl: pay?.proofUrl ?? null,
@@ -1239,6 +1301,10 @@ export class CutoffService {
           },
         });
       }
+      // Lo que se había descontado en este corte vuelve a estar por recuperar:
+      // si no, al volver a pagar no se descontaría y el ajuste quedaría
+      // «aplicado» sobre un pago que se deshizo.
+      await this.devolverAjustes(tx, { batchId: batch.id });
       // Borrado por corte, no fila a fila: se reabre entero, así que no hay
       // nada que calcular y correrlo dos veces da lo mismo.
       await tx.batchPersonPayment.deleteMany({ where: { batchId: batch.id } });
@@ -1440,6 +1506,16 @@ export class CutoffService {
         }
       }
       for (const m of movimientos.values()) {
+        // El descuento por devoluciones también sale del pago en bloque.
+        const descontado = await this.aplicarAjustes(tx, {
+          batchId: m.batchId,
+          batchCode: null,
+          recipientCodeId: m.recipientCodeId,
+          disponible: m.monto,
+          paidAt,
+          stamp,
+        });
+        m.monto = round2(m.monto - descontado);
         await this.registrarMovimiento(tx, {
           ...m,
           comprobante,
@@ -1573,8 +1649,13 @@ export class CutoffService {
         }
       }
       for (const m of revertidoPorPersona.values()) {
+        // Lo descontado a esta persona en este corte vuelve a estar pendiente,
+        // y el movimiento se rebaja por lo que de verdad se transfirió (las
+        // comisiones menos ese descuento), no por el bruto.
+        const devuelto = await this.devolverAjustes(tx, { batchId: m.batchId, recipientCodeId: m.recipientCodeId });
         const borrado = await this.deshacerMovimiento(tx, {
           ...m,
+          monto: round2(m.monto - devuelto),
           stamp,
           motivo: body.reason?.trim() || null,
         });
@@ -1987,6 +2068,177 @@ export class CutoffService {
    * corte ABIERTO más viejo, o —si no hay ninguno— un lote de AJUSTE del día
    * de la transferencia. Nunca queda un pago huérfano fuera de la serie.
    */
+  // ── AJUSTES POR RECUPERAR (devoluciones) ─────────────────────────────────
+  //
+  // Una comisión que ya se pagó y cuyo cobro se devolvió deja un ajuste
+  // NEGATIVO por recuperar (`billing/revertir-devolucion.ts`). Se descuenta del
+  // siguiente pago a esa persona, sea cual sea la vía —marcarla pagada, cerrar
+  // el corte o el pago en bloque—, nunca por debajo de cero: si el pago no
+  // alcanza, se descuenta lo que alcance y el resto queda en un ajuste nuevo
+  // para el corte siguiente. Javier, 2026-11-23.
+  //
+  // Se aplica AL PAGAR, no al generar el corte, a propósito: el corte, sus
+  // totales y su cierre no cambian de lógica, y un ajuste nunca se «engancha»
+  // a un corte en el que la persona no cobra nada.
+
+  /** Ajustes pendientes de las personas del corte → descuento en su total. */
+  private async descontarAjustes(people: PersonBucket[], brandCommWhere: Prisma.CommissionWhereInput) {
+    if (!people.length) return;
+    const ajustes = await this.prisma.commission.findMany({
+      where: {
+        status: CommissionStatus.ADJUSTMENT,
+        paymentStatus: 'PENDING',
+        amount: { lt: 0 },
+        recipientCodeId: { in: people.map((p) => p.codeId) },
+        ...brandCommWhere,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, amount: true, notes: true, recipientCodeId: true },
+    });
+    for (const p of people) {
+      const suyos = ajustes.filter((a) => a.recipientCodeId === p.codeId);
+      if (!suyos.length) continue;
+      const debe = round2(suyos.reduce((acc, a) => acc - Number(a.amount), 0));
+      p.brutoUsd = p.totalUsd;
+      p.descuentoUsd = round2(Math.min(debe, p.totalUsd));
+      p.totalUsd = round2(p.totalUsd - p.descuentoUsd);
+      p.ajustes = suyos.map((a) => ({ id: a.id, montoUsd: round2(Number(a.amount)), nota: a.notes }));
+    }
+  }
+
+  /**
+   * Descuenta de un pago de `disponible` dólares a una persona sus ajustes por
+   * recuperar, del más viejo al más nuevo. Devuelve cuánto se descontó.
+   *
+   * Un ajuste que se cubre entero queda PAGADO (aplicado) dentro del corte. Uno
+   * que no alcanza se parte: lo cubierto queda aplicado aquí y el resto nace
+   * como ajuste nuevo, pendiente, con su propia clave (`…-R<n>`). Así cada fila
+   * es siempre «aplicada entera» o «pendiente entera», y la suma de la cadena
+   * es lo que se debía.
+   */
+  private async aplicarAjustes(
+    tx: Prisma.TransactionClient,
+    args: {
+      batchId: string;
+      batchCode: string | null;
+      recipientCodeId: string;
+      disponible: number;
+      paidAt: Date;
+      stamp: string;
+    },
+  ): Promise<number> {
+    let resto = round2(args.disponible);
+    if (resto <= 0) return 0;
+    const pendientes = await tx.commission.findMany({
+      where: {
+        status: CommissionStatus.ADJUSTMENT,
+        paymentStatus: 'PENDING',
+        amount: { lt: 0 },
+        recipientCodeId: args.recipientCodeId,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        amount: true,
+        notes: true,
+        periodKey: true,
+        referralUseId: true,
+        businessGroupId: true,
+        externalTxId: true,
+      },
+    });
+    const donde = args.batchCode ? `el corte ${args.batchCode}` : 'un pago en bloque';
+    let aplicado = 0;
+    for (const a of pendientes) {
+      if (resto <= 0) break;
+      const debe = round2(-Number(a.amount));
+      const toma = round2(Math.min(debe, resto));
+      const parcial = toma < debe - 0.001;
+      const nota = `[${args.stamp}] Descontado en ${donde}: -$${toma.toFixed(2)}` +
+        (parcial ? ` de $${debe.toFixed(2)}; el resto ($${round2(debe - toma).toFixed(2)}) queda para el siguiente pago.` : '.');
+      // Condicional: si otro pago acaba de aplicarlo, no se descuenta dos veces.
+      const w = await tx.commission.updateMany({
+        where: { id: a.id, status: CommissionStatus.ADJUSTMENT, paymentStatus: 'PENDING' },
+        data: {
+          ...(parcial ? { amount: -toma } : {}),
+          amountPaid: -toma,
+          paymentStatus: 'PAID',
+          paidAt: args.paidAt,
+          payoutBatchId: args.batchId,
+          notes: a.notes ? `${a.notes}\n${nota}` : nota,
+        },
+      });
+      if (w.count !== 1) {
+        throw new ConflictException(
+          'Otra persona acaba de registrar un pago a este colaborador. Recarga la pantalla y vuelve a intentarlo.',
+        );
+      }
+      if (parcial) {
+        const n = (a.periodKey?.match(/-R(\d+)$/)?.[1] ?? '0');
+        const base = (a.periodKey ?? `DEVOL-${a.id}`).replace(/-R\d+$/, '');
+        await tx.commission.create({
+          data: {
+            recipientCodeId: args.recipientCodeId,
+            referralUseId: a.referralUseId,
+            businessGroupId: a.businessGroupId,
+            amount: -round2(debe - toma),
+            currency: 'USD',
+            status: CommissionStatus.ADJUSTMENT,
+            paymentStatus: 'PENDING',
+            amountPaid: 0,
+            periodKey: `${base}-R${Number(n) + 1}`,
+            externalTxId: a.externalTxId,
+            businessDate: args.paidAt,
+            availableAt: args.paidAt,
+            notes: `Resto del ajuste ${a.id.slice(0, 8)} por recuperar ($${round2(debe - toma).toFixed(2)}).\n${a.notes ?? ''}`.trim(),
+          },
+        });
+      }
+      aplicado = round2(aplicado + toma);
+      resto = round2(resto - toma);
+    }
+    if (aplicado > 0) await this.recalcBatchTotal(tx, args.batchId);
+    return aplicado;
+  }
+
+  /**
+   * Deshace lo descontado en un corte (al reabrirlo o al revertir el pago de
+   * una persona): sus ajustes vuelven a estar por recuperar. Un ajuste que se
+   * partió vuelve como DOS pendientes que suman lo mismo; no hace falta unirlos.
+   */
+  private async devolverAjustes(
+    tx: Prisma.TransactionClient,
+    args: { batchId: string; recipientCodeId?: string },
+  ): Promise<number> {
+    const stamp = bogotaYmd();
+    const aplicados = await tx.commission.findMany({
+      where: {
+        status: CommissionStatus.ADJUSTMENT,
+        paymentStatus: 'PAID',
+        payoutBatchId: args.batchId,
+        ...(args.recipientCodeId ? { recipientCodeId: args.recipientCodeId } : {}),
+      },
+      select: { id: true, notes: true, amountPaid: true },
+    });
+    let devuelto = 0;
+    for (const a of aplicados) {
+      devuelto = round2(devuelto - Number(a.amountPaid));
+      const nota = `[${stamp}] Pago revertido: el descuento vuelve a estar pendiente.`;
+      await tx.commission.update({
+        where: { id: a.id },
+        data: {
+          amountPaid: 0,
+          paymentStatus: 'PENDING',
+          paidAt: null,
+          payoutBatchId: null,
+          notes: a.notes ? `${a.notes}\n${nota}` : nota,
+        },
+      });
+    }
+    if (aplicados.length) await this.recalcBatchTotal(tx, args.batchId);
+    return devuelto;
+  }
+
   private async resolveFallbackBatch(paymentYmd: string) {
     const open = await this.prisma.payoutBatch.findFirst({
       where: { status: 'OPEN' },

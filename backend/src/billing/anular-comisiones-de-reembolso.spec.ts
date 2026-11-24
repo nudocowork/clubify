@@ -371,7 +371,9 @@ describe('simulación', () => {
     const r = await anularComisionesDeTransaccion(db as any, TX, MOTIVO, { simular: true });
     expect(r.detalle).toEqual([
       { id: 'c1', monto: 15, que: 'anulada' },
-      { id: 'c2', monto: 7.5, que: 'pagada' },
+      // La pagada lleva lo que salió y a quién: con eso `revertir-devolucion`
+      // arma el ajuste por recuperar.
+      expect.objectContaining({ id: 'c2', monto: 7.5, que: 'pagada', pagado: 7.5 }),
     ]);
     expect(com[0].status).toBe('PENDING');
     expect(com[0].notes).toBeNull();
@@ -398,10 +400,13 @@ describe('qué cuenta como devolución', () => {
     expect(esDevolucion('PURCHASE_CHARGEBACK')).toBe(true);
   });
 
-  it('una DISPUTA no: se puede ganar', () => {
-    // Essentrix tuvo un PURCHASE_PROTEST antes del reembolso: si la disputa ya
-    // anulara, un cliente que la pierde dejaría al afiliado sin su comisión.
-    expect(esDevolucion('PURCHASE_PROTEST')).toBe(false);
+  it('una DISPUTA también, desde el 2026-11-23; una cancelación no', () => {
+    // Antes no: «se puede ganar». Pero todas las disputas terminaron en
+    // reembolso el mismo día (Quipao, Adilson, Drive Pizza), y Protein Station
+    // cobró su comisión con la disputa ya abierta. Javier: un contracargo se
+    // trata como una devolución. Si una disputa se gana, la comisión se
+    // reactiva a mano y `fueReactivada` la respeta.
+    expect(esDevolucion('PURCHASE_PROTEST')).toBe(true);
     expect(esDevolucion('SUBSCRIPTION_CANCELLATION')).toBe(false);
     expect(esDevolucion(null)).toBe(false);
   });

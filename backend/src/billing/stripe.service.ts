@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
+import { CANCELACION_DESHECHA } from './estado-del-negocio';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { BillingService } from './billing.service';
@@ -1194,8 +1195,8 @@ export class StripeService {
         // el cron de cancelados lo apagaba al primer cobro fallido, sin
         // gracia. Hotmart ya lo limpia al confirmar pago, con este mismo
         // motivo escrito; Stripe no lo hacía en ninguna parte (revisión de
-        // Fable, 2026-09-29).
-        canceledAt: null,
+        // Fable, 2026-09-29). Con su origen y su motivo (estado-del-negocio).
+        ...CANCELACION_DESHECHA,
         ...entitlement,
         // 2026-07-31: monto crudo → auditoría, no a la base de comisiones. En
         // prueba no hubo cobro (monto $0), así que no tocamos el último monto.

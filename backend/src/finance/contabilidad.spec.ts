@@ -79,7 +79,11 @@ function prismaFalso(datos: {
           (i) =>
             i.gateway === where.gateway &&
             i.externalTxId === where.externalTxId &&
-            i.status === where.status,
+            // `marcarDevuelto` filtra por una LISTA de estados de partida
+            // (PAGADO, o PAGADO y EN_DISPUTA) desde el 2026-11-23.
+            (typeof where.status === 'object' && where.status?.in
+              ? where.status.in.includes(i.status)
+              : i.status === where.status),
         );
         for (const t of tocadas) Object.assign(t, data);
         estado.actualizados.push({ where, data });
@@ -828,7 +832,10 @@ describe('el conciliador de ingresos', () => {
     expect(estado.ingresos[0].status).toBe('REEMBOLSADO');
   });
 
-  it('una disputa abierta NO resta: se señala para revisar', async () => {
+  it('una disputa abierta deja de contar como cobrado (EN_DISPUTA) y se señala', async () => {
+    // Antes seguía PAGADO: «se puede ganar». Javier, 2026-11-23: un dinero
+    // retenido por una disputa o un contracargo no es ingreso de Clubify. No es
+    // un reembolso (no sale en `devueltos`) y la fila no se borra.
     const { srv, estado } = conciliador({
       ingresos: [ingreso({ externalTxId: 'HP-D' })],
       eventosHotmart: [eventoHotmart({ tipo: 'PURCHASE_PROTEST', tx: 'HP-D' })],
@@ -836,6 +843,15 @@ describe('el conciliador de ingresos', () => {
     const informe = await srv.conciliar({});
     expect(informe.enDisputa).toEqual(['HP-D']);
     expect(informe.devueltos).toHaveLength(0);
+    expect(estado.ingresos[0].status).toBe('EN_DISPUTA');
+  });
+
+  it('simulando, una disputa no toca el libro', async () => {
+    const { srv, estado } = conciliador({
+      ingresos: [ingreso({ externalTxId: 'HP-D' })],
+      eventosHotmart: [eventoHotmart({ tipo: 'PURCHASE_PROTEST', tx: 'HP-D' })],
+    });
+    await srv.conciliar({ simular: true });
     expect(estado.ingresos[0].status).toBe('PAGADO');
   });
 

@@ -33,14 +33,20 @@
  * cobro devuelto: la comisión de renovación lleva en `businessDate` justo la
  * fecha de ese cobro (`lastChargeAt`, que sale del mismo `approved_date`).
  *
- * Solo REEMBOLSO y CONTRACARGO. Una DISPUTA (`PURCHASE_PROTEST`) no anula nada:
- * se puede ganar, y el mismo criterio sigue ya el libro de ingresos.
+ * REEMBOLSO, CONTRACARGO y —desde el 2026-11-23— DISPUTA (`PURCHASE_PROTEST`).
+ * Antes la disputa no anulaba nada porque «se puede ganar», pero en la práctica
+ * todas terminaron en reembolso el mismo día (Quipao, Adilson, Drive Pizza) y
+ * Javier pidió tratar el contracargo igual que una devolución: el dinero ya no
+ * es de Clubify. Ver `revertir-devolucion.ts`.
+ *
+ * Lo que YA se pagó no se toca aquí: eso lo recupera `revertir-devolucion.ts`
+ * con un ajuste negativo que se descuenta del siguiente corte.
  */
 import type { Prisma } from '@prisma/client';
 import { recalcBatchTotal } from '../referrals/payout-batch.util';
 
 /** Los avisos de Hotmart que significan «el dinero se devolvió». */
-export const EVENTOS_DE_DEVOLUCION = ['PURCHASE_REFUNDED', 'PURCHASE_CHARGEBACK'] as const;
+export const EVENTOS_DE_DEVOLUCION = ['PURCHASE_REFUNDED', 'PURCHASE_CHARGEBACK', 'PURCHASE_PROTEST'] as const;
 
 export function esDevolucion(evento: string | null | undefined): boolean {
   return (EVENTOS_DE_DEVOLUCION as readonly string[]).includes(evento ?? '');
@@ -54,7 +60,12 @@ export const MARCA_DE_ANULACION = 'Hotmart devolvió el pago';
 
 /** La nota que queda en la comisión anulada, para que se sepa por qué. */
 export function motivoDeAnulacion(evento: string, tx: string, cuando: Date = new Date()): string {
-  const que = evento === 'PURCHASE_CHARGEBACK' ? 'un contracargo' : 'un reembolso';
+  const que =
+    evento === 'PURCHASE_CHARGEBACK'
+      ? 'un contracargo'
+      : evento === 'PURCHASE_PROTEST'
+        ? 'una disputa'
+        : 'un reembolso';
   return `Anulada el ${cuando.toISOString().slice(0, 10)}: ${MARCA_DE_ANULACION} (${que}, tx ${tx}). No se había pagado al afiliado.`;
 }
 
@@ -211,7 +222,16 @@ export type ResultadoDeAnulacion = {
   /** Cortes abiertos de los que se sacaron y a los que se les rehizo el total. */
   cortesRecalculados: number;
   /** Cada comisión que se miró, para el informe nocturno. */
-  detalle: Array<{ id: string; monto: number; que: QuePasoConLaComision }>;
+  detalle: Array<{
+    id: string;
+    monto: number;
+    que: QuePasoConLaComision;
+    /** Lo que de verdad salió al colaborador (solo en las `pagada`). */
+    pagado?: number;
+    recipientCodeId?: string | null;
+    referralUseId?: string | null;
+    businessGroupId?: string | null;
+  }>;
 };
 
 /**
@@ -251,6 +271,9 @@ export async function anularComisionesDeTransaccion(
       amountPaid: true,
       payoutBatchId: true,
       notes: true,
+      recipientCodeId: true,
+      referralUseId: true,
+      businessGroupId: true,
       externalTxId: true,
       hotmartTransactionId: true,
       businessDate: true,
@@ -260,8 +283,22 @@ export async function anularComisionesDeTransaccion(
   });
   if (todas.length === 0) return resultado;
 
-  const anotar = (c: { id: string; amount: unknown }, que: QuePasoConLaComision) => {
-    resultado.detalle.push({ id: c.id, monto: Number(c.amount ?? 0), que });
+  const anotar = (c: any, que: QuePasoConLaComision) => {
+    resultado.detalle.push({
+      id: c.id,
+      monto: Number(c.amount ?? 0),
+      que,
+      ...(que === 'pagada'
+        ? {
+            // Una pagada «a la antigua» puede tener PAID con amountPaid en 0:
+            // entonces lo que salió es el monto entero.
+            pagado: Number(c.amountPaid) > 0 ? Number(c.amountPaid) : Number(c.amount ?? 0),
+            recipientCodeId: c.recipientCodeId ?? null,
+            referralUseId: c.referralUseId ?? null,
+            businessGroupId: c.businessGroupId ?? null,
+          }
+        : {}),
+    });
     if (que === 'anulada') resultado.anuladas++;
     else if (que === 'pagada') resultado.yaPagadas++;
     else if (que === 'reactivada') resultado.reactivadas++;
@@ -271,10 +308,11 @@ export async function anularComisionesDeTransaccion(
   const anuladas: string[] = [];
   const cortes = new Set<string>();
   for (const c of todas) {
-    if (yaSePago(c)) {
-      anotar(c, 'pagada');
-      continue;
-    }
+    // Primero lo que dice si la comisión ES de este cobro; después si se pagó.
+    // Al revés, una pagada de OTRO ciclo (el relleno estampa la última
+    // transacción del negocio) se tomaba por pagada de este y, ahora que lo
+    // pagado se recupera con un ajuste, se le descontaría al colaborador una
+    // comisión que nada tiene que ver con la devolución.
     if (fueReactivada(c.notes, tx)) {
       anotar(c, 'reactivada');
       continue;
@@ -288,6 +326,10 @@ export async function anularComisionesDeTransaccion(
       Math.abs(fecha.getTime() - opts.fechaDelCobro.getTime()) > LEJOS_DEL_COBRO
     ) {
       anotar(c, 'deOtroCiclo');
+      continue;
+    }
+    if (yaSePago(c)) {
+      anotar(c, 'pagada');
       continue;
     }
     if (opts.simular) {

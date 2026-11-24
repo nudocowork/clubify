@@ -44,6 +44,7 @@ import {
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
 import { telefonoConIndicativo } from '../common/telefono-con-indicativo';
+import { CANCELACION_DESHECHA, notaDelEstado } from '../billing/estado-del-negocio';
 import { negocioNuevoDeLaMarca } from '../common/tenant/tenant-context.interceptor';
 
 /**
@@ -822,6 +823,8 @@ export class TenantsService {
         ...sinSecretosDelNegocio(t),
         whiteLabelSlug: t.whiteLabel?.slug ?? null,
         estadoComercial: estadoComercial(t),
+        // Por qué está cancelado o suspendido, en una frase (2026-11-23).
+        notaDelEstado: notaDelEstado(t),
         orders30: stat.count,
         revenue30: stat.total,
         daysLeftInTrial,
@@ -1516,7 +1519,7 @@ export class TenantsService {
     return { ok: true, mode: 'hard' as const };
   }
 
-  async setStatus(id: string, status: TenantStatus, actorId: string) {
+  async setStatus(id: string, status: TenantStatus, actorId: string, motivo?: string) {
     const previous = await this.prisma.tenant.findFirst({
       where: { id }, // findFirst → aislado por marca (middleware whiteLabel)
       select: {
@@ -1536,8 +1539,17 @@ export class TenantsService {
       data.suspendedAt = null;
       // "Marcar como activo" = fecha de cobro real → monto facturado por rango.
       data.lastChargeAt = new Date();
+      // Y deja de estar cancelado. Sin esto, un negocio cancelado que el
+      // equipo reactivaba seguía CANCELADO en la lista y fuera de todos los
+      // recordatorios de cobro, para siempre.
+      Object.assign(data, CANCELACION_DESHECHA);
     }
-    if (status === 'SUSPENDED') data.suspendedAt = new Date();
+    if (status === 'SUSPENDED') {
+      data.suspendedAt = new Date();
+      // Suspender a mano es una SUSPENSIÓN, no una cancelación: para cancelar
+      // está «Cancelar suscripción». Queda el motivo para poder contarlo.
+      data.suspendReason = `MANUAL${motivo?.trim() ? `: ${motivo.trim().slice(0, 300)}` : ''}`;
+    }
     // Marca blanca: pasar a ACTIVE consume 1 crédito (bloquea si no hay).
     const credit =
       status === 'ACTIVE'
@@ -1566,6 +1578,7 @@ export class TenantsService {
         brandName: previous.brandName,
         from: previous.status,
         to: status,
+        motivo: motivo?.trim() || null,
       },
     });
     return sinSecretosDelNegocio(updated);

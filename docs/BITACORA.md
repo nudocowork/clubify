@@ -8,6 +8,71 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-23 (198) — Cancelado ≠ suspendido, SMS de «verifica en Hotmart», devoluciones que revierten TODAS las comisiones
+
+Pedido de Javier (documento «Gestión de suscripciones, cancelaciones, suspensiones y devoluciones»). **Sin desplegar.** Necesita migración + backend + frontend (ver abajo).
+
+**Protein Station** (no «Protegen»): renovó el trimestre el 23-oct (HP0032012122, $150), canceló en Hotmart el 21-nov (siguió activo con días pagados: correcto), y el 23-nov a las 14:59 entró `PURCHASE_PROTEST` (disputa, `purchase.status = DISPUTE`), que el historial de pagos pinta como «CONTRACARGO». El código trataba la disputa como un **cobro fallido**:
+- lo dejó ACTIVO y usando el sistema;
+- le mandó el SMS de **«tu pago falló»**;
+- no tocó ni el ingreso ni las comisiones, y la comisión de $7,50 de Nicolás (TeamClosers) se **pagó ese mismo día** en el corte del 15-nov.
+
+A las 22:01 un colaborador lo suspendió a mano.
+
+**Qué cambia (todo nuevo salvo lo marcado):**
+- **Cancelado vs. suspendido.** Columnas nuevas en Tenant: `cancelSource` (CLIENTE_PANEL, CLIENTE_PASARELA, COLABORADOR, REEMBOLSO, CONTRACARGO, DISPUTA), `cancelReason`, `suspendReason` (FALTA_DE_PAGO, PRUEBA_VENCIDA, FIN_DEL_PERIODO_CANCELADO, DEVOLUCION, MANUAL: …).
+  - Reglas puras en `billing/estado-del-negocio.ts`; la nota legible es `notaDelEstado`, que sale en la lista de negocios (tooltip del estado) y en la ficha.
+  - Una devolución pisa el origen de una cancelación anterior; a igual peso manda la primera.
+  - Reembolso, contracargo y disputa ahora ponen `canceledAt`. Antes solo suspendían y salían como «Suspendido», igual que la mora.
+- **Una sola puerta: `BillingService.registrarCancelacion`.** La usan el botón del dueño, el aviso de Hotmart, el colaborador y las devoluciones.
+  - Respeta lo pagado: con un trimestre pagado, sigue hasta el final y el cron lo desconecta ese día.
+  - Una devolución del cobro actual desconecta en el acto. La devolución de un cobro VIEJO no cancela: solo revierte el dinero.
+- **SMS «verifica que también quede cancelada en Hotmart».**
+  - Cuatro plantillas nuevas, encendidas por defecto y editables en Automatizaciones: `cancel_aviso_panel`, `_colaborador`, `_reembolso`, `_contracargo` (esta también para la disputa).
+  - Va al teléfono de cobros del negocio (`resolveBillingTarget`) y queda en MessageLog con `tenantId`. El resultado (enviado / fallido / sin destino / apagado) queda en `AuditLog billing.aviso_cancelacion`.
+  - Uno por proceso (`cancelNoticeSentAt` + `cancelNoticeTemplate`, reclamo atómico). Una devolución después de una cancelación sí avisa; si el envío falla, se devuelve el reclamo.
+  - La cancelación hecha en Hotmart no lleva este SMS (sigue `admin_cancellation`, apagado por defecto).
+- **Devolución = `BillingService.aplicarDevolucion`**, para el webhook y el colaborador. Pasos:
+  1. El ingreso pasa a REEMBOLSADO (o al estado nuevo **EN_DISPUTA**, que no suma), al instante y no a las 4:00.
+  2. Las comisiones se revierten (`billing/revertir-devolucion.ts`):
+     - Closer, influencer o vendedor **no pagada**: se anula (lo de antes).
+     - **Ya pagada**: queda un **ajuste negativo** `status ADJUSTMENT` con `periodKey DEVOL-<tx>-<comisión>`.
+     - PM (2 %) y socio (10 %) **sin pagar**: su cron horario los recalcula solos sin ese ingreso.
+     - PM y socio **ya pagados**: ajuste por su parte.
+  3. Una sola vez por transacción: índice ÚNICO PARCIAL en la base sobre `periodKey LIKE 'DEVOL-%'`.
+  4. El conciliador nocturno usa la misma función.
+- **La disputa (`PURCHASE_PROTEST`) ya no es «cobro fallido».** Va por la devolución completa, con su correo `email_dispute`. Decisión de Javier: un contracargo se trata como una devolución. Si se gana una disputa, la comisión se reactiva a mano y `fueReactivada` la respeta.
+- **Corte.** El ajuste se descuenta AL PAGARLE a la persona: «Marcar pagado», cerrar el corte y el pago en bloque.
+  - Nunca deja el pago por debajo de 0: lo que no alcanza se parte en un ajuste `…-R1` para el siguiente.
+  - Reabrir el corte o revertir el pago devuelve el descuento a pendiente.
+  - En «Corte actual» la persona muestra «−$X por devoluciones» y el total ya neto.
+- **Equipo (admin, solo la plataforma):** tarjeta nueva «Estado de la suscripción» en la ficha del negocio.
+  - Muestra el estado y la nota, el SMS y su resultado, los cobros con su estado en Contabilidad y las comisiones revertidas.
+  - Botones **Cancelar suscripción** (motivo obligatorio, opción «desconectar ya», cancela también en Hotmart por la API) y **Registrar devolución** por cobro (no devuelve el dinero en Hotmart: eso se hace allá).
+  - «Suspender» ahora pide el motivo; «Marcar como activo» deshace la cancelación entera (`CANCELACION_DESHECHA`), cosa que antes no hacía.
+- **Dueño:** si ya canceló, `/app/billing` dice hasta cuándo conserva el servicio y que lo confirme en Hotmart, y ya no ofrece cancelar otra vez.
+
+**Simulación contra producción (Protein Station, nada escrito):** el ingreso queda EN_DISPUTA y salen tres ajustes por recuperar:
+- Nicolás (TeamClosers) −$7,50: su comisión ya pagada.
+- Sara −$3,00: el 2 % de una quincena ya pagada.
+- Socio −$10,86: el 10 % del neto de octubre, ya pagado.
+
+El negocio queda CANCELADO por disputa.
+
+**Para desplegar, en este orden** (desde `backend/`):
+1. `railway run … node scripts/apply-cancelacion-y-devoluciones-migration.cjs`
+2. `node scripts/desplegar.cjs backend` y luego `frontend`.
+3. Protein Station: en su ficha → «Estado de la suscripción» → «Registrar devolución» → Contracargo. Hace todo y le manda el SMS correcto. Sin SMS: `npx ts-node --transpile-only scripts/devolucion-de-un-cobro.ts protein-station HP0032012122 DISPUTA --aplicar`.
+
+**Pruebas:** 52 nuevas (`estado-del-negocio`, `revertir-devolucion`, `cancelacion-y-devolucion`, `hotmart-devoluciones`, `ajustes-en-el-corte`), más las existentes de billing, referrals, finance, tenants, integrations, email y superadmin. Se ajustaron cuatro pruebas viejas que fijaban la regla anterior de la disputa, y una que fallaba sola desde el 05-10 por depender del reloj.
+
+`tsc` del backend necesita ya ~2,4 GB: en esta máquina, `NODE_OPTIONS=--max-old-space-size=4096`.
+
+**Límites:**
+- Hotmart no deja **reembolsar** por nuestra API (solo cancelar), así que la devolución la hace una persona en Hotmart y aquí se registra.
+- Una disputa ganada no manda aviso: hay que reactivar a mano.
+- Stripe (Sellea) no cambió: sus reembolsos siguen con su lógica de antes.
+
 ## 2026-11-21 (197) — Menú: «Promociones: SÍ/NO»
 
 Pedido de Javier: poder ocultar el apartado de promociones del menú público.

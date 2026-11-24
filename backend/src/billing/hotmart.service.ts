@@ -3,12 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { BillingService } from './billing.service';
-import {
-  anularComisionesDeTransaccion,
-  esDevolucion,
-  fechaDelCobroDeHotmart,
-  motivoDeAnulacion,
-} from './anular-comisiones-de-reembolso';
+import { fechaDelCobroDeHotmart } from './anular-comisiones-de-reembolso';
+import { CANCELACION_DESHECHA } from './estado-del-negocio';
 import { PendingActivationService } from './pending-activation.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import {
@@ -1831,8 +1827,7 @@ export class HotmartService {
         return { ok: true, action: 'billet_printed' };
       }
 
-      case 'PURCHASE_DELAYED':
-      case 'PURCHASE_PROTEST': {
+      case 'PURCHASE_DELAYED': {
         await this.registrarFalloDeCobro(tenant, event, {
           avisarEquipo: true,
           avisarCadena: true,
@@ -1842,39 +1837,106 @@ export class HotmartService {
 
       case 'PURCHASE_REFUNDED':
       case 'PURCHASE_CHARGEBACK':
-      case 'SUBSCRIPTION_CANCELLATION': {
-        const transactionId = payload.data?.purchase?.transaction;
-        // Una CANCELACIÓN no corta el servicio: el negocio sigue hasta el fin
-        // del período que ya pagó, y el cron diario lo suspende entonces.
-        // Decisión de Javier (2026-09-10): cortarle a alguien que pagó hasta el
-        // 25 porque avisó el 10 es quedarse con su dinero.
+      case 'PURCHASE_PROTEST': {
+        // DEVOLUCIÓN: el dinero volvió (reembolso), lo retiró el banco
+        // (contracargo) o el cliente lo está disputando (disputa). Para
+        // Clubify las tres tienen el mismo tratamiento (Javier, 2026-11-23):
+        // el cobro deja de contar, sus comisiones se revierten y, si es el
+        // cobro del período actual, el negocio queda CANCELADO —no suspendido
+        // por mora— y desconectado en el acto.
         //
-        // Un reembolso o un contracargo SÍ suspenden en el acto — ahí el dinero
-        // volvió— y por eso siguen cayendo en el `default` de abajo.
-        const soloCancelacion = event === 'SUBSCRIPTION_CANCELLATION';
-        const now = new Date();
-        // …pero eso protege días PAGADOS. Si no queda ninguno —el último cobro
-        // falló o el período venció— la cancelación desconecta ya. Ver
-        // `desconectaAlCancelar` (VALMONT BARBERIA, 15-09-2026).
-        const desconectarYa =
-          !soloCancelacion || desconectaAlCancelar(tenant, now);
-        await this.prisma.tenant.update({
-          where: { id: tenant.id },
-          data: {
-            ...(soloCancelacion ? { canceledAt: now } : {}),
-            ...(desconectarYa
-              ? { status: 'SUSPENDED' as const, suspendedAt: now }
-              : {}),
-          },
-        });
-        // El crédito de la marca se libera cuando el negocio DEJA de ocupar
-        // plaza, no cuando avisa de que se va: si aún le quedan días pagados,
-        // lo hace el cron al vencer.
-        if (desconectarYa) {
+        // La disputa iba antes por el camino del «cobro fallido»: le mandaba al
+        // cliente «tu pago falló», lo dejaba activo y no tocaba ni el ingreso
+        // ni las comisiones. Protein Station, 2026-11-23: canceló el 21, abrió
+        // la disputa del trimestre el 23, siguió usando el sistema, y la
+        // comisión de ese cobro se pagó el mismo día.
+        const transactionId = payload.data?.purchase?.transaction;
+        const tipo =
+          event === 'PURCHASE_CHARGEBACK' ? 'CONTRACARGO' : event === 'PURCHASE_PROTEST' ? 'DISPUTA' : 'REEMBOLSO';
+        // ¿Es el cobro del período en curso? `hotmartTransactionId` es el
+        // último que se aplicó al negocio. Devolver un cobro VIEJO (de un
+        // ciclo ya consumido) no le quita el período que pagó después.
+        const esDelPeriodoActual =
+          !transactionId || !tenant.hotmartTransactionId || transactionId === tenant.hotmartTransactionId;
+        const r = transactionId
+          ? await this.billing
+              .aplicarDevolucion({
+                tenantId: tenant.id,
+                tx: transactionId,
+                tipo,
+                gateway: 'HOTMART',
+                fechaDelCobro: fechaDelCobroDeHotmart(payload.data?.purchase?.approved_date),
+                esDelPeriodoActual,
+              })
+              .catch((e) => {
+                this.logger.error(`Devolución ${transactionId} de ${tenant.brandName} falló: ${(e as Error).message}`);
+                return null;
+              })
+          : null;
+        if (!transactionId) {
+          // Sin transacción no hay qué revertir, pero el negocio sí perdió el
+          // servicio: se cancela igual.
           await this.billing
-            .releaseBrandCreditOnSuspend(tenant.id, `hotmart_${event.toLowerCase()}`)
+            .registrarCancelacion(tenant.id, { origen: tipo, motivo: 'aviso de Hotmart sin transacción', desconectar: 'ya' })
             .catch(() => null);
         }
+        const desconectado = !!r?.cancelacion?.desconectadoAhora || tenant.status === 'SUSPENDED';
+        await this.billing
+          .auditLifecycle(
+            esDelPeriodoActual ? 'subscription.suspended' : 'subscription.refund_of_old_charge',
+            tenant.id,
+            { gateway: 'HOTMART', reason: event, tx: transactionId ?? null },
+          )
+          .catch(() => null);
+        // Aviso al EQUIPO (los 3 números).
+        await this.billing
+          .notifyBillingTeam(
+            'cancelado',
+            esDelPeriodoActual
+              ? tenant.brandName
+              : `${tenant.brandName} (cobro ANTERIOR ${transactionId}; el negocio sigue activo, solo se revirtió el dinero)`,
+            {
+              motivo: tipo === 'CONTRACARGO' ? 'contracargo' : tipo === 'DISPUTA' ? 'disputa' : 'reembolso',
+              desconectado,
+              hasta: null,
+            },
+          )
+          .catch(() => null);
+        if (esDelPeriodoActual) {
+          // CHURNED frena nuevas comisiones recurrentes. Las de ESTE pago ya
+          // las revirtió `aplicarDevolucion`, por transacción.
+          await this.churnReferral({ tenantId: tenant.id }).catch((e) =>
+            this.logger.warn(`churnReferral falló: ${(e as Error).message}`),
+          );
+          this.notifyReferralChain(tenant.id, tenant.brandName, 'CHURNED').catch(() => null);
+          // Correo del cierre. El SMS ya salió dentro de `registrarCancelacion`
+          // (plantilla «verifica la cancelación en la pasarela» de su caso):
+          // por eso ya no se manda aquí `admin_refunded`/`admin_chargeback`,
+          // que serían dos SMS por la misma noticia.
+          this.brandEmail
+            .sendTemplate({
+              templateId:
+                tipo === 'REEMBOLSO' ? 'email_refunded' : tipo === 'CONTRACARGO' ? 'email_chargeback' : 'email_dispute',
+              tenantId: tenant.id,
+            })
+            .catch(() => null);
+        }
+        return { ok: true, action: esDelPeriodoActual ? ('suspended' as const) : ('refund_of_old_charge' as const) };
+      }
+
+      case 'SUBSCRIPTION_CANCELLATION': {
+        // El cliente canceló EN Hotmart (o lo hicimos nosotros por la API al
+        // cancelar desde el panel). Una cancelación no corta el servicio: el
+        // negocio sigue hasta el fin del período que ya pagó y el cron lo
+        // desconecta entonces (Javier, 2026-09-10). Si no le queda ningún día
+        // pagado —el último cobro falló o el período venció— desconecta ya
+        // (`desconectaAlCancelar`, VALMONT BARBERIA, 15-09-2026).
+        const c = await this.billing.registrarCancelacion(tenant.id, {
+          origen: 'CLIENTE_PASARELA',
+          motivo: 'Hotmart avisó la cancelación de la suscripción',
+          desconectar: 'segun_lo_pagado',
+        });
+        const desconectarYa = c.desconectadoAhora;
         await this.billing
           .auditLifecycle(
             desconectarYa ? 'subscription.suspended' : 'subscription.canceled',
@@ -1887,77 +1949,24 @@ export class HotmartService {
         // Hotmart. Dice si ya se desconectó o hasta cuándo sigue.
         await this.billing
           .notifyBillingTeam('cancelado', tenant.brandName, {
-            motivo:
-              event === 'PURCHASE_REFUNDED'
-                ? 'reembolso'
-                : event === 'PURCHASE_CHARGEBACK'
-                  ? 'contracargo'
-                  : 'cancelacion',
+            motivo: 'cancelacion',
             desconectado: desconectarYa || tenant.status === 'SUSPENDED',
             // Solo un negocio activo «sigue hasta» una fecha: el cron de
             // cancelados no toca los que están en prueba.
             hasta: tenant.status === 'ACTIVE' ? (tenant.currentPeriodEnd ?? null) : null,
           })
           .catch(() => null);
-        // Reflejar el cambio en el referido: CHURNED frena nuevas comisiones
-        // recurrentes. Ya NO anula comisiones — eso va justo debajo, por
-        // transacción (ver `anular-comisiones-de-reembolso.ts`).
         await this.churnReferral({ tenantId: tenant.id }).catch((e) =>
           this.logger.warn(`churnReferral falló: ${(e as Error).message}`),
         );
-        // Si Hotmart DEVOLVIÓ el dinero, las comisiones de ESE pago se anulan
-        // —las que no se hayan pagado todavía—. Va por la transacción y no por
-        // la relación con el afiliado: esa relación suele estar ya dada de baja
-        // por la cancelación que llega antes del reembolso, y era justo lo que
-        // dejaba viva la comisión (Essentrix, 2026-09-18). El negocio y la
-        // fecha del cobro alcanzan además a las comisiones que nacieron SIN
-        // transacción (las que repone el cron de renovaciones).
-        if (esDevolucion(event) && transactionId) {
-          const r = await anularComisionesDeTransaccion(
-            this.prisma,
-            transactionId,
-            motivoDeAnulacion(event, transactionId),
-            {
-              tenantId: tenant.id,
-              fechaDelCobro: fechaDelCobroDeHotmart(payload.data?.purchase?.approved_date),
-            },
-          ).catch((e) => {
-            this.logger.warn(`Anular comisiones de ${transactionId} falló: ${(e as Error).message}`);
-            return null;
-          });
-          if (r && r.detalle.length > 0) {
-            this.logger.log(
-              `Devolución ${transactionId}: ${r.anuladas} comisión(es) anulada(s), ${r.yaPagadas} ya pagada(s) que se quedan` +
-                (r.reactivadas ? `, ${r.reactivadas} reactivada(s) a mano que se respetan` : '') +
-                (r.deOtroCiclo ? `, ${r.deOtroCiclo} de otro ciclo SIN tocar (revisar)` : '') +
-                '.',
-            );
-          }
-        }
-        // Aviso a la cadena de atribución
         this.notifyReferralChain(tenant.id, tenant.brandName, 'CHURNED').catch(
           () => null,
         );
-        // Stage 4: aviso admin al dueño si la marca lo activó (OFF por defecto).
-        const adminNoticeId =
-          event === 'PURCHASE_REFUNDED'
-            ? 'admin_refunded'
-            : event === 'PURCHASE_CHARGEBACK'
-              ? 'admin_chargeback'
-              : 'admin_cancellation';
-        this.maybeSendAdminNotice(tenant, adminNoticeId).catch(() => null);
-        // Correo del cierre del ciclo. A diferencia del SMS admin_*, va ON por
-        // defecto: su gate es que la marca tenga con qué enviar.
+        // Aviso admin al dueño si la marca lo activó (OFF por defecto).
+        this.maybeSendAdminNotice(tenant, 'admin_cancellation').catch(() => null);
+        // Correo del cierre del ciclo, ON por defecto.
         this.brandEmail
-          .sendTemplate({
-            templateId:
-              event === 'PURCHASE_REFUNDED'
-                ? 'email_refunded'
-                : event === 'PURCHASE_CHARGEBACK'
-                  ? 'email_chargeback'
-                  : 'email_cancellation',
-            tenantId: tenant.id,
-          })
+          .sendTemplate({ templateId: 'email_cancellation', tenantId: tenant.id })
           .catch(() => null);
         return { ok: true, action: 'suspended' };
       }
@@ -2280,7 +2289,7 @@ export class HotmartService {
         // cron de cancelados lo apagaba con el primer cobro fallido, sin gracia.
         // El re-aviso del MISMO pago (PURCHASE_COMPLETE) no la deshace
         // (Fable, 15-09-2026).
-        ...(alreadyConfirmedTx ? {} : { canceledAt: null }),
+        ...(alreadyConfirmedTx ? {} : CANCELACION_DESHECHA),
         // 2026-06-06: el trial termina cuando hay pago confirmado. Limpiamos
         // trialEndsAt para que el dashboard no muestre "Trial: X días
         // restantes" junto con el plan pagado. trialStartedAt y trialSource

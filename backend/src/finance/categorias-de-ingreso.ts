@@ -20,6 +20,12 @@ export type CategoriaDeIngreso = keyof typeof CATEGORIAS_DE_INGRESO;
 export const ESTADOS_DE_INGRESO = {
   PAGADO: 'Pagado',
   REEMBOLSADO: 'Reembolsado',
+  /** El cliente abrió una disputa del pago (Hotmart `PURCHASE_PROTEST`). El
+   *  dinero está retenido y casi siempre termina devuelto: no suma como cobrado
+   *  mientras tanto. Si llega el reembolso o el contracargo, pasa a
+   *  REEMBOLSADO. Javier, 2026-11-23: un contracargo no puede seguir contando
+   *  como ingreso de Clubify. */
+  EN_DISPUTA: 'En disputa',
   CANCELADO: 'Cancelado',
   /** Cobro real, apartado mientras se decide qué es (no suma en ningún total).
    *  Sara, 2026-10-03: los «Servicios adicionales» de ~$20. */
