@@ -141,19 +141,6 @@ export default function BillingPage() {
     }
   }
 
-  async function reactivate() {
-    if (!confirm(t('reactivateConfirm'))) {
-      return;
-    }
-    try {
-      await api('/billing/reactivate', { method: 'POST' });
-      toast(t('accountReactivated'), 'success');
-      setTimeout(() => window.location.reload(), 800);
-    } catch (e: any) {
-      toast(e.message || t('couldNotReactivate'), 'error');
-    }
-  }
-
   if (!s) return <div className="text-mute">{t('loading')}</div>;
   // Esperamos a que /tenants/me TERMINE (éxito o error): sin saber el tipo de
   // negocio, pintar el panel full por un instante mostraría info errada al
@@ -334,8 +321,11 @@ export default function BillingPage() {
       </div>
 
       {/* CTA principal — NO en prueba paga: la tarjeta ya está anclada y el
-          cobro es automático, así que no se le pide "activar/pagar". */}
-      {sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+          cobro es automático, así que no se le pide "activar/pagar".
+          SUSPENDIDA también: desde 2026-11-25 pagar es su ÚNICA salida (ya no
+          existe el botón de «reactivar 3 días»; ver `reactivate` en
+          billing.service.ts). Sin esto, una cuenta suspendida no tenía cómo pagar. */}
+      {sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE' || s.status === 'SUSPENDED') && (
         <div className="card card-pad mt-4">
           <div className="font-bold text-lg">
             {s.status === 'TRIAL' ? 'Activa tu suscripción' : 'Activa tu cuenta'}
@@ -347,7 +337,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      {!sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+      {!sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE' || s.status === 'SUSPENDED') && (
         <div className="card card-pad mt-4 bg-gradient-to-br from-brand-400 to-brand-700 text-white">
           <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1 min-w-0">
@@ -395,26 +385,6 @@ export default function BillingPage() {
               {activating
                 ? t('openingCheckout')
                 : t('activateSubscriptionCta')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Reactivar (cuando cuenta está suspendida) */}
-      {s.status === 'SUSPENDED' && (
-        <div className="card card-pad mt-4 bg-gradient-to-br from-ok to-emerald-600 text-white">
-          <div className="flex items-start gap-4 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-xl">{t('backToClubify')}</div>
-              <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
-                {t('reactivateDesc')}
-              </p>
-            </div>
-            <button
-              onClick={reactivate}
-              className="bg-white text-ok font-semibold px-5 py-2.5 rounded-pill text-sm whitespace-nowrap hover:bg-white/90"
-            >
-              {t('reactivateMyAccount')}
             </button>
           </div>
         </div>

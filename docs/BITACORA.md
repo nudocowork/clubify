@@ -8,6 +8,22 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-25 (202) — Una cuenta suspendida ya no se reactiva sola: solo puede pagar
+
+**Falta desplegar backend y frontend.**
+
+- **Caso Limorada:**
+  - su prueba de 3 meses venció el 10-nov y se suspendió el 16-nov;
+  - el 23-nov a las 4:24 p. m. el dueño (Brayhan Rey) entró al panel y pulsó «Reactivar 3 días para completar el pago», con lo que tuvo 3 días gratis más;
+  - si no paga, se vuelve a pausar sola el 26-nov a las 4:24 p. m.
+- **Decisión de Javier:** «si ya se suspendió el servicio, debe tener únicamente la opción de pagar».
+- **Backend:** `BillingService.reactivate` ya no toca la cuenta y responde 400 con el motivo («completa el pago; tu cuenta se activa sola»). El endpoint se mantiene porque el frontend viejo lo llama hasta que se despliegue.
+- **Frontend (`/app/billing`):**
+  - fuera la tarjeta «Volver a Clubify» y su botón de reactivar;
+  - **la cuenta SUSPENDIDA ahora ve el botón de pagar.** Antes solo salía en prueba, vencida o en mora: sin este cambio, quitar «reactivar» la dejaba sin ninguna salida.
+- **Prueba:** `reactivacion-una-sola-vez.spec.ts` reescrita: rechaza sin tocar la base y sin avisar de una reactivación. `src/billing` sigue en verde (407).
+- Las claves `reactivateConfirm` y `reactivateDesc` de `messages/*.json` quedan sin uso.
+
 ## 2026-11-24 (201) — Automatizaciones del negocio: constructor visual de flujos
 
 **Migración YA aplicada en producción. Falta desplegar: primero el backend y después el frontend.** El frontend nuevo llama a `/automations/flujos`, que el backend viejo no tiene.

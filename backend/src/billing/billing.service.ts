@@ -1173,77 +1173,25 @@ export class BillingService {
   }
 
   /**
-   * El negocio se reactiva solo, 3 días, para ir a pagar. Lo dice el propio
-   * texto del panel: «te reactivamos por 3 días para que completes el pago».
-   * Al vencer, el cron de pruebas lo vuelve a pausar.
+   * Un negocio suspendido YA NO puede reactivarse solo: la única salida es
+   * pagar (al confirmarse el pago la cuenta se activa sola).
    *
-   * DOS COSAS QUE FALTABAN (2026-09-07, caso Quipao):
+   * Antes había un botón «reactivar 3 días para completar el pago». Se quitó
+   * el 2026-11-25 por decisión de Javier tras el caso Limorada: su prueba de 3
+   * meses venció el 10-nov, se suspendió el 16 y el 23 el dueño pulsó el botón
+   * y volvió a tener 3 días gratis sin pagar. El botón no distinguía un cobro
+   * fallido de una prueba vencida que nunca pagó, y en la práctica servía para
+   * alargar la prueba.
    *
-   *  · **No se podía repetir y sí se repetía.** No había nada que lo impidiera:
-   *    cada vez que la cuenta volvía a pausarse, otro botón y otros 3 días
-   *    gratis, sin fin. Ahora solo una vez por ciclo de cobro — hasta que
-   *    entre un pago, no hay una segunda.
-   *
-   *  · **No dejaba rastro.** Ni auditoría ni aviso. Por eso el negocio salía en
-   *    «prueba» sin que nadie supiera por qué, y en la auditoría de Quipao no
-   *    aparecía nada entre la suspensión de las 03:00 y el cobro de la noche.
-   *    Ahora se audita y el equipo recibe un SMS.
+   * El endpoint se mantiene y contesta con el motivo: el frontend viejo (hasta
+   * que se despliegue el nuevo) todavía lo llama, y un 404 no le diría al
+   * negocio qué hacer.
    */
-  async reactivate(tenantId: string) {
-    const t = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: {
-        id: true,
-        brandName: true,
-        status: true,
-        suspendedAt: true,
-        trialEndsAt: true,
-        lastChargeAt: true,
-      },
-    });
-    if (!t) throw new Error('Tenant not found');
-    if (t.status !== 'SUSPENDED') {
-      throw new Error('La cuenta no está suspendida');
-    }
-
-    // ¿Ya usó su ventana en este ciclo? Se mide contra el último cobro: si
-    // pagó después de reactivarse, empieza ciclo nuevo y vuelve a tener una.
-    const previa = await this.prisma.auditLog.findFirst({
-      where: {
-        tenantId,
-        action: 'subscription.self_reactivated',
-        ...(t.lastChargeAt ? { createdAt: { gt: t.lastChargeAt } } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
-    });
-    if (previa) {
-      throw new Error(
-        'Ya usaste los días para completar el pago. Para volver a entrar, ' +
-          'termina el pago en la pasarela y tu cuenta se activa sola.',
-      );
-    }
-
-    const bonusDays = 3;
-    const newTrialEnd = new Date(Date.now() + bonusDays * 24 * 60 * 60 * 1000);
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        status: 'TRIAL',
-        suspendedAt: null,
-        trialEndsAt: newTrialEnd,
-      },
-    });
-    await this.auditLifecycle('subscription.self_reactivated', tenantId, {
-      bonusDays,
-      suspendedAt: t.suspendedAt?.toISOString() ?? null,
-      until: newTrialEnd.toISOString(),
-    });
-    await this.notifyBillingTeam('autoreactivado', t.brandName, {
-      dias: bonusDays,
-    }).catch(() => null);
-    this.logger.log(`Tenant ${tenantId} reactivated with ${bonusDays} bonus days`);
-    return { ok: true, trialEndsAt: newTrialEnd };
+  async reactivate(_tenantId: string): Promise<never> {
+    throw new BadRequestException(
+      'Tu cuenta está suspendida. Para volver a usarla completa el pago: ' +
+        'en cuanto se confirme, tu cuenta se activa sola.',
+    );
   }
 
   async startTrial(tenantId: string) {
