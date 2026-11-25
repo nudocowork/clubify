@@ -9,7 +9,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   ALTO,
   ANCHO,
-  acomodar,
+
   dibujarFranja,
   posicionesDe,
   svgComoDataUrl,
@@ -173,7 +173,9 @@ export function EditorDeAcomodo({ c, set }: { c: ConfigFranja; set: (p: Partial<
             opciones={ACOMODOS}
             valor={c.posiciones ? null : (c.acomodo ?? 'FILA')}
             onChange={(v) => {
-              set({ acomodo: v, posiciones: acomodar(v, c.requeridos) });
+              // Sin posiciones propias: el acomodo queda marcado hasta que se
+              // mueva un sello a mano.
+              set({ acomodo: v, posiciones: undefined });
               setSel(null);
             }}
           />
