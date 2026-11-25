@@ -1,455 +1,322 @@
 'use client';
+/**
+ * Automatizaciones del negocio: los flujos del constructor visual.
+ *
+ * Las predeterminadas (bienvenida, cumpleaños…) viven en /app/automations y
+ * no se tocan desde aquí: esta pantalla solo las enlaza y cuenta, para que el
+ * negocio sepa que siguen funcionando junto a sus flujos.
+ */
 import { PanelHeader } from '@/components/PanelHeader';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
-import { useTranslations } from 'next-intl';
+import { useTextos } from '@/components/flujos-visuales/textos';
+import { IconoFlujo, PildoraEstado } from '@/components/flujos-visuales/IconoFlujo';
 
-// Fase B: constructor de workflows multipaso (secuencia con esperas). El motor
-// (backend) inscribe al cliente cuando ocurre el disparador y un cron avanza los
-// pasos: enviar → esperar N días/horas → enviar… Envío aislado por marca.
-
-type StepType = 'SEND_SMS' | 'SEND_WHATSAPP' | 'SEND_PUSH' | 'WAIT';
-type Step =
-  | { type: 'SEND_SMS'; body: string }
-  | { type: 'SEND_WHATSAPP'; body: string }
-  | { type: 'SEND_PUSH'; title: string; body: string }
-  | { type: 'WAIT'; unit: 'minutes' | 'hours' | 'days'; amount: number };
-
-type Workflow = {
+type Fila = {
   id: string;
   name: string;
   description: string;
+  status: 'draft' | 'active' | 'paused';
   triggerType: string;
-  triggerDays?: number | null;
-  steps: Step[];
-  isActive: boolean;
-  stats?: any;
+  triggerDays: number | null;
+  schemaVersion: number;
+  pasos: number;
+  createdAt: string;
+  lastActivityAt: string | null;
+  stats: { inscritos: number; enCurso: number; enviados: number; fallidos: number };
 };
 
-// Solo los TIPOS. La etiqueta que se lee la pone el traductor: tenerla
-// pegada aquí era lo que dejaba esta pantalla entera en español.
-const TRIGGERS = [
-  'PASS_CREATED',
-  'STAMP_ADDED',
-  'NEAR_REWARD',
-  'REWARD_REDEEMED',
-  'PASS_COMPLETED',
-  'BIRTHDAY',
-  'INACTIVITY',
-  'ORDER_CREATED',
-  'ORDER_CONFIRMED',
-  'ORDER_DELIVERED',
-  'ORDER_RATED',
-  'GEO_ENTER',
-] as const;
+type Plantilla = {
+  key: string;
+  categoria: string;
+  icono: string;
+  nombre: string;
+  descripcion: string;
+  objetivo: string;
+  triggerType: string;
+  pasos: number;
+};
 
-function emptyStep(type: StepType): Step {
-  if (type === 'WAIT') return { type, unit: 'days', amount: 1 };
-  if (type === 'SEND_PUSH') return { type, title: '', body: '' };
-  return { type, body: '' } as Step;
-}
-/** Traduce un tipo de paso: SEND_SMS → «Enviar SMS». */
-type Traductor = ReturnType<typeof useTranslations<'app_workflows'>>;
-const etiquetaDePaso = (t: Traductor, tipo: StepType) =>
-  t(`step${tipo.replace('SEND_', '')}` as any);
+type Catalogo = { plantillas: Plantilla[]; predeterminadasActivas: number };
 
-function stepSummary(t: Traductor, s: Step): string {
-  if (s.type === 'WAIT') {
-    const unidad = t(
-      `unit${s.unit.charAt(0).toUpperCase()}${s.unit.slice(1)}` as any,
-    );
-    return t('waitSummary', { amount: s.amount, unit: unidad });
-  }
-  if (s.type === 'SEND_PUSH')
-    return t('pushSummary', { title: s.title || t('noTitle') });
-  return t('stepSummary', {
-    step: etiquetaDePaso(t, s.type),
-    body: (s.body || '').slice(0, 40) || t('emptyBody'),
-  });
-}
+type Pestana = 'todas' | 'active' | 'draft' | 'paused' | 'plantillas';
 
-export default function WorkflowsPage() {
-  const t = useTranslations('app_workflows');
-  const [list, setList] = useState<Workflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Workflow | null>(null);
-  const [busy, setBusy] = useState(false);
+const fecha = (s: string | null, locale: string) =>
+  s ? new Date(s).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 
-  async function load() {
-    setLoading(true);
+export default function AutomatizacionesPage() {
+  const t = useTextos();
+  const router = useRouter();
+  const [filas, setFilas] = useState<Fila[] | null>(null);
+  const [cat, setCat] = useState<Catalogo | null>(null);
+  const [pestana, setPestana] = useState<Pestana>('todas');
+  const [eligiendo, setEligiendo] = useState(false);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const locale = typeof navigator !== 'undefined' ? navigator.language : 'es';
+
+  async function cargar() {
     try {
-      setList(await api('/automations/workflows'));
-    } catch {
-      setList([]);
-    } finally {
-      setLoading(false);
+      const [f, c] = await Promise.all([api<Fila[]>('/automations/flujos'), api<Catalogo>('/automations/flujos/catalogo')]);
+      setFilas(f);
+      setCat(c);
+    } catch (e: any) {
+      setFilas([]);
+      toast(e.message, 'error');
     }
   }
   useEffect(() => {
-    load();
+    cargar();
   }, []);
 
-  function newWorkflow() {
-    setEditing({
-      id: '',
-      name: '',
-      description: '',
-      triggerType: 'PASS_CREATED',
-      steps: [{ type: 'SEND_SMS', body: '' }],
-      isActive: false,
-    });
-  }
-
-  async function save() {
-    if (!editing) return;
-    if (!editing.name.trim()) {
-      toast(t('needName'), 'error');
-      return;
-    }
-    if (!editing.steps.length) {
-      toast(t('needStep'), 'error');
-      return;
-    }
-    setBusy(true);
-    const payload = {
-      name: editing.name.trim(),
-      description: editing.description ?? '',
-      triggerType: editing.triggerType,
-      triggerDays: editing.triggerDays ?? undefined,
-      steps: editing.steps,
-      isActive: editing.isActive,
-    };
+  async function crear(plantilla: string) {
+    setOcupado(plantilla);
     try {
-      if (editing.id) {
-        await api(`/automations/workflows/${editing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        });
-      } else {
-        await api('/automations/workflows', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
-      }
-      toast(t('saved'), 'success');
-      setEditing(null);
-      await load();
-    } catch (e: any) {
-      toast(e.message ?? t('saveError'), 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function toggleActive(w: Workflow) {
-    setBusy(true);
-    try {
-      await api(`/automations/workflows/${w.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive: !w.isActive }),
+      const wf = await api<{ id: string }>('/automations/flujos', {
+        method: 'POST',
+        body: JSON.stringify({ plantilla }),
       });
-      await load();
+      router.push(`/app/automations/workflows/${wf.id}`);
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
-    } finally {
-      setBusy(false);
+      toast(e.message, 'error');
+      setOcupado(null);
     }
   }
 
-  async function remove(w: Workflow) {
-    if (!window.confirm(t('confirmDelete', { name: w.name }))) return;
-    setBusy(true);
+  async function accion(f: Fila, que: 'activar' | 'pausar' | 'duplicar' | 'eliminar') {
+    if (que === 'eliminar' && !window.confirm(t.confirmarEliminar(f.name))) return;
+    if (que === 'activar') {
+      // Activar valida en el editor (lista de errores clicable): se va allí.
+      router.push(`/app/automations/workflows/${f.id}?activar=1`);
+      return;
+    }
+    setOcupado(f.id);
     try {
-      await api(`/automations/workflows/${w.id}`, { method: 'DELETE' });
-      await load();
+      if (que === 'eliminar') {
+        await api(`/automations/flujos/${f.id}`, { method: 'DELETE' });
+        toast(t.eliminado, 'success');
+      } else if (que === 'pausar') {
+        await api(`/automations/flujos/${f.id}/pausar`, { method: 'POST' });
+        toast(t.pausado, 'success');
+      } else {
+        await api(`/automations/flujos/${f.id}/duplicar`, { method: 'POST' });
+        toast(t.duplicado, 'success');
+      }
+      await cargar();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message, 'error');
     } finally {
-      setBusy(false);
+      setOcupado(null);
     }
   }
 
-  // ---- edición de pasos ----
-  function setStep(i: number, patch: Partial<Step>) {
-    if (!editing) return;
-    const steps = editing.steps.slice();
-    steps[i] = { ...steps[i], ...patch } as Step;
-    setEditing({ ...editing, steps });
-  }
-  function addStep(type: StepType) {
-    if (!editing) return;
-    setEditing({ ...editing, steps: [...editing.steps, emptyStep(type)] });
-  }
-  function removeStep(i: number) {
-    if (!editing) return;
-    setEditing({ ...editing, steps: editing.steps.filter((_, j) => j !== i) });
-  }
-  function moveStep(i: number, dir: -1 | 1) {
-    if (!editing) return;
-    const j = i + dir;
-    if (j < 0 || j >= editing.steps.length) return;
-    const steps = editing.steps.slice();
-    [steps[i], steps[j]] = [steps[j], steps[i]];
-    setEditing({ ...editing, steps });
-  }
+  const visibles = useMemo(
+    () => (filas ?? []).filter((f) => pestana === 'todas' || f.status === pestana),
+    [filas, pestana],
+  );
+  const cuenta = (s: Pestana) => (filas ?? []).filter((f) => s === 'todas' || f.status === s).length;
 
-  const box = { border: '1px solid #eef0f2', borderRadius: 12, background: 'white' };
+  const pestanas: Array<[Pestana, string]> = [
+    ['todas', t.todas],
+    ['active', t.activas],
+    ['draft', t.borradores],
+    ['paused', t.pausadas],
+    ['plantillas', t.plantillas],
+  ];
 
   return (
-    <div className="max-w-3xl">
-      <PanelHeader
-        title={t('title')}
-        subtitle={
-          <>
-            {t('subtitle')} ·{' '}
-            <Link href="/app/automations" className="text-brand hover:underline">
-              {t('backToRules')}
-            </Link>
-          </>
-        }
-      />
-      <div className="flex items-center justify-end gap-2 mb-1">
-        {!editing && (
-          <button
-            onClick={newWorkflow}
-            className="text-sm font-semibold rounded-[9px] py-1.5 px-3"
-            style={{ background: '#16a34a', color: 'white' }}
-          >
-            {t('new')}
-          </button>
-        )}
-      </div>
+    <div>
+      <PanelHeader tutorial="automatizaciones" title={t.titulo} subtitle={t.subtitulo} />
 
-      <div
-        className="rounded-lg p-3 text-xs mb-4"
-        style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
-      >
-        {t('help', { variable: '{{nombre}}' })}
-      </div>
-
-      {editing ? (
-        <div className="p-3 space-y-3" style={box as any}>
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs font-semibold" style={{ color: '#475569' }}>
-              {t('name')}
-              <input
-                value={editing.name}
-                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                placeholder={t('namePlaceholder')}
-                className="w-full mt-1 text-sm rounded-[8px] p-2"
-                style={{ border: '1px solid #e5e7eb' }}
-              />
-            </label>
-            <label className="text-xs font-semibold" style={{ color: '#475569' }}>
-              {t('trigger')}
-              <select
-                value={editing.triggerType}
-                onChange={(e) =>
-                  setEditing({ ...editing, triggerType: e.target.value })
-                }
-                className="w-full mt-1 text-sm rounded-[8px] p-2"
-                style={{ border: '1px solid #e5e7eb' }}
-              >
-                {TRIGGERS.map((tr) => (
-                  <option key={tr} value={tr}>
-                    {t(`trigger_${tr}` as any)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="text-xs font-bold uppercase tracking-wide" style={{ color: '#6b7280' }}>
-            {t('steps')}
-          </div>
-          <div className="space-y-2">
-            {editing.steps.map((s, i) => (
-              <div key={i} className="p-2.5 rounded-[10px]" style={{ border: '1px solid #eef0f2', background: '#fbfcfd' }}>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="text-xs font-bold" style={{ color: '#334155' }}>
-                    {i + 1}. {etiquetaDePaso(t, s.type)}
-                  </span>
-                  <span className="flex items-center gap-2 text-[11px]">
-                    <button onClick={() => moveStep(i, -1)} disabled={i === 0} style={{ color: '#64748b' }}>↑</button>
-                    <button onClick={() => moveStep(i, 1)} disabled={i === editing.steps.length - 1} style={{ color: '#64748b' }}>↓</button>
-                    <button onClick={() => removeStep(i)} style={{ color: '#b91c1c' }}>
-                      {t('remove')}
-                    </button>
-                  </span>
-                </div>
-                {s.type === 'WAIT' ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      value={s.amount}
-                      onChange={(e) => setStep(i, { amount: Math.max(1, Number(e.target.value) || 1) } as any)}
-                      className="w-20 text-sm rounded-[8px] p-2"
-                      style={{ border: '1px solid #e5e7eb' }}
-                    />
-                    <select
-                      value={s.unit}
-                      onChange={(e) => setStep(i, { unit: e.target.value } as any)}
-                      className="text-sm rounded-[8px] p-2"
-                      style={{ border: '1px solid #e5e7eb' }}
-                    >
-                      <option value="minutes">{t('unitMinutes')}</option>
-                      <option value="hours">{t('unitHours')}</option>
-                      <option value="days">{t('unitDays')}</option>
-                    </select>
-                  </div>
-                ) : s.type === 'SEND_PUSH' ? (
-                  <div className="space-y-1.5">
-                    <input
-                      value={s.title}
-                      onChange={(e) => setStep(i, { title: e.target.value } as any)}
-                      placeholder={t('pushTitlePlaceholder')}
-                      className="w-full text-sm rounded-[8px] p-2"
-                      style={{ border: '1px solid #e5e7eb' }}
-                    />
-                    <textarea
-                      value={s.body}
-                      onChange={(e) => setStep(i, { body: e.target.value } as any)}
-                      placeholder={t('messagePlaceholder')}
-                      rows={2}
-                      className="w-full text-sm rounded-[8px] p-2"
-                      style={{ border: '1px solid #e5e7eb', resize: 'vertical' }}
-                    />
-                  </div>
-                ) : (
-                  <textarea
-                    value={(s as any).body}
-                    onChange={(e) => setStep(i, { body: e.target.value } as any)}
-                    placeholder={t('messageWithVarPlaceholder', {
-                      variable: '{{nombre}}',
-                    })}
-                    rows={2}
-                    className="w-full text-sm rounded-[8px] p-2"
-                    style={{ border: '1px solid #e5e7eb', resize: 'vertical' }}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {(['SEND_SMS', 'SEND_WHATSAPP', 'SEND_PUSH', 'WAIT'] as StepType[]).map((tp) => (
-              <button
-                key={tp}
-                onClick={() => addStep(tp)}
-                className="text-[11px] font-semibold rounded-[8px] py-1 px-2.5"
-                style={{ border: '1px dashed #cbd5e1', color: '#334155', background: 'white' }}
-              >
-                + {etiquetaDePaso(t, tp)}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex gap-1 overflow-x-auto -mx-1 px-1" role="tablist">
+          {pestanas.map(([k, label]) => (
             <button
-              onClick={save}
-              disabled={busy}
-              className="text-sm font-semibold rounded-[9px] py-2 px-4"
-              style={{ background: '#16a34a', color: 'white' }}
+              key={k}
+              role="tab"
+              aria-selected={pestana === k}
+              onClick={() => setPestana(k)}
+              className={`px-3.5 py-1.5 rounded-pill text-sm whitespace-nowrap transition ${
+                pestana === k ? 'bg-ink text-white' : 'text-mute hover:bg-bg2'
+              }`}
             >
-              {busy ? t('saving') : t('save')}
+              {label}
+              {k !== 'plantillas' && filas && <span className="ml-1.5 tabular-nums opacity-60">{cuenta(k)}</span>}
             </button>
-            <label className="text-xs flex items-center gap-1.5" style={{ color: '#475569' }}>
-              <input
-                type="checkbox"
-                checked={editing.isActive}
-                onChange={(e) => setEditing({ ...editing, isActive: e.target.checked })}
-              />
-              {t('active')}
-            </label>
-            <button
-              onClick={() => setEditing(null)}
-              className="text-sm rounded-[9px] py-2 px-4 ml-auto"
-              style={{ border: '1px solid #e5e7eb', color: '#475569', background: 'white' }}
-            >
-              {t('cancel')}
-            </button>
-          </div>
+          ))}
         </div>
-      ) : loading ? (
-        <div className="text-sm" style={{ color: '#9aa4af' }}>{t('loading')}</div>
-      ) : list.length === 0 ? (
-        <div className="text-sm rounded-lg px-3 py-6 text-center" style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}>
-          {t('empty')}
+        <button className="btn-primary" onClick={() => setEligiendo(true)}>
+          + {t.crear}
+        </button>
+      </div>
+
+      {cat && cat.predeterminadasActivas > 0 && pestana !== 'plantillas' && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-input border border-line bg-surface px-4 py-3 mb-4 text-sm">
+          <span className="text-mute">
+            <b className="text-ink font-semibold">{t.predeterminadas}.</b> {t.predeterminadasTexto(cat.predeterminadasActivas)}
+          </span>
+          <Link href="/app/automations" className="text-brand-700 font-semibold whitespace-nowrap hover:underline">
+            {t.verPredeterminadas} →
+          </Link>
+        </div>
+      )}
+
+      {pestana === 'plantillas' ? (
+        <GaleriaPlantillas plantillas={cat?.plantillas ?? []} onUsar={crear} ocupado={ocupado} />
+      ) : filas === null ? (
+        <div className="grid gap-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[76px] rounded-input bg-surface border border-line animate-pulse" />
+          ))}
+        </div>
+      ) : visibles.length === 0 ? (
+        <div className="card card-pad text-center py-12">
+          <div className="text-lg font-semibold text-ink">{filas.length ? t.nadaEnFiltro : t.vacioTitulo}</div>
+          {!filas.length && (
+            <>
+              <p className="text-mute mt-1">{t.vacioTexto}</p>
+              <div className="flex justify-center gap-2 mt-5">
+                <button className="btn-ghost" onClick={() => setPestana('plantillas')}>
+                  {t.plantillas}
+                </button>
+                <button className="btn-primary" onClick={() => crear('vacio')}>
+                  {t.desdeCero}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
-        <div className="space-y-2">
-          {list.map((w) => (
-            <div key={w.id} className="p-3" style={box as any}>
-              <div className="flex items-center justify-between gap-2">
+        <div className="rounded-input border border-line bg-surface divide-y divide-line overflow-hidden">
+          {visibles.map((f) => (
+            <div key={f.id} className="flex flex-wrap md:flex-nowrap items-center gap-x-5 gap-y-2 px-4 py-3.5 hover:bg-bg/60">
+              <Link href={`/app/automations/workflows/${f.id}`} className="flex items-center gap-3 min-w-0 flex-1">
+                <PildoraEstado estado={f.status} t={t} />
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold" style={{ color: '#2b3a30' }}>
-                    {w.name}
-                  </div>
-                  <div className="text-[11px]" style={{ color: '#9aa4af' }}>
-                    {t('triggerLine', {
-                      trigger: t(`trigger_${w.triggerType}` as any),
-                      count: w.steps.length,
-                    })}
+                  <div className="font-semibold text-ink truncate">{f.name}</div>
+                  <div className="text-xs text-mute truncate">
+                    {t.disparadores[f.triggerType] ?? '—'}
+                    {f.triggerType === 'INACTIVITY' && f.triggerDays ? ` · ${f.triggerDays} ${t.unidades.days}` : ''}
+                    {' · '}
+                    {t.pasos(f.pasos)}
+                    {f.schemaVersion < 2 && ` · ${t.version1}`}
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
-                    style={
-                      w.isActive
-                        ? { background: '#dcfce7', color: '#15803d' }
-                        : { background: '#f3f4f6', color: '#6b7280' }
-                    }
-                  >
-                    {w.isActive ? t('stateActive') : t('statePaused')}
-                  </span>
-                </div>
-              </div>
-              <div className="text-[11px] mt-1.5" style={{ color: '#64748b' }}>
-                {w.steps.map((s, i) => (
-                  <span key={i}>
-                    {i > 0 && ' → '}
-                    {stepSummary(t, s)}
-                  </span>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                <button
-                  onClick={() => setEditing({ ...w, steps: w.steps ?? [] })}
-                  disabled={busy}
-                  className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                  style={{ border: '1px solid #cbd5e1', color: '#334155', background: 'white' }}
-                >
-                  {t('edit')}
+              </Link>
+              <dl className="flex gap-5 text-xs tabular-nums">
+                <Dato label={t.inscritos} valor={f.stats.inscritos} />
+                <Dato label={t.enviados} valor={f.stats.enviados} />
+                <Dato label={t.creada} valor={fecha(f.createdAt, locale) ?? '—'} />
+                <Dato label={t.ultimaActividad} valor={fecha(f.lastActivityAt, locale) ?? t.nunca} />
+              </dl>
+              <div className="flex gap-1 ml-auto">
+                <Link href={`/app/automations/workflows/${f.id}`} className="btn-ghost !px-3 !py-1.5 text-xs">
+                  {t.editar}
+                </Link>
+                {f.status === 'active' ? (
+                  <button disabled={ocupado === f.id} onClick={() => accion(f, 'pausar')} className="btn-ghost !px-3 !py-1.5 text-xs">
+                    {t.pausar}
+                  </button>
+                ) : (
+                  <button disabled={ocupado === f.id} onClick={() => accion(f, 'activar')} className="btn-ghost !px-3 !py-1.5 text-xs">
+                    {t.activar}
+                  </button>
+                )}
+                <button disabled={ocupado === f.id} onClick={() => accion(f, 'duplicar')} className="btn-ghost !px-3 !py-1.5 text-xs">
+                  {t.duplicar}
                 </button>
                 <button
-                  onClick={() => toggleActive(w)}
-                  disabled={busy}
-                  className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
-                  style={
-                    w.isActive
-                      ? { background: 'white', color: '#b45309', border: '1px solid #fde68a' }
-                      : { background: '#0ea5e9', color: 'white' }
-                  }
+                  disabled={ocupado === f.id}
+                  onClick={() => accion(f, 'eliminar')}
+                  className="btn-ghost !px-3 !py-1.5 text-xs !text-bad"
                 >
-                  {w.isActive ? t('pause') : t('activate')}
-                </button>
-                <button
-                  onClick={() => remove(w)}
-                  disabled={busy}
-                  className="text-xs rounded-[8px] py-1.5 px-3 ml-auto"
-                  style={{ color: '#b91c1c', border: '1px solid #fecaca', background: 'white' }}
-                >
-                  {t('delete')}
+                  {t.eliminar}
                 </button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {eligiendo && (
+        <div className="fixed inset-0 z-50 bg-ink/40 flex items-end sm:items-center justify-center p-4" onClick={() => setEligiendo(false)}>
+          <div className="bg-surface rounded-input w-full max-w-lg p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="text-lg font-semibold text-ink mb-4">{t.crear}</div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <button
+                onClick={() => crear('vacio')}
+                disabled={!!ocupado}
+                className="text-left rounded-input border border-line p-4 hover:border-brand hover:bg-brand-soft/40 transition"
+              >
+                <IconoFlujo nombre="plus" className="text-brand-700" />
+                <div className="font-semibold text-ink mt-2">{t.desdeCero}</div>
+                <div className="text-sm text-mute mt-0.5">{t.desdeCeroTexto}</div>
+              </button>
+              <button
+                onClick={() => {
+                  setEligiendo(false);
+                  setPestana('plantillas');
+                }}
+                className="text-left rounded-input border border-line p-4 hover:border-brand hover:bg-brand-soft/40 transition"
+              >
+                <IconoFlujo nombre="sparkles" className="text-brand-700" />
+                <div className="font-semibold text-ink mt-2">{t.desdePlantilla}</div>
+                <div className="text-sm text-mute mt-0.5">{t.desdePlantillaTexto}</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Dato({ label, valor }: { label: string; valor: string | number }) {
+  return (
+    <div className="min-w-[56px]">
+      <dt className="text-mute2 uppercase tracking-wide text-[10px]">{label}</dt>
+      <dd className="text-ink font-medium whitespace-nowrap">{valor}</dd>
+    </div>
+  );
+}
+
+function GaleriaPlantillas({
+  plantillas,
+  onUsar,
+  ocupado,
+}: {
+  plantillas: Plantilla[];
+  onUsar: (k: string) => void;
+  ocupado: string | null;
+}) {
+  const t = useTextos();
+  return (
+    <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      {plantillas.map((p) => (
+        <div key={p.key} className="flex flex-col rounded-input border border-line bg-surface p-4">
+          <div className="flex items-center justify-between">
+            <span className="grid place-items-center w-9 h-9 rounded-full bg-brand-soft text-brand-700">
+              <IconoFlujo nombre={p.icono} />
+            </span>
+            <span className="text-[11px] uppercase tracking-wide text-mute2">{t.categorias[p.categoria] ?? p.categoria}</span>
+          </div>
+          <div className="font-semibold text-ink mt-3">{p.nombre}</div>
+          <p className="text-sm text-mute mt-1 flex-1">{p.descripcion}</p>
+          <div className="text-xs text-mute mt-3 space-y-0.5">
+            <div>
+              {p.triggerType ? t.disparadores[p.triggerType] : t.elegirActivador} · {t.pasos(p.pasos)}
+            </div>
+            <div>
+              {t.objetivo}: <span className="text-ink">{p.objetivo}</span>
+            </div>
+          </div>
+          <button className="btn-primary mt-4 justify-center" disabled={!!ocupado} onClick={() => onUsar(p.key)}>
+            {ocupado === p.key ? '…' : t.usarPlantilla}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

@@ -1,8 +1,10 @@
 import {
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AutomationRunStatus, ChannelType } from '@prisma/client';
@@ -22,6 +24,7 @@ import {
   BIENVENIDA_PENDIENTE,
   paseListoParaBienvenida,
 } from './bienvenida-en-espera';
+import { FlujosService } from './flujo/flujos.service';
 
 export type AutomationEvent =
   | 'STAMP_ADDED'
@@ -48,6 +51,17 @@ export type Action =
   | { type: 'SEND_PUSH'; title: string; body: string }
   | { type: 'ADD_STAMPS'; cardId?: string; amount: number }
   | { type: 'APPLY_PROMO'; promoId: string };
+
+/**
+ * Qué pasó con un envío. Las reglas de un paso lo ignoran; los flujos lo
+ * guardan en su historial para que el negocio vea por qué un mensaje no salió.
+ */
+export type ResultadoEnvio = {
+  estado: 'sent' | 'skipped' | 'failed' | 'scheduled';
+  motivo?: string;
+  destinatario?: string;
+  entregados?: number;
+};
 
 export type RuleDto = {
   name: string;
@@ -82,6 +96,8 @@ export class AutomationsService {
     private channels: ChannelsService,
     private wallet: WalletService,
     private growBusiness: GrowBusinessService,
+    @Inject(forwardRef(() => FlujosService))
+    private flujos: FlujosService,
   ) {}
 
   // ========== CRUD ==========
@@ -248,126 +264,23 @@ export class AutomationsService {
       }
     }
 
-    // Fase B: además de las reglas de 1 paso, este evento puede INSCRIBIR al
-    // cliente en workflows multipaso (secuencias con esperas). Best-effort.
-    await this.enrollForEvent(eventType, payload).catch((e) =>
-      this.logger.warn(`enrollForEvent(${eventType}) falló: ${e?.message}`),
+    // Además de las reglas de un paso, el evento puede INSCRIBIR al cliente en
+    // los flujos del negocio (constructor visual). Best-effort: un fallo aquí
+    // no puede tumbar el sellado ni el alta que emitió el evento.
+    await this.flujos.inscribirPorEvento(eventType, payload).catch((e) =>
+      this.logger.warn(`inscribirPorEvento(${eventType}) falló: ${e?.message}`),
     );
   }
 
-  /**
-   * Inscribe al cliente del evento en los workflows activos cuyo disparador
-   * coincide. Un pase por cliente por workflow (unique) — un re-disparo no
-   * re-inscribe (se afinará en un incremento posterior). El primer paso corre
-   * en el próximo tick del cron.
-   */
-  private async enrollForEvent(eventType: AutomationEvent, payload: any) {
-    const tenantId = payload?.tenantId;
-    const customerId = payload?.customerId;
-    if (!tenantId || !customerId) return; // los workflows enrolan CLIENTES
-    const workflows = await this.prisma.automationWorkflow.findMany({
-      where: { tenantId, isActive: true, triggerType: eventType },
-      select: { id: true, steps: true },
-    });
-    for (const wf of workflows) {
-      const steps = (wf.steps as WorkflowStep[]) ?? [];
-      if (!steps.length) continue;
-      try {
-        await this.prisma.automationEnrollment.create({
-          data: {
-            workflowId: wf.id,
-            tenantId,
-            customerId,
-            stepIndex: 0,
-            status: 'active',
-            nextRunAt: new Date(),
-          },
-        });
-      } catch (e: any) {
-        if (e?.code === 'P2002') continue; // ya inscrito
-        throw e;
-      }
-    }
+  /** ¿Hay por dónde mandarle SMS/WhatsApp a un cliente de este negocio? */
+  async tieneLineaSms(tenantId: string): Promise<boolean> {
+    return !!(await this.resolveCustomerSmsCreds(tenantId));
   }
 
-  /**
-   * Cron (cada 5 min): avanza los workflows multipaso. Procesa las inscripciones
-   * vencidas (nextRunAt <= now): ejecuta los pasos de envío consecutivos y, al
-   * toparse con un WAIT, reprograma nextRunAt al futuro; al terminar marca 'done'.
-   * Si el workflow está pausado (isActive=false) la inscripción no avanza.
-   */
-  @Cron('*/5 * * * *')
-  async processWorkflowTick() {
-    const now = new Date();
-    const due = await this.prisma.automationEnrollment.findMany({
-      where: { status: 'active', nextRunAt: { lte: now } },
-      include: { workflow: true },
-      take: 200,
-      orderBy: { nextRunAt: 'asc' },
-    });
-    for (const enr of due) {
-      if (!enr.workflow || !enr.workflow.isActive) continue; // pausado
-      try {
-        await this.processEnrollment(enr, enr.workflow);
-      } catch (e) {
-        this.logger.warn(
-          `workflow tick enr ${enr.id} falló: ${(e as Error).message}`,
-        );
-      }
-    }
-  }
-
-  private async processEnrollment(
-    enr: {
-      id: string;
-      tenantId: string;
-      customerId: string;
-      stepIndex: number;
-    },
-    workflow: { id: string; steps: any; triggerType?: string | null },
-  ) {
-    const steps = (workflow.steps as WorkflowStep[]) ?? [];
-    let idx = enr.stepIndex;
-    const now = new Date();
-    const dayMs = 24 * 60 * 60 * 1000;
-    // Ejecuta pasos de envío consecutivos hasta toparse con un WAIT o el final.
-    while (idx < steps.length) {
-      const step = steps[idx];
-      if (step && step.type === 'WAIT') {
-        const unitMs =
-          step.unit === 'days' ? dayMs : step.unit === 'hours' ? 3600000 : 60000;
-        const amount = Math.max(1, Math.min(365, Number(step.amount) || 1));
-        await this.prisma.automationEnrollment.update({
-          where: { id: enr.id },
-          data: {
-            stepIndex: idx + 1,
-            nextRunAt: new Date(now.getTime() + amount * unitMs),
-          },
-        });
-        return; // esperamos hasta el próximo vencimiento
-      }
-      // Paso de envío — reusa executeAction con payload mínimo.
-      try {
-        await this.executeAction(
-          step as Action,
-          { tenantId: enr.tenantId, customerId: enr.customerId },
-          `wf:${workflow.id}`,
-          { soloPush: workflow.triggerType === 'PASS_CREATED' },
-        );
-      } catch (e) {
-        this.logger.warn(
-          `workflow ${workflow.id} paso ${idx} (${(step as any)?.type}) falló: ${
-            (e as Error).message
-          }`,
-        );
-      }
-      idx++;
-    }
-    await this.prisma.automationEnrollment.update({
-      where: { id: enr.id },
-      data: { stepIndex: idx, status: 'done', nextRunAt: now },
-    });
-  }
+  // El motor de flujos (inscripción, tick y pasos) vive en
+  // `flujo/flujos.service.ts` desde 2026-11-24. El de antes —cron de 5 min que
+  // recorría la lista `steps`— se quitó en vez de convivir: dos crons
+  // avanzando las mismas inscripciones mandarían cada paso dos veces.
 
   private matchCondition(c: Condition, payload: any): boolean {
     const v = (payload as any)[c.field];
@@ -392,7 +305,7 @@ export class AutomationsService {
     payload: any,
     ruleId: string,
     opts: { soloPush?: boolean } = {},
-  ) {
+  ): Promise<ResultadoEnvio> {
     const tenantId = payload.tenantId;
     const customerId = payload.customerId;
 
@@ -410,7 +323,7 @@ export class AutomationsService {
       this.logger.warn(
         `${action.type} (rule ${ruleId}) descartado: la bienvenida a la tarjeta solo sale por push`,
       );
-      return;
+      return { estado: 'skipped', motivo: 'alta_solo_push' };
     }
 
     switch (action.type) {
@@ -425,7 +338,7 @@ export class AutomationsService {
           templateId: action.templateId,
           metadata: { trigger: payload },
         });
-        break;
+        return { estado: 'sent' };
       }
       // SMS / WhatsApp server-side vía Grow Business. AISLAMIENTO POR MARCA:
       // se envía desde las creds propias del negocio, o si no tiene, desde la
@@ -437,7 +350,7 @@ export class AutomationsService {
           this.logger.warn(
             `${action.type} (rule ${ruleId}) sin customerId — se omite`,
           );
-          break;
+          return { estado: 'skipped', motivo: 'sin_cliente' };
         }
         const customer = await this.prisma.customer.findUnique({
           where: { id: customerId },
@@ -448,14 +361,14 @@ export class AutomationsService {
           this.logger.warn(
             `${action.type} (rule ${ruleId}) cliente sin teléfono — se omite`,
           );
-          break;
+          return { estado: 'skipped', motivo: 'sin_telefono' };
         }
         const creds = await this.resolveCustomerSmsCreds(tenantId);
         if (!creds) {
           this.logger.warn(
             `${action.type} (rule ${ruleId}) sin credenciales Grow Business (negocio ni marca) — se omite`,
           );
-          break;
+          return { estado: 'skipped', motivo: 'canal_no_disponible' };
         }
         const body = await this.renderTemplate(action.body, payload);
         // `destinatarioSinVerificar`: este teléfono es el del CLIENTE, y el
@@ -469,17 +382,18 @@ export class AutomationsService {
           feature: 'automations',
           destinatarioSinVerificar: true,
         };
-        if (action.type === 'SEND_SMS') {
-          await this.growBusiness.sendSmsWithCreds(creds, phone, body, ctxEnvio);
-        } else {
-          await this.growBusiness.sendWhatsAppWithCreds(
-            { locationId: creds.locationId, apiKey: creds.apiKey },
-            phone,
-            body,
-            ctxEnvio,
-          );
-        }
-        break;
+        const r: any =
+          action.type === 'SEND_SMS'
+            ? await this.growBusiness.sendSmsWithCreds(creds, phone, body, ctxEnvio)
+            : await this.growBusiness.sendWhatsAppWithCreds(
+                { locationId: creds.locationId, apiKey: creds.apiKey },
+                phone,
+                body,
+                ctxEnvio,
+              );
+        return r?.ok === false
+          ? { estado: 'failed', motivo: String(r?.message ?? 'error'), destinatario: phone }
+          : { estado: 'sent', destinatario: phone };
       }
       case 'SEND_PUSH': {
         // FIX: antes de Fase C+5, las plantillas con {{customerName}},
@@ -508,7 +422,7 @@ export class AutomationsService {
               stats: { targeted: 0, skipped: 'no-customer' },
             },
           });
-          break;
+          return { estado: 'skipped', motivo: 'sin_cliente' };
         }
 
         // BIENVENIDA: no se empuja ahora. El pase se acaba de crear y todavía
@@ -529,7 +443,7 @@ export class AutomationsService {
               stats: { customerId, pendiente: BIENVENIDA_PENDIENTE, ruleId },
             },
           });
-          break;
+          return { estado: 'scheduled', motivo: 'espera_instalacion' };
         }
 
         // ORDEN IMPORTANTE: creamos la Notification ANTES de pushear. El pase
@@ -570,7 +484,12 @@ export class AutomationsService {
           where: { id: notif.id },
           data: { stats: { targeted: passes.length, delivered, customerId } },
         });
-        break;
+        if (delivered > 0) return { estado: 'sent', entregados: delivered };
+        return {
+          estado: 'skipped',
+          motivo: passes.length ? 'sin_wallet' : 'sin_tarjeta',
+          entregados: 0,
+        };
       }
       case 'ADD_STAMPS': {
         // Añade sellos al pase del customer (de la tarjeta indicada o la primera del tenant)
@@ -655,12 +574,28 @@ export class AutomationsService {
         // el cliente seguía viendo su tarjeta en cero — que para él es
         // exactamente lo mismo que si no se le hubiera dado.
         this.wallet.pushPassUpdate(pass.id).catch(() => null);
-        break;
+        return { estado: 'sent' };
       }
       case 'APPLY_PROMO':
         // Stub — en MVP las promos se aplican automáticamente al cart, no por rule
         break;
     }
+    return { estado: 'skipped', motivo: 'sin_efecto' };
+  }
+
+  /**
+   * Puerta de los flujos visuales al único sitio que envía. Que pasen por aquí
+   * y no por un envío propio es lo que mantiene para ellos las mismas reglas:
+   * aislamiento por marca en SMS, push solo al pase de ESE cliente, bienvenida
+   * en espera hasta que la tarjeta está instalada, tope a números públicos.
+   */
+  enviarDesdeFlujo(
+    action: Action,
+    payload: any,
+    ruleId: string,
+    opts: { soloPush?: boolean } = {},
+  ): Promise<ResultadoEnvio> {
+    return this.executeAction(action, payload, ruleId, opts);
   }
 
   /**
@@ -1027,6 +962,9 @@ export class AutomationsService {
       AutomationsService.HORA_INACTIVIDAD,
       ahora,
     );
+    // Los que ESTA corrida se llevó: solo a ellos se les buscan los umbrales
+    // de los flujos (mismo candado del día, mismo «una vez al día»).
+    const reclamados: typeof negocios = [];
     for (const negocio of negocios) {
       const diaLocal = fechaLocal(ahora, negocio.timezone);
       const mio = await this.reclamarDiaLocal(
@@ -1035,6 +973,7 @@ export class AutomationsService {
         diaLocal,
       );
       if (!mio) continue;
+      reclamados.push(negocio);
 
       // Hace 30 días, contados sobre el calendario DEL NEGOCIO.
       const targetDay = restarDias(diaLocal, 30);
@@ -1053,6 +992,28 @@ export class AutomationsService {
           customerName: c.fullName,
           daysSinceLastVisit: 30,
         }).catch(() => null);
+      }
+    }
+    // Los flujos pueden pedir otro umbral («7 días sin venir»). Esos NO pasan
+    // por `emit`: las predeterminadas de inactividad son de 30 días y saldrían
+    // también a los 7. Van directo a inscribir, con el día que les toca.
+    for (const negocio of reclamados) {
+      const diaLocal = fechaLocal(ahora, negocio.timezone);
+      const extra = await this.flujos.diasDeInactividadExtra(negocio.id).catch(() => [] as number[]);
+      for (const dias of extra) {
+        const clientes = await this.prisma.customer.findMany({
+          where: { tenantId: negocio.id, lastVisitDay: restarDias(diaLocal, dias) },
+          select: { id: true, fullName: true },
+        });
+        for (const c of clientes) {
+          await this.flujos
+            .inscribirPorEvento(
+              'INACTIVITY',
+              { tenantId: negocio.id, customerId: c.id, customerName: c.fullName, daysSinceLastVisit: dias },
+              { dias },
+            )
+            .catch(() => null);
+        }
       }
     }
   }

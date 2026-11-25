@@ -61,7 +61,7 @@ function servicio(opts: {
     pushPassUpdate: vi.fn(async (id: string) => { refrescados.push(id); }),
   };
 
-  const svc = new AutomationsService(prisma, {} as any, wallet, {} as any);
+  const svc = new AutomationsService(prisma, {} as any, wallet, {} as any, { inscribirPorEvento: async () => {}, diasDeInactividadExtra: async () => [] } as any);
   // `executeAction` es privado: se llama por su nombre porque lo que importa es
   // el comportamiento observable, no el modificador de acceso.
   const ejecutar = (action: any, payload: any) =>

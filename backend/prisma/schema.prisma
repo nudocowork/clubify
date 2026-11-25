@@ -2678,6 +2678,24 @@ model AutomationWorkflow {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// Constructor visual (2026-11-24). `schemaVersion` 1 = la lista `steps` de
+  /// siempre (5 flujos de Extreme House); 2 = el grafo de `graph`. El motor lee
+  /// los dos: un flujo viejo se convierte a nodos al vuelo y no hay que migrar
+  /// sus datos. Ver `automations/flujo/grafo.ts`.
+  schemaVersion  Int       @default(1)
+  /// { rootId, nodes: { [id]: { id, type, config, next, yes, no } } }
+  graph          Json      @default("{}")
+  /// draft | active | paused. `isActive` se mantiene a la par (= active) porque
+  /// es lo que miran las consultas del motor y el código anterior.
+  status         String    @default("draft")
+  /// Filtro del disparador, p. ej. { cardId } para «solo esta tarjeta».
+  triggerConfig  Json      @default("{}")
+  /// once = un cliente entra una sola vez; after_finish = puede volver a entrar
+  /// cuando terminó su recorrido anterior. Nunca dos recorridos a la vez.
+  reentry        String    @default("once")
+  templateKey    String?
+  lastActivityAt DateTime?
+
   enrollments AutomationEnrollment[]
 
   @@index([tenantId, isActive])
@@ -2694,14 +2712,56 @@ model AutomationEnrollment {
   tenantId   String
   customerId String
   stepIndex  Int                @default(0)
+  /// active (pendiente o esperando: `nextRunAt` dice cuándo) | running
+  /// (reclamada por un tick; `lockedAt`) | done | cancelled | error | stopped
   status     String             @default("active")
   nextRunAt  DateTime
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 
+  /// Nodo que toca ejecutar. Null en un flujo viejo = se deduce de `stepIndex`.
+  currentNodeId String?
+  /// Cuántas veces ha entrado este cliente (re-entrada). Va en la clave de
+  /// cada envío: sin ella, el segundo recorrido no podría volver a mandar.
+  runNumber     Int       @default(1)
+  attempts      Int       @default(0)
+  lastError     String?
+  /// Si un tick muere a mitad (despliegue), la fila queda `running`: pasados
+  /// 10 min vuelve a `active`. Los envíos ya hechos no se repiten por su clave.
+  lockedAt      DateTime?
+  enteredAt     DateTime  @default(now())
+  completedAt   DateTime?
+  /// Lo que traía el evento que lo inscribió (tarjeta, pase, pedido).
+  context       Json      @default("{}")
+
   @@unique([workflowId, customerId])
   @@index([status, nextRunAt])
   @@index([tenantId])
+  @@index([workflowId, status])
+}
+
+/// Historial de cada paso de cada recorrido: lo que ve el negocio en la línea de
+/// tiempo. `dedupKey` (recorrido + nodo) es lo que impide mandar el mismo push
+/// dos veces: el registro se crea ANTES de enviar y la clave es única.
+model AutomationStepLog {
+  id           String   @id @default(uuid())
+  tenantId     String
+  workflowId   String
+  enrollmentId String
+  customerId   String
+  runNumber    Int      @default(1)
+  nodeId       String?
+  nodeType     String
+  /// entered | waited | branch | sending | sent | skipped | failed | done | cancelled | info
+  status       String
+  message      String   @default("")
+  detail       Json     @default("{}")
+  dedupKey     String?  @unique
+  createdAt    DateTime @default(now())
+
+  @@index([enrollmentId, createdAt])
+  @@index([workflowId, createdAt])
+  @@index([tenantId, customerId, createdAt])
 }
 
 // ── WORKFLOWS DE MARCA BLANCA (panel /admin/automatizaciones) ───────────────

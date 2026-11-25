@@ -47,6 +47,7 @@ function montar() {
     { enqueueMessage: encolados } as any,
     {} as any,
     { sendSmsWithCreds: sms, sendWhatsAppWithCreds: whatsapp } as any,
+    { inscribirPorEvento: async () => {}, diasDeInactividadExtra: async () => [] } as any,
   );
   (svc as any).logRun = async () => undefined;
   return { svc, sms, whatsapp, encolados };

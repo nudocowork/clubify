@@ -8,6 +8,56 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-24 (201) — Automatizaciones del negocio: constructor visual de flujos
+
+**Migración YA aplicada en producción. Falta desplegar: primero el backend y después el frontend.** El frontend nuevo llama a `/automations/flujos`, que el backend viejo no tiene.
+
+- **Qué es:** en `/app/automations/workflows` el negocio arma secuencias sobre un lienzo:
+  - un disparador → esperar → push / SMS / WhatsApp → condición sí/no → fin;
+  - con plantillas, estados (borrador / activa / pausada) e historial por cliente.
+- **No se creó un motor nuevo: se evolucionó el que había** (`AutomationWorkflow`, lineal, 5 flujos de Extreme House con 174 recorridos terminados).
+  - Los flujos viejos (`schemaVersion` 1) se leen como grafo al vuelo, con ids `s0`, `s1`, …, así que una inscripción vieja sigue en su paso.
+  - El cron de 5 min que recorría `steps` **se quitó**. Si conviviera con el nuevo, cada paso saldría dos veces.
+- **Las 570 predeterminadas (`AutomationRule`) no se tocan.** La pantalla nueva solo las enlaza y las cuenta.
+  - Al activar un flujo, avisa si una predeterminada con el mismo evento también le escribe al cliente. No apaga nada sola.
+- **Motor** (`backend/src/automations/flujo/flujos.service.ts`, cron de cada minuto):
+  - el estado vive en la base: nodo actual y `nextRunAt`;
+  - cada fila se reclama con un `UPDATE` condicional;
+  - una fila `running` con más de 10 min se retoma.
+- **Contra duplicados:**
+  - cada envío crea antes su fila en `AutomationStepLog`, con la clave única `inscripción:recorrido:nodo`. Un tick que muere tras enviar no reenvía.
+  - re-entrada solo si el recorrido anterior terminó (`once` o `after_finish`).
+  - si a ese cliente le llegó otra automatización hace menos de 5 min, el push del flujo se separa 10 min.
+- **Solo en los flujos nuevos (v2), para no cambiar el comportamiento de los viejos:**
+  - los mensajes salen entre las 8:00 y las 21:00, hora del negocio;
+  - tope de 3 mensajes de flujos por cliente y día;
+  - el mismo texto no se repite en 24 h.
+- **Disparadores reales:**
+  - tarjeta emitida, cupón emitido (alta en una tarjeta de cupón, descuento o regalo), sello, cerca del premio, tarjeta completada, premio canjeado, cupón canjeado;
+  - cumpleaños, inactividad con N días (`cronInactivity` inscribe aparte los umbrales distintos de 30, sin pasar por `emit`), y los cuatro de pedidos.
+  - **No disponibles:** «cerca del local» y «fecha específica». Clubify nunca se entera de la cercanía: la decide el teléfono. El flujo «Geolocalizacion» de Extreme House nunca disparó por eso.
+- **Condiciones:** sobre datos reales del cliente, calculados al evaluar y solo de su negocio:
+  - sellos que lleva y los que le faltan;
+  - días desde la última visita y entre visitas;
+  - visitas y pedidos totales;
+  - sello o canje desde que entró;
+  - premio, cupón o cualquier beneficio sin usar; cumpleaños registrado.
+- **Push:** pasa por `executeAction`, el único sitio que envía, mediante `enviarDesdeFlujo`. Mantiene así sus reglas:
+  - solo llega al pase de ESE cliente;
+  - en un alta a la tarjeta, la bienvenida espera a que la tarjeta esté en el Wallet;
+  - el alta solo se saluda por push.
+
+  `executeAction` ahora devuelve qué pasó (enviado / omitido / fallido / programado y por qué) para el historial. Las reglas ignoran ese valor.
+- **Pruebas:**
+  - backend: `grafo.spec.ts` (22) y `motor-flujos.spec.ts` (20, base en memoria: espera, reinicio, doble tick, tope, pausa, aislamiento, reintentos, flujo v1);
+  - frontend: `node frontend/scripts/pruebas-flujos-visuales.mjs` (11);
+  - las 241 de `src/automations`, `src/email` y `src/integrations` siguen en verde.
+- **No se probó en navegador.** El lienzo y el panel solo se verificaron con `tsc` y `eslint`. Hay que mirarlos tras desplegar.
+- **Pendiente:**
+  - textos en portugués (cae a español);
+  - imagen y enlace en el push (Wallet no los admite en el mensaje);
+  - aperturas y clics: ni Apple ni Google los informan.
+
 ## 2026-11-24 (200) — Cupón de bienvenida repetido, cupón usado que parecía vigente, y el aviso de «tarjeta actualizada» de Konys
 
 **Cupones (`f9856a62`). Migración YA aplicada. Falta desplegar backend y frontend.**

@@ -78,7 +78,7 @@ function proceso(db: ReturnType<typeof base>, cumpleaneros: string[] = ['c1']) {
     },
   };
 
-  const svc = new AutomationsService(prisma, {} as any, {} as any, {} as any);
+  const svc = new AutomationsService(prisma, {} as any, {} as any, {} as any, { inscribirPorEvento: async () => {}, diasDeInactividadExtra: async () => [] } as any);
   const emitidos: Array<{ evento: string; tenantId: string; customerId: string }> = [];
   // `emit` es la puerta por la que sale el push/SMS/WA al cliente final.
   (svc as any).emit = async (evento: string, payload: any) => {
