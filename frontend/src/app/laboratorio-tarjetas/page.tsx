@@ -36,6 +36,7 @@ import {
   type PremioIntermedio,
 } from '@/lib/cards/estilos-de-franja';
 import { EditorDeAcomodo } from './EditorDeAcomodo';
+import { InstalarEnCelular } from './InstalarEnCelular';
 
 type Plataforma = 'APPLE' | 'GOOGLE' | 'SAMSUNG';
 type Pestana = 'ESTILO' | 'COLORES' | 'DATOS';
@@ -136,6 +137,7 @@ export default function LaboratorioDeTarjetas() {
           <button type="button" className="btn-ghost" onClick={descargarPng}>
             Descargar franja (PNG)
           </button>
+          <InstalarEnCelular c={c} negocio={negocio} titular={titular} />
         </div>
       </div>
 

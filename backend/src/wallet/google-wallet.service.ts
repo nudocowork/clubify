@@ -1318,6 +1318,72 @@ export class GoogleWalletService {
   }
 
   /**
+   * Enlace «Agregar a Google Wallet» de un pase de PRUEBA del laboratorio.
+   *
+   * Clase y objeto van DENTRO del JWT y Google los crea al guardar: aquí no
+   * importa el fallo de Cocoa (objeto que no existe si el guardado no termina),
+   * porque este pase nunca recibe actualizaciones. Clase propia por prueba
+   * para que cada diseño salga con SUS colores: Google no repinta una clase
+   * que ya existe a partir de un JWT.
+   *
+   * `heroUrl` tiene que ser pública: Google descarga la imagen de su lado.
+   */
+  urlDeLaboratorio(o: {
+    id: string;
+    negocio: string;
+    titular: string;
+    premio: string;
+    fondo: string;
+    cabecera: { etiqueta: string; valor: string };
+    heroUrl: string;
+  }): string | null {
+    const sa = this.loadServiceAccount();
+    const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
+    if (!sa || !issuerId) return null;
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9._]/g, '_');
+    const classId = `${issuerId}.laboratorio_${safe(o.id)}`;
+    const objectId = `${issuerId}.laboratorio_obj_${safe(o.id)}`;
+    const publicBase =
+      process.env.PUBLIC_LOGO_BASE_URL ||
+      (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
+        ? process.env.APP_URL
+        : 'https://soyclubify.com');
+    const texto = (value: string) => ({ defaultValue: { language: 'es', value } });
+
+    const loyaltyClass = {
+      id: classId,
+      issuerName: o.negocio,
+      programName: 'Tarjeta de prueba',
+      programLogo: { sourceUri: { uri: `${publicBase}/icons/icon-512.png` }, contentDescription: texto(o.negocio) },
+      hexBackgroundColor: o.fondo,
+      reviewStatus: 'UNDER_REVIEW',
+    };
+    const loyaltyObject = {
+      id: objectId,
+      classId,
+      state: 'ACTIVE',
+      accountName: o.titular,
+      accountId: o.id.slice(0, 8).toUpperCase(),
+      loyaltyPoints: { label: o.cabecera.etiqueta, balance: { string: o.cabecera.valor } },
+      heroImage: { sourceUri: { uri: o.heroUrl }, contentDescription: texto('Progreso de la tarjeta') },
+      hexBackgroundColor: o.fondo,
+      textModulesData: [
+        { id: 'reward', header: 'Próximo premio', body: o.premio },
+        { id: 'lab', header: 'Tarjeta de prueba', body: 'Creada desde el laboratorio de tarjetas.' },
+      ],
+      barcode: { type: 'QR_CODE', value: `clubify-laboratorio:${o.id}` },
+    };
+    const claims = {
+      iss: sa.client_email,
+      aud: 'google',
+      typ: 'savetowallet',
+      iat: Math.floor(Date.now() / 1000),
+      payload: { loyaltyClasses: [loyaltyClass], loyaltyObjects: [loyaltyObject] },
+    };
+    return `https://pay.google.com/gp/v/save/${sign(claims, sa.private_key, { algorithm: 'RS256' })}`;
+  }
+
+  /**
    * Formatea el momento de la reserva como ISO 8601 con offset numérico
    * (`YYYY-MM-DDTHH:MM:SS±HH:MM`). Google Wallet usa este formato para
    * `dateTime.start/end`. Maneja DST: el offset se computa para ese

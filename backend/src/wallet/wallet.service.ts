@@ -33,6 +33,7 @@ import {
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 import { esCuponUsado } from './cupon-usado';
+import { dibujarFranja, type ConfigFranja } from './estilos-de-franja';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -2697,6 +2698,123 @@ export class WalletService implements OnModuleDestroy {
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  /**
+   * Franja del LABORATORIO de tarjetas, con el mismo código que la vista previa
+   * del panel (`estilos-de-franja.ts`). El ícono emoji va por los renderers de
+   * `stamp-icons` porque librsvg no pinta emoji a color.
+   *
+   * `config` tiene que venir de `validarPaseDeLaboratorio`: aquí se mete tal
+   * cual en un SVG.
+   */
+  async dibujarFranjaDeLaboratorio(config: ConfigFranja): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const [icono, regalo] = await Promise.all([
+      resolveStampIconRenderer(config.emoji || '⭐'),
+      resolveStampIconRenderer('🎁'),
+    ]);
+    const svg = dibujarFranja(config, icono, regalo);
+    // Se rasteriza directo a 3x (960 de ancho) y se achica: así la 3x no sale
+    // de agrandar la 1x y el texto queda nítido.
+    const grande = await sharp(Buffer.from(svg, 'utf8'), { density: 108 })
+      .resize(960, 369, { fit: 'fill' })
+      .png()
+      .toBuffer();
+    const [s1, s2] = await Promise.all([
+      sharp(grande).resize(320, 123).png().toBuffer(),
+      sharp(grande).resize(640, 246).png().toBuffer(),
+    ]);
+    return { 'strip.png': s1, 'strip@2x.png': s2, 'strip@3x.png': grande };
+  }
+
+  /**
+   * Pase de Apple de PRUEBA del laboratorio. Como el de reservas: no se guarda
+   * en la base, no tiene `webServiceURL` (no recibe actualizaciones) y su
+   * serial lleva el prefijo `lab_` para no chocar con pases reales.
+   *
+   * Devuelve null si no hay certificados (desarrollo).
+   */
+  async generarPaseDeLaboratorio(o: {
+    id: string;
+    negocio: string;
+    titular: string;
+    config: ConfigFranja;
+    cabecera: { etiqueta: string; valor: string };
+    franja: Record<string, Buffer>;
+  }): Promise<Buffer | null> {
+    const c = o.config;
+    const premioOSaldo =
+      c.estilo === 'SALDO'
+        ? { key: 'cashback', label: 'DEVOLUCIÓN', value: `${c.porcentaje ?? 0}%` }
+        : { key: 'reward', label: 'PRÓXIMO PREMIO', value: c.premio };
+    const passJson = {
+      formatVersion: 1,
+      passTypeIdentifier: process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty',
+      teamIdentifier: process.env.APPLE_TEAM_ID ?? 'XXXXXXXXXX',
+      organizationName: o.negocio,
+      serialNumber: `lab_${o.id}`,
+      description: `Tarjeta de prueba · ${o.negocio}`,
+      logoText: o.negocio,
+      foregroundColor: this.hexToRgb(c.texto),
+      labelColor: this.hexToRgb(c.texto),
+      backgroundColor: this.hexToRgb(c.fondo),
+      barcodes: [
+        {
+          format: 'PKBarcodeFormatQR',
+          message: `clubify-laboratorio:${o.id}`,
+          messageEncoding: 'iso-8859-1',
+        },
+      ],
+      storeCard: {
+        headerFields: [{ key: 'progress', label: o.cabecera.etiqueta, value: o.cabecera.valor }],
+        secondaryFields: [
+          { key: 'holder', label: 'TITULAR', value: o.titular },
+          { ...premioOSaldo, textAlignment: 'PKTextAlignmentRight' },
+        ],
+        backFields: [
+          {
+            key: 'lab',
+            label: 'Tarjeta de prueba',
+            value: 'Creada desde el laboratorio de tarjetas. No suma sellos ni recibe actualizaciones.',
+          },
+        ],
+      },
+    };
+
+    const certPem = this.loadAppleCert();
+    const wwdrPem = this.loadAppleWwdr();
+    if (!certPem || !wwdrPem) {
+      this.logger.warn('Laboratorio: sin certificados de Apple, no se arma el .pkpass');
+      return null;
+    }
+    const blob = certPem.toString('utf8');
+    const certOnly = this.extractPemBlock(blob, 'CERTIFICATE');
+    const keyOnly =
+      this.extractPemBlock(blob, 'RSA PRIVATE KEY') ||
+      this.extractPemBlock(blob, 'PRIVATE KEY') ||
+      this.extractPemBlock(blob, 'ENCRYPTED PRIVATE KEY');
+    if (!certOnly || !keyOnly) {
+      this.logger.warn('Laboratorio: cert/key de Apple no separables, no se arma el .pkpass');
+      return null;
+    }
+
+    const { PKPass } = await import('passkit-generator');
+    // Íconos por defecto (los pide Apple para la notificación) y la franja
+    // propia encima: sin la del laboratorio saldría la verde de la plataforma.
+    const buffers: Record<string, Buffer> = {
+      'pass.json': Buffer.from(JSON.stringify(passJson)),
+      ...imagenesSinFranjaAjena(this.loadDefaultImages(), false),
+      ...o.franja,
+    };
+    const certOpts: any = {
+      wwdr: wwdrPem,
+      signerCert: Buffer.from(certOnly),
+      signerKey: Buffer.from(keyOnly),
+    };
+    const passphrase = process.env.APPLE_PASS_CERT_PASSWORD || undefined;
+    if (passphrase) certOpts.signerKeyPassphrase = passphrase;
+    return new PKPass(buffers, certOpts).getAsBuffer();
   }
 
   /** Mismo round-trip Intl que ReservationsService.reservationMomentUtc.

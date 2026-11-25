@@ -232,7 +232,7 @@ function envolver(defs: string, cuerpo: string): string {
 
 /* ───────────────────────── estilos ───────────────────────── */
 
-function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono): string {
+function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono, regalo: DibujarIcono): string {
   const filas = c.requeridos > 6 ? 2 : 1;
   const porFila = Math.ceil(c.requeridos / filas);
   const padX = 34;
@@ -271,7 +271,7 @@ function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono)
       const bx = cx + r * 0.68;
       const by = cy - r * 0.68;
       out.push(`<circle cx="${bx}" cy="${by}" r="${r * 0.38}" fill="#FFFFFF" stroke="${c.area}" stroke-width="2"/>`);
-      out.push(`<text x="${bx}" y="${by + r * 0.16}" text-anchor="middle" font-size="${r * 0.44}">🎁</text>`);
+      out.push(regalo(bx, by, r * 0.5, `g${i}`));
     }
   }
   return out.join('');
@@ -571,7 +571,7 @@ function anillo(c: ConfigFranja): string {
  * rejilla, un regalo en el sello 5 es un puntito en una esquina; aquí es una
  * parada del camino con su nombre.
  */
-function camino(c: ConfigFranja, icono: DibujarIcono): string {
+function camino(c: ConfigFranja, icono: DibujarIcono, regalo: DibujarIcono): string {
   const n = c.requeridos;
   const x0 = 44;
   const x1 = ANCHO - 44;
@@ -598,7 +598,7 @@ function camino(c: ConfigFranja, icono: DibujarIcono): string {
       out.push(
         lleno
           ? icono(x, y, 26, `c${i}`)
-          : `<text x="${x}" y="${y + 9}" text-anchor="middle" font-size="24">🎁</text>`,
+          : regalo(x, y, 26, `g${i}`),
       );
       const etiqueta = i === n ? c.premio : premios.get(i)!.texto;
       out.push(texto(x, y + 50, cortar(etiqueta, 14), { size: 14, color: c.texto, peso: 700, ancla: i === n ? 'end' : 'middle', opacidad: 0.85 }));
@@ -717,19 +717,22 @@ function saldo(c: ConfigFranja): string {
  * Devuelve el SVG de la franja. `dibujarIcono` permite al backend pasar sus
  * renderers (librsvg no pinta emoji a color); sin él, se usa <text> con emoji.
  */
-export function dibujarFranja(entrada: ConfigFranja, dibujarIcono?: DibujarIcono): string {
+export function dibujarFranja(entrada: ConfigFranja, dibujarIcono?: DibujarIcono, dibujarRegalo?: DibujarIcono): string {
   const c = sanear(entrada);
   letraActual = c.letra ?? 'MODERNA';
   const icono: DibujarIcono = c.iconoImagen
     ? iconoImagen(c.iconoImagen, 1)
     : dibujarIcono ?? iconoEmojiNavegador(c.emoji || '⭐');
+  // El 🎁 de los premios intermedios, por la misma razón que el ícono: el
+  // backend le pasa su dibujo, porque librsvg lo pinta como silueta negra.
+  const regalo: DibujarIcono = dibujarRegalo ?? iconoEmojiNavegador('🎁');
   const iconoTenue: DibujarIcono = c.iconoImagen
     ? iconoImagen(c.iconoImagen, 0.4)
     : (cx, cy, tam, id) => `<g opacity="0.28">${icono(cx, cy, tam, id)}</g>`;
 
   switch (c.estilo) {
     case 'SELLOS':
-      return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + rejilla(c, icono, iconoTenue));
+      return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + rejilla(c, icono, iconoTenue, regalo));
     case 'PRODUCTO':
       return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + producto(c, dibujarIcono ?? iconoEmojiNavegador(c.emoji || '⭐')));
     case 'FOTO_NUMERO':
@@ -743,7 +746,7 @@ export function dibujarFranja(entrada: ConfigFranja, dibujarIcono?: DibujarIcono
     case 'ANILLO':
       return envolver('', anillo(c));
     case 'CAMINO':
-      return envolver('', camino(c, icono));
+      return envolver('', camino(c, icono, regalo));
     case 'PERFORADA':
       return envolver('', perforada(c));
     case 'VIP':
