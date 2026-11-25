@@ -29,7 +29,26 @@ export type EstiloFranja =
   | 'VIP'
   | 'SALDO';
 
-export type Nivel = { nombre: string; desde: number };
+export type Nivel = { nombre: string; desde: number; beneficio?: string };
+
+/**
+ * Letra de la franja. En el panel la pone el navegador; en el pase la pone
+ * librsvg, que solo conoce las fuentes INSTALADAS en el servidor: si un estilo
+ * pasa a producción, hay que instalar Poppins, Fraunces y Bebas Neue allá.
+ */
+export type Letra = 'MODERNA' | 'ELEGANTE' | 'IMPACTO';
+export type Recipiente = 'TAZA' | 'VASO';
+export type Porcion = 'PIZZA' | 'TORTA' | 'LISA';
+
+/**
+ * Un sello colocado a mano en «Tu producto». Coordenadas del lienzo 640×246:
+ * (x, y) es el CENTRO, `tam` el lado en px, `giro` en grados. `imagen` deja
+ * poner una foto distinta en ese sello (p. ej. un regalo en el último).
+ */
+export type PosSello = { x: number; y: number; tam: number; giro: number; imagen?: string | null };
+/** Cómo se ven los sellos que el cliente aún no tiene. */
+export type Faltantes = 'TRANSPARENTES' | 'CONTORNO' | 'OCULTOS';
+export type Acomodo = 'FILA' | 'CUADRICULA' | 'ENCIMADO' | 'ARCO';
 export type PremioIntermedio = { pos: number; texto: string };
 
 export type ConfigFranja = {
@@ -56,6 +75,14 @@ export type ConfigFranja = {
   /** Número dentro de los sellos vacíos (1, 2, 3…): se lee cuánto falta. */
   numerarVacios?: boolean;
   premiosIntermedios?: PremioIntermedio[];
+  /** Solo «Tu producto»: dónde va cada sello. Si faltan, se completan con `acomodo`. */
+  posiciones?: PosSello[];
+  acomodo?: Acomodo;
+  faltantes?: Faltantes;
+  /** Todos menos Sellos y Tu producto, que no llevan texto grande. */
+  letra?: Letra;
+  recipiente?: Recipiente;
+  porcion?: Porcion;
   niveles?: Nivel[];
   /** Gastado acumulado, para VIP. */
   gastado?: number;
@@ -83,7 +110,16 @@ export const ESTILOS: Array<{ id: EstiloFranja; nombre: string; ayuda: string; n
   { id: 'SALDO', nombre: 'Saldo / cashback', ayuda: 'El saldo disponible y el % que devuelves.' },
 ];
 
-const FUENTE = 'Inter, Poppins, system-ui, -apple-system, Segoe UI, sans-serif';
+export const LETRAS: Record<Letra, { nombre: string; familia: string }> = {
+  MODERNA: { nombre: 'Moderna', familia: "Poppins, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" },
+  ELEGANTE: { nombre: 'Elegante', familia: "Fraunces, 'Playfair Display', Georgia, 'Times New Roman', serif" },
+  IMPACTO: { nombre: 'Impacto', familia: "'Bebas Neue', Oswald, Impact, 'Arial Narrow', sans-serif" },
+};
+
+// La letra de la franja que se está dibujando. dibujarFranja es síncrona, así
+// que fijarla al entrar no se cruza con otra llamada; evita pasarla por las
+// once funciones de estilo.
+let letraActual: Letra = 'MODERNA';
 
 export function esc(s: string): string {
   return s
@@ -137,12 +173,16 @@ function texto(
   s: string,
   o: { size: number; color: string; peso?: number; ancla?: 'start' | 'middle' | 'end'; espaciado?: number; opacidad?: number },
 ): string {
+  const impacto = letraActual === 'IMPACTO';
+  // Bebas solo trae mayúsculas y una sola grosura: se agranda un poco para que
+  // pese lo mismo que las otras dos.
+  const size = impacto ? Math.round(o.size * 1.12) : o.size;
   return (
-    `<text x="${x}" y="${y}" font-family="${FUENTE}" font-size="${o.size}" font-weight="${o.peso ?? 600}" ` +
+    `<text x="${x}" y="${y}" font-family="${LETRAS[letraActual].familia}" font-size="${size}" font-weight="${impacto ? 400 : (o.peso ?? 600)}" ` +
     `fill="${o.color}" text-anchor="${o.ancla ?? 'start'}"` +
     (o.espaciado ? ` letter-spacing="${o.espaciado}"` : '') +
     (o.opacidad != null ? ` opacity="${o.opacidad}"` : '') +
-    `>${esc(s)}</text>`
+    `>${esc(impacto ? s.toUpperCase() : s)}</text>`
   );
 }
 
@@ -192,7 +232,7 @@ function envolver(defs: string, cuerpo: string): string {
 
 /* ───────────────────────── estilos ───────────────────────── */
 
-function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono, producto: boolean): string {
+function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono): string {
   const filas = c.requeridos > 6 ? 2 : 1;
   const porFila = Math.ceil(c.requeridos / filas);
   const padX = 34;
@@ -213,12 +253,7 @@ function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono,
     const cy = padY + fila * (ch + gap) + ch / 2;
     const lleno = i < c.sellados;
     const id = `s${i}`;
-    if (producto) {
-      // El producto ocupa todo el círculo; vacío = misma foto oscurecida.
-      out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${lleno ? c.sello : alfa(c.texto, 0.08)}"/>`);
-      out.push((lleno ? icono : iconoTenue)(cx, cy, r * 2 * (c.iconoImagen ? 1 : 0.7), id));
-      if (!lleno) out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(0,0,0,0.35)"/>`);
-    } else if (lleno) {
+    if (lleno) {
       out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${c.sello}"/>`);
       out.push(icono(cx, cy, r * 1.15, id));
     } else {
@@ -242,6 +277,112 @@ function rejilla(c: ConfigFranja, icono: DibujarIcono, iconoTenue: DibujarIcono,
   return out.join('');
 }
 
+/* ── «Tu producto»: sellos sueltos, cada uno con su sitio, tamaño y giro ── */
+
+const R = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * Los acomodos de partida. Después cada sello se mueve a mano; estos solo
+ * dan un punto de arranque que ya se ve bien con cualquier cantidad.
+ */
+export function acomodar(tipo: Acomodo, n: number): PosSello[] {
+  const out: PosSello[] = [];
+  if (n <= 0) return out;
+  if (tipo === 'FILA') {
+    const paso = (ANCHO - 40) / n;
+    const tam = Math.min(ALTO * 0.62, paso * 0.96);
+    for (let i = 0; i < n; i++) out.push({ x: R(20 + paso * i + paso / 2), y: ALTO / 2, tam: R(tam), giro: 0 });
+    return out;
+  }
+  if (tipo === 'CUADRICULA') {
+    const filas = n > 14 ? 3 : n > 6 ? 2 : 1;
+    const porFila = Math.ceil(n / filas);
+    const cw = (ANCHO - 40) / porFila;
+    const ch = (ALTO - 24) / filas;
+    const tam = Math.min(cw, ch) * 0.92;
+    for (let i = 0; i < n; i++) {
+      const f = Math.floor(i / porFila);
+      const enFila = f === filas - 1 ? n - porFila * (filas - 1) : porFila;
+      const off = ((porFila - enFila) * cw) / 2;
+      out.push({ x: R(20 + off + cw * (i % porFila) + cw / 2), y: R(12 + ch * f + ch / 2), tam: R(tam), giro: 0 });
+    }
+    return out;
+  }
+  if (tipo === 'ENCIMADO') {
+    // Dos filas que se pisan, la de abajo corrida medio paso: se ve «amontonado»
+    // a propósito, como fichas sobre la mesa.
+    const porFila = Math.ceil(n / 2);
+    const tam = Math.min(ALTO * 0.54, ((ANCHO - 40) / porFila) * 1.3);
+    const paso = porFila > 1 ? (ANCHO - 40 - tam * 1.25) / (porFila - 1) : 0;
+    for (let i = 0; i < n; i++) {
+      const f = i < porFila ? 0 : 1;
+      const k = f === 0 ? i : i - porFila;
+      out.push({
+        x: R(20 + tam / 2 + paso * k + (f === 1 ? tam * 0.25 : 0)),
+        y: R(f === 0 ? tam / 2 + 10 : ALTO - tam / 2 - 10),
+        tam: R(tam),
+        giro: 0,
+      });
+    }
+    return out;
+  }
+  // ARCO: sobre una parábola, cada sello girado según la curva.
+  const tam = Math.min(ALTO * 0.42, ((ANCHO - 40) / n) * 1.15);
+  // Con pocos sellos el arco se angosta: si no, 4 sellos quedan regados de
+  // punta a punta con huecos enormes entre ellos.
+  const medio = Math.min((ANCHO - 40 - tam) / 2, (n - 1) * tam * 0.62);
+  const x0 = ANCHO / 2 - medio;
+  const x1 = ANCHO / 2 + medio;
+  const base = ALTO - tam / 2 - 10;
+  // Tope a la curva: con pocos sellos un arco alto los deja casi de lado.
+  const alto = Math.min(Math.max(0, base - tam / 2 - 10), medio * 0.45);
+  for (let i = 0; i < n; i++) {
+    const t = n > 1 ? (i / (n - 1)) * 2 - 1 : 0;
+    const x = x0 + ((t + 1) / 2) * (x1 - x0);
+    const y = base - alto * (1 - t * t);
+    // Con un solo sello `medio` es 0: sin la guarda, el giro sale NaN.
+    const pendiente = medio > 0 ? (2 * alto * t) / medio : 0;
+    out.push({ x: R(x), y: R(y), tam: R(tam), giro: R((Math.atan(pendiente) * 180) / Math.PI) });
+  }
+  return out;
+}
+
+/** Las posiciones guardadas, completadas con el acomodo si sobran sellos. */
+export function posicionesDe(c: ConfigFranja): PosSello[] {
+  const base = acomodar(c.acomodo ?? 'FILA', c.requeridos);
+  const propias = c.posiciones ?? [];
+  return base.map((b, i) => propias[i] ?? b);
+}
+
+function producto(c: ConfigFranja, emoji: DibujarIcono): string {
+  const faltantes = c.faltantes ?? 'TRANSPARENTES';
+  const out: string[] = [];
+  posicionesDe(c).forEach((p, i) => {
+    const lleno = i < c.sellados;
+    if (!lleno && faltantes === 'OCULTOS') return;
+    const img = p.imagen || c.iconoImagen || null;
+    const giro = p.giro ? ` transform="rotate(${p.giro} ${p.x} ${p.y})"` : '';
+    const h = p.tam / 2;
+    let cuerpo: string;
+    if (img) {
+      // Foto del producto sin recorte: con el fondo quitado, la forma ES el sello.
+      cuerpo = `<image href="${esc(img)}" x="${R(p.x - h)}" y="${R(p.y - h)}" width="${p.tam}" height="${p.tam}" preserveAspectRatio="xMidYMid meet"/>`;
+    } else {
+      cuerpo = `<circle cx="${p.x}" cy="${p.y}" r="${h}" fill="${c.sello}"/>` + emoji(p.x, p.y, p.tam * 0.6, `p${i}`);
+    }
+    if (lleno) {
+      out.push(`<g${giro}>${cuerpo}</g>`);
+    } else if (faltantes === 'CONTORNO') {
+      out.push(
+        `<circle cx="${p.x}" cy="${p.y}" r="${R(h - 2)}" fill="none" stroke="${alfa(c.texto, 0.45)}" stroke-width="2.5" stroke-dasharray="6 6"/>`,
+      );
+    } else {
+      out.push(`<g opacity="0.28"${giro}>${cuerpo}</g>`);
+    }
+  });
+  return out.join('');
+}
+
 function numeroGrande(c: ConfigFranja, x: number, conFoto: boolean): string {
   const n = String(c.sellados);
   const size = n.length > 1 ? 150 : 170;
@@ -259,8 +400,24 @@ function numeroGrande(c: ConfigFranja, x: number, conFoto: boolean): string {
   );
 }
 
+/**
+ * La foto ocupa la derecha y se FUNDE con el color del área hacia la izquierda,
+ * donde va el número: así el texto siempre cae sobre color liso y se lee, sin
+ * el velo negro que apaga la foto entera.
+ */
 function fotoNumero(c: ConfigFranja): string {
-  return fondoBase(c, true) + numeroGrande(c, 40, !!c.portada);
+  if (!c.portada) return fondoBase(c, false) + numeroGrande(c, 40, false);
+  const x0 = Math.round(ANCHO * 0.4);
+  return (
+    `<rect width="${ANCHO}" height="${ALTO}" fill="${c.area}"/>` +
+    `<image href="${esc(c.portada)}" x="${x0}" y="0" width="${ANCHO - x0}" height="${ALTO}" preserveAspectRatio="xMidYMid slice"/>` +
+    `<linearGradient id="funde" x1="0" y1="0" x2="1" y2="0">` +
+    `<stop offset="0.42" stop-color="${c.area}" stop-opacity="1"/>` +
+    `<stop offset="0.7" stop-color="${c.area}" stop-opacity="0.35"/>` +
+    `<stop offset="1" stop-color="${c.area}" stop-opacity="0"/></linearGradient>` +
+    `<rect width="${ANCHO}" height="${ALTO}" fill="url(#funde)"/>` +
+    numeroGrande(c, 40, false)
+  );
 }
 
 function colorSolido(c: ConfigFranja): string {
@@ -296,13 +453,24 @@ function porciones(c: ConfigFranja): string {
   const cy = ALTO / 2;
   const r = 98;
   const n = c.requeridos;
-  const out: string[] = [`<circle cx="${cx}" cy="${cy}" r="${r + 5}" fill="${alfa(c.texto, 0.08)}"/>`];
-  const oscuro = esClaro(c.sello) ? 'rgba(120,20,20,0.75)' : 'rgba(255,255,255,0.55)';
+  const tipo = c.porcion ?? 'PIZZA';
+  // PIZZA tiene sus colores propios (masa, queso, pepperoni): con el color de
+  // «Sellos» deja de parecer pizza. TORTA y LISA sí usan el color de la marca.
+  const relleno = tipo === 'PIZZA' ? '#F2C14E' : c.sello;
+  const out: string[] = [`<circle cx="${cx}" cy="${cy}" r="${r + 6}" fill="${alfa(c.texto, 0.08)}"/>`];
+  const punto =
+    tipo === 'PIZZA'
+      ? '#B3261E'
+      : tipo === 'TORTA'
+        ? 'rgba(255,255,255,0.85)'
+        : esClaro(c.sello)
+          ? 'rgba(0,0,0,0.25)'
+          : 'rgba(255,255,255,0.5)';
   for (let i = 0; i < n; i++) {
     const a0 = -Math.PI / 2 + (i * 2 * Math.PI) / n;
     const a1 = a0 + (2 * Math.PI) / n;
     const lleno = i < c.sellados;
-    const fill = lleno ? c.sello : alfa(c.texto, 0.12);
+    const fill = lleno ? relleno : alfa(c.texto, 0.12);
     if (n === 1) {
       out.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`);
     } else {
@@ -314,28 +482,45 @@ function porciones(c: ConfigFranja): string {
           `fill="${fill}" stroke="${c.area}" stroke-width="4" stroke-linejoin="round"/>`,
       );
     }
-    if (lleno) {
-      // «Ingredientes»: dos puntos por porción para que no parezca un gráfico de torta de Excel.
+    if (lleno && tipo !== 'LISA') {
+      // Pizza: pepperoni. Torta: crema. Que no parezca un gráfico de Excel.
       const am = (a0 + a1) / 2;
-      for (const [k, d] of [[0.62, -0.18], [0.36, 0.22]] as const) {
+      const puntos: ReadonlyArray<readonly [number, number]> =
+        tipo === 'PIZZA'
+          ? [[0.66, -0.2], [0.4, 0.18]]
+          : [[0.84, -0.25], [0.84, 0.25], [0.84, 0]];
+      const radio = Math.max(3, (tipo === 'PIZZA' ? 22 : 12) / Math.sqrt(n));
+      for (const [k, d] of puntos) {
         const aa = am + d * ((2 * Math.PI) / n);
         out.push(
-          `<circle cx="${(cx + r * k * Math.cos(aa)).toFixed(2)}" cy="${(cy + r * k * Math.sin(aa)).toFixed(2)}" r="${Math.max(3, 22 / Math.sqrt(n))}" fill="${oscuro}"/>`,
+          `<circle cx="${(cx + r * k * Math.cos(aa)).toFixed(2)}" cy="${(cy + r * k * Math.sin(aa)).toFixed(2)}" r="${radio}" fill="${punto}"/>`,
         );
       }
     }
+  }
+  if (tipo === 'PIZZA' && c.sellados > 0) {
+    // La orilla de masa solo donde ya hay porciones: el arco crece con las visitas.
+    const C = 2 * Math.PI * r;
+    const frac = c.sellados / n;
+    out.push(
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#C68642" stroke-width="10" ` +
+        `stroke-dasharray="${(C * frac).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`,
+    );
   }
   return fondoBase(c, false) + out.join('') + bloqueDerecho(c, 268);
 }
 
 function taza(c: ConfigFranja): string {
   const p = c.sellados / c.requeridos;
-  const top = 52;
-  const bottom = 206;
-  const cuerpo = `M48 ${top} L196 ${top} L196 166 Q196 ${bottom} 156 ${bottom} L88 ${bottom} Q48 ${bottom} 48 166 Z`;
+  const vaso = c.recipiente === 'VASO';
+  const top = vaso ? 30 : 52;
+  const bottom = vaso ? 216 : 206;
+  const cuerpo = vaso
+    ? `M66 ${top} L178 ${top} L162 ${bottom - 8} Q161 ${bottom} 153 ${bottom} L91 ${bottom} Q83 ${bottom} 82 ${bottom - 8} Z`
+    : `M48 ${top} L196 ${top} L196 166 Q196 ${bottom} 156 ${bottom} L88 ${bottom} Q48 ${bottom} 48 166 Z`;
   const nivel = top + 8 + (bottom - top - 8) * (1 - p);
   const vapor =
-    p >= 1
+    p >= 1 && !vaso
       ? [80, 122, 164]
           .map(
             (x) =>
@@ -352,7 +537,10 @@ function taza(c: ConfigFranja): string {
       ? `<rect x="40" y="${nivel.toFixed(1)}" width="170" height="5" fill="${alfa('#FFFFFF', 0.35)}" clip-path="url(#tazaClip)"/>`
       : '') +
     `<path d="${cuerpo}" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linejoin="round"/>` +
-    `<path d="M196 82 h14 a34 34 0 0 1 0 68 h-14" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linecap="round"/>` +
+    // El vaso lleva pajilla: se lee como bebida fría aunque esté vacío.
+    (vaso
+      ? `<path d="M150 ${top + 70} L178 6" stroke="${c.texto}" stroke-width="7" stroke-linecap="round"/>`
+      : `<path d="M196 82 h14 a34 34 0 0 1 0 68 h-14" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linecap="round"/>`) +
     vapor +
     bloqueDerecho(c, 268)
   );
@@ -502,6 +690,9 @@ function vip(c: ConfigFranja): string {
     fondoBase(c, false) +
     texto(36, 88, 'TU NIVEL', { size: 15, color: c.texto, peso: 800, espaciado: 2, opacidad: 0.75 }) +
     texto(32, 160, cortar(niveles[k].nombre, 9), { size: 76, color: c.texto, peso: 400 }) +
+    (niveles[k].beneficio?.trim()
+      ? texto(36, 196, cortar(niveles[k].beneficio!, 34), { size: 16, color: c.texto, peso: 600, opacidad: 0.8 })
+      : '') +
     texto(x0, 98, cortar(frase, 30), { size: 16, color: c.texto, peso: 600, opacidad: 0.85 }) +
     barras
   );
@@ -528,6 +719,7 @@ function saldo(c: ConfigFranja): string {
  */
 export function dibujarFranja(entrada: ConfigFranja, dibujarIcono?: DibujarIcono): string {
   const c = sanear(entrada);
+  letraActual = c.letra ?? 'MODERNA';
   const icono: DibujarIcono = c.iconoImagen
     ? iconoImagen(c.iconoImagen, 1)
     : dibujarIcono ?? iconoEmojiNavegador(c.emoji || '⭐');
@@ -537,9 +729,9 @@ export function dibujarFranja(entrada: ConfigFranja, dibujarIcono?: DibujarIcono
 
   switch (c.estilo) {
     case 'SELLOS':
-      return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + rejilla(c, icono, iconoTenue, false));
+      return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + rejilla(c, icono, iconoTenue));
     case 'PRODUCTO':
-      return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + rejilla(c, icono, icono, true));
+      return envolver('', fondoBase(c, !!c.portadaDetrasDeSellos) + producto(c, dibujarIcono ?? iconoEmojiNavegador(c.emoji || '⭐')));
     case 'FOTO_NUMERO':
       return envolver('', fotoNumero(c));
     case 'COLOR_SOLIDO':

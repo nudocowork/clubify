@@ -21,6 +21,7 @@ import {
   ALTO,
   ANCHO,
   ESTILOS,
+  LETRAS,
   NIVELES_POR_DEFECTO,
   PALETAS,
   dibujarFranja,
@@ -28,9 +29,13 @@ import {
   svgComoDataUrl,
   type ConfigFranja,
   type EstiloFranja,
+  type Letra,
   type Nivel,
+  type Porcion,
+  type Recipiente,
   type PremioIntermedio,
 } from '@/lib/cards/estilos-de-franja';
+import { EditorDeAcomodo } from './EditorDeAcomodo';
 
 type Plataforma = 'APPLE' | 'GOOGLE' | 'SAMSUNG';
 type Pestana = 'ESTILO' | 'COLORES' | 'DATOS';
@@ -48,7 +53,12 @@ const INICIAL: ConfigFranja = {
   portadaDetrasDeSellos: false,
   numerarVacios: false,
   premiosIntermedios: [{ pos: 5, texto: 'Mascarilla' }],
-  niveles: NIVELES_POR_DEFECTO,
+  niveles: [
+    { nombre: 'Plata', desde: 0, beneficio: '5 % en servicios' },
+    { nombre: 'Oro', desde: 300, beneficio: '10 % y bebida de cortesía' },
+    { nombre: 'Platino', desde: 600, beneficio: '15 % y prioridad en agenda' },
+  ],
+  acomodo: 'ENCIMADO',
   gastado: 152,
   saldo: 12.6,
   porcentaje: 5,
@@ -239,7 +249,24 @@ function PestanaEstilo({ c, set }: { c: ConfigFranja; set: (p: Partial<ConfigFra
         })}
       </div>
 
-      {(c.estilo === 'SELLOS' || c.estilo === 'PRODUCTO') && (
+      <OpcionesDelEstilo c={c} set={set} />
+    </div>
+  );
+}
+
+/**
+ * Lo que cambia según el estilo elegido, como en Sellea: cada estilo trae sus
+ * propias perillas (acomodo en «Tu producto», recipiente en la taza…). La
+ * letra la comparten todos los que llevan texto grande.
+ */
+function OpcionesDelEstilo({ c, set }: { c: ConfigFranja; set: (p: Partial<ConfigFranja>) => void }) {
+  const conTexto = c.estilo !== 'SELLOS' && c.estilo !== 'PRODUCTO' && c.estilo !== 'PERFORADA';
+  const niveles = c.niveles ?? [];
+  const setNivel = (i: number, p: Partial<Nivel>) => set({ niveles: niveles.map((x, k) => (k === i ? { ...x, ...p } : x)) });
+
+  return (
+    <div className="space-y-4">
+      {c.estilo === 'SELLOS' && (
         <div className="space-y-2 pt-3 border-t border-line">
           <Interruptor
             on={!!c.numerarVacios}
@@ -255,11 +282,194 @@ function PestanaEstilo({ c, set }: { c: ConfigFranja; set: (p: Partial<ConfigFra
           />
         </div>
       )}
-      {c.estilo === 'FOTO_NUMERO' && !c.portada && (
-        <p className="text-xs text-amber-700 bg-amber-50 rounded-input px-3 py-2">
-          Este estilo luce con una foto: súbela en «Colores e ícono». Sin foto usa el color del área.
-        </p>
+
+      {c.estilo === 'PRODUCTO' && <EditorDeAcomodo c={c} set={set} />}
+
+      {c.estilo === 'FOTO_NUMERO' && (
+        <div className="pt-3 border-t border-line">
+          <div className="text-sm font-semibold">Foto de la franja</div>
+          <p className="text-xs text-mute mb-1">
+            Una foto del negocio. Va a la derecha y se funde con el color del área, donde va el número. Ideal 1200 × 460.
+          </p>
+          <ArchivoLocal
+            etiqueta={c.portada ? 'Cambiar foto' : 'Subir foto'}
+            onArchivo={(url) => set({ portada: url })}
+            onQuitar={c.portada ? () => set({ portada: null }) : undefined}
+          />
+        </div>
       )}
+
+      {c.estilo === 'PORCIONES' && (
+        <div className="pt-3 border-t border-line">
+          <div className="text-sm font-semibold mb-2">Qué se reparte</div>
+          <Segmentos
+            opciones={[
+              { id: 'PIZZA', txt: 'Pizza' },
+              { id: 'TORTA', txt: 'Torta' },
+              { id: 'LISA', txt: 'Lisa' },
+            ]}
+            valor={c.porcion ?? 'PIZZA'}
+            onChange={(v) => set({ porcion: v as Porcion })}
+          />
+          <p className="text-xs text-mute mt-1.5">
+            Pizza trae sus colores (masa, queso, pepperoni). Torta y Lisa usan el color de «Sellos».
+          </p>
+        </div>
+      )}
+
+      {c.estilo === 'TAZA' && (
+        <div className="pt-3 border-t border-line">
+          <div className="text-sm font-semibold mb-2">Recipiente</div>
+          <Segmentos
+            opciones={[
+              { id: 'TAZA', txt: 'Taza' },
+              { id: 'VASO', txt: 'Vaso' },
+            ]}
+            valor={c.recipiente ?? 'TAZA'}
+            onChange={(v) => set({ recipiente: v as Recipiente })}
+          />
+          <p className="text-xs text-mute mt-1.5">El color de «Sellos» es el del líquido.</p>
+        </div>
+      )}
+
+      {c.estilo === 'VIP' && (
+        <div className="pt-3 border-t border-line">
+          <div className="text-sm font-semibold mb-2">Niveles</div>
+          <div className="grid grid-cols-[1fr_90px_1.4fr_32px] gap-2 text-[11px] text-mute mb-1">
+            <span>Nivel</span>
+            <span>Desde ($)</span>
+            <span>Beneficio</span>
+            <span />
+          </div>
+          <div className="space-y-2">
+            {niveles.map((n, i) => (
+              <div key={i} className="grid grid-cols-[1fr_90px_1.4fr_32px] gap-2 items-center">
+                <input className="input" value={n.nombre} onChange={(e) => setNivel(i, { nombre: e.target.value })} />
+                <input
+                  type="number"
+                  min={0}
+                  className="input"
+                  value={n.desde}
+                  onChange={(e) => setNivel(i, { desde: Number(e.target.value) })}
+                />
+                <input
+                  className="input"
+                  placeholder="Ej.: 10 % en todo"
+                  value={n.beneficio ?? ''}
+                  onChange={(e) => setNivel(i, { beneficio: e.target.value })}
+                />
+                <button
+                  type="button"
+                  aria-label={`Quitar el nivel ${n.nombre}`}
+                  disabled={niveles.length <= 1}
+                  className="text-mute hover:text-bad disabled:opacity-30"
+                  onClick={() => set({ niveles: niveles.filter((_, k) => k !== i) })}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn-link text-sm mt-2"
+            onClick={() => {
+              const ultimo = niveles[niveles.length - 1]?.desde ?? 0;
+              set({ niveles: [...niveles, { nombre: 'Nuevo nivel', desde: ultimo + 300 }] });
+            }}
+          >
+            + Agregar nivel
+          </button>
+          <p className="text-xs text-mute mt-1">
+            Suben solos según lo que el cliente lleva gastado. El beneficio del nivel actual sale bajo el nombre.
+          </p>
+          <Campo label={`Gastado por el cliente de ejemplo: $${c.gastado ?? 0}`}>
+            <input
+              type="range"
+              min={0}
+              max={Math.round(Math.max(100, ...niveles.map((n) => n.desde)) * 1.2)}
+              value={c.gastado ?? 0}
+              onChange={(e) => set({ gastado: Number(e.target.value) })}
+              className="w-full accent-brand mt-2"
+            />
+          </Campo>
+        </div>
+      )}
+
+      {c.estilo === 'SALDO' && (
+        <div className="pt-3 border-t border-line grid grid-cols-2 gap-3">
+          <Campo label="% de cada compra que vuelve como saldo">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="input"
+              value={c.porcentaje ?? 0}
+              onChange={(e) => set({ porcentaje: Number(e.target.value) })}
+            />
+          </Campo>
+          <Campo label="Saldo del cliente de ejemplo">
+            <input
+              type="number"
+              step="0.01"
+              className="input"
+              value={c.saldo ?? 0}
+              onChange={(e) => set({ saldo: Number(e.target.value) })}
+            />
+          </Campo>
+        </div>
+      )}
+
+      {conTexto && (
+        <div className="pt-3 border-t border-line">
+          <div className="text-sm font-semibold mb-2">Letra de la franja</div>
+          <div className="grid grid-cols-3 gap-2">
+            {(Object.keys(LETRAS) as Letra[]).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => set({ letra: l })}
+                className={`rounded-input border-2 px-3 py-2 text-left transition ${
+                  (c.letra ?? 'MODERNA') === l ? 'border-brand bg-brand-soft' : 'border-line hover:border-brand/40'
+                }`}
+              >
+                <span
+                  className="block text-xl leading-none"
+                  style={{ fontFamily: LETRAS[l].familia, textTransform: l === 'IMPACTO' ? 'uppercase' : undefined }}
+                >
+                  6 de 10
+                </span>
+                <span className="block text-[11px] text-mute mt-1">{LETRAS[l].nombre}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Segmentos({
+  opciones,
+  valor,
+  onChange,
+}: {
+  opciones: Array<{ id: string; txt: string }>;
+  valor: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="bg-bg2 rounded-full p-0.5 inline-flex flex-wrap text-xs font-semibold">
+      {opciones.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={`px-3 py-1.5 rounded-full transition ${valor === o.id ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'}`}
+        >
+          {o.txt}
+        </button>
+      ))}
     </div>
   );
 }
@@ -340,10 +550,8 @@ function PestanaDatos(props: {
 }) {
   const { c, set } = props;
   const premios = c.premiosIntermedios ?? [];
-  const niveles = c.niveles ?? [];
   const setPremio = (i: number, p: Partial<PremioIntermedio>) =>
     set({ premiosIntermedios: premios.map((x, k) => (k === i ? { ...x, ...p } : x)) });
-  const setNivel = (i: number, p: Partial<Nivel>) => set({ niveles: niveles.map((x, k) => (k === i ? { ...x, ...p } : x)) });
 
   return (
     <div className="space-y-5">
@@ -420,60 +628,6 @@ function PestanaDatos(props: {
         </div>
       </div>
 
-      <div className="pt-3 border-t border-line grid sm:grid-cols-2 gap-5">
-        <div>
-          <div className="text-sm font-semibold mb-2">VIP por niveles</div>
-          <div className="space-y-2">
-            {niveles.map((n, i) => (
-              <div key={i} className="flex gap-2 items-center">
-                <input className="input flex-1" value={n.nombre} onChange={(e) => setNivel(i, { nombre: e.target.value })} />
-                <span className="text-xs text-mute">desde $</span>
-                <input
-                  type="number"
-                  min={0}
-                  className="input w-24"
-                  value={n.desde}
-                  onChange={(e) => setNivel(i, { desde: Number(e.target.value) })}
-                />
-              </div>
-            ))}
-          </div>
-          <Campo label={`Gastado por el cliente: $${c.gastado ?? 0}`}>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(100, ...niveles.map((n) => n.desde)) * 1.2}
-              value={c.gastado ?? 0}
-              onChange={(e) => set({ gastado: Number(e.target.value) })}
-              className="w-full accent-brand mt-2"
-            />
-          </Campo>
-        </div>
-        <div>
-          <div className="text-sm font-semibold mb-2">Saldo / cashback</div>
-          <div className="grid grid-cols-2 gap-2">
-            <Campo label="Saldo">
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                value={c.saldo ?? 0}
-                onChange={(e) => set({ saldo: Number(e.target.value) })}
-              />
-            </Campo>
-            <Campo label="% de cada compra">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                className="input"
-                value={c.porcentaje ?? 0}
-                onChange={(e) => set({ porcentaje: Number(e.target.value) })}
-              />
-            </Campo>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -482,7 +636,7 @@ function PestanaDatos(props: {
 
 function ControlDeProgreso({ c, set }: { c: ConfigFranja; set: (p: Partial<ConfigFranja>) => void }) {
   if (c.estilo === 'VIP' || c.estilo === 'SALDO') {
-    return <p className="text-[11px] text-mute text-center">Ajusta el gasto o el saldo en «Datos de prueba».</p>;
+    return <p className="text-[11px] text-mute text-center">Ajusta el gasto o el saldo bajo los estilos.</p>;
   }
   const estados = [
     { id: 'nueva', txt: 'Nueva', v: 0 },
