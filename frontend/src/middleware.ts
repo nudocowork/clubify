@@ -376,6 +376,8 @@ export async function middleware(req: NextRequest) {
     // blanca /hub se reescribiría al sitio del tenant.
     url.pathname.startsWith('/hub') ||
     url.pathname.startsWith('/onboarding') ||
+    // Laboratorio de estilos de tarjeta: pantalla interna, no el sitio de un negocio.
+    url.pathname.startsWith('/laboratorio-tarjetas') ||
     url.pathname === '/maintenance' ||
     url.pathname.startsWith('/m/') ||
     // El menú libro: misma página pública que /m/, sin sitio de negocio detrás.

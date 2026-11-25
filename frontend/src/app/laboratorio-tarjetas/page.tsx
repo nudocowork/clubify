@@ -3,6 +3,10 @@
  * Laboratorio de estilos de tarjeta.
  *
  * Panel de PRUEBA: nada de lo que se toca aquí se guarda ni llega a un pase.
+ *
+ * Vive FUERA de /app y /admin a propósito: el AppShell de /app manda a /admin a
+ * SUPER_ADMIN y MARKETING, y quien prueba estilos es justo el equipo. Como no
+ * llama a la API ni guarda nada, no necesita sesión ni negocio.
  * Sirve para probar cómo se vería la franja central con otros estilos (taza,
  * anillo, porciones, camino de premios…) antes de decidir cuáles pasan al
  * generador real del backend (`generateStampsStrip`).
@@ -10,10 +14,8 @@
  * Las imágenes (portada, ícono propio) se leen como data URL en el navegador y
  * no se suben a ningún lado: es un banco de pruebas, no un editor.
  */
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { PanelHeader } from '@/components/PanelHeader';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import {
   ALTO,
@@ -106,13 +108,14 @@ export default function LaboratorioDeTarjetas() {
   };
 
   return (
-    <div className="space-y-4 fade-enter">
-      <PanelHeader title="Laboratorio de tarjetas" subtitle="Prueba estilos de tarjeta. Nada de lo que hagas aquí se guarda." />
+    <main className="min-h-screen bg-bg2/60 px-4 py-6 sm:px-8">
+    <div className="mx-auto max-w-[1280px] space-y-4 fade-enter">
+      <div>
+        <h1 className="page-title leading-tight m-0">Laboratorio de tarjetas</h1>
+        <p className="text-[13px] text-mute m-0 mt-0.5">Prueba estilos de tarjeta. Nada de lo que hagas aquí se guarda.</p>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Link href="/app/cards" className="btn-ghost">
-          ← Tarjetas
-        </Link>
         <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
           Modo prueba · no se guarda
         </span>
@@ -194,6 +197,7 @@ export default function LaboratorioDeTarjetas() {
         </div>
       )}
     </div>
+    </main>
   );
 }
 
