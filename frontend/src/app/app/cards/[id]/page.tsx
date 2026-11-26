@@ -1509,32 +1509,28 @@ function EditCardModal({
             </div>
           )}
 
-          <div className="pt-1">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
-              ✨ {t('presetStyles')}
+          {/* Primero el ESTILO de la tarjeta; las paletas pre-armadas van al final
+              de la parte de diseño porque solo ajustan colores (Javier, 2026-11-26). */}
+          {admiteEstilo && (
+            <div className="pt-1">
+              <EstiloDeLaFranja
+                tarjeta={{
+                  primaryColor: form.primaryColor,
+                  secondaryColor: form.secondaryColor,
+                  stampActiveColor: form.stampActiveColor,
+                  centerBgColor: form.centerBgColor,
+                  stampIcon: form.stampIcon,
+                  stampIconImageUrl: form.stampIconImageUrl,
+                  requeridos: form.stampsRequired || 10,
+                  premio: form.rewardText,
+                  freeRewards: allowFreeRewards ? form.freeRewards : [],
+                }}
+                estilo={form.stripStyle}
+                onEstilo={(v) => setForm((f) => ({ ...f, stripStyle: v }))}
+                onIconoImagen={(url) => setForm((f) => ({ ...f, stampIconImageUrl: url }))}
+              />
             </div>
-            <WalletStylesGallery
-              current={{
-                primaryColor: form.primaryColor,
-                secondaryColor: form.secondaryColor,
-                stampActiveColor: form.stampActiveColor,
-                stampInactiveColor: form.stampInactiveColor,
-                stampContourColor: form.stampContourColor,
-                centerBgColor: form.centerBgColor,
-              }}
-              onApply={(style) => {
-                setForm({
-                  ...form,
-                  primaryColor: style.colors.primaryColor,
-                  secondaryColor: style.colors.secondaryColor,
-                  stampActiveColor: style.colors.stampActiveColor,
-                  stampInactiveColor: style.colors.stampInactiveColor,
-                  stampContourColor: style.colors.stampContourColor,
-                  centerBgColor: style.colors.centerBgColor,
-                });
-              }}
-            />
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1719,27 +1715,6 @@ function EditCardModal({
             </div>
           )}
 
-          {admiteEstilo && (
-            <div className="pt-3 border-t border-line">
-              <EstiloDeLaFranja
-                tarjeta={{
-                  primaryColor: form.primaryColor,
-                  secondaryColor: form.secondaryColor,
-                  stampActiveColor: form.stampActiveColor,
-                  centerBgColor: form.centerBgColor,
-                  stampIcon: form.stampIcon,
-                  stampIconImageUrl: form.stampIconImageUrl,
-                  requeridos: form.stampsRequired || 10,
-                  premio: form.rewardText,
-                  freeRewards: allowFreeRewards ? form.freeRewards : [],
-                }}
-                estilo={form.stripStyle}
-                onEstilo={(v) => setForm((f) => ({ ...f, stripStyle: v }))}
-                onIconoImagen={(url) => setForm((f) => ({ ...f, stampIconImageUrl: url }))}
-              />
-            </div>
-          )}
-
           {/* El fondo del área es del cartón clásico; los estilos usan el color central. */}
           {(card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && !form.stripStyle && (
             <div className="pt-3 border-t border-line">
@@ -1795,6 +1770,33 @@ function EditCardModal({
                 maxPos={form.stampsRequired}
               />
             )}
+
+          <div className="pt-3 border-t border-line">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
+              ✨ {t('presetStyles')}
+            </div>
+            <WalletStylesGallery
+              current={{
+                primaryColor: form.primaryColor,
+                secondaryColor: form.secondaryColor,
+                stampActiveColor: form.stampActiveColor,
+                stampInactiveColor: form.stampInactiveColor,
+                stampContourColor: form.stampContourColor,
+                centerBgColor: form.centerBgColor,
+              }}
+              onApply={(style) => {
+                setForm({
+                  ...form,
+                  primaryColor: style.colors.primaryColor,
+                  secondaryColor: style.colors.secondaryColor,
+                  stampActiveColor: style.colors.stampActiveColor,
+                  stampInactiveColor: style.colors.stampInactiveColor,
+                  stampContourColor: style.colors.stampContourColor,
+                  centerBgColor: style.colors.centerBgColor,
+                });
+              }}
+            />
+          </div>
 
           <div className="pt-3 border-t border-line">
             <div className="flex items-center justify-between">

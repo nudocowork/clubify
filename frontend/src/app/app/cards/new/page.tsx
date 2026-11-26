@@ -1204,33 +1204,28 @@ function Step4Design({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
       <div className="card card-pad space-y-4">
-        <div>
-          <h3 className="font-semibold text-base m-0">✨ {t('presetStyles')}</h3>
-          <p className="text-xs text-mute mt-1">
-            {t('presetStylesDesc')}
-          </p>
-        </div>
-        <WalletStylesGallery
-          current={{
-            primaryColor: form.primaryColor,
-            secondaryColor: form.secondaryColor,
-            stampActiveColor: form.stampActiveColor,
-            stampInactiveColor: form.stampInactiveColor,
-            stampContourColor: form.stampContourColor,
-            centerBgColor: form.centerBgColor,
-          }}
-          onApply={(style) => {
-            setForm({
-              ...form,
-              primaryColor: style.colors.primaryColor,
-              secondaryColor: style.colors.secondaryColor,
-              stampActiveColor: style.colors.stampActiveColor,
-              stampInactiveColor: style.colors.stampInactiveColor,
-              stampContourColor: style.colors.stampContourColor,
-              centerBgColor: style.colors.centerBgColor,
-            });
-          }}
-        />
+        {/* Lo primero es el ESTILO de la tarjeta; las paletas pre-armadas van al
+            final porque solo ajustan colores (pedido de Javier, 2026-11-26). */}
+        {form.type === 'STAMPS' && (
+          <div>
+            <EstiloDeLaFranja
+              tarjeta={{
+                primaryColor: form.primaryColor,
+                secondaryColor: form.secondaryColor,
+                stampActiveColor: form.stampActiveColor,
+                centerBgColor: form.centerBgColor,
+                stampIcon: form.stampIcon,
+                stampIconImageUrl: form.stampIconImageUrl,
+                requeridos: form.stampsRequired || 10,
+                premio: form.rewardText,
+                freeRewards: allowFreeRewards ? form.freeRewards : [],
+              }}
+              estilo={form.stripStyle}
+              onEstilo={(v) => set('stripStyle', v)}
+              onIconoImagen={(url) => set('stampIconImageUrl', url)}
+            />
+          </div>
+        )}
 
         <div className="pt-2 border-t border-line">
           <h3 className="font-semibold text-base m-0">🎨 {t('brandColors')}</h3>
@@ -1298,27 +1293,6 @@ function Step4Design({
               onSelect={(icon) => set('stampIcon', icon)}
               imageUrl={form.stampIconImageUrl}
               onImageChange={(url) => set('stampIconImageUrl', url)}
-            />
-          </div>
-        )}
-
-        {form.type === 'STAMPS' && (
-          <div className="pt-2 border-t border-line">
-            <EstiloDeLaFranja
-              tarjeta={{
-                primaryColor: form.primaryColor,
-                secondaryColor: form.secondaryColor,
-                stampActiveColor: form.stampActiveColor,
-                centerBgColor: form.centerBgColor,
-                stampIcon: form.stampIcon,
-                stampIconImageUrl: form.stampIconImageUrl,
-                requeridos: form.stampsRequired || 10,
-                premio: form.rewardText,
-                freeRewards: allowFreeRewards ? form.freeRewards : [],
-              }}
-              estilo={form.stripStyle}
-              onEstilo={(v) => set('stripStyle', v)}
-              onIconoImagen={(url) => set('stampIconImageUrl', url)}
             />
           </div>
         )}
@@ -1443,6 +1417,34 @@ function Step4Design({
           </div>
           <p className="text-xs text-mute mt-2">{t('dataPolicyToggleHint')}</p>
         </div>
+
+        <div className="pt-2 border-t border-line">
+          <h3 className="font-semibold text-base m-0">✨ {t('presetStyles')}</h3>
+          <p className="text-xs text-mute mt-1">
+            {t('presetStylesDesc')}
+          </p>
+        </div>
+        <WalletStylesGallery
+          current={{
+            primaryColor: form.primaryColor,
+            secondaryColor: form.secondaryColor,
+            stampActiveColor: form.stampActiveColor,
+            stampInactiveColor: form.stampInactiveColor,
+            stampContourColor: form.stampContourColor,
+            centerBgColor: form.centerBgColor,
+          }}
+          onApply={(style) => {
+            setForm({
+              ...form,
+              primaryColor: style.colors.primaryColor,
+              secondaryColor: style.colors.secondaryColor,
+              stampActiveColor: style.colors.stampActiveColor,
+              stampInactiveColor: style.colors.stampInactiveColor,
+              stampContourColor: style.colors.stampContourColor,
+              centerBgColor: style.colors.centerBgColor,
+            });
+          }}
+        />
 
         {err && (
           <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
