@@ -37,7 +37,7 @@ export type Nivel = { nombre: string; desde: number; beneficio?: string };
  * pasa a producción, hay que instalar Poppins, Fraunces y Bebas Neue allá.
  */
 export type Letra = 'MODERNA' | 'ELEGANTE' | 'IMPACTO';
-export type Recipiente = 'TAZA' | 'VASO';
+export type Recipiente = 'TAZA' | 'VASO' | 'CONO';
 export type Porcion = 'PIZZA' | 'TORTA' | 'LISA';
 
 /**
@@ -102,7 +102,7 @@ export const ESTILOS: Array<{ id: EstiloFranja; nombre: string; ayuda: string; n
   { id: 'FOTO_NUMERO', nombre: 'Foto + número', ayuda: 'Tu foto de fondo y el número en grande.' },
   { id: 'COLOR_SOLIDO', nombre: 'Color sólido', ayuda: 'Número grande y barras de progreso.' },
   { id: 'PORCIONES', nombre: 'Por porciones', ayuda: 'Pizza o torta que se completa por rebanadas.' },
-  { id: 'TAZA', nombre: 'Taza que se llena', ayuda: 'Ideal para cafeterías y bebidas.' },
+  { id: 'TAZA', nombre: 'Taza que se llena', ayuda: 'Taza, vaso o cono de pizza que se llena con cada visita.' },
   { id: 'ANILLO', nombre: 'Anillo de progreso', ayuda: 'El premio en grande y un anillo que se cierra.' },
   { id: 'CAMINO', nombre: 'Camino de premios', ayuda: 'Muestra los premios intermedios en el recorrido.', nuevo: true },
   { id: 'PERFORADA', nombre: 'Tarjeta perforada', ayuda: 'La tarjeta de papel de toda la vida.', nuevo: true },
@@ -510,7 +510,87 @@ function porciones(c: ConfigFranja): string {
   return fondoBase(c, false) + out.join('') + bloqueDerecho(c, 268);
 }
 
+/**
+ * Cono de pizza: se llena desde la punta, como la taza. Colores propios (masa,
+ * queso, salsa, pepperoni) por lo mismo que la pizza de «Porciones»: con el
+ * color de la marca deja de leerse como pizza.
+ *
+ * El relleno se calcula como polígono (el corte del cono a esa altura) y no
+ * con clip-path anidados, que librsvg no garantiza.
+ */
+function cono(c: ConfigFranja): string {
+  const p = c.sellados / c.requeridos;
+  const MASA = '#D08C46';
+  const QUESO = '#F2C14E';
+  const SALSA = '#C0392B';
+  const PEPPERONI = '#A93226';
+  const cx = 128;
+  const arriba = 50;
+  const punta = 222;
+  const medio = 72; // media boca del cono
+  const ancho = (y: number) => (medio * (punta - y)) / (punta - arriba);
+  const cuerpo = `M${cx - medio} ${arriba} L${cx + medio} ${arriba} L${cx + 4} ${punta} Q${cx} ${punta + 6} ${cx - 4} ${punta} Z`;
+  // Por ÁREA, no por altura: el cono es angosto en la punta, y llenándolo por
+  // altura 2 de 10 se veía como una gota. El área bajo el nivel crece con el
+  // cuadrado de la altura, así que la altura va con la raíz.
+  const nivel = punta - (punta - arriba) * Math.sqrt(p);
+  const out: string[] = [
+    `<path d="${cuerpo}" fill="${alfa(MASA, 0.18)}"/>`,
+  ];
+  if (p > 0) {
+    const a = ancho(nivel);
+    out.push(
+      `<path d="M${(cx - a).toFixed(1)} ${nivel.toFixed(1)} L${(cx + a).toFixed(1)} ${nivel.toFixed(1)} ` +
+        `L${cx + 4} ${punta} Q${cx} ${punta + 6} ${cx - 4} ${punta} Z" fill="${QUESO}"/>`,
+    );
+    // Pepperoni fijos: solo se ven los que ya quedaron dentro del relleno.
+    // Repartidos desde la punta para que desde los primeros sellos ya se vea pizza.
+    const rodajas: ReadonlyArray<readonly [number, number]> = [
+      [0, 196], [-10, 172], [14, 160], [-22, 140], [18, 128], [-30, 108],
+      [34, 100], [0, 92], [-44, 72], [22, 70], [52, 66],
+    ];
+    for (const [dx, y] of rodajas) {
+      const r = 8;
+      if (y - r > nivel + 6 && Math.abs(dx) + r < ancho(y) - 2) {
+        out.push(`<circle cx="${cx + dx}" cy="${y}" r="${r}" fill="${PEPPERONI}"/>`);
+      }
+    }
+    if (p < 1) {
+      // Capa de salsa arriba del relleno: el borde se lee como «va subiendo».
+      out.push(
+        `<path d="M${(cx - a).toFixed(1)} ${nivel.toFixed(1)} L${(cx + a).toFixed(1)} ${nivel.toFixed(1)}" ` +
+          `stroke="${SALSA}" stroke-width="7" stroke-linecap="round"/>`,
+      );
+    }
+  }
+  out.push(`<path d="${cuerpo}" fill="none" stroke="${MASA}" stroke-width="12" stroke-linejoin="round"/>`);
+  for (const t of [0.15, 0.35, 0.55, 0.75]) {
+    const y = arriba + (punta - arriba) * t;
+    for (const lado of [-1, 1]) {
+      out.push(`<circle cx="${(cx + lado * ancho(y)).toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="#9A5B22"/>`);
+    }
+  }
+  if (p >= 1) {
+    // Completo: el queso desborda la boca, con pepperoni y albahaca, como el vapor de la taza.
+    out.push(
+      `<path d="M${cx - medio + 6} ${arriba + 2} Q${cx - medio + 10} 10 ${cx} 10 Q${cx + medio - 10} 10 ${cx + medio - 6} ${arriba + 2} Z" fill="${QUESO}"/>`,
+      `<path d="M${cx - 40} ${arriba + 4} q4 18 8 0 M${cx + 26} ${arriba + 4} q4 22 8 0" fill="${QUESO}" stroke="${QUESO}" stroke-width="4"/>`,
+      `<circle cx="${cx - 30}" cy="34" r="10" fill="${PEPPERONI}"/>`,
+      `<circle cx="${cx + 8}" cy="24" r="10" fill="${PEPPERONI}"/>`,
+      `<circle cx="${cx + 38}" cy="38" r="9" fill="${PEPPERONI}"/>`,
+      `<ellipse cx="${cx - 8}" cy="40" rx="9" ry="5" fill="#3E8E41" transform="rotate(-25 ${cx - 8} 40)"/>`,
+      `<ellipse cx="${cx + 26}" cy="20" rx="8" ry="4.5" fill="#3E8E41" transform="rotate(20 ${cx + 26} 20)"/>`,
+    );
+  }
+  // Borde de masa de la boca, encima de todo.
+  out.push(
+    `<path d="M${cx - medio - 4} ${arriba} Q${cx} ${arriba - 12} ${cx + medio + 4} ${arriba}" fill="none" stroke="${MASA}" stroke-width="12" stroke-linecap="round"/>`,
+  );
+  return fondoBase(c, false) + out.join('') + bloqueDerecho(c, 268);
+}
+
 function taza(c: ConfigFranja): string {
+  if (c.recipiente === 'CONO') return cono(c);
   const p = c.sellados / c.requeridos;
   const vaso = c.recipiente === 'VASO';
   const top = vaso ? 30 : 52;

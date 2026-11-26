@@ -356,11 +356,16 @@ function OpcionesDelEstilo({ c, set }: { c: ConfigFranja; set: (p: Partial<Confi
             opciones={[
               { id: 'TAZA', txt: 'Taza' },
               { id: 'VASO', txt: 'Vaso' },
+              { id: 'CONO', txt: 'Cono de pizza' },
             ]}
             valor={c.recipiente ?? 'TAZA'}
             onChange={(v) => set({ recipiente: v as Recipiente })}
           />
-          <p className="text-xs text-mute mt-1.5">El color de «Sellos» es el del líquido.</p>
+          <p className="text-xs text-mute mt-1.5">
+            {c.recipiente === 'CONO'
+              ? 'El cono lleva sus colores de pizza: masa, queso y pepperoni. Al completarse, el queso desborda.'
+              : 'El color de «Sellos» es el del líquido.'}
+          </p>
         </div>
       )}
 
