@@ -326,6 +326,7 @@ export default function NewCardWizard() {
           setForm={(f) => setForm(f)}
           err={err}
           locations={locations}
+          allowFreeRewards={walletAdv?.freeRewards !== false}
         />
       )}
 
@@ -767,21 +768,15 @@ function Step3Configure({
   setForm,
   err,
   locations,
+  allowFreeRewards,
 }: {
   form: typeof FROM_SCRATCH_DEFAULTS;
   setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
   err: string | null;
   locations: LocationLite[];
+  allowFreeRewards: boolean;
 }) {
   const t = useTranslations('app_cards_new');
-  // Buffer raw del input multiRewards — preservar texto crudo mientras
-  // el user tipea "5:" o "5" (sin reward todavía). form.multiRewards
-  // solo guarda entradas válidas (at + reward).
-  const [multiRewardsRaw, setMultiRewardsRaw] = useState(
-    (form.multiRewards ?? [])
-      .map((m: { at: number; reward: string }) => `${m.at}:${m.reward}`)
-      .join(', '),
-  );
 
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
@@ -878,39 +873,19 @@ function Step3Configure({
                 onChange={(e) => set('stampsRequired', Number(e.target.value))}
               />
             </div>
-            <div className="mt-3">
-              <label className="label">
-                {t('intermediateRewards')}
-                <span className="text-mute font-normal ml-1">{t('optional')}</span>
-              </label>
-              <input
-                className="input"
-                placeholder={t('intermediateRewardsPlaceholder')}
-                value={multiRewardsRaw}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setMultiRewardsRaw(raw);
-                  const parsed = raw
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                    .map((s) => {
-                      const [at, ...rest] = s.split(':');
-                      return {
-                        at: Number(at) || 0,
-                        reward: rest.join(':').trim(),
-                      };
-                    })
-                    .filter((m) => m.at > 0 && m.reward);
-                  set('multiRewards', parsed);
-                }}
-              />
-              <div className="text-[11px] text-mute mt-1">
-                {t('syntax')} <code className="bg-bg2 px-1 rounded">{t('syntaxFormat')}</code>{' '}
-                {t('separatedByComma')} <code className="bg-bg2 px-1 rounded">5:5% off, 10:10% off</code>.
-                {' '}{t('intermediateRewardsHint')}
+            {/* Los premios intermedios se configuran aquí, con el mismo editor
+                que los dibuja en el sello. Antes había un campo de texto
+                «5:5% off, 10:10% off» aquí y el editor en Diseño: dos sitios
+                para lo mismo (pedido de Javier, 2026-11-26). */}
+            {allowFreeRewards && (
+              <div className="mt-3">
+                <FreeRewardsEditor
+                  value={form.freeRewards}
+                  onChange={(v) => set('freeRewards', v)}
+                  maxPos={form.stampsRequired}
+                />
               </div>
-            </div>
+            )}
           </>
         )}
         {/* DISCOUNT branch removido — el wizard ya no ofrece DISCOUNT.
@@ -1339,14 +1314,6 @@ function Step4Design({
               </div>
             )}
           </div>
-        )}
-
-        {isProgress && allowFreeRewards && (
-          <FreeRewardsEditor
-            value={form.freeRewards}
-            onChange={(v) => set('freeRewards', v)}
-            maxPos={form.stampsRequired}
-          />
         )}
 
         <div className="pt-2 border-t border-line">

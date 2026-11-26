@@ -1383,6 +1383,19 @@ function EditCardModal({
                   crop={false}
                 />
               </div>
+              {/* Premios intermedios: aquí, con el editor que los dibuja en el
+                  sello (antes: un campo de texto aquí y el editor en Diseño;
+                  pedido de Javier, 2026-11-26). */}
+              {allowFreeRewards && (
+                <FreeRewardsEditor
+                  value={form.freeRewards}
+                  onChange={(v) => setForm({ ...form, freeRewards: v })}
+                  maxPos={form.stampsRequired}
+                />
+              )}
+              {/* El campo de texto viejo solo para las tarjetas que ya lo usan:
+                  si se escondiera, nadie podría ver ni quitar esos premios. */}
+              {(card.multiRewards?.length ?? 0) > 0 && (
               <div>
                 <label className="label">
                   {t('labelIntermediateRewards')}
@@ -1416,6 +1429,7 @@ function EditCardModal({
                   })}
                 </div>
               </div>
+              )}
             </>
           )}
 
@@ -1762,14 +1776,6 @@ function EditCardModal({
             </div>
           )}
 
-          {allowFreeRewards &&
-            (card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
-              <FreeRewardsEditor
-                value={form.freeRewards}
-                onChange={(v) => setForm({ ...form, freeRewards: v })}
-                maxPos={form.stampsRequired}
-              />
-            )}
 
           <div className="pt-3 border-t border-line">
             <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">

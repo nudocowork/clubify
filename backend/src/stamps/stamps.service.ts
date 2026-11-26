@@ -864,10 +864,21 @@ export class StampsService {
     // sumamos sellos (STAMP), no en REFUND/REDEEM. Disparamos cuando
     // newStamps cruza un hito que pass.stampsCount no había alcanzado.
     if (dto.action === 'STAMP' && pass.card.type === 'STAMPS') {
-      const milestones: Array<{ at: number; reward: string }> =
-        Array.isArray(pass.card.multiRewards as any)
-          ? (pass.card.multiRewards as any)
-          : [];
+      // Los «Premios Free» del editor de diseño son los mismos hitos dichos de
+      // otra forma: el asistente ya solo ofrece esos (pedido de Javier,
+      // 2026-11-26), así que avisan igual que el `multiRewards` de antes.
+      const premiosFree: Array<{ at: number; reward: string }> = (
+        Array.isArray(pass.card.freeRewards as any) ? (pass.card.freeRewards as any[]) : []
+      )
+        .filter((p) => p && p.active !== false && Number(p.pos) >= 1)
+        .map((p) => ({
+          at: Math.floor(Number(p.pos)),
+          reward: String((typeof p.text === 'string' && p.text.trim()) || p.emoji || 'un premio').slice(0, 40),
+        }));
+      const milestones: Array<{ at: number; reward: string }> = [
+        ...(Array.isArray(pass.card.multiRewards as any) ? (pass.card.multiRewards as any) : []),
+        ...premiosFree,
+      ];
       const just = milestones.find(
         (m) =>
           typeof m.at === 'number' &&
