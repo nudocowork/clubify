@@ -729,6 +729,12 @@ export class CustomersService {
                 stampsCount:
                   esDeClub && tope != null ? Math.min(sumados, tope) : sumados,
                 pointsBalance: Number(dup.pointsBalance) + Number(sp.pointsBalance),
+                // Se perdían al fusionar: el saldo de cashback es DINERO del
+                // cliente, y las visitas y el avance de nivel también son suyos.
+                // Solo se sumaban sellos y puntos (auditoría 2026-11-26).
+                cashbackBalance: new Prisma.Decimal(dup.cashbackBalance ?? 0).add(sp.cashbackBalance ?? 0),
+                visitsCount: (dup.visitsCount ?? 0) + (sp.visitsCount ?? 0),
+                tierProgress: new Prisma.Decimal(dup.tierProgress ?? 0).add(sp.tierProgress ?? 0),
                 legacyQrTokens: preservedTokens,
               },
             });

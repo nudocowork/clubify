@@ -1,3 +1,4 @@
+import { montoDeLaAccion, saldoInsuficiente } from './monto-de-dinero';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, StampAction } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -173,6 +174,17 @@ export class StampsService {
       }
     }
 
+    // Montos validados (y el cashback calculado AQUÍ, no en el navegador). Ver
+    // `monto-de-dinero.ts` para lo que pasaba sin esto.
+    const montos = montoDeLaAccion({
+      accion: dto.action,
+      amount: dto.amount,
+      purchaseAmount: dto.purchaseAmount,
+      esSuperAdmin: user.role === 'SUPER_ADMIN',
+      card: { cashbackPercent: pass.card.cashbackPercent, cashbackMinPurchase: pass.card.cashbackMinPurchase },
+    });
+    dto = { ...dto, amount: montos.amount, purchaseAmount: montos.purchaseAmount };
+
     const amount = new Prisma.Decimal(dto.amount ?? 1);
 
     // Anti-abuso: si STAMP con amount > 1, exigir PIN configurado por
@@ -268,7 +280,9 @@ export class StampsService {
         break;
       case 'POINTS_DEDUCT':
         newPoints = new Prisma.Decimal(pass.pointsBalance).sub(amount);
-        if (Number(newPoints) < 0) throw new BadRequestException('Insufficient points');
+        if (Number(newPoints) < 0) {
+          throw new BadRequestException(saldoInsuficiente('POINTS_DEDUCT', Number(pass.pointsBalance)));
+        }
         break;
       case 'REDEEM':
         if (pass.card.type === 'STAMPS') {
@@ -327,7 +341,9 @@ export class StampsService {
         break;
       case 'CASHBACK_REDEEM':
         newCashback = new Prisma.Decimal(pass.cashbackBalance).sub(amount);
-        if (Number(newCashback) < 0) throw new BadRequestException('Insufficient cashback');
+        if (Number(newCashback) < 0) {
+          throw new BadRequestException(saldoInsuficiente('CASHBACK_REDEEM', Number(pass.cashbackBalance)));
+        }
         break;
     }
 
@@ -808,7 +824,15 @@ export class StampsService {
                 header: '¡Premio canjeado!',
                 body: 'Disfrútalo. Tu tarjeta vuelve a empezar desde cero.',
               }
-            : undefined;
+            : // Usar TODO el saldo lo deja en cero, y con saldo cero el aviso
+              // genérico de Google no sale: la misma trampa de arriba. Se manda
+              // el texto siempre, que además dice cuánto queda.
+              dto.action === 'CASHBACK_REDEEM'
+              ? {
+                  header: 'Usaste tu saldo',
+                  body: `Te quedan $${Math.round(Number(newCashback)).toLocaleString('es-CO')}.`,
+                }
+              : undefined;
 
     this.jobs
       .enqueue('wallet.push', {
