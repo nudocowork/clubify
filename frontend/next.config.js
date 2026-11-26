@@ -36,6 +36,9 @@ const nextConfig = {
       // así reemplazarla es copiar el archivo nuevo encima. Estos rewrites van
       // antes de las rutas dinámicas, así que /[slug] no la tapa.
       { source: '/presentacion', destination: '/presentacion.html' },
+      // La propuesta post-reunión: el mismo bloque que se pega en HighLevel,
+      // envuelto en una página completa. Reemplazarla = copiar encima.
+      { source: '/propuesta', destination: '/propuesta.html' },
     ];
   },
   // next/image necesita whitelist de hosts remotos. Sin esto,

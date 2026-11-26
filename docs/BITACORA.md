@@ -8,6 +8,11 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-26 (203) — Propuesta post-reunión en /propuesta
+
+- `soyclubify.com/propuesta` sirve `frontend/public/propuesta.html`: el bloque que se pega en HighLevel (`propuesta-cliente.html`), envuelto en una página completa (doctype, título, `noindex`). Rewrite en `next.config.js`, igual que `/presentacion`.
+- Reemplazarla = copiar el bloque nuevo dentro del mismo envoltorio y desplegar el frontend.
+
 ## 2026-11-25 (202) — Una cuenta suspendida ya no se reactiva sola: solo puede pagar
 
 **Falta desplegar backend y frontend.**
