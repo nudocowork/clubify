@@ -11,6 +11,8 @@ import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 import { ordenarSedesParaPase } from './orden-de-sedes';
 import { estadoDelObjetoDeGoogle } from './cupon-usado';
+import { estiloQueSeDibuja } from './estilo-de-tarjeta';
+import { nivelMostrado } from './nivel-mostrado';
 
 /**
  * Google Wallet integration end-to-end.
@@ -125,7 +127,7 @@ export class GoogleWalletService {
     }
     if (t === 'MEMBERSHIP') {
       return {
-        balance: { string: pass.currentTier || L.member_default },
+        balance: { string: nivelMostrado(pass.currentTier, pass.card?.tiers) || L.member_default },
         label: L.tier,
       };
     }
@@ -396,6 +398,7 @@ export class GoogleWalletService {
             card.primaryColor,
             card.secondaryColor,
             card.stampsRequired,
+            (card as any).stripStyle ?? null,
           ]),
         )
         .digest('hex')
@@ -439,6 +442,36 @@ export class GoogleWalletService {
           },
           contentDescription: {
             defaultValue: { language: 'es', value: L.stamps },
+          },
+        },
+      });
+    } else if ((t === 'CASHBACK' || t === 'MEMBERSHIP') && estiloQueSeDibuja(card as any)) {
+      // Cashback y VIP solo llevan franja con su estilo (Saldo, VIP), y SOLO
+      // entonces se pide: `strip.png` sin estilo es un 404, y un 404 en un
+      // módulo de imagen aborta el guardado en Google (el caso de alianzas).
+      // El bust lleva saldo/nivel (vía lastActivityAt) y el diseño.
+      const apiUrl = process.env.API_URL || 'https://api.soyclubify.com';
+      const activityV = pass.lastActivityAt ? new Date(pass.lastActivityAt).getTime() : Date.now();
+      const designV = createHash('sha1')
+        .update(
+          JSON.stringify([
+            (card as any).stripStyle ?? null,
+            card.primaryColor,
+            card.secondaryColor,
+            card.stampActiveColor,
+            card.centerBgColor,
+            (card as any).cashbackPercent ?? null,
+            (card as any).tiers ?? null,
+          ]),
+        )
+        .digest('hex')
+        .slice(0, 8);
+      imageModules.push({
+        id: 'strip',
+        mainImage: {
+          sourceUri: { uri: `${apiUrl}/api/passes/${pass.id}/strip.png?v=${activityV}-${designV}` },
+          contentDescription: {
+            defaultValue: { language: 'es', value: t === 'CASHBACK' ? L.balance : L.tier },
           },
         },
       });
@@ -946,7 +979,10 @@ export class GoogleWalletService {
       };
     }
     if (t === 'MEMBERSHIP') {
-      return { header: brand, body: fill(L.tier_change, pass.currentTier || L.member_default) };
+      return {
+        header: brand,
+        body: fill(L.tier_change, nivelMostrado(pass.currentTier, pass.card?.tiers) || L.member_default),
+      };
     }
     if (t === 'DISCOUNT') {
       return { header: brand, body: `${L.discount}: ${pass.card.discountPercent ?? 10}%` };
@@ -1118,6 +1154,13 @@ export class GoogleWalletService {
           ? Number(pass.pointsBalance ?? 0) > 0
           : ct === 'CASHBACK'
           ? Number(pass.cashbackBalance ?? 0) > 0
+          : // La VIP por niveles NO tiene aviso genérico: el genérico dice
+            // «Nuevo nivel: X» y caía en el `true` de abajo, así que el Android
+            // lo recibía en CADA compra aunque el nivel no hubiera cambiado.
+            // Cuando de verdad sube, `stamps.service` manda su propio texto
+            // («¡Subiste de nivel!»), que entra por `hasCustomMsg`.
+            ct === 'MEMBERSHIP'
+          ? false
           : true;
       let notified = false;
       if (!opts.silent && (hasCustomMsg || genericWorthNotifying))

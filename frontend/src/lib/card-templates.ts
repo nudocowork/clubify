@@ -54,6 +54,21 @@ export type CardTemplate = {
   };
 };
 
+export type TierDeTarjeta = NonNullable<CardTemplate['defaults']['tiers']>[number];
+
+/**
+ * Niveles con los que nace una tarjeta «VIP por niveles» (MEMBERSHIP + gasto).
+ *
+ * Una VIP sin niveles no sube a nadie y el pase no tiene qué mostrar, así que
+ * el asistente nunca la deja empezar vacía. Los umbrales son GASTO ACUMULADO
+ * en la moneda del negocio (tierMetric 'spend'), no visitas ni sellos.
+ */
+export const VIP_TIERS_DEFAULT: TierDeTarjeta[] = [
+  { name: 'Bronce', threshold: 0, color: '#B45309', icon: '🥉', perks: ['Bienvenida especial', 'Regalo en tu cumpleaños'] },
+  { name: 'Plata', threshold: 300000, color: '#9CA3AF', icon: '🥈', perks: ['10% de descuento', 'Atención prioritaria'] },
+  { name: 'Oro', threshold: 600000, color: '#F59E0B', icon: '🥇', perks: ['15% de descuento', 'Acceso anticipado a novedades'] },
+];
+
 export const CARD_TEMPLATES: CardTemplate[] = [
   // ─── Cafetería ───
   {
@@ -214,12 +229,18 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     id: 'gym-membership',
     categorySlug: 'gym',
     type: 'MEMBERSHIP',
-    displayName: 'Gimnasio — Membresía mensual',
+    displayName: 'Gimnasio — VIP por niveles',
     defaults: {
-      name: 'Miembro Premium',
-      rewardText: 'Acceso ilimitado al gimnasio',
+      name: 'Socio VIP',
+      rewardText: 'Entrena más, sube de nivel y desbloquea beneficios',
       primaryColor: '#22C55E',
       secondaryColor: '#15803D',
+      tierMetric: 'spend',
+      tiers: [
+        { name: 'Bronce', threshold: 0, color: '#B45309', icon: '🥉', perks: ['Evaluación física de cortesía'] },
+        { name: 'Plata', threshold: 300000, color: '#9CA3AF', icon: '🥈', perks: ['10% en suplementos', '1 clase dirigida gratis al mes'] },
+        { name: 'Oro', threshold: 600000, color: '#F59E0B', icon: '🥇', perks: ['15% en suplementos', 'Invitado gratis 1 vez al mes'] },
+      ],
     },
   },
 
@@ -471,36 +492,14 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     id: 'membership-tiers-vip',
     categorySlug: 'other',
     type: 'MEMBERSHIP',
-    displayName: 'Membresía VIP — Silver / Gold / Black',
+    displayName: 'VIP por niveles — Bronce / Plata / Oro',
     defaults: {
-      name: 'Membresía VIP',
-      rewardText: 'Sube de nivel y desbloquea beneficios',
+      name: 'Club VIP',
+      rewardText: 'Sube de nivel con tus compras y desbloquea beneficios',
       primaryColor: '#0F172A',
       secondaryColor: '#1E293B',
       tierMetric: 'spend',
-      tiers: [
-        {
-          name: 'Silver',
-          threshold: 0,
-          color: '#9CA3AF',
-          icon: '🥈',
-          perks: ['5% de descuento', 'Cumpleaños con regalo'],
-        },
-        {
-          name: 'Gold',
-          threshold: 500000,
-          color: '#F59E0B',
-          icon: '🥇',
-          perks: ['10% de descuento', 'Atención prioritaria', 'Eventos privados'],
-        },
-        {
-          name: 'Black',
-          threshold: 2000000,
-          color: '#111827',
-          icon: '⚫',
-          perks: ['15% de descuento', 'Concierge', 'Acceso ilimitado a beneficios'],
-        },
-      ],
+      tiers: VIP_TIERS_DEFAULT,
     },
   },
 ];
@@ -509,7 +508,7 @@ export const TYPE_LABEL: Record<CardType, string> = {
   STAMPS: 'Sellos',
   POINTS: 'Puntos',
   DISCOUNT: 'Descuento',
-  MEMBERSHIP: 'Suscripción',
+  MEMBERSHIP: 'VIP por niveles',
   COUPON: 'Cupón',
   GIFT: 'Tarjeta de regalo',
   MULTI: 'Múltiple',
@@ -537,11 +536,11 @@ export const TYPE_DESCRIPTION: Record<CardType, string> = {
   STAMPS: 'Acumula sellos por visita o compra y entrega un premio cada N sellos.',
   POINTS: 'Cliente acumula puntos según el monto de compra. Canjea por descuentos o productos.',
   DISCOUNT: 'Descuento fijo % en cada compra. Sin acumulación, beneficio inmediato.',
-  MEMBERSHIP: 'Membresía/suscripción mensual o anual con beneficios exclusivos. Soporta tiers VIP (Silver/Gold/Black).',
+  MEMBERSHIP: 'Tu cliente sube de nivel según lo que gasta: cada nivel trae su beneficio.',
   COUPON: 'Cupón único de regalo o promoción puntual (ej. "primera compra 50% off").',
   GIFT: 'Tarjeta con saldo precargado que el cliente compra o recibe como regalo.',
   MULTI: 'Combina varios mecanismos en una sola tarjeta (sellos + puntos + descuento).',
-  CASHBACK: 'Devuelve un % en saldo de moneda por cada compra. El cliente lo usa contra pagos futuros.',
+  CASHBACK: 'Tu cliente gana un % de cada compra como saldo y lo usa en sus próximas compras.',
   VISITS: 'Punch card por frecuencia. Cada scan suma una visita, sin importar el ticket.',
   HYBRID: 'Combina sellos + descuento + cashback en una sola tarjeta. Pensada para clientes premium.',
   INFO: 'Credencial sin sellos ni puntos. Identifica al cliente como parte de tu comunidad y te deja enviarle avisos.',

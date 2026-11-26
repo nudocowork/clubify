@@ -1,7 +1,8 @@
 'use client';
 /**
- * «Estilo de la tarjeta» en el editor de tarjetas de SELLOS: el cartón clásico
- * o uno de los estilos del laboratorio (taza, cono de pizza, anillo…).
+ * «Estilo de la tarjeta» en el editor: en SELLOS, el cartón clásico o uno de los
+ * estilos del laboratorio (taza, cono de pizza, anillo…); en CASHBACK, «Saldo»;
+ * en VIP por niveles (MEMBERSHIP), «VIP».
  *
  * Solo elige la FORMA (`Card.stripStyle`). Colores, ícono, premio y tope son
  * los de la tarjeta: se cambian en los controles de siempre y la vista previa
@@ -12,7 +13,7 @@ import { useMemo, useState } from 'react';
 import {
   configDesdeTarjeta,
   ESTILOS,
-  ESTILOS_DE_TARJETA,
+  ESTILOS_POR_TIPO,
   LETRAS,
   svgComoDataUrl,
   type ConfigFranja,
@@ -25,7 +26,12 @@ import {
 import { EditorDeAcomodo } from '@/app/laboratorio-tarjetas/EditorDeAcomodo';
 import { ImageUploader } from '@/components/ImageUploader';
 import { subirArchivo } from '@/lib/subir-archivo';
-import { franjaDeTarjeta, premiosDe, type TarjetaParaEstilo } from '@/lib/cards/franja-de-tarjeta';
+import {
+  franjaDeTarjeta,
+  gastoDeMuestra,
+  premiosDe,
+  type TarjetaParaEstilo,
+} from '@/lib/cards/franja-de-tarjeta';
 
 /** Imagen en memoria (data URL) → archivo en el almacenamiento → URL. */
 async function subirDataUrl(dataUrl: string, folder: string): Promise<string> {
@@ -36,46 +42,78 @@ async function subirDataUrl(dataUrl: string, folder: string): Promise<string> {
 
 const CON_TEXTO = new Set<EstiloFranja>(['TAZA', 'PORCIONES', 'ANILLO', 'CAMINO', 'FOTO_NUMERO', 'COLOR_SOLIDO']);
 
+/** Qué dice la ficha «sin estilo» en cada tipo. */
+const SIN_ESTILO: Record<string, { nombre: string; ayuda: string }> = {
+  STAMPS: { nombre: 'Clásico', ayuda: 'El de siempre' },
+  CASHBACK: { nombre: 'Sin franja', ayuda: 'Solo el saldo arriba' },
+  MEMBERSHIP: { nombre: 'Sin franja', ayuda: 'Solo el nivel arriba' },
+};
+
+const pesos = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+
 export function EstiloDeLaFranja({
+  tipo = 'STAMPS',
+  tierMetric,
   tarjeta,
   estilo,
   onEstilo,
   onIconoImagen,
 }: {
+  /** STAMPS, CASHBACK o MEMBERSHIP (VIP por niveles). */
+  tipo?: string;
+  /** VIP: el estilo dibuja plata, así que solo aplica con niveles por gasto. */
+  tierMetric?: string | null;
   tarjeta: TarjetaParaEstilo;
   /** `null` = clásico. */
   estilo: EstiloDeTarjeta | null;
   onEstilo: (e: EstiloDeTarjeta | null) => void;
   /** «Tu producto» cambia el ícono propio del sello, que es un campo de la tarjeta. */
-  onIconoImagen: (url: string | null) => void;
+  onIconoImagen?: (url: string | null) => void;
 }) {
+  const estilos = ESTILOS_POR_TIPO[tipo] ?? [];
+  const sinEstilo = SIN_ESTILO[tipo] ?? SIN_ESTILO.STAMPS;
+  const niveles = tarjeta.niveles ?? [];
+  const topeGasto = Math.max(100_000, ...niveles.map((n) => n.desde * 1.25));
+
+  // Lo que mueve la barra de la vista previa depende del tipo: sellos, saldo o gasto.
   const [avance, setAvance] = useState(() => Math.ceil(tarjeta.requeridos / 2));
+  const [saldo, setSaldo] = useState(25_000);
+  const [gastado, setGastado] = useState(() => gastoDeMuestra(niveles));
   const sellados = Math.min(avance, tarjeta.requeridos);
+  const muestra: TarjetaParaEstilo = { ...tarjeta, saldo, gastado };
   const set = (p: Partial<EstiloDeTarjeta>) => estilo && onEstilo({ ...estilo, ...p });
 
   // Miniaturas con el emoji y sin imágenes: como <img> no bajarían las URLs.
   const miniaturas = useMemo(() => {
-    const base = { ...tarjeta, stampIconImageUrl: null, freeRewards: [] };
+    const base = {
+      ...tarjeta,
+      stampIconImageUrl: null,
+      freeRewards: [],
+      saldo: 25_000,
+      gastado: gastoDeMuestra(tarjeta.niveles ?? []),
+    };
     return Object.fromEntries(
-      ESTILOS_DE_TARJETA.map((e) => [
+      estilos.map((e) => [
         e,
         svgComoDataUrl(franjaDeTarjeta({ estilo: e }, base, Math.ceil(tarjeta.requeridos * 0.6))),
       ]),
     ) as Record<EstiloFranja, string>;
-  }, [tarjeta]);
+  }, [tarjeta, estilos]);
 
   const vista = useMemo(
-    () => (estilo ? franjaDeTarjeta(estilo, tarjeta, sellados) : null),
-    [estilo, tarjeta, sellados],
+    () => (estilo ? franjaDeTarjeta(estilo, { ...tarjeta, saldo, gastado }, sellados) : null),
+    [estilo, tarjeta, sellados, saldo, gastado],
   );
+  const vipNoAplica = tipo === 'MEMBERSHIP' && (tierMetric || 'spend') !== 'spend';
 
   /** Para el editor de «Tu producto», que trabaja sobre la configuración completa. */
   const config: ConfigFranja | null = useMemo(
     () =>
       estilo
-        ? configDesdeTarjeta(estilo, { ...tarjeta, sellados, premiosIntermedios: premiosDe(tarjeta) })
+        ? configDesdeTarjeta(estilo, { ...muestra, sellados, premiosIntermedios: premiosDe(tarjeta) })
         : null,
-    [estilo, tarjeta, sellados],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `muestra` se arma de estos
+    [estilo, tarjeta, sellados, saldo, gastado],
   );
 
   const elegir = (e: EstiloFranja | null) => {
@@ -94,17 +132,28 @@ export function EstiloDeLaFranja({
       <div>
         <label className="label m-0">Estilo de la tarjeta</label>
         <div className="text-[11px] text-mute mt-0.5 leading-snug">
-          Cómo se ve el avance de sellos en el celular del cliente. Los colores y el ícono son los de esta tarjeta.
+          {tipo === 'CASHBACK'
+            ? 'Una franja con el saldo del cliente y el % que gana en cada compra. Los colores son los de esta tarjeta.'
+            : tipo === 'MEMBERSHIP'
+              ? 'Una franja con el nivel del cliente, su beneficio y cuánto le falta para el siguiente.'
+              : 'Cómo se ve el avance de sellos en el celular del cliente. Los colores y el ícono son los de esta tarjeta.'}
         </div>
       </div>
 
+      {vipNoAplica && (
+        <p className="text-[11px] text-mute bg-bg2 rounded-input px-2.5 py-1.5">
+          Esta tarjeta sube de nivel por visitas, no por lo que gasta: la franja VIP muestra montos, así que el pase
+          seguirá sin franja aunque la elijas.
+        </p>
+      )}
+
       <div className="grid grid-cols-3 gap-2">
-        <Ficha activa={!estilo} onClick={() => elegir(null)} nombre="Clásico">
+        <Ficha activa={!estilo} onClick={() => elegir(null)} nombre={sinEstilo.nombre}>
           <div className="aspect-[640/246] rounded-md bg-bg2 grid place-items-center text-[10px] text-mute">
-            El de siempre
+            {sinEstilo.ayuda}
           </div>
         </Ficha>
-        {ESTILOS_DE_TARJETA.map((e) => (
+        {estilos.map((e) => (
           <Ficha
             key={e}
             activa={estilo?.estilo === e}
@@ -124,18 +173,42 @@ export function EstiloDeLaFranja({
             dangerouslySetInnerHTML={{ __html: vista }}
           />
           <div className="flex items-center gap-2 text-xs text-mute">
-            <span className="shrink-0">Ver con</span>
-            <input
-              type="range"
-              min={0}
-              max={tarjeta.requeridos}
-              value={sellados}
-              onChange={(e) => setAvance(Number(e.target.value))}
-              className="flex-1 accent-brand"
-              aria-label="Sellos en la vista previa"
-            />
-            <span className="w-12 text-right tabular-nums">
-              {sellados}/{tarjeta.requeridos}
+            <span className="shrink-0">{tipo === 'STAMPS' ? 'Ver con' : tipo === 'CASHBACK' ? 'Saldo' : 'Gastado'}</span>
+            {tipo === 'CASHBACK' ? (
+              <input
+                type="range"
+                min={0}
+                max={200_000}
+                step={500}
+                value={saldo}
+                onChange={(e) => setSaldo(Number(e.target.value))}
+                className="flex-1 accent-brand"
+                aria-label="Saldo en la vista previa"
+              />
+            ) : tipo === 'MEMBERSHIP' ? (
+              <input
+                type="range"
+                min={0}
+                max={topeGasto}
+                step={1000}
+                value={gastado}
+                onChange={(e) => setGastado(Number(e.target.value))}
+                className="flex-1 accent-brand"
+                aria-label="Gasto en la vista previa"
+              />
+            ) : (
+              <input
+                type="range"
+                min={0}
+                max={tarjeta.requeridos}
+                value={sellados}
+                onChange={(e) => setAvance(Number(e.target.value))}
+                className="flex-1 accent-brand"
+                aria-label="Sellos en la vista previa"
+              />
+            )}
+            <span className="w-20 text-right tabular-nums">
+              {tipo === 'CASHBACK' ? pesos(saldo) : tipo === 'MEMBERSHIP' ? pesos(gastado) : `${sellados}/${tarjeta.requeridos}`}
             </span>
           </div>
 
@@ -191,7 +264,7 @@ export function EstiloDeLaFranja({
               c={config}
               guardarImagen={(d) => subirDataUrl(d, 'card-stamp-icon')}
               set={(p) => {
-                if ('iconoImagen' in p) onIconoImagen(p.iconoImagen ?? null);
+                if ('iconoImagen' in p) onIconoImagen?.(p.iconoImagen ?? null);
                 const resto: Partial<EstiloDeTarjeta> = {};
                 if ('posiciones' in p) resto.posiciones = p.posiciones;
                 if ('acomodo' in p) resto.acomodo = p.acomodo;

@@ -17,8 +17,10 @@ import {
 import { VistaPreviaPorPlataforma } from '@/components/VistaPreviaPorPlataforma';
 import { EstiloDeLaFranja } from '@/components/EstiloDeLaFranja';
 import type { EstiloDeTarjeta } from '@/lib/cards/estilos-de-franja';
+import { nivelesDeLaTarjeta } from '@/lib/cards/franja-de-tarjeta';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
+import { TiersEditor, type Tier, type TierMetric } from '@/components/TiersEditor';
 
 type CardType =
   | 'STAMPS'
@@ -61,9 +63,12 @@ type Card = {
   discountPercent?: number | null;
   pointsPerCurrency?: number | string | null;
   cashbackPercent?: number | null;
+  // Decimal en la base: llega como string desde la API.
+  cashbackMinPurchase?: number | string | null;
   minAmountPerStamp?: number | string | null;
   visitsRequired?: number | null;
-  tiers?: Array<{ name: string }>;
+  tiers?: Tier[];
+  tierMetric?: TierMetric | null;
   validUntil?: string | null;
   validDaysAfterIssue?: number | null;
   locationId?: string | null;
@@ -467,6 +472,8 @@ export default function CardDetail() {
               stampBgImageUrl={card.stampBgImageUrl}
               stampIconImageUrl={card.stampIconImageUrl}
               stripStyle={card.convenioId || card.clubPlanId ? null : card.stripStyle}
+              cashbackPercent={card.cashbackPercent}
+              tierMetric={card.tierMetric}
               freeRewards={card.freeRewards}
               showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
               rewardText={card.rewardText}
@@ -1016,6 +1023,8 @@ function EditCardModal({
   onSaved: () => void;
 }) {
   const t = useTranslations('app_cards_id');
+  // Los campos de cashback y niveles reutilizan los textos del asistente.
+  const tn = useTranslations('app_cards_new');
   const [form, setForm] = useState({
     name: card.name,
     // #24 (2026-06-16): nombre de marca mostrado en el pase (independiente del
@@ -1047,6 +1056,14 @@ function EditCardModal({
         : Number(card.minAmountPerStamp),
     discountPercent: card.discountPercent ?? 10,
     pointsPerCurrency: Number(card.pointsPerCurrency ?? 0.001),
+    cashbackPercent: card.cashbackPercent ?? 5,
+    // null = sin mínimo: cualquier compra gana cashback.
+    cashbackMinPurchase:
+      card.cashbackMinPurchase == null || Number(card.cashbackMinPurchase) <= 0
+        ? (null as number | null)
+        : Number(card.cashbackMinPurchase),
+    tiers: (Array.isArray(card.tiers) ? card.tiers : []) as Tier[],
+    tierMetric: (card.tierMetric || 'spend') as TierMetric,
     stampIcon: card.stampIcon ?? '☕',
     heroImageUrl: card.heroImageUrl ?? (null as string | null),
     validUntil: card.validUntil
@@ -1121,7 +1138,10 @@ function EditCardModal({
 
   // Alianzas y clubes son STAMPS por dentro pero dibujan su propia franja
   // (logo del aliado, cupo del plan): ahí un estilo no se vería.
-  const admiteEstilo = card.type === 'STAMPS' && !card.convenioId && !card.clubPlanId;
+  const admiteEstilo =
+    (card.type === 'STAMPS' || card.type === 'CASHBACK' || card.type === 'MEMBERSHIP') &&
+    !card.convenioId &&
+    !card.clubPlanId;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -1166,10 +1186,27 @@ function EditCardModal({
         payload.stampIcon = form.stampIcon;
         payload.stampIconImageUrl = form.stampIconImageUrl || null;
         payload.minAmountPerStamp = form.minAmountPerStamp;
-        if (admiteEstilo) payload.stripStyle = form.stripStyle;
       }
+      if (admiteEstilo) payload.stripStyle = form.stripStyle;
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
       if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
+      if (card.type === 'CASHBACK') {
+        // El PATCH no pasa por el ValidationPipe del DTO (llega como Partial):
+        // lo que se mande aquí es lo que se guarda, así que se manda ya entero
+        // y dentro de 1–100.
+        payload.cashbackPercent = Math.min(100, Math.max(1, Math.round(form.cashbackPercent || 5)));
+        payload.cashbackMinPurchase = form.cashbackMinPurchase;
+      }
+      if (card.type === 'MEMBERSHIP') {
+        payload.tiers = form.tiers
+          .map((tier) => ({
+            ...tier,
+            name: tier.name.trim(),
+            threshold: Math.max(0, Math.round(Number(tier.threshold) || 0)),
+          }))
+          .filter((tier) => tier.name !== '');
+        payload.tierMetric = form.tierMetric;
+      }
       if (isCouponType) {
         payload.transformIntoCardId = form.transformIntoCardId;
         payload.transformOnRedeem = form.transformOnRedeem;
@@ -1523,11 +1560,68 @@ function EditCardModal({
             </div>
           )}
 
+          {/* Antes esta pantalla no tenía cómo cambiar el % ni los niveles: una
+              tarjeta de cashback o VIP quedaba con lo que se eligió al crearla.
+              Los textos son los del asistente para que se lea igual en los dos
+              sitios. */}
+          {card.type === 'CASHBACK' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">{tn('cashbackPercent')}</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  className="input"
+                  value={form.cashbackPercent}
+                  onChange={(e) =>
+                    setForm({ ...form, cashbackPercent: Math.round(Number(e.target.value)) })
+                  }
+                />
+                <div className="text-[11px] text-mute mt-1">{tn('cashbackPercentHint')}</div>
+              </div>
+              <div>
+                <label className="label">
+                  {tn('cashbackMinLabel')}
+                  <span className="text-mute font-normal ml-1">{tn('optional')}</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  className="input"
+                  placeholder={tn('cashbackNoMinPlaceholder')}
+                  value={form.cashbackMinPurchase ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setForm({
+                      ...form,
+                      cashbackMinPurchase: v === '' || Number(v) <= 0 ? null : Number(v),
+                    });
+                  }}
+                />
+                <div className="text-[11px] text-mute mt-1">{tn('cashbackMinOptionalHint')}</div>
+              </div>
+            </div>
+          )}
+
+          {card.type === 'MEMBERSHIP' && (
+            <TiersEditor
+              tiers={form.tiers}
+              metric={form.tierMetric}
+              onChangeTiers={(tiers) => setForm((f) => ({ ...f, tiers }))}
+              onChangeMetric={(tierMetric) => setForm((f) => ({ ...f, tierMetric }))}
+            />
+          )}
+
           {/* Primero el ESTILO de la tarjeta; las paletas pre-armadas van al final
               de la parte de diseño porque solo ajustan colores (Javier, 2026-11-26). */}
           {admiteEstilo && (
             <div className="pt-1">
               <EstiloDeLaFranja
+                tipo={card.type}
+                tierMetric={form.tierMetric}
                 tarjeta={{
                   primaryColor: form.primaryColor,
                   secondaryColor: form.secondaryColor,
@@ -1538,6 +1632,8 @@ function EditCardModal({
                   requeridos: form.stampsRequired || 10,
                   premio: form.rewardText,
                   freeRewards: allowFreeRewards ? form.freeRewards : [],
+                  porcentaje: form.cashbackPercent ?? 0,
+                  niveles: nivelesDeLaTarjeta(form.tiers),
                 }}
                 estilo={form.stripStyle}
                 onEstilo={(v) => setForm((f) => ({ ...f, stripStyle: v }))}

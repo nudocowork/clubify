@@ -9,7 +9,8 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import {
-  ESTILOS_DE_TARJETA,
+  ESTILOS_DE_TARJETA_REAL,
+  ESTILOS_POR_TIPO,
   type Acomodo,
   type EstiloDeTarjeta,
   type EstiloFranja,
@@ -54,7 +55,9 @@ function imagen(v: unknown, campo: string): string | null {
 function leer(raw: unknown): EstiloDeTarjeta {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) mal('estilo');
   const o = raw as Record<string, unknown>;
-  const estilo = opcion(o.estilo, 'estilo', ESTILOS_DE_TARJETA as EstiloFranja[]);
+  // Cualquier estilo de tarjeta real; si le corresponde a ESTE tipo lo decide
+  // quien dibuja (`ESTILOS_POR_TIPO`), así el validador no necesita el tipo.
+  const estilo = opcion(o.estilo, 'estilo', ESTILOS_DE_TARJETA_REAL);
   if (!estilo) mal('estilo');
   let posiciones: PosSello[] | undefined;
   if (o.posiciones != null) {
@@ -114,4 +117,26 @@ export function leerEstiloDeTarjeta(raw: unknown): EstiloDeTarjeta | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * ¿Esta tarjeta lleva franja con estilo? La MISMA regla en el pase de Apple, en
+ * `strip.png` y en el objeto de Google: si Google pidiera una franja que luego
+ * no existe, recibiría un 404 y abortaría el guardado del pase entero.
+ */
+export function estiloQueSeDibuja(card: {
+  type: string;
+  stripStyle?: unknown;
+  tierMetric?: string | null;
+  convenioId?: string | null;
+  clubPlanId?: string | null;
+}): EstiloDeTarjeta | null {
+  if (card.convenioId || card.clubPlanId) return null;
+  const estilo = leerEstiloDeTarjeta(card.stripStyle);
+  // Un estilo de otro tipo (p. ej. la tarjeta cambió de tipo) no se dibuja.
+  if (!estilo || !(ESTILOS_POR_TIPO[card.type] ?? []).includes(estilo.estilo)) return null;
+  // VIP dibuja PLATA («Te faltan $300.000 para Oro»). Con niveles por visitas
+  // o por sellos diría montos que no son: ahí va el pase de siempre.
+  if (estilo.estilo === 'VIP' && (card.tierMetric || 'spend') !== 'spend') return null;
+  return estilo;
 }

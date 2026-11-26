@@ -14,10 +14,13 @@ import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { EstiloDeLaFranja } from '@/components/EstiloDeLaFranja';
 import type { EstiloDeTarjeta } from '@/lib/cards/estilos-de-franja';
+import { nivelesDeLaTarjeta } from '@/lib/cards/franja-de-tarjeta';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import { PanelHeader } from '@/components/PanelHeader';
+import { TiersEditor } from '@/components/TiersEditor';
 import {
   CARD_TEMPLATES,
+  VIP_TIERS_DEFAULT,
   TYPE_LABEL,
   TYPE_EMOJI,
   TYPE_DESCRIPTION,
@@ -25,9 +28,9 @@ import {
   type CardTemplate,
 } from '@/lib/card-templates';
 
-// Sistema oficial Clubify: SOLO 2 tipos de tarjetas — STAMPS (fidelización
+// Sistema oficial Clubify: STAMPS (fidelización
 // por sellos) + COUPON (beneficio de bienvenida, single-use). El resto de
-// tipos (DISCOUNT, CASHBACK, VISITS, HYBRID, MEMBERSHIP, POINTS, GIFT) están
+// tipos (DISCOUNT, VISITS, HYBRID, POINTS, GIFT) están
 // deprecados pero el backend los sigue soportando para cards existentes
 // (legacy passes siguen renderizando + escaneando). Para reactivar alguno
 // el resto del flujo ya está preparado (ver lib/card-templates → CardType).
@@ -35,7 +38,26 @@ import {
 // DISCOUNT: eliminado del wizard porque generaba inconsistencias (el wallet
 // lo mostraba como sellos pero el REDEEM era no-op). El flow correcto ahora
 // es COUPON → al redimirse, auto-genera una stamps card (ver Fase 2-4).
-const ALL_TYPES: CardType[] = ['STAMPS', 'COUPON'];
+//
+// 2026-11-26: vuelven CASHBACK («Cashback»: % de cada compra como saldo) y
+// MEMBERSHIP («VIP por niveles»: sube de nivel por GASTO acumulado). Son los
+// dos que el motor de sellos y los pases ya resuelven de punta a punta;
+// MEMBERSHIP es además el único tipo cuyo pase pinta el nivel. POINTS sigue
+// fuera a propósito.
+/** Tipos que tienen estilo de franja: sellos (taza, cono…), cashback (Saldo) y VIP. */
+const TIPOS_CON_ESTILO: string[] = ['STAMPS', 'CASHBACK', 'MEMBERSHIP'];
+
+const ALL_TYPES: CardType[] = ['STAMPS', 'COUPON', 'CASHBACK', 'MEMBERSHIP'];
+
+/** Lo que cambia al arrancar una tarjeta de este tipo sin plantilla. */
+function defaultsDelTipo(type: CardType): Partial<typeof FROM_SCRATCH_DEFAULTS> {
+  // Una VIP sin niveles no sube a nadie ni tiene nada que mostrar en el pase:
+  // «desde cero» arranca con Bronce/Plata/Oro por gasto, listos para retocar.
+  if (type === 'MEMBERSHIP') {
+    return { tiers: VIP_TIERS_DEFAULT.map((t) => ({ ...t, perks: [...(t.perks ?? [])] })), tierMetric: 'spend' };
+  }
+  return {};
+}
 
 // La Tarjeta Informativa va aparte porque NO es oficial para todos: se
 // enciende negocio por negocio (`Tenant.infoCardEnabled`), como las alianzas
@@ -183,7 +205,7 @@ export default function NewCardWizard() {
     } else {
       // «Desde cero» conserva el tipo elegido en el paso 1: volver a STAMPS
       // aquí convertía en sellos al que había pedido un cupón.
-      setForm({ ...FROM_SCRATCH_DEFAULTS, type: form.type });
+      setForm({ ...FROM_SCRATCH_DEFAULTS, ...defaultsDelTipo(form.type), type: form.type });
     }
   }
 
@@ -192,7 +214,7 @@ export default function NewCardWizard() {
   function elegirTipo(type: CardType) {
     if (type === form.type) return;
     setPicked(null);
-    setForm({ ...FROM_SCRATCH_DEFAULTS, type });
+    setForm({ ...FROM_SCRATCH_DEFAULTS, ...defaultsDelTipo(type), type });
   }
 
   // Un tipo sin plantillas (la Informativa) salta directo a configurar: un
@@ -234,11 +256,47 @@ export default function NewCardWizard() {
                 : form.rewardEarnedMessage,
           }
         : form;
+      // Cashback y VIP no cuentan sellos: el formulario arrastra los valores
+      // por defecto del cartón (10 sellos, premios intermedios, «¡Solo [#]…!»)
+      // y guardarlos dejaría una tarjeta de saldo con «10 sellos» configurados
+      // que más tarde algún pase o reporte podría leer. Cada uno manda solo lo
+      // suyo.
+      const sinSellos =
+        form.type === 'CASHBACK' || form.type === 'MEMBERSHIP'
+          ? {
+              stampsRequired: undefined,
+              freeRewards: [],
+              multiRewards: [],
+              minAmountPerStamp: null,
+              visitsRequired: null,
+              discountPercent: undefined,
+              pointsPerCurrency: undefined,
+              stampEarnedMessage: '',
+              ...(form.type === 'CASHBACK'
+                ? {
+                    tiers: [],
+                    cashbackPercent: Math.min(100, Math.max(1, Math.round(form.cashbackPercent ?? 5))),
+                  }
+                : {
+                    cashbackPercent: null,
+                    cashbackMinPurchase: null,
+                    tierMetric: form.tierMetric || 'spend',
+                    // Un nivel sin nombre se vería en blanco en el pase.
+                    tiers: form.tiers
+                      .map((tier) => ({ ...tier, name: tier.name.trim() }))
+                      .filter((tier) => tier.name !== ''),
+                  }),
+            }
+          : {};
       const created = await api<any>('/cards', {
         method: 'POST',
         // El estilo solo existe en tarjetas de sellos: si se cambió el tipo
         // después de elegirlo, no se manda.
-        body: JSON.stringify({ ...payload, stripStyle: form.type === 'STAMPS' ? form.stripStyle : null }),
+        body: JSON.stringify({
+          ...payload,
+          ...sinSellos,
+          stripStyle: TIPOS_CON_ESTILO.includes(form.type) ? form.stripStyle : null,
+        }),
       });
       router.push(`/app/cards/${created.id}`);
     } catch (e: any) {
@@ -476,7 +534,7 @@ function Step1Templates({
   const t = useTranslations('app_cards_new');
   const filtered = useMemo(() => {
     // Filtramos plantillas a tipos expuestos en el wizard. Si un template
-    // usa CASHBACK/VISITS/HYBRID/etc no se muestra hasta que se reactiven.
+    // usa VISITS/HYBRID/POINTS/etc no se muestra hasta que se reactiven.
     let list = plantillasDelTipo(type);
     if (filterMode === 'mine' && tenantCategorySlug) {
       const scoped = list.filter((t) => t.categorySlug === tenantCategorySlug);
@@ -910,35 +968,43 @@ function Step3Configure({
           </div>
         )}
         {form.type === 'CASHBACK' && (
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">{t('cashbackPercent')}</label>
               <input
                 type="number"
                 className="input"
                 min={1}
-                max={50}
+                max={100}
+                step={1}
                 value={form.cashbackPercent ?? 5}
-                onChange={(e) => set('cashbackPercent', Number(e.target.value))}
+                // El backend valida `@IsInt`: un 2.5 haría fallar la creación
+                // al final del asistente, lejos de donde se escribió.
+                onChange={(e) => set('cashbackPercent', Math.round(Number(e.target.value)))}
               />
               <div className="text-[11px] text-mute mt-1">
                 {t('cashbackPercentHint')}
               </div>
             </div>
             <div>
-              <label className="label">{t('minPurchase')}</label>
+              <label className="label">
+                {t('cashbackMinLabel')}
+                <span className="text-mute font-normal ml-1">{t('optional')}</span>
+              </label>
               <input
                 type="number"
                 className="input"
                 min={0}
                 step={1000}
-                value={form.cashbackMinPurchase ?? 0}
-                onChange={(e) =>
-                  set('cashbackMinPurchase', Number(e.target.value))
-                }
+                placeholder={t('cashbackNoMinPlaceholder')}
+                value={form.cashbackMinPurchase ? form.cashbackMinPurchase : ''}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  set('cashbackMinPurchase', v === '' || Number(v) <= 0 ? null : Number(v));
+                }}
               />
               <div className="text-[11px] text-mute mt-1">
-                {t('cashbackMinHint')}
+                {t('cashbackMinOptionalHint')}
               </div>
             </div>
           </div>
@@ -1098,7 +1164,9 @@ function Step3Configure({
             stampBgType={form.stampBgType}
             stampBgImageUrl={form.stampBgImageUrl}
             stampIconImageUrl={form.stampIconImageUrl}
-            stripStyle={form.type === 'STAMPS' ? form.stripStyle : null}
+            stripStyle={TIPOS_CON_ESTILO.includes(form.type) ? form.stripStyle : null}
+            cashbackPercent={form.cashbackPercent}
+            tierMetric={form.tierMetric}
             freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
@@ -1181,9 +1249,11 @@ function Step4Design({
       <div className="card card-pad space-y-4">
         {/* Lo primero es el ESTILO de la tarjeta; las paletas pre-armadas van al
             final porque solo ajustan colores (pedido de Javier, 2026-11-26). */}
-        {form.type === 'STAMPS' && (
+        {TIPOS_CON_ESTILO.includes(form.type) && (
           <div>
             <EstiloDeLaFranja
+              tipo={form.type}
+              tierMetric={form.tierMetric}
               tarjeta={{
                 primaryColor: form.primaryColor,
                 secondaryColor: form.secondaryColor,
@@ -1194,6 +1264,8 @@ function Step4Design({
                 requeridos: form.stampsRequired || 10,
                 premio: form.rewardText,
                 freeRewards: allowFreeRewards ? form.freeRewards : [],
+                porcentaje: form.cashbackPercent ?? 0,
+                niveles: nivelesDeLaTarjeta(form.tiers),
               }}
               estilo={form.stripStyle}
               onEstilo={(v) => set('stripStyle', v)}
@@ -1449,7 +1521,9 @@ function Step4Design({
             stampBgType={form.stampBgType}
             stampBgImageUrl={form.stampBgImageUrl}
             stampIconImageUrl={form.stampIconImageUrl}
-            stripStyle={form.type === 'STAMPS' ? form.stripStyle : null}
+            stripStyle={TIPOS_CON_ESTILO.includes(form.type) ? form.stripStyle : null}
+            cashbackPercent={form.cashbackPercent}
+            tierMetric={form.tierMetric}
             freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
@@ -1515,18 +1589,33 @@ function Step5Information({
             form.type === 'COUPON' ||
             form.type === 'DISCOUNT' ||
             form.type === 'GIFT';
+          // Cashback y VIP tampoco son sellos: «Cómo ganar un sello» o «¡Solo
+          // [#] para tu recompensa!» le pedirían al negocio textos que no
+          // aplican a su tarjeta.
+          const isCashback = form.type === 'CASHBACK';
+          const isVip = form.type === 'MEMBERSHIP';
           return (
             <>
               <div>
                 <label className="label">
-                  {isCoupon ? t('howToRedeemCoupon') : t('howToEarnStamp')}
+                  {isCoupon
+                    ? t('howToRedeemCoupon')
+                    : isCashback
+                      ? t('howToEarnCashback')
+                      : isVip
+                        ? t('howToEarnLevel')
+                        : t('howToEarnStamp')}
                 </label>
                 <input
                   className="input"
                   placeholder={
                     isCoupon
                       ? t('howToRedeemCouponPlaceholder')
-                      : t('howToEarnStampPlaceholder')
+                      : isCashback
+                        ? t('howToEarnCashbackPlaceholder')
+                        : isVip
+                          ? t('howToEarnLevelPlaceholder')
+                          : t('howToEarnStampPlaceholder')
                   }
                   value={form.howToEarnText}
                   onChange={(e) => set('howToEarnText', e.target.value)}
@@ -1548,7 +1637,11 @@ function Step5Information({
                   placeholder={
                     isCoupon
                       ? t('rewardDescCouponPlaceholder')
-                      : t('rewardDescStampPlaceholder')
+                      : isCashback
+                        ? t('rewardDescCashbackPlaceholder')
+                        : isVip
+                          ? t('rewardDescLevelPlaceholder')
+                          : t('rewardDescStampPlaceholder')
                   }
                   value={form.rewardDescText}
                   onChange={(e) => set('rewardDescText', e.target.value)}
@@ -1557,7 +1650,7 @@ function Step5Information({
               {/* Mensaje de sello ganado — solo aplica a STAMPS/VISITS/
                   HYBRID. Cupón no tiene "sello en progreso", se canjea
                   una vez. */}
-              {!isCoupon && (
+              {!isCoupon && !isCashback && !isVip && (
                 <div>
                   <label className="label">
                     {t('stampEarnedMessage')}
@@ -1573,25 +1666,29 @@ function Step5Information({
                   />
                 </div>
               )}
-              <div>
-                <label className="label">
-                  {isCoupon
-                    ? t('couponRedeemMessage')
-                    : t('rewardEarnedMessage')}
-                </label>
-                <input
-                  className="input"
-                  placeholder={
-                    isCoupon
-                      ? t('couponRedeemPlaceholder')
-                      : t('rewardEarnedPlaceholder')
-                  }
-                  value={form.rewardEarnedMessage}
-                  onChange={(e) =>
-                    set('rewardEarnedMessage', e.target.value)
-                  }
-                />
-              </div>
+              {/* «Al ganar la recompensa» no tiene momento en un saldo ni en
+                  un nivel: no hay cartón que se complete. */}
+              {!isCashback && !isVip && (
+                <div>
+                  <label className="label">
+                    {isCoupon
+                      ? t('couponRedeemMessage')
+                      : t('rewardEarnedMessage')}
+                  </label>
+                  <input
+                    className="input"
+                    placeholder={
+                      isCoupon
+                        ? t('couponRedeemPlaceholder')
+                        : t('rewardEarnedPlaceholder')
+                    }
+                    value={form.rewardEarnedMessage}
+                    onChange={(e) =>
+                      set('rewardEarnedMessage', e.target.value)
+                    }
+                  />
+                </div>
+              )}
             </>
           );
         })()}
@@ -1832,154 +1929,6 @@ function ActivateConfirmModal({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ─── Tiers VIP editor (MEMBERSHIP) ───
-type Tier = {
-  name: string;
-  threshold: number;
-  perks?: string[];
-  color?: string;
-  icon?: string;
-};
-
-function TiersEditor({
-  tiers,
-  metric,
-  onChangeTiers,
-  onChangeMetric,
-}: {
-  tiers: Tier[];
-  metric: 'spend' | 'visits' | 'stamps';
-  onChangeTiers: (t: Tier[]) => void;
-  onChangeMetric: (m: 'spend' | 'visits' | 'stamps') => void;
-}) {
-  const t = useTranslations('app_cards_new');
-  function addTier() {
-    onChangeTiers([
-      ...tiers,
-      {
-        name: tiers.length === 0 ? 'Silver' : tiers.length === 1 ? 'Gold' : 'Black',
-        threshold: tiers.length === 0 ? 0 : (tiers[tiers.length - 1].threshold + 100000),
-        perks: [],
-        color: tiers.length === 0 ? '#9CA3AF' : tiers.length === 1 ? '#F59E0B' : '#111827',
-        icon: tiers.length === 0 ? '🥈' : tiers.length === 1 ? '🥇' : '⚫',
-      },
-    ]);
-  }
-  function patch(i: number, p: Partial<Tier>) {
-    onChangeTiers(tiers.map((t, idx) => (idx === i ? { ...t, ...p } : t)));
-  }
-  function removeTier(i: number) {
-    onChangeTiers(tiers.filter((_, idx) => idx !== i));
-  }
-
-  const metricLabel: Record<typeof metric, string> = {
-    spend: t('metricSpend'),
-    visits: t('metricVisits'),
-    stamps: t('metricStamps'),
-  };
-
-  return (
-    <div className="mt-3 space-y-3">
-      <div>
-        <label className="label">{t('tierMetricLabel')}</label>
-        <select
-          className="input"
-          value={metric}
-          onChange={(e) => onChangeMetric(e.target.value as any)}
-        >
-          <option value="spend">{t('metricSpendTotal')}</option>
-          <option value="visits">{t('metricVisits')}</option>
-          <option value="stamps">{t('metricStamps')}</option>
-        </select>
-        <div className="text-[11px] text-mute mt-1">
-          {t('tierThresholdHint', { metric: metricLabel[metric].toLowerCase() })}
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <label className="label m-0">{t('vipTiers')}</label>
-        <button
-          type="button"
-          onClick={addTier}
-          className="text-xs text-brand hover:underline"
-        >
-          + {t('addTier')}
-        </button>
-      </div>
-
-      {tiers.length === 0 && (
-        <div className="text-xs text-mute p-3 rounded-lg bg-bg2/40 border border-dashed border-line">
-          {t('noTiersHint')}
-        </div>
-      )}
-
-      {tiers.map((tier, i) => (
-        <div key={i} className="p-3 rounded-lg border border-line bg-bg2/30 space-y-2">
-          <div className="flex items-center gap-2">
-            <input
-              className="input flex-1 min-w-0"
-              placeholder={t('tierNamePlaceholder')}
-              value={tier.name}
-              onChange={(e) => patch(i, { name: e.target.value })}
-            />
-            <input
-              className="input w-16 text-center"
-              placeholder="🥈"
-              value={tier.icon ?? ''}
-              onChange={(e) => patch(i, { icon: e.target.value })}
-            />
-            <input
-              type="color"
-              className="input h-10 p-1 w-12"
-              value={tier.color ?? '#9CA3AF'}
-              onChange={(e) => patch(i, { color: e.target.value })}
-            />
-            <button
-              type="button"
-              onClick={() => removeTier(i)}
-              className="text-xs text-rose-500 hover:underline"
-            >
-              {t('remove')}
-            </button>
-          </div>
-          <div>
-            <label className="label">
-              {t('threshold')} ({metricLabel[metric]})
-            </label>
-            <input
-              type="number"
-              className="input"
-              min={0}
-              step={metric === 'spend' ? 10000 : 1}
-              value={tier.threshold}
-              onChange={(e) =>
-                patch(i, { threshold: Number(e.target.value) })
-              }
-            />
-          </div>
-          <div>
-            <label className="label">{t('perksLabel')}</label>
-            <textarea
-              className="input"
-              rows={2}
-              value={(tier.perks ?? []).join('\n')}
-              onChange={(e) =>
-                patch(i, {
-                  perks: e.target.value
-                    .split('\n')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                })
-              }
-              placeholder={t('perksPlaceholder')}
-            />
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

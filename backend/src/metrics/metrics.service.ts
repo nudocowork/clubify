@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { ACCIONES_DE_COMPRA } from '../stamps/compra-registrada';
 
 /**
  * Estados cuyo monto cuenta como facturación. Regla de negocio (2026-08-20):
@@ -349,22 +350,24 @@ export class MetricsService {
         _avg: { rating: true },
         _count: { rating: true },
       }),
-      // #7: facturación de SELLOS de compra (STAMP/VISIT con monto, sin
-      // orderId para no duplicar con órdenes). Cada sello = una compra.
+      // #7: facturación de ESCANEOS de compra (con monto, sin orderId para no
+      // duplicar con órdenes). Cada escaneo = una compra. Incluye cashback y
+      // VIP por gasto: antes solo STAMP/VISIT y esos negocios veían $0 (ver
+      // `compra-registrada.ts`).
       this.prisma.stamp.aggregate({
         _sum: { purchaseAmount: true },
         _count: { _all: true },
-        where: { tenantId: tid, orderId: null, action: { in: ['STAMP', 'VISIT'] }, purchaseAmount: { gt: 0 }, createdAt: { gte: today0 } },
+        where: { tenantId: tid, orderId: null, action: { in: [...ACCIONES_DE_COMPRA] }, purchaseAmount: { gt: 0 }, createdAt: { gte: today0 } },
       }),
       this.prisma.stamp.aggregate({
         _sum: { purchaseAmount: true },
         _count: { _all: true },
-        where: { tenantId: tid, orderId: null, action: { in: ['STAMP', 'VISIT'] }, purchaseAmount: { gt: 0 }, createdAt: { gte: since30 } },
+        where: { tenantId: tid, orderId: null, action: { in: [...ACCIONES_DE_COMPRA] }, purchaseAmount: { gt: 0 }, createdAt: { gte: since30 } },
       }),
       this.prisma.stamp.aggregate({
         _sum: { purchaseAmount: true },
         _count: { _all: true },
-        where: { tenantId: tid, orderId: null, action: { in: ['STAMP', 'VISIT'] }, purchaseAmount: { gt: 0 }, createdAt: { gte: since7 } },
+        where: { tenantId: tid, orderId: null, action: { in: [...ACCIONES_DE_COMPRA] }, purchaseAmount: { gt: 0 }, createdAt: { gte: since7 } },
       }),
     ]);
 

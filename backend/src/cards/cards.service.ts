@@ -9,6 +9,12 @@ import { motivoParaRechazarElColor } from './color-de-la-credencial';
 import { motivoParaRechazarElTope } from './tope-del-carton';
 import { sanearPremiosIntermedios } from './premios-intermedios';
 import { validarEstiloDeTarjeta } from '../wallet/estilo-de-tarjeta';
+import {
+  compraMinima,
+  metricaParaGuardar,
+  nivelesParaGuardar,
+  porcentajeDeCashback,
+} from './valores-de-cashback-y-vip';
 import { CardType, Prisma } from '@prisma/client';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -123,6 +129,13 @@ export class CardsService {
     'termsEnabled',
     'activeLinks',
     'freeRewards',
+    // Los niveles VIP y el % de cashback se pintan en la franja del pase
+    // (`franjaDeTarjetaConEstilo`): sin esto, el negocio los cambiaba y los
+    // pases ya instalados seguían mostrando los viejos hasta el siguiente
+    // escaneo. `tierMetric` cambia lo que significa el progreso que se ve.
+    'tiers',
+    'tierMetric',
+    'cashbackPercent',
   ] as const;
 
   /** La regla vive en `premios-intermedios.ts` porque el Onboarding tambien
@@ -297,13 +310,13 @@ export class CardsService {
         rewardText: dto.rewardText ?? '',
         pointsPerCurrency: dto.pointsPerCurrency,
         discountPercent: dto.discountPercent,
-        cashbackPercent: dto.cashbackPercent ?? undefined,
-        cashbackMinPurchase: dto.cashbackMinPurchase ?? undefined,
+        cashbackPercent: porcentajeDeCashback(dto.cashbackPercent) ?? undefined,
+        cashbackMinPurchase: compraMinima(dto.cashbackMinPurchase) ?? undefined,
         minAmountPerStamp: dto.minAmountPerStamp ?? undefined,
         visitsRequired: dto.visitsRequired ?? undefined,
         welcomeStamps: dto.welcomeStamps ?? undefined,
-        tiers: (dto.tiers ?? []) as any,
-        tierMetric: dto.tierMetric ?? 'spend',
+        tiers: nivelesParaGuardar(dto.tiers) as any,
+        tierMetric: metricaParaGuardar(dto.tierMetric),
         validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
         validDaysAfterIssue: dto.validDaysAfterIssue ?? undefined,
@@ -401,7 +414,11 @@ export class CardsService {
       const n = Math.trunc(Number(dto.welcomeStamps));
       data.welcomeStamps = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
     }
-    if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
+    if ('tiers' in dto) data.tiers = nivelesParaGuardar(dto.tiers) as any;
+    // Sin validación del DTO en el PATCH (ver arriba): se limpian aquí.
+    if ('tierMetric' in dto) data.tierMetric = metricaParaGuardar(dto.tierMetric);
+    if ('cashbackPercent' in dto) data.cashbackPercent = porcentajeDeCashback(dto.cashbackPercent);
+    if ('cashbackMinPurchase' in dto) data.cashbackMinPurchase = compraMinima(dto.cashbackMinPurchase);
     if ('stripStyle' in dto) {
       // null = volver al clásico. En una columna Json, «vacío» es DbNull, no null.
       data.stripStyle = (validarEstiloDeTarjeta(dto.stripStyle) as any) ?? Prisma.DbNull;

@@ -37,8 +37,9 @@ import {
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 import { esCuponUsado } from './cupon-usado';
-import { configDesdeTarjeta, dibujarFranja, type ConfigFranja } from './estilos-de-franja';
-import { leerEstiloDeTarjeta } from './estilo-de-tarjeta';
+import { configDesdeTarjeta, dibujarFranja, type ConfigFranja, type Nivel } from './estilos-de-franja';
+import { estiloQueSeDibuja } from './estilo-de-tarjeta';
+import { nivelMostrado } from './nivel-mostrado';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -501,7 +502,7 @@ export class WalletService implements OnModuleDestroy {
         logoUrl: pass.card.logoUrl,
         empresa: alianza.empresa,
       });
-    } else if (!club && (conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, pass.stampsCount, wa.freeRewards))) {
+    } else if (!club && (conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, pass, wa.freeRewards))) {
       dynamicStrips = conEstilo;
     } else if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
       const c: any = pass.card;
@@ -789,7 +790,7 @@ export class WalletService implements OnModuleDestroy {
       return {
         key: 'tier',
         label: L.tier,
-        value: pass.currentTier || L.member_default,
+        value: nivelMostrado(pass.currentTier, pass.card?.tiers) || L.member_default,
         changeMessage: L.tier_change,
       };
     }
@@ -1007,6 +1008,15 @@ export class WalletService implements OnModuleDestroy {
     });
     if (!pass) return null;
     const t = pass.card.type;
+    // Cashback y VIP no tienen cartón: solo llevan franja si el negocio eligió
+    // su estilo (Saldo, VIP). OJO: un `null` aquí es un 404, y un 404 en un
+    // módulo de imagen ABORTA el guardado en Google (ver el caso de alianzas
+    // en google-wallet.service). Por eso allí el módulo solo se pide cuando
+    // `tieneFranjaConEstilo` dice que sí.
+    if (t === 'CASHBACK' || t === 'MEMBERSHIP') {
+      const conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, pass, false);
+      return conEstilo?.['strip@2x.png'] ?? null;
+    }
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
     // La ALIANZA sirve su propia franja —el logo de la empresa en el centro—
     // en vez del cartón de sellos, que con `stampsRequired: 1` dibujaba un
@@ -1032,7 +1042,7 @@ export class WalletService implements OnModuleDestroy {
     // Misma franja que el iPhone si la tarjeta tiene estilo. El club se queda
     // con su cartón: su cupo es el del plan, no `stampsRequired`.
     if (!pass.card.clubPlanId) {
-      const conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, stamped, waStrip.freeRewards);
+      const conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, pass, waStrip.freeRewards);
       if (conEstilo) return conEstilo['strip@2x.png'] ?? null;
     }
     const result = await this.generateStampsStrip({
@@ -2765,17 +2775,18 @@ export class WalletService implements OnModuleDestroy {
    * Franja de una tarjeta REAL con estilo (`Card.stripStyle`). `null` si la
    * tarjeta no tiene estilo o no le corresponde: entonces va el cartón clásico.
    *
-   * Solo tarjetas de SELLOS normales: ni alianzas (su franja es el logo del
-   * aliado) ni clubes (su cupo es el del plan). Esos caminos se deciden antes.
+   * Sellos (taza, cono, anillo…), Cashback (Saldo) y VIP por niveles (VIP).
+   * Ni alianzas (su franja es el logo del aliado) ni clubes (su cupo es el del
+   * plan).
    */
   private async franjaDeTarjetaConEstilo(
     card: any,
-    sellados: number,
+    pass: { stampsCount: number; cashbackBalance?: unknown; tierProgress?: unknown },
     premiosPermitidos: boolean,
   ): Promise<Record<string, Buffer> | null> {
-    if (card.type !== 'STAMPS' || card.convenioId || card.clubPlanId) return null;
-    const estilo = leerEstiloDeTarjeta(card.stripStyle);
+    const estilo = estiloQueSeDibuja(card);
     if (!estilo) return null;
+    const sellados = pass.stampsCount;
     try {
       // Las imágenes se bajan aquí y entran al SVG como data URI: librsvg no
       // tiene que ir a la red. Si alguna no baja, se dibuja sin ella.
@@ -2815,6 +2826,10 @@ export class WalletService implements OnModuleDestroy {
           sellados,
           premio: card.rewardText || '',
           premiosIntermedios: premios,
+          saldo: Number(pass.cashbackBalance ?? 0),
+          porcentaje: Number(card.cashbackPercent ?? 0),
+          gastado: Number(pass.tierProgress ?? 0),
+          niveles: nivelesDeLaTarjeta(card.tiers),
         },
       );
       return await this.dibujarFranjaDeLaboratorio(config);
@@ -2998,4 +3013,20 @@ export class WalletService implements OnModuleDestroy {
     const offset = projected - asUtc;
     return new Date(asUtc - offset);
   }
+}
+
+/**
+ * Los niveles de `Card.tiers` ({ name, threshold, perks }) como los dibuja el
+ * estilo VIP. El primer beneficio es el que va debajo del nombre del nivel.
+ */
+function nivelesDeLaTarjeta(tiers: unknown): Nivel[] {
+  if (!Array.isArray(tiers)) return [];
+  return tiers
+    .filter((t) => t && typeof t.name === 'string' && Number.isFinite(Number(t.threshold)))
+    .slice(0, 6)
+    .map((t) => ({
+      nombre: String(t.name).slice(0, 20),
+      desde: Math.max(0, Number(t.threshold)),
+      beneficio: Array.isArray(t.perks) && typeof t.perks[0] === 'string' ? t.perks[0].slice(0, 40) : '',
+    }));
 }

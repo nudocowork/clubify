@@ -1,4 +1,14 @@
 import { montoDeLaAccion, saldoInsuficiente } from './monto-de-dinero';
+import { esCompraRegistrada } from './compra-registrada';
+import {
+  avanceDeNivel,
+  faltaMontoParaNivel,
+  mensajeDeSubidaDeNivel,
+  metricaDeNivel,
+  MENSAJE_FALTA_MONTO,
+  nivelesDeLaTarjeta,
+  nivelPara,
+} from './nivel-vip';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, StampAction } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -210,10 +220,24 @@ export class StampsService {
     // El bypass ya no es por rol sino por decisión explícita: SUPER_ADMIN
     // puede saltarse el tope, pero mandando `override` — no por existir.
     const saltaTope = user.role === 'SUPER_ADMIN' && dto.override === true;
+    // Niveles VIP (ver `nivel-vip.ts`). Se leen aquí porque deciden también
+    // el tope del día y el monto obligatorio.
+    const niveles = nivelesDeLaTarjeta(pass.card.tiers);
+    const metrica = metricaDeNivel(pass.card.tierMetric);
+    // La compra de una VIP por gasto NO pasa por el tope de sellos del día:
+    // el tope existe porque cada sello es un pedazo de premio, y aquí cada
+    // compra es dinero real que sube el nivel. Con el tope por defecto (1 en
+    // 24 h) la segunda compra del día de un cliente se rechazaba y su gasto no
+    // contaba. Igual que CASHBACK_ADD, que tampoco tiene tope.
+    const esCompraVip =
+      pass.card.type === 'MEMBERSHIP' &&
+      niveles.length > 0 &&
+      metrica === 'spend' &&
+      dto.action === 'VISIT';
     // La comprobación en sí (`exigirTopeDiario`) corre DENTRO de la
     // transacción, después del candado del pase: ver allí por qué.
     const aplicaTopeDiario =
-      (dto.action === 'STAMP' || dto.action === 'VISIT') && !saltaTope;
+      (dto.action === 'STAMP' || dto.action === 'VISIT') && !saltaTope && !esCompraVip;
 
     // Para STAMP/VISIT en cards de fidelización, el frontend exige
     // monto de compra (regla de negocio). Validamos que esté presente
@@ -255,6 +279,22 @@ export class StampsService {
       throw new BadRequestException(
         `Monto mínimo por sello: $${Number(pass.card.minAmountPerStamp)}. La compra de $${Number(dto.purchaseAmount)} no alcanza.`,
       );
+    }
+
+    // VIP por gasto: la compra sin monto no movería el nivel, y el cajero
+    // creería que sí.
+    if (
+      faltaMontoParaNivel({
+        tipoDeTarjeta: pass.card.type,
+        hayNiveles: niveles.length > 0,
+        metrica,
+        accion: dto.action,
+        purchaseAmount: dto.purchaseAmount,
+        esRegalo,
+        esSuperAdmin: user.role === 'SUPER_ADMIN',
+      })
+    ) {
+      throw new BadRequestException(MENSAJE_FALTA_MONTO);
     }
 
     let newStamps = pass.stampsCount;
@@ -347,31 +387,22 @@ export class StampsService {
         break;
     }
 
-    // Recalcular tier para tarjetas con tiers configurados (MEMBERSHIP).
-    // tierMetric: spend|visits|stamps. Acumulamos en pass.tierProgress.
-    let newTierProgress = new Prisma.Decimal(pass.tierProgress);
-    let newCurrentTier = pass.currentTier;
-    const tiers: Array<{ name: string; threshold: number }> = Array.isArray(
-      pass.card.tiers as any,
-    )
-      ? (pass.card.tiers as any)
-      : [];
-    if (tiers.length > 0) {
-      const metric = pass.card.tierMetric || 'spend';
-      // Sumar contribución a tierProgress según métrica + acción.
-      let delta = new Prisma.Decimal(0);
-      if (metric === 'spend' && (dto.action === 'POINTS_ADD' || dto.action === 'CASHBACK_ADD')) {
-        delta = new Prisma.Decimal(amount);
-      } else if (metric === 'visits' && (dto.action === 'VISIT' || dto.action === 'STAMP')) {
-        delta = new Prisma.Decimal(amount);
-      } else if (metric === 'stamps' && dto.action === 'STAMP') {
-        delta = new Prisma.Decimal(amount);
-      }
-      newTierProgress = newTierProgress.add(delta);
-      const sortedTiers = [...tiers].sort((a, b) => b.threshold - a.threshold);
-      const matched = sortedTiers.find((t) => Number(newTierProgress) >= t.threshold);
-      if (matched) newCurrentTier = matched.name;
-    }
+    // Avance del nivel VIP (tierMetric spend|visits|stamps). Aquí solo se
+    // decide el DELTA; el progreso y el nivel se escriben dentro del candado,
+    // contra el valor fresco (ver la transacción). Antes se escribía aquí un
+    // absoluto calculado con la foto previa: dos escaneos simultáneos leían el
+    // mismo progreso y uno de los dos se perdía. Y por gasto sumaba el
+    // cashback GANADO, no la compra: el nivel no subía nunca.
+    const avanceNivel =
+      niveles.length > 0
+        ? avanceDeNivel({
+            metrica,
+            accion: dto.action,
+            amount: Number(amount),
+            purchaseAmount: dto.purchaseAmount,
+            esRegalo,
+          })
+        : 0;
 
     const isCouponRedeem =
       (pass.card.type === 'COUPON' ||
@@ -434,8 +465,7 @@ export class StampsService {
       pointsBalance: { increment: pointsDelta },
       cashbackBalance: { increment: cashbackDelta },
       visitsCount: { increment: visitsDelta },
-      currentTier: newCurrentTier,
-      tierProgress: newTierProgress,
+      // `currentTier` / `tierProgress` los pone la transacción, tras el candado.
       lastActivityAt: new Date(),
       // Sin `status`: reescribir el leído antes de la transacción pisaba el
       // cambio de cualquier otro escaneo. Lo pone `sincronizarEstado`.
@@ -483,6 +513,8 @@ export class StampsService {
           cardId: true,
           qrToken: true,
           legacyQrTokens: true,
+          tierProgress: true,
+          currentTier: true,
         },
       });
       // El pase desapareció mientras esperábamos el candado. Pasa, sobre todo,
@@ -529,6 +561,16 @@ export class StampsService {
       // transacción no deja nada escrito.
       if (aplicaTopeDiario) {
         await this.exigirTopeDiario(tx, pass.id, pass.tenantId, user.role);
+      }
+      // Nivel VIP contra el progreso FRESCO, ya con el candado: el delta va
+      // como `increment` y el nivel sale de lo que de verdad queda en la fila.
+      const nivelAnterior = fresh.currentTier;
+      let nivelNuevo = fresh.currentTier;
+      if (niveles.length > 0) {
+        const progreso = Number(fresh.tierProgress ?? 0) + avanceNivel;
+        nivelNuevo = nivelPara(niveles, progreso, fresh.currentTier);
+        if (avanceNivel > 0) passUpdateData.tierProgress = { increment: avanceNivel };
+        if (nivelNuevo !== fresh.currentTier) passUpdateData.currentTier = nivelNuevo;
       }
       // 2026-08-01 (ABSORBER cupón→sellos): el cupón SIEMPRE se transforma en la
       // tarjeta de sellos destino (pedido del negocio, reemplaza PDF1145). Si el
@@ -731,6 +773,8 @@ export class StampsService {
         habiaTarjetaDeSellos,
         absorbidoEnSellos,
         cuponCerrado,
+        nivelAnterior,
+        nivelNuevo,
       };
     });
     const { stamp, updatedPass, passIdFinal, transicion } = resultado;
@@ -743,11 +787,13 @@ export class StampsService {
     // mergeado/borrado → P2025), Postgres aborta TODA la tx y el sello NO se
     // guarda (bug Valmont: clientes no podían sumar sellos). Una métrica nunca
     // debe romper el sello. Guard orderId implícito (este path no setea orderId).
+    // Cuenta también la compra del cashback y la de la VIP por gasto: antes
+    // solo STAMP/VISIT y esos clientes quedaban con $0 gastado (ver
+    // `compra-registrada.ts`). Un regalo no entra: su monto es null.
     if (
-      (dto.action === 'STAMP' || dto.action === 'VISIT') &&
+      !esRegalo &&
+      esCompraRegistrada({ accion: dto.action, purchaseAmount: dto.purchaseAmount }) &&
       dto.purchaseAmount !== undefined &&
-      dto.purchaseAmount !== null &&
-      Number(dto.purchaseAmount) > 0 &&
       pass.customerId
     ) {
       try {
@@ -833,6 +879,12 @@ export class StampsService {
                   body: `Te quedan $${Math.round(Number(newCashback)).toLocaleString('es-CO')}.`,
                 }
               : undefined;
+    // Subió de nivel: es el único aviso de la VIP en Android (el genérico de
+    // Google está apagado para MEMBERSHIP porque decía «Nuevo nivel» en cada
+    // compra). En Apple el cambio del campo de nivel ya avisa solo.
+    const mensajeDelPush =
+      mensajeDeConversion ??
+      mensajeDeSubidaDeNivel(niveles, resultado.nivelAnterior, resultado.nivelNuevo);
 
     this.jobs
       .enqueue('wallet.push', {
@@ -840,12 +892,12 @@ export class StampsService {
         // instalada, `pass.id` ya no existe.
         passId: passIdFinal,
         reason: dto.action,
-        message: mensajeDeConversion,
+        message: mensajeDelPush,
       })
       .catch(() => {
         // Fallback: queue no disponible, push directo in-process
         this.wallet
-          .pushPassUpdate(passIdFinal, { message: mensajeDeConversion })
+          .pushPassUpdate(passIdFinal, { message: mensajeDelPush })
           .catch(() => null);
       });
     // El cupón que se fundió en la tarjeta de sellos: su copia en el teléfono

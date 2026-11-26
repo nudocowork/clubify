@@ -1418,16 +1418,13 @@ export default function ScanPage() {
               </div>
             )}
 
-            {data.pass.card.type === 'MEMBERSHIP' && data.pass.currentTier && (
-              <div className="mt-4 p-4 rounded-xl bg-amber-50 text-center">
-                <div className="text-3xl font-bold text-amber-700">
-                  {data.pass.currentTier}
-                </div>
-                <div className="text-xs text-amber-700/70 mt-1">
-                  tier actual · acumulado: $
-                  {Number(data.pass.tierProgress ?? 0).toLocaleString('es-CO')}
-                </div>
-              </div>
+            {data.pass.card.type === 'MEMBERSHIP' && (
+              <NivelVip
+                tiers={data.pass.card.tiers}
+                tierMetric={data.pass.card.tierMetric}
+                currentTier={data.pass.currentTier}
+                tierProgress={data.pass.tierProgress}
+              />
             )}
 
             {/* Antes de los botones: es lo que el cajero mira para decidir el
@@ -1561,15 +1558,26 @@ export default function ScanPage() {
               />
             )}
 
-            {data.pass.card.type === 'MEMBERSHIP' && (
-              <button
-                className="btn-primary w-full justify-center py-5 text-lg mt-5"
-                disabled={busy}
-                onClick={() => act('VISIT', 1)}
-              >
-                <Icon name="plus" /> Registrar visita
-              </button>
-            )}
+            {/* VIP por gasto (la métrica por defecto): el nivel sube con lo
+                que el cliente PAGA, así que sin monto el escaneo no servía de
+                nada. Por visitas o sellos, basta con registrar la visita. */}
+            {data.pass.card.type === 'MEMBERSHIP' &&
+              metricaVip(data.pass.card.tierMetric) === 'spend' && (
+                <VipCompraActions
+                  onAdd={(compra) => act('VISIT', 1, undefined, compra)}
+                  busy={busy}
+                />
+              )}
+            {data.pass.card.type === 'MEMBERSHIP' &&
+              metricaVip(data.pass.card.tierMetric) !== 'spend' && (
+                <button
+                  className="btn-primary w-full justify-center py-5 text-lg mt-5"
+                  disabled={busy}
+                  onClick={() => act('VISIT', 1)}
+                >
+                  <Icon name="plus" /> Registrar visita
+                </button>
+              )}
 
             <button
               className="btn-link mt-4 w-full justify-center text-sm"
@@ -2362,6 +2370,101 @@ function CashbackActions({
             -${redeem.toLocaleString('es-CO')}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── VIP por niveles ───
+// Mismo criterio que el backend (`stamps/nivel-vip.ts`): sin métrica guardada,
+// la tarjeta sube por gasto.
+function metricaVip(m: unknown): 'spend' | 'visits' | 'stamps' {
+  return m === 'visits' || m === 'stamps' ? m : 'spend';
+}
+
+const pesosVip = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+
+/**
+ * Nivel actual y cuánto le falta para el siguiente. El cajero es quien se lo
+ * cuenta al cliente («te faltan $40.000 para Oro»), y antes solo veía el nombre
+ * del nivel —y nada si el cliente aún no tenía ninguno—.
+ */
+function NivelVip({
+  tiers,
+  tierMetric,
+  currentTier,
+  tierProgress,
+}: {
+  tiers: unknown;
+  tierMetric: unknown;
+  currentTier: string | null | undefined;
+  tierProgress: unknown;
+}) {
+  const metrica = metricaVip(tierMetric);
+  const progreso = Number(tierProgress ?? 0) || 0;
+  const niveles = (Array.isArray(tiers) ? tiers : [])
+    .filter((t: any) => t && typeof t.name === 'string' && t.name.trim() !== '')
+    .map((t: any) => ({ name: String(t.name).trim(), threshold: Number(t.threshold) || 0 }))
+    .sort((a, b) => a.threshold - b.threshold);
+  const siguiente = niveles.find((t) => t.threshold > progreso);
+  const falta = siguiente ? siguiente.threshold - progreso : 0;
+  const unidad = (n: number) =>
+    metrica === 'spend'
+      ? pesosVip(n)
+      : `${Math.round(n)} ${metrica === 'visits' ? (Math.round(n) === 1 ? 'visita' : 'visitas') : Math.round(n) === 1 ? 'sello' : 'sellos'}`;
+  return (
+    <div className="mt-4 p-4 rounded-xl bg-amber-50 text-center">
+      <div className="text-3xl font-bold text-amber-700">{currentTier || 'Sin nivel'}</div>
+      <div className="text-xs text-amber-700/70 mt-1">
+        Nivel actual · {metrica === 'spend' ? 'gastado' : 'acumulado'}: {unidad(progreso)}
+      </div>
+      {siguiente ? (
+        <div className="text-xs text-amber-800 mt-1 font-semibold">
+          Le faltan {unidad(falta)} para {siguiente.name}
+        </div>
+      ) : niveles.length > 0 ? (
+        <div className="text-xs text-amber-800 mt-1 font-semibold">Ya está en el nivel más alto</div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Compra de la VIP por gasto: el monto es lo que sube el nivel. */
+function VipCompraActions({
+  onAdd,
+  busy,
+}: {
+  onAdd: (purchaseAmount: number) => void;
+  busy: boolean;
+}) {
+  // Lo escrito, tal cual; el número sale de `leerMonto`, igual que en cashback.
+  const [compraTxt, setCompraTxt] = useState('');
+  const compra = leerMonto(compraTxt) ?? 0;
+  return (
+    <div className="mt-5 p-3 rounded-xl border border-line">
+      <div className="text-xs font-semibold mb-2">🛍 Registrar compra</div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          inputMode="decimal"
+          placeholder="Monto compra"
+          className="input flex-1"
+          value={compraTxt}
+          onChange={(e) => setCompraTxt(e.target.value.replace(/[^\d.,]/g, ''))}
+        />
+        <button
+          className="btn-primary px-4"
+          disabled={busy || compra <= 0}
+          onClick={() => {
+            onAdd(compra);
+            setCompraTxt('');
+          }}
+        >
+          Registrar compra
+        </button>
+      </div>
+      <div className="text-[11px] text-mute mt-1">
+        Lo que pagó el cliente suma a su nivel y a la facturación del negocio.
       </div>
     </div>
   );

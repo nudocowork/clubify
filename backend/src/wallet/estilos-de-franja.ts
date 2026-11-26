@@ -747,13 +747,26 @@ export function nivelActual(niveles: Nivel[], gastado: number): number {
   return k;
 }
 
+/**
+ * Un monto como lo lee el cliente: separador de miles y sin «,00» cuando es
+ * entero (en pesos colombianos nadie escribe centavos). Con decimales solo si
+ * los tiene.
+ */
+function dinero(n: number, moneda: string): string {
+  const entero = Math.abs(n - Math.round(n)) < 0.005;
+  return `${moneda}${n.toLocaleString('es-CO', {
+    minimumFractionDigits: entero ? 0 : 2,
+    maximumFractionDigits: entero ? 0 : 2,
+  })}`;
+}
+
 function vip(c: ConfigFranja): string {
   const niveles = (c.niveles?.length ? c.niveles : NIVELES_POR_DEFECTO).slice().sort((a, b) => a.desde - b.desde);
   const gastado = c.gastado ?? 0;
   const k = nivelActual(niveles, gastado);
   const mon = c.moneda ?? '$';
   const sig = niveles[k + 1];
-  const frase = sig ? `Te faltan ${mon}${Math.ceil(sig.desde - gastado)} para ${sig.nombre}` : 'Estás en el nivel más alto';
+  const frase = sig ? `Te faltan ${dinero(Math.ceil(sig.desde - gastado), mon)} para ${sig.nombre}` : 'Estás en el nivel más alto';
   const x0 = 330;
   const ancho = ANCHO - x0 - 36;
   const gap = 10;
@@ -785,7 +798,7 @@ function vip(c: ConfigFranja): string {
 
 function saldo(c: ConfigFranja): string {
   const mon = c.moneda ?? '$';
-  const s = (c.saldo ?? 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const s = dinero(c.saldo ?? 0, '');
   const cx = ANCHO - 110;
   const cy = 112;
   return (
@@ -887,6 +900,21 @@ export const ESTILOS_DE_TARJETA: EstiloFranja[] = [
 ];
 
 /**
+ * Qué estilos le corresponden a cada tipo de tarjeta. Saldo y VIP dibujan
+ * plata y niveles: en una de sellos no tendrían nada que mostrar, y al revés.
+ * El servidor lo vuelve a mirar al dibujar: un estilo que no es del tipo cae
+ * al pase de siempre.
+ */
+export const ESTILOS_POR_TIPO: Record<string, EstiloFranja[]> = {
+  STAMPS: ESTILOS_DE_TARJETA,
+  CASHBACK: ['SALDO'],
+  MEMBERSHIP: ['VIP'],
+};
+
+/** Todos los que puede guardar una tarjeta real, de cualquier tipo. */
+export const ESTILOS_DE_TARJETA_REAL: EstiloFranja[] = [...ESTILOS_DE_TARJETA, 'SALDO', 'VIP'];
+
+/**
  * Lo que se guarda en `Card.stripStyle`: SOLO la forma. Los colores, el ícono,
  * el premio y el tope salen de la tarjeta, así que el negocio sigue usando los
  * controles de siempre y un cambio de color llega también a la franja nueva.
@@ -917,6 +945,12 @@ export type DatosDeTarjeta = {
   sellados: number;
   premio: string;
   premiosIntermedios?: PremioIntermedio[];
+  /** Cashback: saldo del cliente y % de la tarjeta. */
+  saldo?: number;
+  porcentaje?: number;
+  /** VIP: lo gastado por el cliente y los niveles de la tarjeta. */
+  gastado?: number;
+  niveles?: Nivel[];
 };
 
 /**
@@ -955,5 +989,9 @@ export function configDesdeTarjeta(e: EstiloDeTarjeta, t: DatosDeTarjeta): Confi
     recipiente: e.recipiente,
     porcion: e.porcion,
     moneda: '$',
+    saldo: t.saldo ?? 0,
+    porcentaje: t.porcentaje ?? 0,
+    gastado: t.gastado ?? 0,
+    niveles: t.niveles?.length ? t.niveles : undefined,
   };
 }

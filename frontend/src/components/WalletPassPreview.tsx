@@ -26,7 +26,12 @@ import { llevaCarton, textoDeLaCredencial } from '@/lib/credencial.mjs';
 import { Barcode } from '@/components/Barcode';
 import { plural } from '@/lib/plural';
 import type { EstiloDeTarjeta } from '@/lib/cards/estilos-de-franja';
-import { franjaDeTarjeta } from '@/lib/cards/franja-de-tarjeta';
+import {
+  estiloQueSeDibuja,
+  franjaDeTarjeta,
+  gastoDeMuestra,
+  nivelesDeLaTarjeta,
+} from '@/lib/cards/franja-de-tarjeta';
 
 export type WalletPassPreviewProps = {
   brandName: string;
@@ -83,7 +88,11 @@ export type WalletPassPreviewProps = {
   pointsBalance?: number;
   discountPercent?: number | null;
   currentTier?: string | null;
-  tiers?: Array<{ name: string }>;
+  tiers?: Array<{ name: string; threshold?: number; perks?: string[] }>;
+  /** Cashback: % de la tarjeta (sale en el estilo «Saldo»). */
+  cashbackPercent?: number | null;
+  /** VIP: métrica de los niveles; el estilo VIP solo se dibuja con «spend». */
+  tierMetric?: string | null;
   stampIcon?: string;
   stampActiveColor?: string | null;
   stampInactiveColor?: string | null;
@@ -217,6 +226,8 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     stampBgImageUrl,
     stampIconImageUrl,
     stripStyle = null,
+    cashbackPercent = null,
+    tierMetric = null,
     freeRewards = [],
     showNextReward = true,
     rewardText = '',
@@ -375,10 +386,12 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   // Con estilo, el centro es LA MISMA franja que dibuja el servidor (mismo
   // módulo), no una imitación en CSS. Solo tarjetas de sellos normales: el
   // club y la alianza tienen la suya.
+  const estiloVisible = club || alianza ? null : estiloQueSeDibuja(cardType, stripStyle, tierMetric);
+  const nivelesVip = nivelesDeLaTarjeta(tiers);
   const franjaConEstilo =
-    stripStyle && cardType === 'STAMPS' && dibujarCarton && !club && !alianza
+    estiloVisible && (cardType !== 'STAMPS' || dibujarCarton)
       ? franjaDeTarjeta(
-          stripStyle,
+          estiloVisible,
           {
             primaryColor,
             secondaryColor,
@@ -394,6 +407,12 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
               emoji: p.emoji ?? undefined,
               active: p.active,
             })),
+            saldo: cashbackBalance,
+            porcentaje: cashbackPercent ?? 0,
+            // La vista previa no tiene un cliente detrás: se enseña la barra
+            // a medio camino del segundo nivel.
+            gastado: gastoDeMuestra(nivelesVip),
+            niveles: nivelesVip,
           },
           current,
         )
@@ -556,7 +575,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         </div>
       )}
 
-      {cardType === 'CASHBACK' && (
+      {cardType === 'CASHBACK' && !franjaConEstilo && (
         <div className="rounded-2xl bg-black/20 px-3 py-4 text-center">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
             Saldo disponible
@@ -578,7 +597,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         </div>
       )}
 
-      {cardType === 'MEMBERSHIP' && (
+      {cardType === 'MEMBERSHIP' && !franjaConEstilo && (
         <div className="rounded-2xl bg-black/20 px-3 py-3 text-center">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
             Niveles del programa

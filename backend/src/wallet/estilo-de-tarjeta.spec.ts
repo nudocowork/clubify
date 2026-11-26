@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { leerEstiloDeTarjeta, validarEstiloDeTarjeta } from './estilo-de-tarjeta';
+import { estiloQueSeDibuja, leerEstiloDeTarjeta, validarEstiloDeTarjeta } from './estilo-de-tarjeta';
 import { configDesdeTarjeta, dibujarFranja, ESTILOS_DE_TARJETA } from './estilos-de-franja';
 
 const BUCKET = 'https://cdn.clubify.test';
@@ -30,10 +30,12 @@ describe('validarEstiloDeTarjeta', () => {
     });
   });
 
-  it('no deja elegir estilos de otros tipos ni el SELLOS del laboratorio', () => {
-    for (const e of ['VIP', 'SALDO', 'SELLOS', 'INVENTADO']) {
+  it('no deja guardar el SELLOS del laboratorio ni estilos inventados', () => {
+    for (const e of ['SELLOS', 'INVENTADO']) {
       expect(() => validarEstiloDeTarjeta({ estilo: e })).toThrow(/estilo/);
     }
+    expect(validarEstiloDeTarjeta({ estilo: 'SALDO' })).toEqual({ estilo: 'SALDO' });
+    expect(validarEstiloDeTarjeta({ estilo: 'VIP' })).toEqual({ estilo: 'VIP' });
   });
 
   it('las imágenes solo pueden ser de nuestro almacenamiento', () => {
@@ -57,7 +59,7 @@ describe('validarEstiloDeTarjeta', () => {
   });
 
   it('al dibujar, lo guardado que ya no vale cae al clásico en vez de romper el pase', () => {
-    expect(leerEstiloDeTarjeta({ estilo: 'VIP' })).toBeNull();
+    expect(leerEstiloDeTarjeta({ estilo: 'SELLOS' })).toBeNull();
     expect(leerEstiloDeTarjeta({ estilo: 'ANILLO' })).toEqual({ estilo: 'ANILLO' });
   });
 });
@@ -88,5 +90,40 @@ describe('configDesdeTarjeta', () => {
         expect(svg, estilo).not.toMatch(/NaN|undefined/);
       }
     }
+  });
+});
+
+describe('estiloQueSeDibuja', () => {
+  it('cada estilo solo en su tipo de tarjeta', () => {
+    expect(estiloQueSeDibuja({ type: 'STAMPS', stripStyle: { estilo: 'TAZA' } })).toEqual({ estilo: 'TAZA' });
+    expect(estiloQueSeDibuja({ type: 'CASHBACK', stripStyle: { estilo: 'SALDO' } })).toEqual({ estilo: 'SALDO' });
+    expect(estiloQueSeDibuja({ type: 'MEMBERSHIP', stripStyle: { estilo: 'VIP' } })).toEqual({ estilo: 'VIP' });
+    // Un estilo que quedó de otro tipo (la tarjeta cambió de tipo) no se dibuja.
+    expect(estiloQueSeDibuja({ type: 'CASHBACK', stripStyle: { estilo: 'TAZA' } })).toBeNull();
+    expect(estiloQueSeDibuja({ type: 'STAMPS', stripStyle: { estilo: 'SALDO' } })).toBeNull();
+    expect(estiloQueSeDibuja({ type: 'COUPON', stripStyle: { estilo: 'TAZA' } })).toBeNull();
+  });
+
+  it('VIP solo con niveles por gasto: dibuja montos', () => {
+    expect(estiloQueSeDibuja({ type: 'MEMBERSHIP', stripStyle: { estilo: 'VIP' }, tierMetric: 'spend' })).not.toBeNull();
+    expect(estiloQueSeDibuja({ type: 'MEMBERSHIP', stripStyle: { estilo: 'VIP' }, tierMetric: 'visits' })).toBeNull();
+  });
+
+  it('alianzas y clubes conservan su franja', () => {
+    expect(estiloQueSeDibuja({ type: 'STAMPS', stripStyle: { estilo: 'TAZA' }, convenioId: 'c' })).toBeNull();
+    expect(estiloQueSeDibuja({ type: 'STAMPS', stripStyle: { estilo: 'TAZA' }, clubPlanId: 'p' })).toBeNull();
+  });
+
+  it('Saldo y VIP con pesos legibles y sin NaN', () => {
+    const niveles = [
+      { nombre: 'Bronce', desde: 0, beneficio: '' },
+      { nombre: 'Plata', desde: 300000, beneficio: 'Postre' },
+    ];
+    const saldo = dibujarFranja(configDesdeTarjeta({ estilo: 'SALDO' }, { ...tarjeta, saldo: 12500, porcentaje: 5 }));
+    expect(saldo).toContain('$12.500');
+    expect(saldo).not.toContain('12.500,00');
+    const vip = dibujarFranja(configDesdeTarjeta({ estilo: 'VIP' }, { ...tarjeta, gastado: 180000, niveles }));
+    expect(vip).toContain('$120.000');
+    expect(vip).not.toMatch(/NaN|undefined/);
   });
 });
