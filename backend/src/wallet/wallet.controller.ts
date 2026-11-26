@@ -16,6 +16,7 @@ import { Request, Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
 import { WalletService } from './wallet.service';
+import { LaboratorioDePaseService } from './laboratorio-de-pase.service';
 
 /** Tope de líneas que escribe una sola llamada a `v1/log`. */
 const MAX_LINEAS_LOG_APPLE = 20;
@@ -45,6 +46,7 @@ export class WalletController {
   constructor(
     private prisma: PrismaService,
     private wallet: WalletService,
+    private laboratorio: LaboratorioDePaseService,
   ) {}
 
   // Registro de dispositivo
@@ -65,6 +67,13 @@ export class WalletController {
     if (!body?.pushToken || typeof body.pushToken !== 'string') {
       this.logger.warn(`REGISTER rejected: pushToken inválido para ${serial}`);
       throw new BadRequestException('pushToken requerido');
+    }
+    // Pases de PRUEBA del laboratorio: no están en `pass`, viven en el bucket.
+    if (LaboratorioDePaseService.esSerialDeLaboratorio(serial)) {
+      if (!(await this.laboratorio.registrar(serial, token, deviceLibId, body.pushToken))) {
+        throw new UnauthorizedException('unauthorized');
+      }
+      return { ok: true };
     }
     const pass = await this.prisma.pass.findUnique({ where: { serialNumber: serial } });
     if (!pass) {
@@ -104,6 +113,10 @@ export class WalletController {
     @Param('deviceLibId') deviceLibId: string,
     @Param('serial') serial: string,
   ) {
+    if (LaboratorioDePaseService.esSerialDeLaboratorio(serial)) {
+      await this.laboratorio.darDeBaja(serial, deviceLibId).catch(() => null);
+      return { ok: true };
+    }
     const pass = await this.prisma.pass.findUnique({ where: { serialNumber: serial } });
     if (!pass) return { ok: true };
     await this.prisma.walletDevice.deleteMany({
@@ -115,13 +128,18 @@ export class WalletController {
   @Public()
   @Get('v1/devices/:deviceLibId/registrations/:passTypeId')
   async listUpdates(@Param('deviceLibId') deviceLibId: string) {
-    const devices = await this.prisma.walletDevice.findMany({
-      where: { deviceLibraryId: deviceLibId },
-      include: { pass: true },
-    });
+    const [devices, deLaboratorio] = await Promise.all([
+      this.prisma.walletDevice.findMany({
+        where: { deviceLibraryId: deviceLibId },
+        include: { pass: true },
+      }),
+      // Sin esto, el iPhone recibe el push de una prueba del laboratorio,
+      // pregunta qué cambió, no la ve en la lista y no la vuelve a pedir.
+      this.laboratorio.serialesDelDispositivo(deviceLibId),
+    ]);
     return {
       lastUpdated: new Date().toISOString(),
-      serialNumbers: devices.map((d) => d.pass.serialNumber),
+      serialNumbers: [...devices.map((d) => d.pass.serialNumber), ...deLaboratorio],
     };
   }
 
@@ -167,6 +185,10 @@ export class WalletController {
   ) {
     const auth = req.headers['authorization'] ?? '';
     const token = String(auth).replace(/^ApplePass /, '');
+    if (LaboratorioDePaseService.esSerialDeLaboratorio(serial)) {
+      await this.enviarPaseDeLaboratorio(serial, token, req, res);
+      return;
+    }
     const meta = await this.wallet.getPassMeta(serial, token);
     // Una línea por respuesta: sin esto, «deslizó y no se actualizó» no deja
     // rastro y no hay forma de saber si el iPhone llegó, con qué
@@ -195,5 +217,26 @@ export class WalletController {
       'Last-Modified': meta.lastUpdated.toUTCString(),
     });
     res.send(buf);
+  }
+
+  private async enviarPaseDeLaboratorio(serial: string, token: string, req: Request, res: Response) {
+    const pase = await this.laboratorio.paseActual(serial, token);
+    if (!pase) {
+      res.status(401).end();
+      return;
+    }
+    // Last-Modified va en segundos: se compara a esa precisión o nunca daría 304.
+    const segundos = Math.floor(pase.actualizado.getTime() / 1000) * 1000;
+    const ims = req.headers['if-modified-since'];
+    if (ims && new Date(String(ims)).getTime() >= segundos) {
+      res.status(304).end();
+      return;
+    }
+    this.logger.log(`FETCH ${serial}: 200 ${pase.buf.length}b (laboratorio)`);
+    res.set({
+      'Content-Type': 'application/vnd.apple.pkpass',
+      'Last-Modified': pase.actualizado.toUTCString(),
+    });
+    res.send(pase.buf);
   }
 }

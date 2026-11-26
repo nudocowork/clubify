@@ -4,11 +4,12 @@ import { GoogleWalletService } from './google-wallet.service';
 import { WalletController } from './wallet.controller';
 import { CertMonitorService } from './cert-monitor.service';
 import { LaboratorioDePaseController } from './laboratorio-de-pase.controller';
+import { LaboratorioDePaseService } from './laboratorio-de-pase.service';
 import { MediaModule } from '../media/media.module';
 
 @Module({
   imports: [MediaModule],
-  providers: [WalletService, GoogleWalletService, CertMonitorService],
+  providers: [WalletService, GoogleWalletService, CertMonitorService, LaboratorioDePaseService],
   controllers: [WalletController, LaboratorioDePaseController],
   exports: [WalletService, GoogleWalletService],
 })

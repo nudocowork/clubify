@@ -5,7 +5,13 @@ import {
   PayloadTooLargeException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
 import { categoriaDeFormato, detectarFormato } from './detectar-formato';
 import { importarPdf } from './importar-pdf';
@@ -415,6 +421,56 @@ export class MediaService {
     }
     const url = `${this.publicUrl.replace(/\/$/, '')}/${key}`;
     return { url, key, size: opts.buffer.length };
+  }
+
+  // ── JSON en una clave FIJA ────────────────────────────────────────────────
+  // Para estado pequeño que no merece tabla (hoy: las pruebas instaladas del
+  // laboratorio de tarjetas). OJO: el bucket es público; quien conozca la
+  // clave puede leerlo. No guardar aquí secretos ni datos de clientes.
+
+  /** Escribe (o reemplaza) un JSON en `key`. */
+  async guardarJson(key: string, valor: unknown): Promise<void> {
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: Buffer.from(JSON.stringify(valor), 'utf8'),
+        ContentType: 'application/json',
+        // Se lee por la API, no por la URL pública; pero si alguien la pide por
+        // el CDN, que no le sirva una versión vieja.
+        CacheControl: 'no-store',
+      }),
+    );
+  }
+
+  /** Lee un JSON; `null` si la clave no existe. */
+  async leerJson<T>(key: string): Promise<T | null> {
+    try {
+      const r = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      const texto = await r.Body?.transformToString('utf-8');
+      return texto ? (JSON.parse(texto) as T) : null;
+    } catch (e: any) {
+      if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) return null;
+      throw e;
+    }
+  }
+
+  /** Claves bajo un prefijo (hasta `max`). */
+  async listarClaves(prefijo: string, max = 1000): Promise<string[]> {
+    const claves: string[] = [];
+    let token: string | undefined;
+    do {
+      const r = await this.s3.send(
+        new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefijo, ContinuationToken: token }),
+      );
+      for (const o of r.Contents ?? []) if (o.Key) claves.push(o.Key);
+      token = r.IsTruncated ? r.NextContinuationToken : undefined;
+    } while (token && claves.length < max);
+    return claves.slice(0, max);
+  }
+
+  async borrar(key: string): Promise<void> {
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 }
 

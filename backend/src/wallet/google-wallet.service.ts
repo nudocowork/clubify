@@ -1384,6 +1384,53 @@ export class GoogleWalletService {
   }
 
   /**
+   * Lleva un cambio de progreso al pase de PRUEBA del laboratorio ya guardado
+   * en Google Wallet: patch del objeto (cabecera y franja) y, si hay aviso, un
+   * mensaje TEXT_AND_NOTIFY, que es lo que hace sonar el Android del cliente.
+   *
+   * El objeto nace al guardar el pase (JWT con el objeto dentro), así que un
+   * 404 significa que en ese Android todavía no lo han guardado.
+   */
+  async actualizarLaboratorio(o: {
+    id: string;
+    cabecera: { etiqueta: string; valor: string };
+    heroUrl: string;
+    aviso: string | null;
+  }): Promise<'actualizado' | 'no_guardado' | 'no_configurado' | 'error'> {
+    const sa = this.loadServiceAccount();
+    const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
+    if (!sa || !issuerId) return 'no_configurado';
+    const objectId = `${issuerId}.laboratorio_obj_${o.id.replace(/[^a-zA-Z0-9._]/g, '_')}`;
+    const texto = (value: string) => ({ defaultValue: { language: 'es', value } });
+    try {
+      const wallet = await this.clienteDelPush(sa);
+      await wallet.loyaltyobject.patch({
+        resourceId: objectId,
+        requestBody: {
+          loyaltyPoints: { label: o.cabecera.etiqueta, balance: { string: o.cabecera.valor } },
+          heroImage: { sourceUri: { uri: o.heroUrl }, contentDescription: texto('Progreso de la tarjeta') },
+        } as any,
+      });
+      if (o.aviso) {
+        await wallet.loyaltyobject
+          .addmessage({
+            resourceId: objectId,
+            requestBody: {
+              message: { id: `lab-${Date.now()}`, header: 'Tarjeta de prueba', body: o.aviso, messageType: 'TEXT_AND_NOTIFY' },
+            } as any,
+          })
+          .catch((e: any) => this.logger.warn(`Laboratorio addMessage: ${e?.message ?? e}`));
+      }
+      return 'actualizado';
+    } catch (e: any) {
+      const code = e?.code || e?.response?.status;
+      if (code === 404) return 'no_guardado';
+      this.logger.warn(`Laboratorio Google PATCH (${code}): ${e?.message ?? e}`);
+      return 'error';
+    }
+  }
+
+  /**
    * Formatea el momento de la reserva como ISO 8601 con offset numérico
    * (`YYYY-MM-DDTHH:MM:SS±HH:MM`). Google Wallet usa este formato para
    * `dateTime.start/end`. Maneja DST: el offset se computa para ese

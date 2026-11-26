@@ -43,7 +43,18 @@ async function prepararConfig(c: ConfigFranja): Promise<ConfigFranja> {
   };
 }
 
-export function InstalarEnCelular({ c, negocio, titular }: { c: ConfigFranja; negocio: string; titular: string }) {
+export function InstalarEnCelular({
+  c,
+  negocio,
+  titular,
+  onCreada,
+}: {
+  c: ConfigFranja;
+  negocio: string;
+  titular: string;
+  /** Para que «Pruebas instaladas» la muestre sin recargar. */
+  onCreada?: () => void;
+}) {
   const [abierto, setAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +72,7 @@ export function InstalarEnCelular({ c, negocio, titular }: { c: ConfigFranja; ne
         body: JSON.stringify({ config, negocio, titular }),
       });
       setRes(r);
+      onCreada?.();
     } catch (e: any) {
       const m = String(e?.message ?? e);
       setError(
@@ -91,8 +103,8 @@ export function InstalarEnCelular({ c, negocio, titular }: { c: ConfigFranja; ne
               <div className="flex-1">
                 <div className="text-base font-semibold">Instalar la tarjeta de prueba</div>
                 <p className="text-xs text-mute mt-0.5">
-                  Escanea el código con la cámara del celular. Es una tarjeta de prueba: no suma sellos ni se actualiza;
-                  si cambias el diseño, arma otra.
+                  Escanea el código con la cámara del celular. Después, en «Pruebas instaladas», dale sellos y
+                  mira cómo cambia. Si cambias el diseño, arma otra.
                 </p>
               </div>
               <button type="button" className="text-mute hover:text-ink" aria-label="Cerrar" onClick={() => setAbierto(false)}>
@@ -122,14 +134,24 @@ export function InstalarEnCelular({ c, negocio, titular }: { c: ConfigFranja; ne
   );
 }
 
-function Codigo({ titulo, url, faltante }: { titulo: string; url: string | null; faltante: string }) {
+export function Codigo({
+  titulo,
+  url,
+  faltante,
+  tam = 168,
+}: {
+  titulo: string;
+  url: string | null;
+  faltante: string;
+  tam?: number;
+}) {
   return (
     <div className="rounded-card border border-line p-3 flex flex-col items-center gap-2 text-center">
       <div className="text-sm font-semibold">{titulo}</div>
       {url ? (
         <>
           <div className="bg-white p-2 rounded-lg">
-            <QRCodeSVG value={url} size={168} />
+            <QRCodeSVG value={url} size={tam} />
           </div>
           <a href={url} target="_blank" rel="noreferrer" className="btn-link text-xs">
             ¿Estás en el celular? Ábrelo aquí

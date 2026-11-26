@@ -2432,6 +2432,52 @@ export class WalletService implements OnModuleDestroy {
   }
 
   /**
+   * Push silencioso a los iPhones de un pase de PRUEBA del laboratorio. Es el
+   * mismo aviso que `pushPassUpdate`, pero los dispositivos vienen del bucket
+   * y no de `walletDevice`. Devuelve los tokens que Apple dio por muertos
+   * (410 `Unregistered`, el único definitivo) para que se borren.
+   */
+  async avisarDispositivosDeLaboratorio(
+    pushTokens: string[],
+  ): Promise<{ enviados: number; fallidos: number; muertos: string[] }> {
+    if (pushTokens.length === 0) return { enviados: 0, fallidos: 0, muertos: [] };
+    const startProd = process.env.APNS_ENV?.toLowerCase() !== 'sandbox';
+    let provider = await this.apnsProvider(startProd);
+    if (!provider) return { enviados: 0, fallidos: pushTokens.length, muertos: [] };
+    const apn = await import('apn');
+    const note = new apn.Notification();
+    note.topic = process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty';
+    note.payload = {};
+    let enviados = 0;
+    let fallidos = 0;
+    const muertos: string[] = [];
+    let probeElOtro = false;
+    for (const t of pushTokens) {
+      try {
+        let r = await provider.send(note, t);
+        const motivo = r.failed[0]?.response?.reason as string | undefined;
+        // Mismo reintento que `pushPassUpdate`: un token bueno en el entorno
+        // equivocado da 400, no 410.
+        if (motivo && motivo !== 'Unregistered' && !probeElOtro) {
+          probeElOtro = true;
+          const otro = await this.apnsProvider(!startProd);
+          if (otro) {
+            provider = otro;
+            r = await provider.send(note, t);
+          }
+        }
+        enviados += r.sent.length;
+        fallidos += r.failed.length;
+        if (r.failed[0]?.response?.reason === 'Unregistered') muertos.push(t);
+      } catch (e) {
+        fallidos += 1;
+        this.logger.warn(`Laboratorio APNs: ${(e as Error).message}`);
+      }
+    }
+    return { enviados, fallidos, muertos };
+  }
+
+  /**
    * Las sedes tal como las quiere Apple, y a qué distancia se dispara.
    *
    * Tres cosas que estaban mal y afectaban a TODAS las tarjetas:
@@ -2729,9 +2775,11 @@ export class WalletService implements OnModuleDestroy {
   }
 
   /**
-   * Pase de Apple de PRUEBA del laboratorio. Como el de reservas: no se guarda
-   * en la base, no tiene `webServiceURL` (no recibe actualizaciones) y su
-   * serial lleva el prefijo `lab_` para no chocar con pases reales.
+   * Pase de Apple de PRUEBA del laboratorio. No vive en la base: su estado lo
+   * guarda `LaboratorioDePaseService` en el bucket, y el serial lleva el
+   * prefijo `lab_` para que `WalletController` lo desvíe allí. Con `token`
+   * lleva `webServiceURL` y recibe los sellos que se le sumen desde el panel,
+   * por el mismo camino que un pase real.
    *
    * Devuelve null si no hay certificados (desarrollo).
    */
@@ -2742,6 +2790,10 @@ export class WalletService implements OnModuleDestroy {
     config: ConfigFranja;
     cabecera: { etiqueta: string; valor: string };
     franja: Record<string, Buffer>;
+    /** Llave con la que el iPhone pide la versión nueva. Sin ella, el pase no se actualiza. */
+    token?: string | null;
+    /** Último aviso: con `changeMessage` hace que el iPhone muestre la notificación. */
+    aviso?: string | null;
   }): Promise<Buffer | null> {
     const c = o.config;
     const premioOSaldo =
@@ -2755,6 +2807,12 @@ export class WalletService implements OnModuleDestroy {
       organizationName: o.negocio,
       serialNumber: `lab_${o.id}`,
       description: `Tarjeta de prueba · ${o.negocio}`,
+      ...(o.token
+        ? {
+            webServiceURL: `${process.env.API_URL ?? 'https://api.soyclubify.com'}/api/wallet/apple`,
+            authenticationToken: o.token,
+          }
+        : {}),
       logoText: o.negocio,
       foregroundColor: this.hexToRgb(c.texto),
       labelColor: this.hexToRgb(c.texto),
@@ -2773,10 +2831,15 @@ export class WalletService implements OnModuleDestroy {
           { ...premioOSaldo, textAlignment: 'PKTextAlignmentRight' },
         ],
         backFields: [
+          // Igual que en los pases reales: Apple solo notifica cuando cambia el
+          // valor de un campo con `changeMessage`, y muestra ese valor.
+          ...(o.aviso ? [{ key: 'aviso', label: 'Último aviso', value: o.aviso, changeMessage: '%@' }] : []),
           {
             key: 'lab',
             label: 'Tarjeta de prueba',
-            value: 'Creada desde el laboratorio de tarjetas. No suma sellos ni recibe actualizaciones.',
+            value: o.token
+              ? 'Creada desde el laboratorio de tarjetas. Los sellos se suman desde el laboratorio, no en caja.'
+              : 'Creada desde el laboratorio de tarjetas. No recibe actualizaciones.',
           },
         ],
       },

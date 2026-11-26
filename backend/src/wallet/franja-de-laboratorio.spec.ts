@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { cabeceraDelPase, validarPaseDeLaboratorio } from './franja-de-laboratorio';
+import { aplicarProgreso, avisoDelCambio, cabeceraDelPase, validarPaseDeLaboratorio } from './franja-de-laboratorio';
 import { dibujarFranja, ESTILOS } from './estilos-de-franja';
 
 const base = {
@@ -79,6 +79,31 @@ describe('cabeceraDelPase', () => {
     expect(cabeceraDelPase(v({}))).toEqual({ etiqueta: 'VISITAS', valor: '6/10' });
     expect(cabeceraDelPase(v({ estilo: 'VIP', gastado: 350 })).valor).toBe('Oro');
     expect(cabeceraDelPase(v({ estilo: 'SALDO', saldo: 12.6 })).valor).toBe('$12.60');
+  });
+});
+
+describe('mover el progreso de una prueba', () => {
+  const c = () => validarPaseDeLaboratorio({ config: base }).config;
+
+  it('acota los sellos entre 0 y los requeridos y rechaza basura', () => {
+    expect(aplicarProgreso(c(), { sellados: 99 }).sellados).toBe(10);
+    expect(aplicarProgreso(c(), { sellados: -3 }).sellados).toBe(0);
+    expect(aplicarProgreso(c(), {}).sellados).toBe(6);
+    expect(() => aplicarProgreso(c(), { sellados: '7' })).toThrow(/sellados/);
+  });
+
+  it('no deja tocar el diseño', () => {
+    const r = aplicarProgreso(c(), { sellados: 7, fondo: '#000"/>', premio: 'otro' });
+    expect(r.fondo).toBe('#1A1033');
+    expect(r.premio).toBe('Masaje gratis');
+  });
+
+  it('el aviso dice lo que pasó', () => {
+    const a = c();
+    expect(avisoDelCambio(a, { ...a, sellados: 7 })).toBe('¡Nuevo sello! Llevas 7/10');
+    expect(avisoDelCambio(a, { ...a, sellados: 10 })).toMatch(/Completaste.*Masaje gratis/);
+    expect(avisoDelCambio(a, { ...a, sellados: 5 })).toBe('Tu tarjeta ahora marca 5/10');
+    expect(avisoDelCambio(a, a)).toBeNull();
   });
 });
 

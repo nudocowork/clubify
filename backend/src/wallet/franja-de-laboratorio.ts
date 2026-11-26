@@ -185,3 +185,38 @@ export function cabeceraDelPase(c: ConfigFranja): { etiqueta: string; valor: str
   }
   return { etiqueta: c.unidad.toUpperCase(), valor: `${c.sellados}/${c.requeridos}` };
 }
+
+/** Lo que se puede mover en una prueba ya instalada: el avance, nada del diseño. */
+export type ProgresoDeLaboratorio = { sellados: number; gastado: number; saldo: number };
+
+/**
+ * Aplica un cambio de progreso pedido desde el laboratorio. Solo valores
+ * absolutos y acotados: el cuerpo viene del navegador.
+ */
+export function aplicarProgreso(c: ConfigFranja, cuerpo: unknown): ConfigFranja {
+  if (!cuerpo || typeof cuerpo !== 'object') mal('cuerpo');
+  const b = cuerpo as Record<string, unknown>;
+  return {
+    ...c,
+    sellados: b.sellados == null ? c.sellados : entero(b.sellados, 'sellados', 0, c.requeridos),
+    gastado: b.gastado == null ? c.gastado : numero(b.gastado, 'gastado', 0, 10_000_000),
+    saldo: b.saldo == null ? c.saldo : numero(b.saldo, 'saldo', -1_000_000_000, 1_000_000_000),
+  };
+}
+
+/**
+ * El aviso que ve el cliente cuando cambia su tarjeta, para probar también eso.
+ * `null` si no cambió nada que se anuncie.
+ */
+export function avisoDelCambio(antes: ConfigFranja, despues: ConfigFranja): string | null {
+  const a = cabeceraDelPase(antes);
+  const d = cabeceraDelPase(despues);
+  if (a.valor === d.valor) return null;
+  if (despues.estilo === 'VIP') {
+    return (despues.gastado ?? 0) > (antes.gastado ?? 0) ? `¡Subiste a nivel ${d.valor}!` : `Tu nivel ahora es ${d.valor}`;
+  }
+  if (despues.estilo === 'SALDO') return `Tu saldo ahora es ${d.valor}`;
+  if (despues.sellados >= despues.requeridos) return `¡Completaste tu tarjeta! Pide tu ${despues.premio}`;
+  if (despues.sellados > antes.sellados) return `¡Nuevo sello! Llevas ${d.valor}`;
+  return `Tu tarjeta ahora marca ${d.valor}`;
+}

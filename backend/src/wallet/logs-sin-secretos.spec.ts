@@ -26,7 +26,7 @@ vi.mock('apn', () => {
 
 function controlador(pase: Record<string, unknown> | null) {
   const prisma: any = { pass: { findUnique: async () => pase } };
-  const ctrl = new WalletController(prisma, {} as never);
+  const ctrl = new WalletController(prisma, {} as never, {} as never);
   const avisos: string[] = [];
   const log = (m: unknown) => avisos.push(String(m));
   (ctrl as any).logger = { log, warn: log, error: log, debug: log };

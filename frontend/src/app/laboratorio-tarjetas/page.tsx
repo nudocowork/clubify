@@ -37,6 +37,7 @@ import {
 } from '@/lib/cards/estilos-de-franja';
 import { EditorDeAcomodo } from './EditorDeAcomodo';
 import { InstalarEnCelular } from './InstalarEnCelular';
+import { PruebasInstaladas } from './PruebasInstaladas';
 
 type Plataforma = 'APPLE' | 'GOOGLE' | 'SAMSUNG';
 type Pestana = 'ESTILO' | 'COLORES' | 'DATOS';
@@ -97,6 +98,9 @@ export default function LaboratorioDeTarjetas() {
   const [pestana, setPestana] = useState<Pestana>('ESTILO');
   const [plataforma, setPlataforma] = useState<Plataforma>('APPLE');
   const [comparar, setComparar] = useState(false);
+  const [instaladas, setInstaladas] = useState(false);
+  /** Sube al crear una prueba, para que la lista se recargue. */
+  const [versionDePruebas, setVersionDePruebas] = useState(0);
 
   const set = (p: Partial<ConfigFranja>) => setC((prev) => ({ ...prev, ...p }));
 
@@ -123,25 +127,51 @@ export default function LaboratorioDeTarjetas() {
     <div className="mx-auto max-w-[1280px] space-y-4 fade-enter">
       <div>
         <h1 className="page-title leading-tight m-0">Laboratorio de tarjetas</h1>
-        <p className="text-[13px] text-mute m-0 mt-0.5">Prueba estilos de tarjeta. Nada de lo que hagas aquí se guarda.</p>
+        <p className="text-[13px] text-mute m-0 mt-0.5">
+          Prueba estilos de tarjeta. El diseño no se guarda; las pruebas que instalas sí, para darles sellos.
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-          Modo prueba · no se guarda
+          Modo prueba · no toca ningún negocio
         </span>
         <div className="ml-auto flex gap-2">
-          <button type="button" className="btn-ghost" onClick={() => setComparar((v) => !v)}>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => {
+              setInstaladas((v) => !v);
+              setComparar(false);
+            }}
+          >
+            {instaladas ? 'Volver al editor' : 'Pruebas instaladas'}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => {
+              setComparar((v) => !v);
+              setInstaladas(false);
+            }}
+          >
             {comparar ? 'Volver al editor' : 'Comparar todos los estilos'}
           </button>
           <button type="button" className="btn-ghost" onClick={descargarPng}>
             Descargar franja (PNG)
           </button>
-          <InstalarEnCelular c={c} negocio={negocio} titular={titular} />
+          <InstalarEnCelular
+            c={c}
+            negocio={negocio}
+            titular={titular}
+            onCreada={() => setVersionDePruebas((v) => v + 1)}
+          />
         </div>
       </div>
 
-      {comparar ? (
+      {instaladas ? (
+        <PruebasInstaladas version={versionDePruebas} />
+      ) : comparar ? (
         <Comparador c={c} onElegir={(e) => { set({ estilo: e }); setComparar(false); }} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] items-start">

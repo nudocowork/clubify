@@ -1,75 +1,45 @@
-import { Body, Controller, Logger, Post, ServiceUnavailableException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { randomUUID } from 'crypto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { MediaService } from '../media/media.service';
-import { WalletService } from './wallet.service';
-import { GoogleWalletService } from './google-wallet.service';
-import { cabeceraDelPase, validarPaseDeLaboratorio } from './franja-de-laboratorio';
+import { LaboratorioDePaseService } from './laboratorio-de-pase.service';
 
 /**
- * Pase de PRUEBA desde el laboratorio de tarjetas (/laboratorio-tarjetas):
- * arma un .pkpass y un enlace de Google con el diseño que está en pantalla,
- * para verlo instalado en un celular de verdad.
+ * Pases de PRUEBA del laboratorio de tarjetas (/laboratorio-tarjetas): armar
+ * uno con el diseño en pantalla, ver los que ya se instalaron y sumarles o
+ * quitarles sellos para ver en el celular lo que verá un cliente.
  *
- * No crea tarjeta, ni cliente, ni pase en la base. Lo único que queda son dos
- * archivos en `laboratorio/` del bucket (la franja, que Google descarga, y el
- * .pkpass, que el iPhone abre sin sesión).
+ * No crea tarjeta, ni cliente, ni pase en la base. El estado vive en el bucket
+ * (ver `LaboratorioDePaseService`).
  *
  * SOLO EL EQUIPO DE LA PLATAFORMA: firma con el certificado de Apple y la
  * cuenta de Google de Clubify. Abierto a cualquiera, serviría para fabricar
  * pases firmados por nosotros con cualquier texto.
  */
 @Controller('wallet/laboratorio')
+@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'MARKETING')
 export class LaboratorioDePaseController {
-  private logger = new Logger(LaboratorioDePaseController.name);
-
-  constructor(
-    private wallet: WalletService,
-    private google: GoogleWalletService,
-    private media: MediaService,
-  ) {}
+  constructor(private laboratorio: LaboratorioDePaseService) {}
 
   @Post('pase')
-  @Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'MARKETING')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  async crearPase(@Body() cuerpo: unknown) {
-    const { config, negocio, titular } = validarPaseDeLaboratorio(cuerpo);
-    const id = randomUUID().replace(/-/g, '').slice(0, 20);
-    const cabecera = cabeceraDelPase(config);
+  crearPase(@Body() cuerpo: unknown) {
+    return this.laboratorio.crear(cuerpo);
+  }
 
-    const franja = await this.wallet.dibujarFranjaDeLaboratorio(config);
-    const hero = await this.media.uploadRaw({
-      folder: 'laboratorio',
-      fileName: 'franja.png',
-      buffer: franja['strip@3x.png'],
-      contentType: 'image/png',
-    });
+  @Get('pases')
+  listar() {
+    return this.laboratorio.listar();
+  }
 
-    const pkpass = await this.wallet.generarPaseDeLaboratorio({ id, negocio, titular, config, cabecera, franja });
-    const apple = pkpass
-      ? await this.media.uploadRaw({
-          folder: 'laboratorio',
-          fileName: 'tarjeta.pkpass',
-          buffer: pkpass,
-          contentType: 'application/vnd.apple.pkpass',
-        })
-      : null;
+  /** Cuerpo: `{ sellados?, gastado?, saldo? }`, valores absolutos. */
+  @Post('pases/:id/progreso')
+  @Throttle({ default: { ttl: 60_000, limit: 40 } })
+  moverProgreso(@Param('id') id: string, @Body() cuerpo: unknown) {
+    return this.laboratorio.moverProgreso(id, cuerpo);
+  }
 
-    const googleUrl = this.google.urlDeLaboratorio({
-      id,
-      negocio,
-      titular,
-      premio: config.premio,
-      fondo: config.fondo,
-      cabecera,
-      heroUrl: hero.url,
-    });
-
-    if (!apple && !googleUrl) {
-      throw new ServiceUnavailableException('Las billeteras no están configuradas en este servidor.');
-    }
-    this.logger.log(`Pase de laboratorio ${id}: estilo=${config.estilo} apple=${!!apple} google=${!!googleUrl}`);
-    return { id, franjaUrl: hero.url, appleUrl: apple?.url ?? null, googleUrl };
+  @Delete('pases/:id')
+  quitar(@Param('id') id: string) {
+    return this.laboratorio.quitar(id);
   }
 }
