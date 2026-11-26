@@ -370,6 +370,7 @@ export class TenantDuplicatorService {
             centerBgColor: c.centerBgColor ?? null,
             stampBgType: c.stampBgType,
             stampBgImageUrl: c.stampBgImageUrl ?? null,
+            stripStyle: (c.stripStyle as any) ?? undefined,
             logoUrl: c.logoUrl ?? null,
             heroImageUrl: c.heroImageUrl ?? null,
             iconUrl: c.iconUrl ?? null,

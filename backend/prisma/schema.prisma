@@ -1826,6 +1826,12 @@ model Card {
   // negocio. Si está seteado, el render del pase la usa EN LUGAR del emoji
   // (lleno = a color, vacío = atenuada). null/'' = usar stampIcon (emoji).
   stampIconImageUrl   String?
+  // Estilo de la franja elegido en el editor (taza, cono de pizza, anillo…).
+  // null = el cartón clásico de siempre. Solo la FORMA: colores, ícono,
+  // premio y tope salen de los campos de arriba. Ver
+  // `wallet/estilo-de-tarjeta.ts`. Columna añadida con
+  // `scripts/apply-strip-style-migration.cjs`.
+  stripStyle          Json?
   createdAt           DateTime  @default(now())
 
   passes                  Pass[]

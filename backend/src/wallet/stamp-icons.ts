@@ -490,3 +490,48 @@ export async function resolveCustomImageRenderer(
     return `<defs><clipPath id="${clip}"><circle cx="${cx}" cy="${cy}" r="${s / 2}"/></clipPath></defs><image href="${dataUri}" x="${x}" y="${y}" width="${s}" height="${s}" preserveAspectRatio="xMidYMid meet" clip-path="url(#${clip})"${op} />`;
   };
 }
+
+// Portadas de hasta 900 px: bastante más pesadas que un ícono, de ahí el tope de bytes.
+const imagenDeEstiloCache = new CacheAcotada<string | null>({
+  maxEntradas: MAX_ENTRADAS_CACHE_ICONOS,
+  maxBytes: 48 * 1024 * 1024,
+  pesar: (s) => s?.length ?? 0,
+});
+
+/**
+ * Una imagen de un ESTILO de franja (portada, imagen de un sello de «Tu
+ * producto») como data URI, para meterla en el SVG. librsvg no debe ir a la red
+ * a buscar nada: se descarga aquí, con el mismo filtro de host que los íconos
+ * propios, y se achica a `lado` px como mucho. Sin recortes: una portada es una
+ * foto y se encuadra en el propio dibujo.
+ *
+ * `null` si no es de nuestro almacenamiento o no se pudo bajar: el dibujo sigue
+ * sin esa imagen.
+ */
+export async function imagenDeEstiloComoDataUri(url: string, lado: number): Promise<string | null> {
+  if (!url || url.length > MAX_LARGO_URL_ICONO || !urlDeIconoPermitida(url)) return null;
+  const clave = `${lado}|${url}`;
+  if (imagenDeEstiloCache.has(clave)) return imagenDeEstiloCache.get(clave) ?? null;
+  try {
+    const r = await descargarAcotado(url, { timeoutMs: 5000, maxBytes: MAX_BYTES_ICONO_PROPIO });
+    if (!r.ok) {
+      imagenDeEstiloCache.set(
+        clave,
+        null,
+        esEstadoPasajero(r.status) ? TTL_FALLO_PASAJERO_MS : TTL_FALLO_DEFINITIVO_MS,
+      );
+      return null;
+    }
+    const sharp = (await import('sharp')).default;
+    const png = await sharp(r.buffer)
+      .resize(lado, lado, { fit: 'inside', withoutEnlargement: true })
+      .png()
+      .toBuffer();
+    const uri = `data:image/png;base64,${png.toString('base64')}`;
+    imagenDeEstiloCache.set(clave, uri);
+    return uri;
+  } catch {
+    imagenDeEstiloCache.set(clave, null, TTL_FALLO_PASAJERO_MS);
+    return null;
+  }
+}

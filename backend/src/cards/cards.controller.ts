@@ -7,6 +7,7 @@ import {
   IsHexColor,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -89,6 +90,8 @@ class CardBody {
   @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampIconImageUrl?: string | null;
+  /** Estilo de la franja (taza, cono, anillo…). null = clásico. Se valida campo a campo en el servicio. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsObject() stripStyle?: Record<string, unknown> | null;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsString() heroImageUrl?: string;
   @IsOptional() @IsString() iconUrl?: string;

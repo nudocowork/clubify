@@ -861,3 +861,94 @@ export const PALETAS: Paleta[] = [
   { id: 'oceano', nombre: 'Océano', fondo: '#0B2A5B', texto: '#EAF2FF', sello: '#4FA3FF', area: '#123A7A' },
   { id: 'papel', nombre: 'Papel', fondo: '#F6EFE6', texto: '#3A2E26', sello: '#C0392B', area: '#EFE4D6' },
 ];
+
+/* ─────────────────── estilos en tarjetas reales ─────────────────── */
+
+/**
+ * Estilos que puede elegir un negocio para su tarjeta de SELLOS. Fuera:
+ *  · SELLOS, porque «Clásico» (sin estilo, `Card.stripStyle = null`) es el
+ *    cartón de siempre y ya cubre esa idea;
+ *  · VIP y SALDO, que son de otros tipos de tarjeta (niveles y cashback).
+ */
+export const ESTILOS_DE_TARJETA: EstiloFranja[] = [
+  'TAZA',
+  'PORCIONES',
+  'ANILLO',
+  'CAMINO',
+  'PRODUCTO',
+  'FOTO_NUMERO',
+  'COLOR_SOLIDO',
+  'PERFORADA',
+];
+
+/**
+ * Lo que se guarda en `Card.stripStyle`: SOLO la forma. Los colores, el ícono,
+ * el premio y el tope salen de la tarjeta, así que el negocio sigue usando los
+ * controles de siempre y un cambio de color llega también a la franja nueva.
+ *
+ * Las imágenes son URLs de nuestro almacenamiento, nunca data: — las imágenes
+ * no se guardan en la base.
+ */
+export type EstiloDeTarjeta = {
+  estilo: EstiloFranja;
+  letra?: Letra;
+  recipiente?: Recipiente;
+  porcion?: Porcion;
+  acomodo?: Acomodo;
+  faltantes?: Faltantes;
+  posiciones?: PosSello[];
+  portada?: string | null;
+};
+
+/** Lo de la tarjeta que entra al dibujo. */
+export type DatosDeTarjeta = {
+  primaryColor: string;
+  secondaryColor: string;
+  stampActiveColor?: string | null;
+  centerBgColor?: string | null;
+  stampIcon?: string | null;
+  stampIconImageUrl?: string | null;
+  requeridos: number;
+  sellados: number;
+  premio: string;
+  premiosIntermedios?: PremioIntermedio[];
+};
+
+/**
+ * Arma la configuración de dibujo de una tarjeta real. Es la MISMA función en
+ * la vista previa del panel y en el pase: así lo que ve el negocio al guardar
+ * es lo que le llega al cliente.
+ *
+ * Colores: el fondo de la franja es el color central (o el de la tarjeta), el
+ * relleno es el del sello activo (o el secundario), y el texto se elige blanco
+ * u oscuro según el fondo para que siempre se lea.
+ */
+export function configDesdeTarjeta(e: EstiloDeTarjeta, t: DatosDeTarjeta): ConfigFranja {
+  const area = t.centerBgColor || t.primaryColor;
+  let sello = t.stampActiveColor || t.secondaryColor;
+  // Sello del mismo color que el fondo: no se vería ningún avance.
+  if (sello.toLowerCase() === area.toLowerCase()) sello = esClaro(area) ? '#1F1F1F' : '#FFFFFF';
+  const requeridos = Math.max(1, Math.min(30, Math.round(t.requeridos)));
+  return {
+    estilo: e.estilo,
+    fondo: t.primaryColor,
+    area,
+    sello,
+    texto: esClaro(area) ? '#1F1F1F' : '#FFFFFF',
+    requeridos,
+    sellados: Math.max(0, Math.min(requeridos, Math.round(t.sellados))),
+    premio: t.premio || 'tu premio',
+    unidad: 'sellos',
+    emoji: t.stampIcon || '⭐',
+    iconoImagen: t.stampIconImageUrl || null,
+    portada: e.portada || null,
+    premiosIntermedios: t.premiosIntermedios ?? [],
+    posiciones: e.posiciones,
+    acomodo: e.acomodo,
+    faltantes: e.faltantes,
+    letra: e.letra,
+    recipiente: e.recipiente,
+    porcion: e.porcion,
+    moneda: '$',
+  };
+}

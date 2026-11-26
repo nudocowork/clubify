@@ -15,6 +15,8 @@ import {
   type LogoShape,
 } from '@/components/WalletPassPreview';
 import { VistaPreviaPorPlataforma } from '@/components/VistaPreviaPorPlataforma';
+import { EstiloDeLaFranja } from '@/components/EstiloDeLaFranja';
+import type { EstiloDeTarjeta } from '@/lib/cards/estilos-de-franja';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
@@ -90,6 +92,10 @@ type Card = {
    * es justo el que NO debe repartirse.
    */
   convenioId?: string | null;
+  /** Plantilla de un plan de club: su cartón es el del plan, sin estilos. */
+  clubPlanId?: string | null;
+  /** Estilo de la franja (taza, cono, anillo…). null = cartón clásico. */
+  stripStyle?: EstiloDeTarjeta | null;
   /**
    * El logo propio de ESTA tarjeta. Gana sobre el del negocio en el pase que se
    * instala (`wallet.service`, nivel 1), así que la vista previa tiene que
@@ -460,6 +466,7 @@ export default function CardDetail() {
               stampBgType={card.stampBgType}
               stampBgImageUrl={card.stampBgImageUrl}
               stampIconImageUrl={card.stampIconImageUrl}
+              stripStyle={card.convenioId || card.clubPlanId ? null : card.stripStyle}
               freeRewards={card.freeRewards}
               showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
               rewardText={card.rewardText}
@@ -1030,6 +1037,7 @@ function EditCardModal({
     stampBgType: (card.stampBgType ?? 'GRADIENT') as 'GRADIENT' | 'SOLID' | 'IMAGE',
     stampBgImageUrl: card.stampBgImageUrl ?? (null as string | null),
     stampIconImageUrl: card.stampIconImageUrl ?? (null as string | null),
+    stripStyle: (card.stripStyle ?? null) as EstiloDeTarjeta | null,
     freeRewards: (card.freeRewards ?? []) as FreeReward[],
     stampsRequired: card.stampsRequired ?? 10,
     welcomeStamps: card.welcomeStamps ?? 0,
@@ -1111,6 +1119,10 @@ function EditCardModal({
       .catch(() => setStampsCardOptions([]));
   }, [isCouponType]);
 
+  // Alianzas y clubes son STAMPS por dentro pero dibujan su propia franja
+  // (logo del aliado, cupo del plan): ahí un estilo no se vería.
+  const admiteEstilo = card.type === 'STAMPS' && !card.convenioId && !card.clubPlanId;
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -1154,6 +1166,7 @@ function EditCardModal({
         payload.stampIcon = form.stampIcon;
         payload.stampIconImageUrl = form.stampIconImageUrl || null;
         payload.minAmountPerStamp = form.minAmountPerStamp;
+        if (admiteEstilo) payload.stripStyle = form.stripStyle;
       }
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
       if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
@@ -1706,7 +1719,29 @@ function EditCardModal({
             </div>
           )}
 
-          {(card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
+          {admiteEstilo && (
+            <div className="pt-3 border-t border-line">
+              <EstiloDeLaFranja
+                tarjeta={{
+                  primaryColor: form.primaryColor,
+                  secondaryColor: form.secondaryColor,
+                  stampActiveColor: form.stampActiveColor,
+                  centerBgColor: form.centerBgColor,
+                  stampIcon: form.stampIcon,
+                  stampIconImageUrl: form.stampIconImageUrl,
+                  requeridos: form.stampsRequired || 10,
+                  premio: form.rewardText,
+                  freeRewards: allowFreeRewards ? form.freeRewards : [],
+                }}
+                estilo={form.stripStyle}
+                onEstilo={(v) => setForm((f) => ({ ...f, stripStyle: v }))}
+                onIconoImagen={(url) => setForm((f) => ({ ...f, stampIconImageUrl: url }))}
+              />
+            </div>
+          )}
+
+          {/* El fondo del área es del cartón clásico; los estilos usan el color central. */}
+          {(card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && !form.stripStyle && (
             <div className="pt-3 border-t border-line">
               <label className="label">{t('stampAreaBackground')}</label>
               <div className="grid grid-cols-3 gap-2 mt-1">

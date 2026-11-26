@@ -8,7 +8,8 @@ import {
 import { motivoParaRechazarElColor } from './color-de-la-credencial';
 import { motivoParaRechazarElTope } from './tope-del-carton';
 import { sanearPremiosIntermedios } from './premios-intermedios';
-import { CardType } from '@prisma/client';
+import { validarEstiloDeTarjeta } from '../wallet/estilo-de-tarjeta';
+import { CardType, Prisma } from '@prisma/client';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -33,6 +34,7 @@ export type CardDto = {
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
   stampIconImageUrl?: string | null;
+  stripStyle?: Record<string, unknown> | null;
   logoUrl?: string;
   heroImageUrl?: string;
   iconUrl?: string;
@@ -111,6 +113,7 @@ export class CardsService {
     'iconUrl',
     'stampIcon',
     'stampIconImageUrl',
+    'stripStyle',
     'name',
     'rewardText',
     'rewardDescText',
@@ -286,6 +289,7 @@ export class CardsService {
         stampBgType: dto.stampBgType ?? undefined,
         stampBgImageUrl: dto.stampBgImageUrl ?? undefined,
         stampIconImageUrl: dto.stampIconImageUrl ?? undefined,
+        stripStyle: (validarEstiloDeTarjeta(dto.stripStyle) as any) ?? undefined,
         logoUrl: dto.logoUrl,
         heroImageUrl: dto.heroImageUrl,
         iconUrl: dto.iconUrl,
@@ -398,6 +402,10 @@ export class CardsService {
       data.welcomeStamps = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
     }
     if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
+    if ('stripStyle' in dto) {
+      // null = volver al clásico. En una columna Json, «vacío» es DbNull, no null.
+      data.stripStyle = (validarEstiloDeTarjeta(dto.stripStyle) as any) ?? Prisma.DbNull;
+    }
     if ('freeRewards' in dto) {
       data.freeRewards = (this.sanitizeFreeRewards(
         dto.freeRewards,

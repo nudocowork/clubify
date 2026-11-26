@@ -12,6 +12,8 @@ import { WalletPassPreview } from '@/components/WalletPassPreview';
 import { VistaPreviaPorPlataforma } from '@/components/VistaPreviaPorPlataforma';
 import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
+import { EstiloDeLaFranja } from '@/components/EstiloDeLaFranja';
+import type { EstiloDeTarjeta } from '@/lib/cards/estilos-de-franja';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import { PanelHeader } from '@/components/PanelHeader';
 import {
@@ -72,6 +74,8 @@ const FROM_SCRATCH_DEFAULTS = {
   stampBgType: 'SOLID' as 'GRADIENT' | 'SOLID' | 'IMAGE',
   stampBgImageUrl: null as string | null,
   stampIconImageUrl: null as string | null,
+  /** Estilo de la franja (taza, cono, anillo…). null = cartón clásico. */
+  stripStyle: null as EstiloDeTarjeta | null,
   freeRewards: [] as FreeReward[],
   stampsRequired: 10,
   rewardText: '1 producto gratis',
@@ -232,7 +236,9 @@ export default function NewCardWizard() {
         : form;
       const created = await api<any>('/cards', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        // El estilo solo existe en tarjetas de sellos: si se cambió el tipo
+        // después de elegirlo, no se manda.
+        body: JSON.stringify({ ...payload, stripStyle: form.type === 'STAMPS' ? form.stripStyle : null }),
       });
       router.push(`/app/cards/${created.id}`);
     } catch (e: any) {
@@ -1117,6 +1123,7 @@ function Step3Configure({
             stampBgType={form.stampBgType}
             stampBgImageUrl={form.stampBgImageUrl}
             stampIconImageUrl={form.stampIconImageUrl}
+            stripStyle={form.type === 'STAMPS' ? form.stripStyle : null}
             freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
@@ -1295,7 +1302,29 @@ function Step4Design({
           </div>
         )}
 
-        {isProgress && (
+        {form.type === 'STAMPS' && (
+          <div className="pt-2 border-t border-line">
+            <EstiloDeLaFranja
+              tarjeta={{
+                primaryColor: form.primaryColor,
+                secondaryColor: form.secondaryColor,
+                stampActiveColor: form.stampActiveColor,
+                centerBgColor: form.centerBgColor,
+                stampIcon: form.stampIcon,
+                stampIconImageUrl: form.stampIconImageUrl,
+                requeridos: form.stampsRequired || 10,
+                premio: form.rewardText,
+                freeRewards: allowFreeRewards ? form.freeRewards : [],
+              }}
+              estilo={form.stripStyle}
+              onEstilo={(v) => set('stripStyle', v)}
+              onIconoImagen={(url) => set('stampIconImageUrl', url)}
+            />
+          </div>
+        )}
+
+        {/* El fondo del área es del cartón clásico; los estilos usan el color central. */}
+        {isProgress && !(form.type === 'STAMPS' && form.stripStyle) && (
           <div className="pt-2 border-t border-line">
             <label className="label">{t('stampAreaBackground')}</label>
             <div className="grid grid-cols-3 gap-2 mt-1">
@@ -1451,6 +1480,7 @@ function Step4Design({
             stampBgType={form.stampBgType}
             stampBgImageUrl={form.stampBgImageUrl}
             stampIconImageUrl={form.stampIconImageUrl}
+            stripStyle={form.type === 'STAMPS' ? form.stripStyle : null}
             freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"

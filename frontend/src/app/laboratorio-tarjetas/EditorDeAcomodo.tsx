@@ -12,7 +12,6 @@ import {
 
   dibujarFranja,
   posicionesDe,
-  svgComoDataUrl,
   type Acomodo,
   type ConfigFranja,
   type Faltantes,
@@ -43,17 +42,33 @@ async function leer(f: File, sinFondo: boolean): Promise<string> {
   return sinFondo ? quitarFondo(url) : url;
 }
 
-export function EditorDeAcomodo({ c, set }: { c: ConfigFranja; set: (p: Partial<ConfigFranja>) => void }) {
+export function EditorDeAcomodo({
+  c,
+  set,
+  guardarImagen,
+}: {
+  c: ConfigFranja;
+  set: (p: Partial<ConfigFranja>) => void;
+  /**
+   * En una tarjeta REAL las imágenes se suben al almacenamiento y se guarda la
+   * URL (las imágenes no van a la base). Sin esto, como en el laboratorio, se
+   * quedan en memoria como data URL.
+   */
+  guardarImagen?: (dataUrl: string) => Promise<string>;
+}) {
   const [sel, setSel] = useState<number | null>(null);
   const [sinFondo, setSinFondo] = useState(true);
   const [procesando, setProcesando] = useState(false);
+  const [errorDeSubida, setErrorDeSubida] = useState<string | null>(null);
   const lienzo = useRef<HTMLDivElement>(null);
   const arrastre = useRef<{ i: number; px: number; py: number; x0: number; y0: number } | null>(null);
 
   const pos = useMemo(() => posicionesDe(c), [c]);
   // La franja real de fondo; las asas transparentes de encima solo sirven para
   // agarrar cada sello.
-  const conSellos = useMemo(() => svgComoDataUrl(dibujarFranja(c)), [c]);
+  // En línea y no como <img>: un SVG cargado como imagen no baja las imágenes
+  // externas, y en una tarjeta real los sellos son URLs del almacenamiento.
+  const conSellos = useMemo(() => dibujarFranja(c), [c]);
 
   const cambiar = (i: number, p: Partial<PosSello>) => {
     const nuevas = pos.map((x, k) => (k === i ? { ...x, ...p } : x));
@@ -63,8 +78,12 @@ export function EditorDeAcomodo({ c, set }: { c: ConfigFranja; set: (p: Partial<
   const subir = async (f: File | undefined, alSubir: (url: string) => void) => {
     if (!f) return;
     setProcesando(true);
+    setErrorDeSubida(null);
     try {
-      alSubir(await leer(f, sinFondo));
+      const url = await leer(f, sinFondo);
+      alSubir(guardarImagen ? await guardarImagen(url) : url);
+    } catch (e: any) {
+      setErrorDeSubida(String(e?.message ?? e));
     } finally {
       setProcesando(false);
     }
@@ -104,6 +123,9 @@ export function EditorDeAcomodo({ c, set }: { c: ConfigFranja; set: (p: Partial<
             Quitar el fondo al subir
           </label>
         </div>
+        {errorDeSubida && (
+          <p className="text-xs text-bad bg-red-50 rounded-input px-2.5 py-1.5 mt-2">{errorDeSubida}</p>
+        )}
       </div>
 
       <div>
@@ -131,8 +153,11 @@ export function EditorDeAcomodo({ c, set }: { c: ConfigFranja; set: (p: Partial<
             if (e.target === e.currentTarget) setSel(null);
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={conSellos} alt="" className="absolute inset-0 w-full h-full pointer-events-none" draggable={false} />
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none [&>svg]:w-full [&>svg]:h-full"
+            dangerouslySetInnerHTML={{ __html: conSellos }}
+          />
           {pos.map((p, i) => (
             <button
               key={i}

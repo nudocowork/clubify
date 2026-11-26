@@ -25,6 +25,8 @@ import { llevaCarton, textoDeLaCredencial } from '@/lib/credencial.mjs';
  */
 import { Barcode } from '@/components/Barcode';
 import { plural } from '@/lib/plural';
+import type { EstiloDeTarjeta } from '@/lib/cards/estilos-de-franja';
+import { franjaDeTarjeta } from '@/lib/cards/franja-de-tarjeta';
 
 export type WalletPassPreviewProps = {
   brandName: string;
@@ -97,6 +99,8 @@ export type WalletPassPreviewProps = {
   stampBgImageUrl?: string | null;
   // Ícono de sello personalizado (imagen). Si está, prima sobre stampIcon.
   stampIconImageUrl?: string | null;
+  /** Estilo de la franja elegido en el editor. null = cartón clásico. */
+  stripStyle?: EstiloDeTarjeta | null;
   // Wallet V3 — Premios Free (dibujados en su posición) + "Próximo Premio".
   freeRewards?: Array<{
     pos: number;
@@ -212,6 +216,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     stampBgType = 'GRADIENT',
     stampBgImageUrl,
     stampIconImageUrl,
+    stripStyle = null,
     freeRewards = [],
     showNextReward = true,
     rewardText = '',
@@ -367,9 +372,42 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   // El centro del pase (cartón de sellos, saldo, descuento…). Es el mismo en
   // iPhone y en Android: en los dos sale de la misma imagen que genera el
   // backend, así que se dibuja una sola vez y cada marco lo coloca donde va.
+  // Con estilo, el centro es LA MISMA franja que dibuja el servidor (mismo
+  // módulo), no una imitación en CSS. Solo tarjetas de sellos normales: el
+  // club y la alianza tienen la suya.
+  const franjaConEstilo =
+    stripStyle && cardType === 'STAMPS' && dibujarCarton && !club && !alianza
+      ? franjaDeTarjeta(
+          stripStyle,
+          {
+            primaryColor,
+            secondaryColor,
+            stampActiveColor,
+            centerBgColor,
+            stampIcon,
+            stampIconImageUrl,
+            requeridos: required,
+            premio: rewardText,
+            freeRewards: (freeRewards ?? []).map((p) => ({
+              pos: p.pos,
+              text: p.text ?? undefined,
+              emoji: p.emoji ?? undefined,
+              active: p.active,
+            })),
+          },
+          current,
+        )
+      : null;
+
   const centro = (
     <div className="px-4 pb-3 relative">
-      {isProgressType && dibujarCarton && (
+      {franjaConEstilo && (
+        <div
+          className="rounded-2xl overflow-hidden [&>svg]:w-full [&>svg]:h-auto [&>svg]:block"
+          dangerouslySetInnerHTML={{ __html: franjaConEstilo }}
+        />
+      )}
+      {isProgressType && dibujarCarton && !franjaConEstilo && (
         <div
           className="rounded-2xl px-3 py-3 relative overflow-hidden"
           style={

@@ -9,7 +9,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
-import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
+import {
+  imagenDeEstiloComoDataUri,
+  resolveStampIconRenderer,
+  resolveCustomImageRenderer,
+} from './stamp-icons';
 import { ordenarSedesParaPase } from './orden-de-sedes';
 import { removeBorderConnectedWhite } from './logo-chroma';
 import { imagenesSinFranjaAjena } from './franja-por-defecto';
@@ -33,7 +37,8 @@ import {
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 import { esCuponUsado } from './cupon-usado';
-import { dibujarFranja, type ConfigFranja } from './estilos-de-franja';
+import { configDesdeTarjeta, dibujarFranja, type ConfigFranja } from './estilos-de-franja';
+import { leerEstiloDeTarjeta } from './estilo-de-tarjeta';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -468,6 +473,8 @@ export class WalletService implements OnModuleDestroy {
     // sellos con el icono elegido por el tenant. Reemplaza la strip default
     // que solo era gradient verde sólido.
     let dynamicStrips: Record<string, Buffer> = {};
+    /** Franja de un estilo elegido en el editor (taza, cono, anillo…). `null` = cartón clásico. */
+    let conEstilo: Record<string, Buffer> | null = null;
     // Una tarjeta de CLUB es `STAMPS` por dentro, así que caía aquí y se
     // dibujaba su cartón. Para un cupo pequeño se lee bien —cuatro círculos
     // llenos son «te quedan cuatro lavadas»—, pero tiene dos problemas:
@@ -494,6 +501,8 @@ export class WalletService implements OnModuleDestroy {
         logoUrl: pass.card.logoUrl,
         empresa: alianza.empresa,
       });
+    } else if (!club && (conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, pass.stampsCount, wa.freeRewards))) {
+      dynamicStrips = conEstilo;
     } else if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
       const c: any = pass.card;
       dynamicStrips = await this.generateStampsStrip({
@@ -1020,6 +1029,12 @@ export class WalletService implements OnModuleDestroy {
         : pass.card.stampsRequired ?? 10;
     const stamped = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
     const waStrip = await this.getWalletAdvancedForTenant(pass.tenantId);
+    // Misma franja que el iPhone si la tarjeta tiene estilo. El club se queda
+    // con su cartón: su cupo es el del plan, no `stampsRequired`.
+    if (!pass.card.clubPlanId) {
+      const conEstilo = await this.franjaDeTarjetaConEstilo(pass.card, stamped, waStrip.freeRewards);
+      if (conEstilo) return conEstilo['strip@2x.png'] ?? null;
+    }
     const result = await this.generateStampsStrip({
       primary: pass.card.primaryColor,
       secondary: pass.card.secondaryColor,
@@ -2744,6 +2759,70 @@ export class WalletService implements OnModuleDestroy {
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  /**
+   * Franja de una tarjeta REAL con estilo (`Card.stripStyle`). `null` si la
+   * tarjeta no tiene estilo o no le corresponde: entonces va el cartón clásico.
+   *
+   * Solo tarjetas de SELLOS normales: ni alianzas (su franja es el logo del
+   * aliado) ni clubes (su cupo es el del plan). Esos caminos se deciden antes.
+   */
+  private async franjaDeTarjetaConEstilo(
+    card: any,
+    sellados: number,
+    premiosPermitidos: boolean,
+  ): Promise<Record<string, Buffer> | null> {
+    if (card.type !== 'STAMPS' || card.convenioId || card.clubPlanId) return null;
+    const estilo = leerEstiloDeTarjeta(card.stripStyle);
+    if (!estilo) return null;
+    try {
+      // Las imágenes se bajan aquí y entran al SVG como data URI: librsvg no
+      // tiene que ir a la red. Si alguna no baja, se dibuja sin ella.
+      const [portada, iconoImagen, posiciones] = await Promise.all([
+        estilo.portada ? imagenDeEstiloComoDataUri(estilo.portada, 900) : null,
+        card.stampIconImageUrl ? imagenDeEstiloComoDataUri(card.stampIconImageUrl, 256) : null,
+        estilo.posiciones
+          ? Promise.all(
+              estilo.posiciones.map(async (p) => ({
+                ...p,
+                imagen: p.imagen ? await imagenDeEstiloComoDataUri(p.imagen, 400) : null,
+              })),
+            )
+          : undefined,
+      ]);
+      const requeridos = card.stampsRequired ?? 10;
+      const premios = premiosPermitidos
+        ? ((Array.isArray(card.freeRewards) ? card.freeRewards : []) as any[])
+            .filter((p) => p && p.active !== false && Number(p.pos) >= 1 && Number(p.pos) <= requeridos)
+            .map((p) => ({
+              pos: Math.floor(Number(p.pos)),
+              // Solo el nombre: el emoji va como texto y librsvg no lo pinta
+              // (sale de contorno, o un cuadro en Linux). El emoji, si no hay nombre.
+              texto: String((typeof p.text === 'string' && p.text.trim()) || p.emoji || '').slice(0, 30),
+            }))
+        : [];
+      const config = configDesdeTarjeta(
+        { ...estilo, portada, posiciones },
+        {
+          primaryColor: card.primaryColor,
+          secondaryColor: card.secondaryColor,
+          stampActiveColor: card.stampActiveColor,
+          centerBgColor: card.centerBgColor,
+          stampIcon: card.stampIcon,
+          stampIconImageUrl: iconoImagen,
+          requeridos,
+          sellados,
+          premio: card.rewardText || '',
+          premiosIntermedios: premios,
+        },
+      );
+      return await this.dibujarFranjaDeLaboratorio(config);
+    } catch (e) {
+      // Un estilo que no se deja dibujar no puede dejar al cliente sin pase.
+      this.logger.warn(`Franja con estilo de la tarjeta ${card.id}: ${(e as Error).message}; va la clásica`);
+      return null;
+    }
   }
 
   /**
