@@ -122,6 +122,19 @@ describe('LaboratorioDePaseService', () => {
     expect(await svc.serialesDelDispositivo('DEVICE123456')).toEqual([]);
   });
 
+  it('el QR de Android lleva un enlace corto que arma el de Google con el estado de ahora', async () => {
+    const { id } = await crear();
+    const lista = await svc.listar();
+    expect(lista[0].googleUrl).toMatch(new RegExp(`/api/wallet/laboratorio/google/${id}$`));
+    expect(lista[0].googleUrl!.length).toBeLessThan(120);
+    await svc.moverProgreso(id, { sellados: 5 });
+    expect(await svc.enlaceLargoDeGoogle(id)).toBe('https://pay.google.com/gp/v/save/x');
+    expect(google.urlDeLaboratorio).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cabecera: { etiqueta: 'SELLOS', valor: '5/10' } }),
+    );
+    expect(await svc.enlaceLargoDeGoogle('nada')).toBeNull();
+  });
+
   it('ids que no son nuestros dan 404', async () => {
     await expect(svc.moverProgreso('../x', { sellados: 1 })).rejects.toThrow(/no existe/);
   });

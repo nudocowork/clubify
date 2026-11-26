@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { Public } from '../common/decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { Roles } from '../common/decorators/roles.decorator';
 import { LaboratorioDePaseService } from './laboratorio-de-pase.service';
@@ -36,6 +38,19 @@ export class LaboratorioDePaseController {
   @Throttle({ default: { ttl: 60_000, limit: 40 } })
   moverProgreso(@Param('id') id: string, @Body() cuerpo: unknown) {
     return this.laboratorio.moverProgreso(id, cuerpo);
+  }
+
+  /**
+   * El QR de Android apunta aquí (ver `enlaceDeGoogle`). Público: lo abre el
+   * celular sin sesión, igual que el .pkpass del iPhone, que también es público.
+   */
+  @Public()
+  @Get('google/:id')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  async abrirEnGoogle(@Param('id') id: string, @Res() res: Response) {
+    const url = await this.laboratorio.enlaceLargoDeGoogle(id);
+    if (!url) throw new NotFoundException('Esa prueba no existe.');
+    res.redirect(302, url);
   }
 
   @Delete('pases/:id')

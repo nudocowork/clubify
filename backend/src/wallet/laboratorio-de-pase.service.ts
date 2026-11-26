@@ -108,6 +108,15 @@ export class LaboratorioDePaseService {
     return /^[A-Za-z0-9]{8,128}$/.test(deviceLibraryId) ? `laboratorio/dispositivos/${deviceLibraryId}.json` : null;
   }
 
+  /**
+   * Enlace CORTO para guardar en Google Wallet. El de Google lleva el pase
+   * entero firmado dentro (varios KB): en QR salía una nube de puntos que la
+   * cámara no leía. Este redirige al de Google armado en el momento.
+   */
+  private static enlaceDeGoogle(id: string) {
+    return `${process.env.API_URL ?? 'https://api.soyclubify.com'}/api/wallet/laboratorio/google/${id}`;
+  }
+
   // ── lectura ───────────────────────────────────────────────────────────────
 
   private estado(id: string) {
@@ -182,7 +191,7 @@ export class LaboratorioDePaseService {
       aviso: null,
       franjaUrl: hero.url,
       appleUrl: apple?.url ?? null,
-      googleUrl,
+      googleUrl: googleUrl ? LaboratorioDePaseService.enlaceDeGoogle(id) : null,
     };
     // Si guardar falla, el pase igual sirve para verlo; solo no se podrá mover.
     await Promise.all([
@@ -191,7 +200,12 @@ export class LaboratorioDePaseService {
     ]).catch((e) => this.logger.warn(`Laboratorio ${id}: no se guardó el estado (${e?.message ?? e})`));
 
     this.logger.log(`Pase de laboratorio ${id}: estilo=${config.estilo} apple=${!!apple} google=${!!googleUrl}`);
-    return { id, franjaUrl: hero.url, appleUrl: apple?.url ?? null, googleUrl };
+    return {
+      id,
+      franjaUrl: hero.url,
+      appleUrl: apple?.url ?? null,
+      googleUrl: googleUrl ? LaboratorioDePaseService.enlaceDeGoogle(id) : null,
+    };
   }
 
   async listar(): Promise<PruebaInstalada[]> {
@@ -200,7 +214,15 @@ export class LaboratorioDePaseService {
       claves.map(async (k) => {
         const id = k.slice(PREFIJO.length, -'/estado.json'.length);
         const [e, d] = await Promise.all([this.estado(id), this.dispositivos(id)]);
-        return e ? { ...e, iphones: d.length, actualizaciones: !!this.tokenDe(id) } : null;
+        return e
+          ? {
+              ...e,
+              // Las primeras pruebas guardaron el enlace largo de Google.
+              googleUrl: e.googleUrl ? LaboratorioDePaseService.enlaceDeGoogle(id) : null,
+              iphones: d.length,
+              actualizaciones: !!this.tokenDe(id),
+            }
+          : null;
       }),
     );
     return items
@@ -265,6 +287,23 @@ export class LaboratorioDePaseService {
       apple: { enviados: apple.enviados, fallidos: apple.fallidos },
       google,
     };
+  }
+
+  /** El enlace de Google con el estado de AHORA (sellos, franja). `null` = 404. */
+  async enlaceLargoDeGoogle(id: string): Promise<string | null> {
+    if (!/^[a-f0-9]{20}$/.test(id)) return null;
+    const [estado, diseno] = await Promise.all([this.estado(id), this.diseno(id)]);
+    if (!estado || !diseno) return null;
+    const config = { ...diseno.config, sellados: estado.sellados, gastado: estado.gastado, saldo: estado.saldo };
+    return this.google.urlDeLaboratorio({
+      id,
+      negocio: diseno.negocio,
+      titular: diseno.titular,
+      premio: config.premio,
+      fondo: config.fondo,
+      cabecera: cabeceraDelPase(config),
+      heroUrl: estado.franjaUrl,
+    });
   }
 
   /** Solo la quita de la lista: el pase instalado se queda en el celular, congelado. */
