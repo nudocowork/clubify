@@ -37,7 +37,7 @@ export type Nivel = { nombre: string; desde: number; beneficio?: string };
  * pasa a producción, hay que instalar Poppins, Fraunces y Bebas Neue allá.
  */
 export type Letra = 'MODERNA' | 'ELEGANTE' | 'IMPACTO';
-export type Recipiente = 'TAZA' | 'VASO' | 'CONO';
+export type Recipiente = 'TAZA' | 'VASO' | 'CONO' | 'POCILLO' | 'PARA_LLEVAR' | 'FRAPPE' | 'JARRA' | 'COPA';
 export type Porcion = 'PIZZA' | 'TORTA' | 'LISA';
 
 /**
@@ -589,8 +589,202 @@ function cono(c: ConfigFranja): string {
   return fondoBase(c, false) + out.join('') + bloqueDerecho(c, 268);
 }
 
+/**
+ * Más recipientes para «Taza que se llena», para que cada negocio encuentre
+ * el suyo: el pocillo del tinto, el vaso para llevar, el frappé, la jarra del
+ * bar y la copa de cóctel. Todos se llenan con el color de «Sellos», como la
+ * taza, y al completarse muestran su «premio» (vapor, crema, espuma, limón).
+ *
+ * El líquido es un rect recortado por UN clipPath (librsvg no garantiza los
+ * anidados) y cada recipiente lleva su propio id para no chocar si el panel
+ * pinta varias franjas en la misma página.
+ */
+function liquido(id: string, cuerpo: string, top: number, bottom: number, p: number, c: ConfigFranja): string {
+  const nivel = top + (bottom - top) * (1 - p);
+  return (
+    `<clipPath id="${id}"><path d="${cuerpo}"/></clipPath>` +
+    `<path d="${cuerpo}" fill="${alfa(c.texto, 0.1)}"/>` +
+    (p > 0
+      ? `<rect x="20" y="${nivel.toFixed(1)}" width="220" height="${(bottom - nivel + 6).toFixed(1)}" fill="${c.sello}" clip-path="url(#${id})"/>`
+      : '') +
+    (p > 0 && p < 1
+      ? `<rect x="20" y="${nivel.toFixed(1)}" width="220" height="5" fill="${alfa('#FFFFFF', 0.35)}" clip-path="url(#${id})"/>`
+      : '')
+  );
+}
+
+function vaporSobre(c: ConfigFranja, xs: number[], y: number): string {
+  return xs
+    .map(
+      (x) =>
+        `<path d="M${x} ${y} q-9 -9 0 -16 q9 -7 0 -16" fill="none" stroke="${alfa(c.texto, 0.55)}" stroke-width="4" stroke-linecap="round"/>`,
+    )
+    .join('');
+}
+
+function pocillo(c: ConfigFranja, p: number): string {
+  const top = 96;
+  const bottom = 190;
+  const cuerpo = `M76 ${top} L172 ${top} L166 172 Q163 ${bottom} 146 ${bottom} L102 ${bottom} Q85 ${bottom} 82 172 Z`;
+  return (
+    `<ellipse cx="124" cy="204" rx="92" ry="13" fill="${alfa(c.texto, 0.1)}" stroke="${c.texto}" stroke-width="5"/>` +
+    liquido('pocilloClip', cuerpo, top + 6, bottom, p, c) +
+    `<path d="${cuerpo}" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linejoin="round"/>` +
+    `<path d="M170 112 h10 a21 21 0 0 1 0 42 h-13" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linecap="round"/>` +
+    (p >= 1 ? vaporSobre(c, [100, 124, 148], 84) : '')
+  );
+}
+
+function paraLlevar(c: ConfigFranja, p: number): string {
+  const top = 62;
+  const bottom = 224;
+  const cuerpo = `M76 ${top} L172 ${top} L158 ${bottom} L90 ${bottom} Z`;
+  // La faja de cartón es solo contorno: con relleno se leía como una línea
+  // de nivel y confundía cuánto falta.
+  const faja = `M80 118 L168 118 L163 172 L85 172 Z`;
+  return (
+    liquido('llevarClip', cuerpo, top + 4, bottom, p, c) +
+    `<path d="${faja}" fill="none" stroke="${c.texto}" stroke-width="4" stroke-linejoin="round"/>` +
+    `<path d="${cuerpo}" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linejoin="round"/>` +
+    `<path d="M64 62 L184 62 L180 48 Q178 40 168 40 L80 40 Q70 40 68 48 Z" fill="${c.texto}"/>` +
+    `<rect x="132" y="44" width="22" height="5" rx="2.5" fill="${c.area}"/>` +
+    (p >= 1 ? vaporSobre(c, [104, 124, 144], 32) : '')
+  );
+}
+
+function frappe(c: ConfigFranja, p: number): string {
+  const top = 76;
+  const bottom = 226;
+  const cuerpo = `M70 ${top} L178 ${top} L164 ${bottom} L84 ${bottom} Z`;
+  const nivel = top + (bottom - top) * (1 - p);
+  // Hielos fijos: solo se ven los que ya quedaron bajo el nivel.
+  const hielos = [
+    [96, 196, -12],
+    [134, 204, 10],
+    [112, 166, 18],
+    [146, 150, -8],
+    [92, 130, 6],
+    [128, 112, -16],
+  ]
+    .filter(([, y]) => p > 0 && y - 10 > nivel)
+    .map(
+      ([x, y, g]) =>
+        `<rect x="${x - 11}" y="${y - 11}" width="22" height="22" rx="5" fill="${alfa('#FFFFFF', 0.3)}" transform="rotate(${g} ${x} ${y})"/>`,
+    )
+    .join('');
+  const crema =
+    p >= 1
+      ? [
+          [84, 66, 14],
+          [104, 54, 17],
+          [126, 48, 18],
+          [148, 54, 17],
+          [166, 66, 13],
+          [116, 34, 13],
+          [138, 34, 12],
+        ]
+          .map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#FFFFFF"/>`)
+          .join('')
+      : '';
+  return (
+    liquido('frappeClip', cuerpo, top + 4, bottom, p, c) +
+    hielos +
+    crema +
+    `<path d="M136 214 L166 6" stroke="${c.texto}" stroke-width="9" stroke-linecap="round"/>` +
+    `<path d="M62 76 Q124 6 186 76" fill="none" stroke="${c.texto}" stroke-width="5"/>` +
+    `<path d="M58 76 L190 76" stroke="${c.texto}" stroke-width="7" stroke-linecap="round"/>` +
+    `<path d="${cuerpo}" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linejoin="round"/>`
+  );
+}
+
+function jarra(c: ConfigFranja, p: number): string {
+  const top = 62;
+  const bottom = 220;
+  const cuerpo = `M58 ${top} L174 ${top} L174 206 Q174 ${bottom} 160 ${bottom} L72 ${bottom} Q58 ${bottom} 58 206 Z`;
+  const nivel = top + 6 + (bottom - top - 6) * (1 - p);
+  // Espuma: una fila de burbujas sobre el líquido; completa, desborda la boca.
+  const yEspuma = p >= 1 ? top - 4 : nivel;
+  const espuma =
+    p > 0
+      ? [70, 92, 114, 136, 158]
+          .map(
+            (x, i) =>
+              `<circle cx="${x + 2}" cy="${(yEspuma - (i % 2) * 4).toFixed(1)}" r="${p >= 1 ? 15 : 11}" fill="#FFFFFF"/>`,
+          )
+          .join('')
+      : '';
+  return (
+    liquido('jarraClip', cuerpo, top + 6, bottom, p, c) +
+    [90, 116, 142]
+      .map(
+        (x) =>
+          `<path d="M${x} ${top + 18} V${bottom - 16}" stroke="${alfa('#FFFFFF', 0.25)}" stroke-width="6" stroke-linecap="round"/>`,
+      )
+      .join('') +
+    (p >= 1
+      ? espuma + `<path d="M66 ${top} q0 16 6 20 q6 -4 6 -20 Z" fill="#FFFFFF"/>`
+      : `<g clip-path="url(#jarraClip)">${espuma}</g>`) +
+    `<path d="${cuerpo}" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linejoin="round"/>` +
+    `<path d="M174 92 h18 a14 14 0 0 1 14 14 v58 a14 14 0 0 1 -14 14 h-18" fill="none" stroke="${c.texto}" stroke-width="10" stroke-linecap="round"/>`
+  );
+}
+
+function copa(c: ConfigFranja, p: number): string {
+  const cx = 124;
+  const arriba = 46;
+  const punta = 146;
+  const medio = 82;
+  const ancho = (y: number) => (medio * (punta - y)) / (punta - arriba);
+  const cuerpo = `M${cx - medio} ${arriba} L${cx + medio} ${arriba} L${cx} ${punta} Z`;
+  // Por ÁREA, como el cono: la copa es angosta abajo y llenarla por altura
+  // hacía que los primeros sellos casi no se vieran.
+  const nivel = punta - (punta - arriba) * Math.sqrt(p);
+  const a = ancho(nivel);
+  const out = [`<path d="${cuerpo}" fill="${alfa(c.texto, 0.1)}"/>`];
+  if (p > 0) {
+    out.push(
+      `<path d="M${(cx - a).toFixed(1)} ${nivel.toFixed(1)} L${(cx + a).toFixed(1)} ${nivel.toFixed(1)} L${cx} ${punta} Z" fill="${c.sello}"/>`,
+    );
+    if (p < 1) {
+      out.push(
+        `<path d="M${(cx - a).toFixed(1)} ${nivel.toFixed(1)} L${(cx + a).toFixed(1)} ${nivel.toFixed(1)}" stroke="${alfa('#FFFFFF', 0.4)}" stroke-width="5"/>`,
+      );
+    }
+  }
+  out.push(
+    `<path d="${cuerpo}" fill="none" stroke="${c.texto}" stroke-width="6" stroke-linejoin="round"/>`,
+    `<path d="M${cx} ${punta} V212" stroke="${c.texto}" stroke-width="7" stroke-linecap="round"/>`,
+    `<ellipse cx="${cx}" cy="216" rx="46" ry="9" fill="${alfa(c.texto, 0.1)}" stroke="${c.texto}" stroke-width="5"/>`,
+  );
+  if (p >= 1) {
+    // Completa: rodaja de limón en el borde.
+    const lx = cx + medio - 8;
+    const ly = arriba - 4;
+    out.push(
+      `<circle cx="${lx}" cy="${ly}" r="22" fill="#9CCC3C" stroke="#5E8C1A" stroke-width="4"/>`,
+      `<circle cx="${lx}" cy="${ly}" r="15" fill="#D8EE9A"/>`,
+      ...[0, 60, 120].map(
+        (g) =>
+          `<path d="M${lx - 15} ${ly} H${lx + 15}" stroke="#9CCC3C" stroke-width="3" transform="rotate(${g} ${lx} ${ly})"/>`,
+      ),
+    );
+  }
+  return out.join('');
+}
+
+/** Los recipientes nuevos; TAZA, VASO y CONO siguen en `taza()` y `cono()`. */
+const OTROS_RECIPIENTES: Partial<Record<Recipiente, (c: ConfigFranja, p: number) => string>> = {
+  POCILLO: pocillo,
+  PARA_LLEVAR: paraLlevar,
+  FRAPPE: frappe,
+  JARRA: jarra,
+  COPA: copa,
+};
+
 function taza(c: ConfigFranja): string {
   if (c.recipiente === 'CONO') return cono(c);
+  const otro = c.recipiente ? OTROS_RECIPIENTES[c.recipiente] : undefined;
+  if (otro) return fondoBase(c, false) + otro(c, c.sellados / c.requeridos) + bloqueDerecho(c, 268);
   const p = c.sellados / c.requeridos;
   const vaso = c.recipiente === 'VASO';
   const top = vaso ? 30 : 52;

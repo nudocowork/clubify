@@ -355,7 +355,12 @@ function OpcionesDelEstilo({ c, set }: { c: ConfigFranja; set: (p: Partial<Confi
           <Segmentos
             opciones={[
               { id: 'TAZA', txt: 'Taza' },
+              { id: 'POCILLO', txt: 'Pocillo' },
+              { id: 'PARA_LLEVAR', txt: 'Para llevar' },
               { id: 'VASO', txt: 'Vaso' },
+              { id: 'FRAPPE', txt: 'Frappé' },
+              { id: 'JARRA', txt: 'Jarra' },
+              { id: 'COPA', txt: 'Copa' },
               { id: 'CONO', txt: 'Cono de pizza' },
             ]}
             valor={c.recipiente ?? 'TAZA'}
@@ -364,7 +369,17 @@ function OpcionesDelEstilo({ c, set }: { c: ConfigFranja; set: (p: Partial<Confi
           <p className="text-xs text-mute mt-1.5">
             {c.recipiente === 'CONO'
               ? 'El cono lleva sus colores de pizza: masa, queso y pepperoni. Al completarse, el queso desborda.'
-              : 'El color de «Sellos» es el del líquido.'}
+              : `El color de «Sellos» es el del líquido. ${
+                  {
+                    TAZA: 'Al completarse, echa vapor.',
+                    POCILLO: 'El tinto con su plato; al completarse, echa vapor.',
+                    PARA_LLEVAR: 'Vaso de cartón con tapa y faja; al completarse, echa vapor.',
+                    VASO: 'Con pajilla, para bebidas frías.',
+                    FRAPPE: 'Con hielo y pajilla; al completarse, se corona de crema.',
+                    JARRA: 'Con espuma; al completarse, la espuma desborda.',
+                    COPA: 'Copa de cóctel; al completarse, lleva su rodaja de limón.',
+                  }[c.recipiente ?? 'TAZA'] ?? ''
+                }`}
           </p>
         </div>
       )}
@@ -496,7 +511,11 @@ function Segmentos({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="bg-bg2 rounded-full p-0.5 inline-flex flex-wrap text-xs font-semibold">
+    // Con muchas opciones (los 8 recipientes) la fila se parte en dos: una
+    // píldora redonda partida se ve rota, así que pasa a esquinas suaves.
+    <div
+      className={`bg-bg2 ${opciones.length > 4 ? 'rounded-2xl' : 'rounded-full'} p-0.5 inline-flex flex-wrap text-xs font-semibold`}
+    >
       {opciones.map((o) => (
         <button
           key={o.id}

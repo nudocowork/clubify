@@ -93,6 +93,22 @@ describe('configDesdeTarjeta', () => {
   });
 });
 
+describe('recipientes de la taza', () => {
+  it('todos dibujan sin NaN, vacíos, a medias y completos', () => {
+    const recipientes = ['TAZA', 'VASO', 'CONO', 'POCILLO', 'PARA_LLEVAR', 'FRAPPE', 'JARRA', 'COPA'] as const;
+    const svgs = new Set<string>();
+    for (const recipiente of recipientes) {
+      for (const sellados of [0, 3, 8]) {
+        const svg = dibujarFranja(configDesdeTarjeta({ estilo: 'TAZA', recipiente }, { ...tarjeta, sellados }));
+        expect(svg, `${recipiente} ${sellados}`).not.toMatch(/NaN|undefined/);
+        if (sellados === 3) svgs.add(svg);
+      }
+    }
+    // Cada recipiente dibuja algo distinto: ninguno cae callado en la taza.
+    expect(svgs.size).toBe(recipientes.length);
+  });
+});
+
 describe('estiloQueSeDibuja', () => {
   it('cada estilo solo en su tipo de tarjeta', () => {
     expect(estiloQueSeDibuja({ type: 'STAMPS', stripStyle: { estilo: 'TAZA' } })).toEqual({ estilo: 'TAZA' });

@@ -36,7 +36,7 @@ const MAX_IMAGENES_TOTAL = 6_000_000;
 const ACOMODOS: Acomodo[] = ['FILA', 'CUADRICULA', 'ENCIMADO', 'ARCO'];
 const FALTANTES: Faltantes[] = ['TRANSPARENTES', 'CONTORNO', 'OCULTOS'];
 const LETRAS: Letra[] = ['MODERNA', 'ELEGANTE', 'IMPACTO'];
-const RECIPIENTES: Recipiente[] = ['TAZA', 'VASO', 'CONO'];
+const RECIPIENTES: Recipiente[] = ['TAZA', 'VASO', 'CONO', 'POCILLO', 'PARA_LLEVAR', 'FRAPPE', 'JARRA', 'COPA'];
 const PORCIONES: Porcion[] = ['PIZZA', 'TORTA', 'LISA'];
 
 function mal(campo: string): never {
