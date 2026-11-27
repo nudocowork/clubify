@@ -125,7 +125,8 @@ export class FinanceController {
 
   // ── Análisis financiero: los meses lado a lado ───────────────────────────
   /** `hasta` (YYYY-MM, por defecto el mes en curso) y `meses` hacia atrás
-   *  (6, 12 o 24; por defecto 12). Techo de 24: más ya no se lee. */
+   *  (por defecto 6; «este año» pide de enero al mes en curso, así que en
+   *  enero es 1). Techo de 24: más ya no se lee. */
   @Roles('SUPER_ADMIN')
   @Get('analisis')
   analisis(
@@ -134,7 +135,7 @@ export class FinanceController {
     @Query('meses') meses?: string,
   ) {
     const fin = /^\d{4}-\d{2}$/.test(hasta ?? '') ? hasta! : mesContableActual();
-    const n = Math.min(24, Math.max(2, Number(meses) || 12));
+    const n = Math.min(24, Math.max(1, Number(meses) || 6));
     const lista = Array.from({ length: n }, (_, i) => mesAtras(fin, n - 1 - i));
     return this.report.analisisFinanciero(scope !== 'all', lista);
   }
