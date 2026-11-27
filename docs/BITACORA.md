@@ -8,6 +8,10 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-27 (204) — /propuesta actualizada
+
+- `frontend/public/propuesta.html` reemplazada por la versión nueva del bloque de HighLevel (`propuesta-cliente (1).html`), con el mismo envoltorio (doctype, título, `noindex`). Sale con el próximo despliegue del frontend.
+
 ## 2026-11-26 (203) — Propuesta post-reunión en /propuesta
 
 - `soyclubify.com/propuesta` sirve `frontend/public/propuesta.html`: el bloque que se pega en HighLevel (`propuesta-cliente.html`), envuelto en una página completa (doctype, título, `noindex`). Rewrite en `next.config.js`, igual que `/presentacion`.
