@@ -9,6 +9,7 @@ import {
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { GastosOperativosMeses } from '@/components/contabilidad/GastosOperativosMeses';
+import { AnalisisFinanciero } from '@/components/contabilidad/AnalisisFinanciero';
 import {
   SelectorPeriodo,
   diaEnPeriodo,
@@ -89,7 +90,7 @@ const ESTADO_BDG: Record<string, { cls: string; label: string }> = {
 };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
-type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'comisiones' | 'cobros' | 'movimientos' | 'cierres';
+type Tab = 'resumen' | 'analisis' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'comisiones' | 'cobros' | 'movimientos' | 'cierres';
 type Comisiones = {
   period: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number;
   porBeneficiario: Array<{ code: string; nombre: string; rol: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number }>;
@@ -428,20 +429,36 @@ export default function ContabilidadPage() {
       {/* El período contable manda sobre todo lo de abajo. */}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <SelectorPeriodo valor={periodo} onChange={cambiarPeriodo} />
+        {tab === 'analisis' ? (
+          // El análisis compara meses: el período de arriba no lo acota, y
+          // decir «todo es de octubre» encima de doce meses sería falso.
+          <span className="text-xs text-mute">El análisis compara varios meses; elige cuántos abajo.</span>
+        ) : (
         <span className="text-xs text-mute">
           Todo lo que ves abajo es de <strong className="text-ink capitalize">{nombreDePeriodo(periodo)}</strong>.
           {mesEnCurso && <> · <strong className="text-ink">mes en curso</strong>, día {mesEnCurso.dia} de {mesEnCurso.total}</>}
         </span>
+        )}
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
-        {([['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['comisiones', 'Comisiones'], ['cobros', 'Próximos cobros'], ['movimientos', 'Movimientos'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
+        {([['resumen', 'Resumen'], ['analisis', 'Análisis financiero'], ['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['comisiones', 'Comisiones'], ['cobros', 'Próximos cobros'], ['movimientos', 'Movimientos'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === id ? 'border-brand text-brand' : 'border-transparent text-mute hover:text-ink'}`}>{label}</button>
         ))}
       </div>
 
-      {loading || vistaCargada !== `${scope}|${periodo}` ? (
+      {/* El análisis pide sus propios datos (varios meses) y no espera a que
+          cargue el período de arriba. */}
+      {tab === 'analisis' ? (
+        <AnalisisFinanciero
+          scope={scope}
+          onIrAMes={(p) => {
+            cambiarPeriodo(p);
+            setTab('resumen');
+          }}
+        />
+      ) : loading || vistaCargada !== `${scope}|${periodo}` ? (
         <div className="card card-pad text-center text-mute">Cargando…</div>
       ) : (
         <>
@@ -824,7 +841,7 @@ export default function ContabilidadPage() {
                 datos={panorama}
                 nombrePeriodo={nombreDePeriodo(periodo)}
                 nombreAnterior={panorama.anterior ? nombreDePeriodo(panorama.anterior.period) : null}
-                onIrAMes={cambiarPeriodo}
+                onVerAnalisis={() => setTab('analisis')}
               />
             )
           )}

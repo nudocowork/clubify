@@ -16,18 +16,6 @@
  * etiqueta y su cifra: el color acompaña, nunca es el único dato.
  */
 
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-
 export const money = (n: number | null | undefined) =>
   n == null
     ? '—'
@@ -96,24 +84,6 @@ const COSTO = [
 ] as const;
 
 /**
- * Las clases de ingreso. Misma paleta categórica que los costos, para que el
- * panel no estrene colores en cada bloque; el orden lo pone el importe, no
- * esta lista.
- */
-const ETIQUETA_CATEGORIA: Record<string, string> = {
-  NUEVA: 'Suscripción nueva',
-  RENOVACION: 'Renovación',
-  UPGRADE: 'Upgrade',
-  OTRO: 'Otro ingreso',
-};
-const COLOR_CATEGORIA: Record<string, string> = {
-  NUEVA: '#1baf7a',
-  RENOVACION: '#2a78d6',
-  UPGRADE: '#eda100',
-  OTRO: '#eb6834',
-};
-
-/**
  * Dónde empieza el rastro de pagos: el primer aviso de una pasarela que el
  * sistema guarda es del 13 de junio de 2026.
  *
@@ -148,15 +118,6 @@ function baseDelSocioTexto(periodo: string): string {
   }
   return periodo < MES_DESDE_EL_NETO ? 'del total de ventas' : 'del neto';
 }
-
-const MES_CORTO = [
-  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
-];
-const etiquetaMes = (p: string) => {
-  const m = /^(\d{4})-(\d{2})$/.exec(p);
-  return m ? `${MES_CORTO[Number(m[2]) - 1]} ${m[1].slice(2)}` : p;
-};
 
 /** Variación contra el período anterior. `null` cuando no hay con qué comparar. */
 function Variacion({
@@ -213,12 +174,12 @@ export function PanoramaPeriodo({
   datos,
   nombrePeriodo,
   nombreAnterior,
-  onIrAMes,
+  onVerAnalisis,
 }: {
   datos: Panorama;
   nombrePeriodo: string;
   nombreAnterior: string | null;
-  onIrAMes: (periodo: string) => void;
+  onVerAnalisis: () => void;
 }) {
   const r = datos.resumen;
   const prev = datos.anterior?.resumen ?? null;
@@ -244,7 +205,6 @@ export function PanoramaPeriodo({
   ].filter((p) => p.valor > 0);
   const totalBarra = partes.reduce((a, p) => a + p.valor, 0);
 
-  const serie = datos.serie.map((s) => ({ ...s, label: etiquetaMes(s.period) }));
   // Un período «sin movimiento» es uno en el que no pasó NADA. Mirando solo
   // ventas y comisiones pagadas, mayo de 2026 —tres comisiones generadas ese
   // mes y pagadas el 30 de junio— salía en blanco y se tragaba $23,50.
@@ -256,18 +216,6 @@ export function PanoramaPeriodo({
     (r.refundedUsd ?? 0) > 0 ||
     (r.canceledUsd ?? 0) > 0;
 
-  // Las clases de ingreso, de mayor a menor. `SIN_CATEGORIA` es el respaldo de
-  // las filas anteriores a que existiera la columna: se enseña en vez de
-  // esconderse, porque si no cuadra con el bruto hay que poder verlo.
-  const porCategoria = Object.entries(r.porCategoria ?? {})
-    .map(([clave, v]) => ({
-      clave,
-      etiqueta: ETIQUETA_CATEGORIA[clave] ?? 'Sin clasificar',
-      color: COLOR_CATEGORIA[clave] ?? '#9aa0a6',
-      ...v,
-    }))
-    .filter((c) => c.grossUsd > 0)
-    .sort((a, b) => b.grossUsd - a.grossUsd);
 
   return (
     <>
@@ -444,116 +392,23 @@ export function PanoramaPeriodo({
             </div>
           </div>
 
-          {/* ── Evolución mes a mes ── */}
-          <div className="card card-pad mb-4">
-            <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold">Mes a mes</div>
-              <span className="text-[11px] text-mute">Toca una barra para abrir ese mes</span>
-            </div>
-            <div style={{ width: '100%', height: 260 }}>
-              <ResponsiveContainer>
-                <ComposedChart data={serie} margin={{ top: 12, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke="#E8E8E4" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#8A8A80' }} />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    width={64}
-                    tick={{ fontSize: 11, fill: '#8A8A80' }}
-                    tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`)}
-                  />
-                  <Tooltip
-                    formatter={(v, n) => [money(Number(v)), String(n)]}
-                    labelFormatter={(l) => `Mes de ${String(l)}`}
-                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E8E8E4' }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar
-                    name="Ventas realizadas"
-                    dataKey="grossUsd"
-                    fill="#2a78d6"
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={44}
-                    cursor="pointer"
-                    onClick={(d) => {
-                      // recharts entrega el punto con su payload; de ahí sale el mes.
-                      const p = (d as { payload?: { period?: string } })?.payload?.period;
-                      if (p) onIrAMes(p);
-                    }}
-                  />
-                  <Line
-                    name="Utilidad"
-                    type="monotone"
-                    dataKey="utilidadUsd"
-                    stroke="#1F2933"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: '#1F2933' }}
-                    activeDot={{ r: 6 }}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* ── Por qué entró: venta nueva, renovación, upgrade u otro ──
-              Responde «¿cuánto vino de renovaciones y cuánto de ventas
-              nuevas?» sin tener que abrir la pestaña de Ingresos y sumar. */}
-          {porCategoria.length > 0 && (
-            <div className="card card-pad mb-4">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
-                Por qué entró · <span className="capitalize">{nombrePeriodo}</span>
-              </div>
-              <ul className="flex flex-col gap-2">
-                {porCategoria.map((c) => (
-                  <li key={c.clave} className="flex items-center gap-3 text-sm">
-                    <span className="w-40 shrink-0 font-medium">{c.etiqueta}</span>
-                    <span className="flex-1 h-2.5 bg-bg2 rounded-pill overflow-hidden">
-                      <span
-                        className="block h-full rounded-pill"
-                        style={{
-                          width: `${Math.max((c.grossUsd / (porCategoria[0].grossUsd || 1)) * 100, 2)}%`,
-                          background: c.color,
-                        }}
-                      />
-                    </span>
-                    <span className="tabular-nums font-medium w-24 text-right">{money(c.grossUsd)}</span>
-                    <span className="tabular-nums text-mute text-xs w-16 text-right">
-                      {c.count} {c.count === 1 ? 'cobro' : 'cobros'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* ── De dónde entró ── */}
-          {datos.porPasarela.length > 0 && (
-            <div className="card card-pad mb-4">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
-                De dónde entró · <span className="capitalize">{nombrePeriodo}</span>
-              </div>
-              <ul className="flex flex-col gap-2">
-                {datos.porPasarela.map((p) => {
-                  const tope = datos.porPasarela[0].grossUsd || 1;
-                  return (
-                    <li key={p.gateway} className="flex items-center gap-3 text-sm">
-                      <span className="w-28 shrink-0 font-medium">{p.gateway}</span>
-                      <span className="flex-1 h-2.5 bg-bg2 rounded-pill overflow-hidden">
-                        <span
-                          className="block h-full rounded-pill"
-                          style={{ width: `${Math.max((p.grossUsd / tope) * 100, 2)}%`, background: '#2a78d6' }}
-                        />
-                      </span>
-                      <span className="tabular-nums font-medium w-24 text-right">{money(p.grossUsd)}</span>
-                      <span className="tabular-nums text-mute text-xs w-16 text-right">
-                        {p.count} {p.count === 1 ? 'cobro' : 'cobros'}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
+          {/* Las gráficas que comparan meses (mes a mes, por qué entró y de
+              dónde entró) vivían aquí, al final del Resumen de CADA mes: para
+              comparar había que abrir los meses uno por uno. Ahora viven una
+              sola vez en «Análisis financiero» (Javier, 2026-11-27). */}
+          <button
+            type="button"
+            onClick={onVerAnalisis}
+            className="card card-pad mb-4 w-full text-left flex items-center justify-between gap-3 hover:border-brand transition"
+          >
+            <span>
+              <span className="block text-sm font-semibold">Comparar con otros meses</span>
+              <span className="block text-[11px] text-mute">
+                Mes a mes, por qué y de dónde entró el dinero, márgenes y clientes: en Análisis financiero.
+              </span>
+            </span>
+            <span className="text-brand font-semibold text-sm whitespace-nowrap">Abrir análisis →</span>
+          </button>
         </>
       )}
     </>

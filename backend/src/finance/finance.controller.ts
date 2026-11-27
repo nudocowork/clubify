@@ -14,6 +14,7 @@ import type { PaymentGateway } from '@prisma/client';
 import { IncomeRecordService } from './income-record.service';
 import { FinanceReportService } from './finance-report.service';
 import { rangoDe } from './where-periodo';
+import { mesAtras, mesContableActual } from '../common/periodo-contable';
 import { CobrosService } from '../admin-reports/cobros.service';
 import { ConciliadorDeIngresosService } from './conciliador-de-ingresos.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -120,6 +121,22 @@ export class FinanceController {
   @Get('panorama')
   panorama(@Query('scope') scope?: string, @Query('period') period?: string) {
     return this.report.panorama(scope !== 'all', period || 'todo');
+  }
+
+  // ── Análisis financiero: los meses lado a lado ───────────────────────────
+  /** `hasta` (YYYY-MM, por defecto el mes en curso) y `meses` hacia atrás
+   *  (6, 12 o 24; por defecto 12). Techo de 24: más ya no se lee. */
+  @Roles('SUPER_ADMIN')
+  @Get('analisis')
+  analisis(
+    @Query('scope') scope?: string,
+    @Query('hasta') hasta?: string,
+    @Query('meses') meses?: string,
+  ) {
+    const fin = /^\d{4}-\d{2}$/.test(hasta ?? '') ? hasta! : mesContableActual();
+    const n = Math.min(24, Math.max(2, Number(meses) || 12));
+    const lista = Array.from({ length: n }, (_, i) => mesAtras(fin, n - 1 - i));
+    return this.report.analisisFinanciero(scope !== 'all', lista);
   }
 
   // ── Fase 3 — Comisiones del período ───────────────────────────────────────

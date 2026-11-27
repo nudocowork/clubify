@@ -8,6 +8,32 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-27 (206) — Contabilidad: pestaña «Análisis financiero»
+
+**Sin desplegar. No hay migración.** Va backend → frontend: el frontend nuevo llama a `/admin/contabilidad/analisis`, que el backend viejo no tiene (la pestaña mostraría un error, nada más).
+
+- **Por qué:** las gráficas que comparan meses vivían al final del Resumen de **cada** mes, y para comparar había que abrir los meses uno por uno (Javier). Son tres: «Mes a mes», «Por qué entró» y «De dónde entró».
+  - Ahora viven una sola vez en la pestaña nueva **Análisis financiero**, junto a Resumen.
+  - En el Resumen de cada mes queda un acceso «Comparar con otros meses».
+- **Backend:**
+  - `FinanceReportService.analisisFinanciero(onlyClubify, meses)` y `GET /admin/contabilidad/analisis?scope&meses=6|12|24&hasta=YYYY-MM` (detrás del `SoloPlataformaGuard` del controlador).
+  - Reutiliza `serieDeMeses`, así que la cascada de un mes es la MISMA que la de su Resumen.
+  - Añade por mes: por clase y por pasarela, cobros, negocios que pagaron, nuevos (primer pago), cancelaciones (`canceledAt`), devuelto y comisiones generadas.
+  - Son cuatro consultas en total.
+- **Frontend** (`components/contabilidad/AnalisisFinanciero.tsx`):
+  - selector de 6, 12 o 24 meses;
+  - cifras del rango: ventas, utilidad y margen, promedio mensual, ticket, % de renovaciones, clientes netos;
+  - «Para decidir»: proyección lineal del mes en curso, último mes contra el anterior, últimos 3 contra los 3 anteriores, mejor y peor mes, costo por cada $100, peso de comisiones, concentración por pasarela, devoluciones;
+  - gráficas: mes a mes; por clase y por pasarela apiladas; costos apilados;
+  - tabla mes por mes con 14 columnas y totales.
+  - Promedios y tendencias solo cuentan meses cerrados desde junio de 2026, cuando empieza el registro de cobros.
+  - Tocar una barra o una fila abre el Resumen de ese mes.
+- **Verificado contra producción** (solo lectura, script temporal ya borrado):
+  - octubre de 2026 da lo mismo en el análisis y en `summary()`: $5.913,36 de ventas, $491,70 de utilidad y 42 cobros;
+  - coincide con la captura de Javier.
+  - Apareció la clase `MARCA_BLANCA` (junio, $1.200), que el Resumen no etiquetaba; el análisis la pinta, y cualquier clase nueva sale con su nombre.
+- `tsc` en verde en los dos lados y eslint limpio. **No se probó en navegador.**
+
 ## 2026-11-27 (205) — Arreglos de «Lo que hoy no cuadra en el Admin» (PDF de 18 puntos)
 
 **Sin desplegar. No hay migración.** Va backend + frontend, en ese orden; ninguno depende del otro para no romper.

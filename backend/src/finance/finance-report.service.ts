@@ -386,6 +386,148 @@ export class FinanceReportService {
     });
   }
 
+  // ── Análisis financiero: los meses lado a lado ───────────────────────────
+
+  /**
+   * Lo que necesita la pestaña «Análisis financiero»: cada mes del rango con su
+   * cascada (la MISMA de `serieDeMeses`, para que un mes diga lo mismo aquí y
+   * en su Resumen) y, además, por qué y de dónde entró el dinero, cuántos
+   * negocios pagaron, cuántos se fueron y cuánto se devolvió.
+   *
+   * Existe porque esas gráficas vivían al final del Resumen de CADA mes: para
+   * comparar meses había que abrirlos uno por uno. Todo se pide en cuatro
+   * consultas sobre el rango entero y se reparte por mes en memoria.
+   */
+  async analisisFinanciero(onlyClubify: boolean, meses: string[]) {
+    if (meses.length === 0) return { meses: [] };
+    const desde = limitesDelMes(meses[0])!.from;
+    const hasta = limitesDelMes(meses[meses.length - 1])!.to;
+    const rango = { from: desde, to: hasta };
+    const wl = await alcanceDeMarca(this.prisma, onlyClubify);
+
+    const [serie, ingresos, generadas, cancelados] = await Promise.all([
+      this.serieDeMeses(onlyClubify, meses),
+      // Cobrados y devueltos: los anulados nunca fueron un cobro y los
+      // intermediados no son de Clubify (igual que `IncomeRecordService.summary`).
+      this.prisma.incomeRecord.findMany({
+        where: combinar(
+          wl,
+          { status: { in: ['PAGADO', 'REEMBOLSADO'] } },
+          enRango('saleDate', rango),
+        ),
+        select: {
+          saleDate: true,
+          grossUsd: true,
+          gateway: true,
+          category: true,
+          tenantId: true,
+          status: true,
+        },
+      }),
+      // Comisiones GENERADAS (devengo), con el mismo `where` que la cascada.
+      this.prisma.commission.findMany({
+        where: {
+          status: { not: 'REJECTED' },
+          ...NO_ES_COMISION_DEL_SOCIO,
+          ...enRangoConRespaldo('businessDate', rango),
+        },
+        select: { amount: true, businessDate: true, createdAt: true },
+      }),
+      // Negocios que cancelaron en el mes (cancelado = `canceledAt`, ver
+      // `common/estado-comercial.ts`), dentro de la marca.
+      this.prisma.tenant.findMany({
+        where: combinar(wl, enRango('canceledAt', rango)),
+        select: { canceledAt: true },
+      }),
+    ]);
+
+    type Cubo = {
+      cobros: number;
+      negocios: Set<string>;
+      nuevos: Set<string>;
+      porCategoria: Record<string, { count: number; grossUsd: number }>;
+      porPasarela: Record<string, { count: number; grossUsd: number }>;
+      devueltoUsd: number;
+      devueltoCount: number;
+      comisionesGeneradasUsd: number;
+      cancelaciones: number;
+    };
+    const cubos = new Map<string, Cubo>(
+      meses.map((m) => [
+        m,
+        {
+          cobros: 0,
+          negocios: new Set(),
+          nuevos: new Set(),
+          porCategoria: {},
+          porPasarela: {},
+          devueltoUsd: 0,
+          devueltoCount: 0,
+          comisionesGeneradasUsd: 0,
+          cancelaciones: 0,
+        },
+      ]),
+    );
+    const sumar = (
+      m: Record<string, { count: number; grossUsd: number }>,
+      k: string,
+      usd: number,
+    ) => {
+      const c = m[k] ?? { count: 0, grossUsd: 0 };
+      c.count += 1;
+      c.grossUsd += usd;
+      m[k] = c;
+    };
+
+    for (const i of ingresos) {
+      const c = cubos.get(mesContable(i.saleDate));
+      if (!c) continue;
+      const usd = Number(i.grossUsd);
+      if (i.status === 'REEMBOLSADO') {
+        c.devueltoUsd += usd;
+        c.devueltoCount += 1;
+        continue;
+      }
+      c.cobros += 1;
+      if (i.tenantId) c.negocios.add(i.tenantId);
+      if (i.category === 'NUEVA' && i.tenantId) c.nuevos.add(i.tenantId);
+      sumar(c.porCategoria, i.category ?? 'SIN_CATEGORIA', usd);
+      sumar(c.porPasarela, String(i.gateway), usd);
+    }
+    for (const g of generadas) {
+      const c = cubos.get(mesContable(g.businessDate ?? g.createdAt));
+      if (c) c.comisionesGeneradasUsd += Number(g.amount);
+    }
+    for (const t of cancelados) {
+      if (!t.canceledAt) continue;
+      const c = cubos.get(mesContable(t.canceledAt));
+      if (c) c.cancelaciones += 1;
+    }
+
+    const redondear = (m: Record<string, { count: number; grossUsd: number }>) =>
+      Object.fromEntries(
+        Object.entries(m).map(([k, v]) => [k, { count: v.count, grossUsd: round2(v.grossUsd) }]),
+      );
+
+    return {
+      meses: serie.map((s) => {
+        const c = cubos.get(s.period)!;
+        return {
+          ...s,
+          cobros: c.cobros,
+          negociosQuePagaron: c.negocios.size,
+          negociosNuevos: c.nuevos.size,
+          cancelaciones: c.cancelaciones,
+          devueltoUsd: round2(c.devueltoUsd),
+          devueltoCount: c.devueltoCount,
+          comisionesGeneradasUsd: round2(c.comisionesGeneradasUsd),
+          porCategoria: redondear(c.porCategoria),
+          porPasarela: redondear(c.porPasarela),
+        };
+      }),
+    };
+  }
+
   /** De dónde entró el dinero del período, por pasarela. */
   async ingresosPorPasarela(
     onlyClubify: boolean,
