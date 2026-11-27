@@ -3,8 +3,11 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 
 type Tramo = { total: number; compras: number; ticketPromedio: number };
+type TarjetaLlena = Tramo & { numero: number; desde: string | null; canjeadaAt: string; sinMonto: number };
 type Consumo = {
   historico: Tramo;
+  /** Opcional mientras el backend nuevo no esté desplegado. */
+  tarjetasLlenas?: TarjetaLlena[];
   desdeElCanje: Tramo;
   ultimoCanjeAt: string | null;
   ultimaCompraAt: string | null;
@@ -29,6 +32,8 @@ function dinero(n: number, m: Consumo['moneda']) {
 
 const fecha = (s: string) =>
   new Date(s).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+const fechaCorta = (s: string) =>
+  new Date(s).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
 
 const compras = (n: number) => `${n} ${n === 1 ? 'compra' : 'compras'}`;
 
@@ -37,7 +42,17 @@ const compras = (n: number) => `${n} ${n === 1 ? 'compra' : 'compras'}`;
  * entregar el premio: en la caja y en la ficha del cliente. `version` vuelve a
  * pedir el dato cuando el pase cambia (un sello o un canje recién hechos).
  */
-export function ConsumoDeLaTarjeta({ passId, version }: { passId: string; version?: unknown }) {
+export function ConsumoDeLaTarjeta({
+  passId,
+  version,
+  conTarjetasLlenas = false,
+}: {
+  passId: string;
+  version?: unknown;
+  /** En la ficha del cliente: cuánto gastó cada vez que llenó la tarjeta. En
+   *  la caja no, para que el escáner siga siendo de un vistazo. */
+  conTarjetasLlenas?: boolean;
+}) {
   const [c, setC] = useState<Consumo | null>(null);
 
   useEffect(() => {
@@ -88,6 +103,47 @@ export function ConsumoDeLaTarjeta({ passId, version }: { passId: string; versio
         </div>
       </div>
       <div className="text-[11px] text-mute mt-2">{notas.join(' · ')}</div>
+
+      {conTarjetasLlenas && (c.tarjetasLlenas?.length ?? 0) > 0 && (
+        <div className="mt-3 pt-3 border-t border-line2">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
+            Cada vez que llenó la tarjeta
+          </div>
+          <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
+            {/* La más reciente arriba: es la que el negocio recuerda. */}
+            {[...(c.tarjetasLlenas ?? [])].reverse().map((t) => (
+              <li key={t.numero} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0">
+                  <span className="font-semibold">Tarjeta {t.numero}</span>
+                  <span className="text-[11px] text-mute">
+                    {' · '}
+                    {t.desde ? `${fechaCorta(t.desde)} → ` : ''}canjeada el {fecha(t.canjeadaAt)}
+                  </span>
+                </span>
+                <span className="text-right shrink-0">
+                  <span className="font-bold tabular-nums">{dinero(t.total, c.moneda)}</span>
+                  <span className="block text-[11px] text-mute">
+                    {compras(t.compras)}
+                    {t.compras > 0 && ` · promedio ${dinero(t.ticketPromedio, c.moneda)}`}
+                    {t.sinMonto > 0 && ` · ${t.sinMonto} sin monto`}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {(c.tarjetasLlenas?.length ?? 0) > 1 && (
+            <div className="text-[11px] text-mute mt-2">
+              Promedio por tarjeta llena:{' '}
+              <strong className="text-ink">
+                {dinero(
+                  (c.tarjetasLlenas ?? []).reduce((s, t) => s + t.total, 0) / (c.tarjetasLlenas ?? []).length,
+                  c.moneda,
+                )}
+              </strong>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -63,3 +63,38 @@ describe('consumo de una tarjeta', () => {
     expect(r.sinMonto).toBe(0);
   });
 });
+
+describe('cuánto gastó cada vez que llenó la tarjeta', () => {
+  it('reparte las compras por tarjeta llena y deja aparte la que está en curso', () => {
+    const r = resumirConsumo([
+      fila(1, { purchaseAmount: 10000 }),
+      fila(2, { purchaseAmount: 20000 }),
+      fila(3, { action: 'REDEEM', redeemKind: 'REWARD' }),
+      fila(4, { purchaseAmount: 5000 }),
+      fila(5, { purchaseAmount: null }),
+      fila(6, { action: 'REDEEM', redeemKind: 'REWARD' }),
+      fila(7, { purchaseAmount: 8000 }),
+    ]);
+    expect(r.tarjetasLlenas).toHaveLength(2);
+    expect(r.tarjetasLlenas[0]).toMatchObject({ numero: 1, total: 30000, compras: 2, ticketPromedio: 15000, sinMonto: 0 });
+    expect(r.tarjetasLlenas[0].desde?.getUTCDate()).toBe(1);
+    expect(r.tarjetasLlenas[0].canjeadaAt.getUTCDate()).toBe(3);
+    // La segunda tuvo un sello sin monto: la cifra se queda corta y se dice.
+    expect(r.tarjetasLlenas[1]).toMatchObject({ numero: 2, total: 5000, compras: 1, sinMonto: 1 });
+    // Lo de después del último canje es la vuelta en curso, no una tarjeta llena.
+    expect(r.desdeElCanje.total).toBe(8000);
+    expect(r.historico.total).toBe(43000);
+  });
+
+  it('el cupón de bienvenida no cuenta como tarjeta llena', () => {
+    const r = resumirConsumo([
+      fila(1, { action: 'REDEEM', redeemKind: 'COUPON' }),
+      fila(2, { purchaseAmount: 9000 }),
+    ]);
+    expect(r.tarjetasLlenas).toEqual([]);
+  });
+
+  it('sin canjes no hay tarjetas llenas', () => {
+    expect(resumirConsumo([fila(1, { purchaseAmount: 9000 })]).tarjetasLlenas).toEqual([]);
+  });
+});

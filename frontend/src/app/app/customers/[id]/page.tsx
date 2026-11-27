@@ -655,7 +655,7 @@ El cliente la verá activa otra vez en su teléfono.`,
         </span>
       </div>
 
-      <ConsumoDeLaTarjeta passId={p.id} version={`${p.stampsCount}-${p.visitsCount}-${p.status}`} />
+      <ConsumoDeLaTarjeta passId={p.id} version={`${p.stampsCount}-${p.visitsCount}-${p.status}`} conTarjetasLlenas />
 
       {p.card.type === 'STAMPS' && (
         <div className="mt-3">
@@ -1526,14 +1526,17 @@ export default function CustomerDetail() {
             </div>
             <div className="grid grid-cols-2 gap-3 text-center">
               <div>
+                {/* No son solo pedidos: `totalOrdersCount` también cuenta las
+                    compras registradas al sellar (compra-registrada.ts). La
+                    ficha decía «1 pedidos» con «Historial de pedidos (0)». */}
                 <div className="text-2xl font-bold">{c.totalOrdersCount}</div>
-                <div className="text-xs text-mute">{t('orders')}</div>
+                <div className="text-xs text-mute">{t('ltvPurchases')}</div>
               </div>
               <div>
                 <div className="text-2xl font-bold">
                   {COP(Number(c.totalOrdersAmount), tenantMoney.currency, tenantMoney.currencySymbol)}
                 </div>
-                <div className="text-xs text-mute">{t('billed')}</div>
+                <div className="text-xs text-mute">{t('ltvTotalBought')}</div>
               </div>
               <div>
                 <div className="text-base font-semibold">
@@ -1548,6 +1551,7 @@ export default function CustomerDetail() {
                 <div className="text-xs text-mute">{t('activePasses')}</div>
               </div>
             </div>
+            <p className="text-[11px] text-mute mt-3 mb-0 text-center">{t('ltvTotalNote')}</p>
           </div>
 
           <CustomerNotesAndTags customer={c} onChange={load} />

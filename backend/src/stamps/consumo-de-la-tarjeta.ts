@@ -27,8 +27,27 @@ export interface TramoDeConsumo {
   ticketPromedio: number;
 }
 
+/**
+ * Una tarjeta LLENA: lo que el cliente compró desde el canje anterior (o desde
+ * que empezó) hasta el canje que la vació. Un canje de premio exige la tarjeta
+ * completa (`stamps.service`, `REDEEM` resta `stampsRequired`), así que cada
+ * canje que no es de cupón es una tarjeta terminada.
+ */
+export interface TarjetaLlena extends TramoDeConsumo {
+  /** 1 = la primera que llenó. */
+  numero: number;
+  /** Primera compra con monto de esa vuelta; null si ninguna tuvo monto. */
+  desde: Date | null;
+  canjeadaAt: Date;
+  /** Sellos de compra de esa vuelta sin monto: la cifra se queda corta. */
+  sinMonto: number;
+}
+
 export interface ConsumoDeLaTarjeta {
   historico: TramoDeConsumo;
+  /** Cada vez que llenó la tarjeta, cuánto gastó (Javier, 2026-11-27: «si ha
+   *  llenado varias veces, que me muestre cada vez cuánto ha gastado»). */
+  tarjetasLlenas: TarjetaLlena[];
   /** Lo acumulado para el premio que se va a canjear ahora. */
   desdeElCanje: TramoDeConsumo;
   ultimoCanjeAt: Date | null;
@@ -60,6 +79,12 @@ export function resumirConsumo(filas: FilaDeConsumo[]): ConsumoDeLaTarjeta {
   let ultimaCompra: number | null = null;
   let sinMonto = 0;
   let regalos = 0;
+  // Una vuelta por canje, en orden; la compra va a la primera vuelta cuyo canje
+  // es igual o posterior a ella (mismo corte que `desdeElCanje`: lo de después
+  // del último canje es la vuelta en curso).
+  const cortes = [...canjes].sort((a, b) => a - b);
+  const vueltas = cortes.map(() => ({ montos: [] as number[], desde: null as number | null, sinMonto: 0 }));
+  const vueltaDe = (t: number) => cortes.findIndex((c) => t <= c);
 
   for (const f of filas) {
     if (f.action !== 'STAMP' && f.action !== 'VISIT') continue;
@@ -71,17 +96,33 @@ export function resumirConsumo(filas: FilaDeConsumo[]): ConsumoDeLaTarjeta {
     if (!(monto > 0)) {
       // Con pedido y sin monto = pedido cancelado (`orders.service` lo vacía):
       // no es un dato que falte, es una compra que no ocurrió.
-      if (!f.orderId) sinMonto += 1;
+      if (!f.orderId) {
+        sinMonto += 1;
+        const v = vueltaDe(f.createdAt.getTime());
+        if (v >= 0) vueltas[v].sinMonto += 1;
+      }
       continue;
     }
     const cuando = f.createdAt.getTime();
     historico.push(monto);
+    const v = vueltaDe(cuando);
+    if (v >= 0) {
+      vueltas[v].montos.push(monto);
+      if (vueltas[v].desde === null || cuando < vueltas[v].desde!) vueltas[v].desde = cuando;
+    }
     if (ultimoCanje === null || cuando > ultimoCanje) desdeElCanje.push(monto);
     if (ultimaCompra === null || cuando > ultimaCompra) ultimaCompra = cuando;
   }
 
   return {
     historico: tramo(historico),
+    tarjetasLlenas: vueltas.map((v, i) => ({
+      numero: i + 1,
+      ...tramo(v.montos),
+      desde: v.desde === null ? null : new Date(v.desde),
+      canjeadaAt: new Date(cortes[i]),
+      sinMonto: v.sinMonto,
+    })),
     desdeElCanje: tramo(desdeElCanje),
     ultimoCanjeAt: ultimoCanje === null ? null : new Date(ultimoCanje),
     ultimaCompraAt: ultimaCompra === null ? null : new Date(ultimaCompra),

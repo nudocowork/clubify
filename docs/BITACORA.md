@@ -8,6 +8,45 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-27 (208) — Ficha del cliente: cuánto gastó cada vez que llenó la tarjeta
+
+**Sin desplegar. No hay migración.** Va backend → frontend. Con el backend viejo la lista no aparece y nada se rompe: el campo es opcional.
+
+- **Qué pidió el negocio** (MODIFICACIONES CLIENTES 10): en cada cliente, cuánto compró cada vez que llenó la tarjeta de sellos, y el histórico total en el negocio.
+- **Backend:** `resumirConsumo` (`stamps/consumo-de-la-tarjeta.ts`) devuelve `tarjetasLlenas`: una vuelta por cada canje que no es de cupón. Un canje de premio exige la tarjeta llena (`REDEEM` resta `stampsRequired`). Cada vuelta trae:
+  - total, compras y ticket promedio;
+  - primera compra y fecha del canje;
+  - sellos sin monto.
+  
+  3 pruebas nuevas (9 en el archivo).
+- **Frontend:** `ConsumoDeLaTarjeta` con `conTarjetasLlenas` (solo en la ficha del cliente; el escáner sigue compacto):
+  - la lista «Cada vez que llenó la tarjeta», la más reciente arriba;
+  - el promedio por tarjeta llena.
+  
+  En el Lifetime value, «pedidos / facturado» pasa a «compras / comprado en total», con una nota: es el histórico total en el negocio, pedidos y compras registradas en todas sus tarjetas (`totalOrdersAmount`). La ficha decía «1 pedidos» con «Historial de pedidos (0)».
+- **Verificado contra producción** (solo lectura, script borrado): un pase con 7 tarjetas llenas (de 210,5 a 408 por tarjeta) y otro con 5. En los dos, tarjetas llenas + vuelta en curso = total histórico.
+
+## 2026-11-27 (207) — Contabilidad abre con el «Análisis financiero» general (dos niveles)
+
+**Sin desplegar. No hay migración.** Va backend → frontend, y reemplaza lo de la entrada 206.
+
+- **Spec:** Software Clubify (17).
+  - Contabilidad abre con el Análisis financiero de todos los meses, sin pestañas ni mes elegido.
+  - Se entra a un mes tocando una gráfica o una fila, o con «Ver un mes» (abre el mes en curso). Ahí se ve la pantalla de siempre.
+  - «← Volver al análisis financiero» regresa y quita `?periodo=` de la URL.
+  - Un enlace con `?periodo=` abre directo el mes.
+- **Análisis:**
+  - rango: últimos 6 (por defecto), 12 o este año;
+  - el botón Clubify / Todas las marcas se mantiene;
+  - seis gráficas, una por pregunta: ventas y ganancia, margen %, nueva / renovación / otros (upgrade, marca blanca y sueltos van en «otros»), pasarelas, costos, devuelto + cancelaciones;
+  - tabla de ventas, costos, ganancia y cobros, descargable en .xlsx (`lib/exportar-hoja.ts`);
+  - el mes en curso lleva «*» y dice «mes incompleto».
+  - Costos = las seis líneas del Resumen (fee + impuestos, egresos, operativos, nómina, comisiones, socio), no «ventas − ganancia».
+- **Resumen de un mes:** solo sale «Mes a mes». «Por qué entró» y «De dónde entró» vuelven (la spec pide que lo del mes siga igual).
+- **Backend:** `/admin/contabilidad/analisis` acepta `meses` desde 1 (este año en enero) y por defecto 6.
+- **La cifra de control de la spec** (noviembre: $2.520,84 / $513,32) ya no es la de hoy. Entró un Hotmart de $150 el 26 en la noche. Hoy noviembre da $2.670,84 / $611,06 en Clubify, igual en `summary()` y en la serie: las dos vistas usan la misma cuenta.
+- **No se probó en navegador.**
+
 ## 2026-11-27 (206) — Contabilidad: pestaña «Análisis financiero»
 
 **Sin desplegar. No hay migración.** Va backend → frontend: el frontend nuevo llama a `/admin/contabilidad/analisis`, que el backend viejo no tiene (la pestaña mostraría un error, nada más).
