@@ -260,3 +260,16 @@ describe('cobrado · el dinero sin negocio detras (creditos, implementacion)', (
     expect(r.porPlan.MENSUAL.count).toBe(0);
   });
 });
+
+describe('cobrado · las cajitas por plan cuentan negocios, no pagos', () => {
+  it('un mensual que pagó tres veces en el año es UN negocio, con sus tres pagos sumados', () => {
+    const r = calc({
+      ingresos: [ingreso('a', 50), ingreso('a', 50), ingreso('a', 50), ingreso('b', 50)],
+      negociosEnAlcance: [
+        { id: 'a', planPeriodicity: 'MENSUAL' },
+        { id: 'b', planPeriodicity: 'MENSUAL' },
+      ],
+    });
+    expect(r.porPlan.MENSUAL).toEqual({ count: 2, amount: 200, groups: 0 });
+  });
+});

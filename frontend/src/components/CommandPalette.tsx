@@ -121,6 +121,57 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
     }
   }, [open]);
 
+  // Admin: Ctrl K buscaba solo entre 4 atajos y nadie encontraba un negocio
+  // por su nombre. La lista se pide una vez por sesión (`/tenants` ya viene
+  // acotada a la marca de quien consulta) y se filtra en el navegador.
+  const negociosRef = useRef<Array<{ id: string; brandName: string; email?: string | null; slug?: string | null }> | null>(null);
+  useEffect(() => {
+    if (variant !== 'admin' || !open) return;
+    const term = q.trim().toLowerCase();
+    if (term.length < 2) {
+      setDynamic([]);
+      setSearching(false);
+      return;
+    }
+    const seq = ++searchSeq.current;
+    const filtrar = () => {
+      if (seq !== searchSeq.current) return;
+      const lista = negociosRef.current ?? [];
+      setDynamic(
+        lista
+          .filter((n) =>
+            `${n.brandName} ${n.email ?? ''} ${n.slug ?? ''}`.toLowerCase().includes(term),
+          )
+          .slice(0, 8)
+          .map((n) => ({
+            id: `tenant-${n.id}`,
+            group: t('groupBusinesses'),
+            label: n.brandName,
+            keywords: `${n.email ?? ''} ${n.slug ?? ''}`,
+            href: `/admin/tenants/${n.id}`,
+            icon: 'store' as IconName,
+          })),
+      );
+      setSearching(false);
+    };
+    if (negociosRef.current) {
+      filtrar();
+      return;
+    }
+    setSearching(true);
+    api<any[]>('/tenants')
+      .then((r) => {
+        negociosRef.current = Array.isArray(r) ? r : [];
+        filtrar();
+      })
+      .catch(() => {
+        if (seq === searchSeq.current) {
+          setDynamic([]);
+          setSearching(false);
+        }
+      });
+  }, [q, open, variant]);
+
   // Búsqueda dinámica de clientes (solo en variant=app, con 2+ chars, debounced)
   useEffect(() => {
     if (variant !== 'app' || !open) return;

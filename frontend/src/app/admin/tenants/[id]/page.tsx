@@ -316,7 +316,9 @@ export default function TenantDetail() {
     );
   }
 
-  const daysLeft = t.trialEndsAt
+  // Solo en prueba: un negocio activo que alguna vez tuvo fecha de prueba
+  // mostraba «Trial: 0 días» y parecía que seguía sin pagar.
+  const daysLeft = t.status === 'TRIAL' && t.trialEndsAt
     ? Math.max(
         0,
         Math.ceil((new Date(t.trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
@@ -397,7 +399,13 @@ export default function TenantDetail() {
                     : 'badge-bad'
                 }`}
               >
-                {t.status}
+                {t.status === 'ACTIVE'
+                  ? tr('statusLabelActive')
+                  : t.status === 'TRIAL'
+                  ? tr('statusLabelTrial')
+                  : t.status === 'SUSPENDED'
+                  ? tr('statusLabelSuspended')
+                  : t.status}
               </span>
               {daysLeft !== null && (
                 <span className="text-sm text-mute">

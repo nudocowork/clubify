@@ -43,11 +43,16 @@ export default function AdminDashboard() {
             <Icon name="bell" size={16} />
           </div>
           <div className="flex-1 text-sm">
-            <span className="font-semibold">{m.expiringSoon}</span> negocio
-            {m.expiringSoon === 1 ? '' : 's'} sin confirmar pago hace más de 3 días.
+            {/* `expiringSoon` cuenta pruebas que VENCEN en los próximos 3 días
+                (metrics.service). Antes decía «sin confirmar pago hace más de
+                3 días» y mandaba a buscar pagos atrasados que no existían. */}
+            <span className="font-semibold">{m.expiringSoon}</span>{' '}
+            {m.expiringSoon === 1
+              ? 'prueba gratis vence en los próximos 3 días.'
+              : 'pruebas gratis vencen en los próximos 3 días.'}
           </div>
           <Link
-            href="/admin/tenants"
+            href="/admin/trials"
             className="text-sm font-semibold text-amber-800 hover:underline"
           >
             Ver →

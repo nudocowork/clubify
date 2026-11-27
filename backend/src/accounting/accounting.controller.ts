@@ -4,11 +4,13 @@ import {
   Headers,
   Query,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { AccountingService } from './accounting.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { SoloPlataformaGuard } from '../common/guards/solo-plataforma.guard';
 
 @Controller('admin/accounting')
 export class AccountingController {
@@ -33,7 +35,13 @@ export class AccountingController {
 
   // Reporte contable del período: resumen + balance de comprobación + libro
   // de asientos (doble partida, derivado de las comisiones reales).
+  //
+  // Solo plataforma: las comisiones no tienen `tenantId`, así que el filtro
+  // automático por marca no las alcanza, y el admin de una marca blanca (que
+  // es SUPER_ADMIN) leía el libro de TODAS las marcas, con nombres de negocios
+  // y lo que cobra Clubify. El libro y el % de socio son de la plataforma.
   @Roles('SUPER_ADMIN')
+  @UseGuards(SoloPlataformaGuard)
   @Get('report')
   report(
     @CurrentUser() user: AuthUser,

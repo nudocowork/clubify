@@ -321,13 +321,17 @@ export default function AdminCommissionsPage() {
                   >
                     👤 {t('navViewByPerson')}
                   </Link>
-                  <Link
-                    href="/admin/accounting"
-                    className="block px-4 py-2 text-sm hover:bg-bg2 transition"
-                    onClick={() => setMoreOpen(false)}
-                  >
-                    🧮 {t('navAccounting')}
-                  </Link>
+                  {/* El libro es de la plataforma: el servidor lo niega a
+                      las marcas, así que ni se ofrece. */}
+                  {esPlataforma && (
+                    <Link
+                      href="/admin/accounting"
+                      className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      🧮 {t('navAccounting')}
+                    </Link>
+                  )}
                   <Link
                     href="/admin/commissions/report"
                     className="block px-4 py-2 text-sm hover:bg-bg2 transition"

@@ -72,6 +72,27 @@ function withWlToken(rawUrl: string | null | undefined, wlId: string): string {
  *  - Comisión pendiente = sum(amount - amountPaid).
  */
 /** Ventana (días) para reembolsar manualmente un crédito CONSUME. */
+/**
+ * Lo que pagó el cliente en la venta que generó una comisión. Es la base sobre
+ * la que se calculó (`baseAmountUsd`); las comisiones viejas sin base se
+ * reconstruyen con su porcentaje aplicado, y si tampoco lo tienen no se
+ * inventa nada: cuentan 0.
+ */
+export function baseDeLaVenta(c: {
+  amount: unknown;
+  baseAmountUsd?: unknown;
+  appliedPercent?: unknown;
+}): number {
+  const base = Number(c.baseAmountUsd);
+  if (c.baseAmountUsd != null && Number.isFinite(base) && base > 0) return base;
+  const pct = Number(c.appliedPercent);
+  const monto = Number(c.amount);
+  if (Number.isFinite(pct) && pct > 0 && Number.isFinite(monto)) {
+    return Math.round(((monto * 100) / pct) * 100) / 100;
+  }
+  return 0;
+}
+
 const REFUND_WINDOW_DAYS = 5;
 
 @Injectable()
@@ -105,9 +126,9 @@ export class AdminReportsService {
    * - ventasTotales: count de tenants distintos atribuidos al embajador
    *   directamente (via ReferralUse del code del embajador) o
    *   indirectamente via sus VENDOR hijos.
-   * - facturacion: sum(commission.amount) histórico generado por toda
-   *   la línea (embajador + vendors). Es una proxy del revenue cobrado
-   *   a clientes derivado de las commissions.
+   * - facturacion: lo que pagaron los clientes (base de la comisión) en
+   *   cada venta de la línea (embajador + vendors), una vez por venta.
+   *   Comisiones anuladas fuera.
    * - comisionGenerada: sum(commission.amount) cuyo recipientCode es
    *   el embajador.
    * - vendedoresActivos: count childVendors con isActive=true.
@@ -127,6 +148,9 @@ export class AdminReportsService {
           select: { id: true, isActive: true },
         },
         receivedCommissions: {
+          // Las anuladas (devolución, duplicado, reversión) no cuentan: el
+          // informe sumaba comisión «pendiente» que no se debe a nadie.
+          where: { status: { not: 'REJECTED' } },
           select: {
             amount: true,
             amountPaid: true,
@@ -134,6 +158,8 @@ export class AdminReportsService {
             paymentStatus: true,
             hotmartTransactionId: true,
             referralUseId: true,
+            baseAmountUsd: true,
+            appliedPercent: true,
           },
         },
         uses: {
@@ -149,11 +175,14 @@ export class AdminReportsService {
     const vendorIds = ambassadors.flatMap((a) => a.childVendors.map((v) => v.id));
     const vendorCommissions = vendorIds.length
       ? await this.prisma.commission.findMany({
-          where: { recipientCodeId: { in: vendorIds } },
+          where: { recipientCodeId: { in: vendorIds }, status: { not: 'REJECTED' } },
           select: {
             recipientCodeId: true,
             amount: true,
             hotmartTransactionId: true,
+            referralUseId: true,
+            baseAmountUsd: true,
+            appliedPercent: true,
           },
         })
       : [];
@@ -170,6 +199,18 @@ export class AdminReportsService {
       const set = billingByAmbassador.get(ambId) ?? new Set<string>();
       if (vc.hotmartTransactionId) set.add(vc.hotmartTransactionId);
       billingByAmbassador.set(ambId, set);
+    }
+    // Base de cada venta de los vendedores, por embajador: clave de venta →
+    // lo que pagó el cliente. Se junta con las del propio embajador para que
+    // una venta compartida cuente una sola vez.
+    const ventasDeVendedores = new Map<string, Map<string, number>>();
+    for (const vc of vendorCommissions) {
+      const ambId = vendorToAmbassador.get(vc.recipientCodeId ?? '') ?? null;
+      if (!ambId) continue;
+      const m = ventasDeVendedores.get(ambId) ?? new Map<string, number>();
+      const k = vc.hotmartTransactionId ?? `use:${vc.referralUseId}`;
+      if (!m.has(k)) m.set(k, baseDeLaVenta(vc));
+      ventasDeVendedores.set(ambId, m);
     }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -214,9 +255,17 @@ export class AdminReportsService {
       // commPct=20% y commGenerated=$200, la empresa facturó ≈ $1000
       // de los tenants atribuidos. Si commissionPercent es 0 o null,
       // dejamos null (no estimable).
-      const ambPct = Number(a.commissionPercent ?? 0);
-      const facturacionEstimadaUsd =
-        ambPct > 0 ? round2((commGenerated * 100) / ambPct) : null;
+      // Antes: comisión × 100 ÷ porcentaje del código, que daba $0 con
+      // porcentaje 0 y mezclaba porcentajes distintos. Ahora: lo que pagaron
+      // los clientes en cada venta de la línea (embajador + vendedores), una
+      // vez por venta, con la base guardada en cada comisión.
+      const ventas = new Map<string, number>(ventasDeVendedores.get(a.id) ?? []);
+      for (const c of a.receivedCommissions) {
+        const k = c.hotmartTransactionId ?? `use:${c.referralUseId}`;
+        if (!ventas.has(k)) ventas.set(k, baseDeLaVenta(c));
+      }
+      const facturado = [...ventas.values()].reduce((x, y) => x + y, 0);
+      const facturacionEstimadaUsd = ventas.size > 0 ? round2(facturado) : null;
 
       return {
         id: a.id,
@@ -229,7 +278,7 @@ export class AdminReportsService {
         parentInfluencerCode: a.parentCode?.code ?? null,
         tenantsCount: tenantIds.size,
         ventasTotales,
-        // facturacionUsd: aproximación basada en backsolve por %.
+        // facturacionUsd: lo pagado por los clientes en las ventas de la línea.
         facturacionUsd: facturacionEstimadaUsd,
         comisionGeneradaUsd: round2(commGenerated),
         comisionPagadaUsd: round2(commPaid),
@@ -254,6 +303,9 @@ export class AdminReportsService {
         childVendors: {
           include: {
             receivedCommissions: {
+              // Las anuladas (devolución, duplicado, reversión) no cuentan: el
+              // informe sumaba comisión «pendiente» que no se debe a nadie.
+              where: { status: { not: 'REJECTED' } },
               select: {
                 amount: true,
                 amountPaid: true,
@@ -281,6 +333,9 @@ export class AdminReportsService {
           },
         },
         receivedCommissions: {
+          // Las anuladas (devolución, duplicado, reversión) no cuentan: el
+          // informe sumaba comisión «pendiente» que no se debe a nadie.
+          where: { status: { not: 'REJECTED' } },
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
@@ -429,6 +484,9 @@ export class AdminReportsService {
           select: { id: true, ownerName: true, code: true },
         },
         receivedCommissions: {
+          // Las anuladas (devolución, duplicado, reversión) no cuentan: el
+          // informe sumaba comisión «pendiente» que no se debe a nadie.
+          where: { status: { not: 'REJECTED' } },
           select: {
             amount: true,
             amountPaid: true,
@@ -495,6 +553,9 @@ export class AdminReportsService {
           select: { id: true, ownerName: true, code: true },
         },
         receivedCommissions: {
+          // Las anuladas (devolución, duplicado, reversión) no cuentan: el
+          // informe sumaba comisión «pendiente» que no se debe a nadie.
+          where: { status: { not: 'REJECTED' } },
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
@@ -651,11 +712,15 @@ export class AdminReportsService {
     const commissions = await this.prisma.commission.findMany({
       where: {
         recipientCodeId: { in: codeIds },
+        // Sin anuladas, igual que Comisiones: el top 10 no premia lo revertido.
+        status: { not: 'REJECTED' },
         ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
       },
       select: {
         recipientCodeId: true,
         amount: true,
+        baseAmountUsd: true,
+        appliedPercent: true,
         hotmartTransactionId: true,
         referralUseId: true,
       },
@@ -665,16 +730,21 @@ export class AdminReportsService {
     // (1 tx = 1 venta). Fallback referralUseId si no hay txId.
     const acc = new Map<
       string,
-      { commissionSum: number; salesSet: Set<string> }
+      { commissionSum: number; revenueSum: number; salesSet: Set<string> }
     >();
     for (const c of commissions) {
       if (!c.recipientCodeId) continue;
       const row = acc.get(c.recipientCodeId) ?? {
         commissionSum: 0,
+        revenueSum: 0,
         salesSet: new Set<string>(),
       };
       row.commissionSum += Number(c.amount);
       const key = c.hotmartTransactionId ?? `use:${c.referralUseId}`;
+      // Facturación = lo que pagó el cliente en cada venta (la base de la
+      // comisión), una vez por venta. Antes era la misma suma de comisiones y
+      // las pestañas «Por facturación» y «Por comisiones» daban igual.
+      if (!row.salesSet.has(key)) row.revenueSum += baseDeLaVenta(c);
       row.salesSet.add(key);
       acc.set(c.recipientCodeId, row);
     }
@@ -684,6 +754,7 @@ export class AdminReportsService {
       .map((c) => {
         const a = acc.get(c.id) ?? {
           commissionSum: 0,
+          revenueSum: 0,
           salesSet: new Set<string>(),
         };
         return {
@@ -693,7 +764,7 @@ export class AdminReportsService {
           ownerEmail: c.ownerEmail,
           commissionPercent: Number(c.commissionPercent ?? 0),
           sales: a.salesSet.size,
-          revenueUsd: round2(a.commissionSum),
+          revenueUsd: round2(a.revenueSum),
           commissionsUsd: round2(a.commissionSum),
         };
       })
@@ -774,7 +845,7 @@ export class AdminReportsService {
       // el monto facturado. Para el monto facturado por sales del mes
       // necesitaríamos otro query agrupado por hotmartTransactionId.
       this.prisma.commission.aggregate({
-        where: { createdAt: { gte: startOfMonth } },
+        where: { createdAt: { gte: startOfMonth }, status: { not: 'REJECTED' } },
         _sum: { amount: true, amountPaid: true },
       }),
       // Pending = (PENDING + APPROVED) con outstanding (amount − amountPaid).

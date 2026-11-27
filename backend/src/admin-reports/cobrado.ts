@@ -104,6 +104,13 @@ export function calcularCobrado(entrada: {
     ANUAL: { count: 0, amount: 0, groups: 0 },
   };
 
+  const negociosPorPlan: Record<PeriodKey, Set<string>> = {
+    MENSUAL: new Set(),
+    TRIMESTRAL: new Set(),
+    SEMESTRAL: new Set(),
+    ANUAL: new Set(),
+  };
+
   const enAlcance = new Set(negociosEnAlcance.map((t) => t.id));
   const periodicidadDe = new Map(
     negociosEnAlcance.map((t) => [t.id, t.planPeriodicity]),
@@ -143,7 +150,14 @@ export function calcularCobrado(entrada: {
     const key = normalizePeriod(
       r.planPeriodicity ?? periodicidadDe.get(r.tenantId) ?? null,
     );
-    porPlan[key].count += 1;
+    // `count` son NEGOCIOS, no pagos: el panel dice «N negocios». Sumar 1 por
+    // ingreso inflaba la cifra en «Este año» o «Este trimestre», donde un
+    // mensual paga varias veces. Un negocio que pagó dos veces cuenta una.
+    const vistos = negociosPorPlan[key];
+    if (!vistos.has(r.tenantId)) {
+      vistos.add(r.tenantId);
+      porPlan[key].count += 1;
+    }
     porPlan[key].amount += monto;
   }
 

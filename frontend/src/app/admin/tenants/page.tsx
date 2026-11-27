@@ -212,11 +212,26 @@ export default function TenantsPage() {
     load();
   }, []);
 
-  async function setStatus(id: string, status: string) {
+  async function setStatus(id: string, name: string, status: string) {
+    // Desde la fila un solo clic suspendía al instante, sin confirmación ni
+    // motivo, mientras la ficha sí los pedía: un clic en la fila de al lado
+    // dejaba a un cliente sin servicio y nadie sabía por qué. Mismo criterio
+    // que la ficha. Activar también se confirma: fija la fecha de cobro.
+    if (status === 'SUSPENDED') {
+      if (!confirm(t('confirmSuspendRow', { name }))) return;
+    } else if (!confirm(t('confirmActivateRow', { name }))) {
+      return;
+    }
+    let motivo: string | undefined;
+    if (status === 'SUSPENDED') {
+      const escrito = prompt(t('suspendReasonPromptRow'));
+      if (escrito === null) return;
+      motivo = escrito.trim() || undefined;
+    }
     try {
       await api(`/tenants/${id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, motivo }),
       });
       toast(
         status === 'ACTIVE' ? t('toastReactivated') : t('toastSuspended'),
@@ -578,7 +593,9 @@ export default function TenantsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3.5">
-                  {tn.daysLeftInTrial !== null ? (
+                  {/* Solo negocios en prueba: un activo con fecha de prueba
+                      vieja salía «0d» y parecía que seguía sin pagar. */}
+                  {tn.status === 'TRIAL' && tn.daysLeftInTrial !== null ? (
                     <span
                       className={
                         tn.daysLeftInTrial <= 2
@@ -641,7 +658,7 @@ export default function TenantsPage() {
                     onView={() => router.push(`/admin/tenants/${tn.id}`)}
                     onDownload={() => downloadTenant(tn)}
                     onToggleStatus={() =>
-                      setStatus(tn.id, tn.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
+                      setStatus(tn.id, tn.brandName, tn.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
                     }
                     onManageTrial={() => setTrialTarget(tn)}
                     onDuplicate={() => setDuplicateTarget(tn)}

@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-11-27 (205) — Arreglos de «Lo que hoy no cuadra en el Admin» (PDF de 18 puntos)
+
+**Sin desplegar. No hay migración.** Va backend + frontend, en ese orden; ninguno depende del otro para no romper.
+
+Javier y el equipo leyeron el PDF y pidieron hacer lo necesario. Antes de cambiar nada se re-verificó cada punto. **Tres eran falsos:**
+
+- **1 (auditoría) y 3 (Pruebas):** NO hay fuga entre marcas. El middleware de Prisma (`prisma-tenant-middleware.ts`) acota a `tenantId IN (negocios de la marca)` todo modelo con `tenantId` (AuditLog) y los listados de `Tenant` (Pruebas) cuando la sesión es de una marca blanca. El PDF no lo tuvo en cuenta.
+- **12 (conversión de Pruebas):** por canal, las suspendidas ya caen en «vencidos», así que total y canal usan la misma fórmula. Solo la ayuda estaba incompleta.
+
+Lo que se cambió:
+
+1. **Libro de comisiones (2, real):** `GET /admin/accounting/report` lleva `SoloPlataformaGuard`. `Commission` no tiene `tenantId` y el middleware no lo cubre. La integración con TeamClubify (x-api-key) sigue igual. En el panel, `/admin/accounting` está en las rutas bloqueadas a marcas y el enlace de «⋯ Más» solo sale en la plataforma.
+2. **Suspender desde la lista de Negocios (4):** pide confirmación y motivo, como la ficha. Activar también pide confirmación.
+3. **Aviso naranja del panel (5):** dice «N pruebas gratis vencen en los próximos 3 días» y lleva a Pruebas.
+4. **Cajitas por plan (6):** `cobrado.ts` cuenta negocios distintos; el monto suma todos los pagos. Prueba nueva en `cobrado.spec.ts`.
+5. **Textos de 30 días (7):** dicen 15 días desde el cobro, que es `DIAS_DE_HOLD`.
+6. **Referidos › Configuración (8):** «Días de hold» y «Mínimo para pagar» pasan a solo lectura con las reglas reales y ya no se envían al guardar. El backend sigue aceptándolos; nadie los leía.
+7. **Filtro «Parcial» (9):** se llama «Rechazadas».
+8. **Informes y Rankings (10):** las comisiones `REJECTED` quedan fuera de todas las cargas de `admin-reports.service.ts` y de «generado este mes» del panel de comisiones.
+9. **«Facturación» (11):** es lo que pagó el cliente en cada venta (`baseAmountUsd`, o la comisión entre su `appliedPercent`), una vez por venta. En Rankings ya no repite la comisión. En el informe de embajadores suma la línea (embajador + vendedores) en vez de comisión × 100 ÷ %. Helper `baseDeLaVenta` con 4 pruebas.
+10. **Pruebas, ayuda del % (12):** «convertidos / (convertidos + vencidos + suspendidos)».
+11. **Selector de periodo (13):** ya estaba dentro del bloque azul; solo se añadió una pista de qué controla.
+12. **Duplicados (14):** ya no dice «Read-only»; explica que se pueden anular las no pagadas.
+13. **Mapa (15):** «Sin sede» pasa a «Fuera del filtro».
+14. **Equipos de ventas (16):** fuera del equipo, «Sin vendedor» y «Leads sin vendedor»; dentro, «Citas sin closer». La pestaña «Banco» sigue.
+15. **Estados en inglés y «0d» (17):**
+    - la ficha muestra Activo / Trial / Suspendido y solo enseña días de prueba si está en TRIAL;
+    - la columna «Trial» de la lista solo se rellena en TRIAL;
+    - Grupos empresariales también traduce el estado.
+16. **Navegación (18):**
+    - Ctrl K en el admin busca negocios por nombre, correo o slug (`/tenants`, ya acotado por marca, pedido una vez por sesión);
+    - el menú del admin de Clubify vuelve a tener «Modo mantenimiento» y «Registro de auditoría», solo para la plataforma;
+    - `/admin/maintenance` está bloqueado a las marcas.
+
+Verificado:
+
+- `tsc` del backend y del frontend en verde;
+- vitest de `src/admin-reports` (35);
+- eslint sin errores; los avisos que quedan ya estaban.
+
+**No se probó en navegador.** El PDF de Descargas sigue diciendo que 1, 3 y 12 son problemas: es falso.
+
 ## 2026-11-27 (204) — /propuesta actualizada
 
 - `frontend/public/propuesta.html` reemplazada por la versión nueva del bloque de HighLevel (`propuesta-cliente (1).html`), con el mismo envoltorio (doctype, título, `noindex`). Sale con el próximo despliegue del frontend.

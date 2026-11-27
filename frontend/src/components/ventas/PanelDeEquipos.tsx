@@ -144,7 +144,9 @@ export function TarjetaDeEquipo({
 
       <div className="flex border-t border-line2 divide-x divide-line2">
         <Cifra valor={numero(m.citasHoy)} etiqueta="Citas hoy" />
-        <Cifra valor={numero(m.banco)} etiqueta="Banco" alerta={m.banco > 0} />
+        {/* «Banco» decía dos cosas: aquí son LEADS sin vendedor y dentro del
+            equipo son CITAS sin closer. Cada cifra con su nombre. */}
+        <Cifra valor={numero(m.banco)} etiqueta="Sin vendedor" alerta={m.banco > 0} />
         <Cifra valor={numero(m.chats)} etiqueta="Chats" />
         <Cifra valor={numero(m.leads)} etiqueta="Leads" />
         <Cifra valor={numero(m.ventas)} etiqueta="Ventas" />
@@ -192,7 +194,7 @@ type Columna = {
 
 const COLUMNAS: Columna[] = [
   { clave: 'citasHoy', etiqueta: 'Citas hoy' },
-  { clave: 'banco', etiqueta: 'Banco', alerta: true },
+  { clave: 'banco', etiqueta: 'Leads sin vendedor', alerta: true },
   { clave: 'chats', etiqueta: 'Chats' },
   { clave: 'leads', etiqueta: 'Leads' },
   { clave: 'ventas', etiqueta: 'Ventas' },

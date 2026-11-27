@@ -203,9 +203,9 @@ export default function ResumenDeEquipoPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
         <Kpi etiqueta="Citas de hoy" valor={numero(k.citasHoy)} pie="en la agenda del equipo" />
         <Kpi
-          etiqueta="En el banco"
+          etiqueta="Citas sin closer"
           valor={numero(k.banco)}
-          pie="citas sin closer asignado"
+          pie="en el banco del equipo"
           tono={k.banco > 0 ? 'alerta' : undefined}
         />
         <Kpi

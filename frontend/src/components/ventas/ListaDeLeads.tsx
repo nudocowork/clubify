@@ -46,7 +46,7 @@ type Respuesta = {
 
 const TEXTOS: Record<FiltroDeLista, { titulo: string; pie: string; vacio: string }> = {
   banco: {
-    titulo: 'Banco',
+    titulo: 'Leads sin vendedor',
     pie: 'Leads que todavía no tiene nadie. Repártelos desde Leads.',
     vacio: 'No hay nada sin repartir: todos los leads tienen vendedor.',
   },

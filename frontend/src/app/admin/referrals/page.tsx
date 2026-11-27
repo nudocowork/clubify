@@ -683,7 +683,7 @@ function PayoutsTab() {
       </div>
 
       <div className="text-xs text-mute mb-2">
-        🛈 {t('holdNote', { days: data?.holdDays ?? 30 })}
+        🛈 {t('holdNote', { days: data?.holdDays ?? 15 })}
       </div>
 
       <div className="card overflow-hidden p-0">
@@ -4066,7 +4066,7 @@ function CommissionsTab() {
   // FASE 9 sprint: chips de filtro adicionales por status.
   // Periodicidad no viene en el endpoint actual (PayoutItem), se omite.
   const [statusChip, setStatusChip] = useState<
-    'all' | 'pending' | 'paid' | 'partial'
+    'all' | 'pending' | 'paid' | 'rejected'
   >('all');
 
   useEffect(() => {
@@ -4080,9 +4080,10 @@ function CommissionsTab() {
     if (statusChip === 'paid') return items.filter((c) => c.status === 'PAID');
     if (statusChip === 'pending')
       return items.filter((c) => c.status === 'PENDING' || c.status === 'APPROVED');
-    // "partial" no existe como status nativo del endpoint actual; lo dejamos
-    // mapeado a comisiones rechazadas para no romper el chip cuando no hay data.
-    if (statusChip === 'partial')
+    // Se llamaba «Parcial» y mostraba las rechazadas: quien buscaba pagos a
+    // medias veía comisiones anuladas y podía creer que se debían. Los pagos
+    // parciales se ven en Comisiones; aquí el chip dice lo que filtra.
+    if (statusChip === 'rejected')
       return items.filter((c) => c.status === 'REJECTED');
     return items;
   }, [items, statusChip]);
@@ -4134,7 +4135,7 @@ function CommissionsTab() {
               { id: 'all', label: t('chipAll') },
               { id: 'pending', label: t('chipPending') },
               { id: 'paid', label: t('chipPaid') },
-              { id: 'partial', label: t('chipPartial') },
+              { id: 'rejected', label: t('chipRejected') },
             ] as const
           ).map((chip) => {
             const active = statusChip === chip.id;
@@ -4277,8 +4278,9 @@ function ConfigTab() {
           indirectPercent: cfg.indirectPercent,
           defaultInfluencerPercent: cfg.defaultInfluencerPercent,
           defaultAmbassadorPercent: cfg.defaultAmbassadorPercent,
-          holdDays: cfg.holdDays,
-          minPayoutUsd: cfg.minPayoutUsd,
+          // holdDays y minPayoutUsd ya no se envían: se guardaban y ninguna
+          // parte del sistema los leía (la espera es fija, 15 días). Editarlos
+          // hacía creer que se había frenado un pago.
           notifyPaymentFailed: cfg.notifyPaymentFailed,
           notifyChurn: cfg.notifyChurn,
           allowInfluencerCreatesAmbassadors: cfg.allowInfluencerCreatesAmbassadors,
@@ -4409,26 +4411,15 @@ function ConfigTab() {
           <h3 className="font-semibold m-0 mb-1">{t('payments')}</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">{t('holdDays')}</label>
-              <input
-                type="number"
-                min={0}
-                className="input"
-                value={cfg.holdDays}
-                onChange={(e) => setCfg({ ...cfg, holdDays: Number(e.target.value) })}
-              />
+              <div className="label">{t('holdDays')}</div>
+              <div className="input bg-bg2 text-mute">{t('holdDaysValue')}</div>
             </div>
             <div>
-              <label className="label">{t('minPayoutUsd')}</label>
-              <input
-                type="number"
-                min={0}
-                className="input"
-                value={cfg.minPayoutUsd}
-                onChange={(e) => setCfg({ ...cfg, minPayoutUsd: Number(e.target.value) })}
-              />
+              <div className="label">{t('minPayoutUsd')}</div>
+              <div className="input bg-bg2 text-mute">{t('minPayoutValue')}</div>
             </div>
           </div>
+          <div className="text-xs text-mute mt-2">{t('paymentRulesFixed')}</div>
         </div>
       </div>
 

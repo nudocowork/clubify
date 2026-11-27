@@ -623,6 +623,11 @@ export default function AppShell({
       // escribiendo la URL. Ventas es el equipo comercial de Clubify y la
       // auditoría de duplicados su ledger interno.
       '/admin/commissions/audit',
+      // El libro de comisiones es de la plataforma: el servidor ya lo niega a
+      // las marcas (SoloPlataformaGuard); esto evita la pantalla de error.
+      '/admin/accounting',
+      // Apagar la plataforma entera: el servidor ya lo niega a las marcas.
+      '/admin/maintenance',
       '/admin/industries',
       '/admin/sales-leaderboard',
       '/admin/ventas',
@@ -939,8 +944,12 @@ export default function AppShell({
                 { href: '/admin/branding', label: tNav('branding'), icon: 'spark', clubifyOnly: true },
                 { href: '/admin/integrations', label: tNav('smsIntegrations'), icon: 'spark', clubifyOnly: true },
                 // #4: Categorías + IA Knowledge ocultos (no relevantes para
-                // el usuario final). #5: Mantenimiento + Audit movidos a
-                // Master Admin (/superadmin) exclusivamente.
+                // el usuario final). Mantenimiento y Auditoría se dijeron
+                // «movidos a Master Admin», pero allá nunca hubo enlace: solo se
+                // llegaba escribiendo la dirección, y en una emergencia nadie
+                // encontraba el interruptor. Vuelven aquí, solo para Clubify.
+                { href: '/admin/maintenance', label: tNav('maintenanceMode'), icon: 'gear', clubifyOnly: true, hideForMarketing: true },
+                { href: '/admin/audit', label: tNav('auditLogNav'), icon: 'history', clubifyOnly: true, hideForMarketing: true },
               ],
             },
             {

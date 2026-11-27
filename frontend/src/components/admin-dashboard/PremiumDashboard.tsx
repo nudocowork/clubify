@@ -498,9 +498,13 @@ export function PremiumDashboard() {
             >
               {showAmounts ? '🙈' : '👁'}
             </button>
+            {/* Solo controla este bloque: las tarjetas de cobros de abajo
+                tienen su ventana fija y lo dicen en su propia letra. */}
             <select
               value={range}
               onChange={(e) => setRange(e.target.value as RangeKind)}
+              title="Periodo de «Cobrado» y de las cajitas por plan. Las tarjetas de abajo tienen su propia ventana."
+              aria-label="Periodo de lo cobrado"
               className="bg-white/10 border border-white/30 text-white rounded-pill px-4 py-2 text-sm font-semibold focus:outline-none focus:bg-white/20 transition"
             >
               {RANGE_OPTIONS.map((r) => (
@@ -525,11 +529,11 @@ export function PremiumDashboard() {
               <div className="font-bold text-base mt-0.5">
                 {money(p.billingUsd)}
               </div>
-              {/* Bug 4/5: "negocios" = tenants con su ÚLTIMO cobro en el rango
-                  (no acumula renovaciones); los grupos se cuentan aparte. */}
+              {/* «negocios» = negocios DISTINTOS que pagaron en el rango
+                  (cobrado.ts); los grupos se cuentan aparte. */}
               <div
                 className="text-[10px] text-sky-200"
-                title="Negocios con su último cobro en el rango. No incluye renovaciones previas del mismo negocio."
+                title="Negocios distintos que pagaron en el rango. Si uno pagó varias veces, cuenta una vez; el monto suma todos sus pagos."
               >
                 {p.businessCount} negocios
                 {p.groupCount > 0
